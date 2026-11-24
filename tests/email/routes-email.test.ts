@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EMAIL_BODY_MAX_BYTES, EMAIL_FOLLOW_UP_MAX_MS, EMAIL_LEGACY_SIGNATURE_ID, EMAIL_SIGNATURES_MAX, EMAIL_SIGNATURE_NAME_MAX_CHARS, EMAIL_SIGNATURE_TEXT_MAX_CHARS, EMAIL_SNOOZE_MAX_MS, EMAIL_SUBJECT_MAX_CHARS, EMAIL_VACATION_BODY_MAX_CHARS, EMAIL_VACATION_SUBJECT_MAX_CHARS } from '../../src/shared/email/model'
 import type { EmailAccount, EmailFolder, EmailListResponse, EmailMailboxStats, EmailMessage, EmailTag } from '../../src/shared/email/model'
+import type { EmailFilter } from '../../src/shared/email/rules'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
 import { CredentialVault } from '../../src/worker/durable/credential-vault'
 import { claimAutoDraftJobs, createEmailAccount, finishAutoDraftJob, queueAutoDraftJob } from '../../src/worker/email/account-store'
@@ -13,6 +14,7 @@ import type { AppBindings, Env } from '../../src/worker/env'
 import { errorResponse } from '../../src/worker/lib/errors'
 import { newId } from '../../src/worker/lib/id'
 import { emailRoutes } from '../../src/worker/routes/email'
+import { emailRulesRoutes } from '../../src/worker/routes/email-rules'
 import { emailSendRoutes } from '../../src/worker/routes/email-send'
 import { sendMcpEmail, sendMcpEmailReply } from '../../src/worker/mcp/email'
 import { makeD1 } from '../doubles/d1-sqlite'
@@ -51,6 +53,7 @@ function app(): Hono<AppBindings> {
   })
   instance.route('/api/email', emailSendRoutes)
   instance.route('/api/email', emailRoutes)
+  instance.route('/api/email', emailRulesRoutes)
   return instance
 }
 
@@ -1862,6 +1865,33 @@ describe('email file serving', () => {
 
     const invalid = await call('GET', '/files/not-an-id')
     expect(invalid.status).toBe(404)
+  })
+})
+
+describe('email filter routes', () => {
+  it('returns rule match options and negation after create and list', async () => {
+    const created = await call('POST', `/accounts/${accountId}/filters`, {
+      name: 'Client exceptions',
+      enabled: true,
+      matchMode: 'any',
+      conditions: [{ field: 'fromContains', value: '@client.example', negate: true }],
+      actions: [{ type: 'markRead' }],
+      stopProcessing: true,
+    })
+    expect(created.status).toBe(201)
+    expect(await json<EmailFilter>(created)).toMatchObject({
+      matchMode: 'any',
+      conditions: [{ field: 'fromContains', value: '@client.example', negate: true }],
+      stopProcessing: true,
+    })
+
+    const listed = await json<EmailFilter[]>(await call('GET', `/accounts/${accountId}/filters`))
+    expect(listed[0]).toMatchObject({
+      name: 'Client exceptions',
+      matchMode: 'any',
+      conditions: [{ field: 'fromContains', value: '@client.example', negate: true }],
+      stopProcessing: true,
+    })
   })
 })
 

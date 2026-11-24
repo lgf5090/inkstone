@@ -76,8 +76,10 @@ function toFilter(record: EmailFilterRecord): EmailFilter {
     name: record.name,
     enabled: record.enabled,
     sortOrder: record.sortOrder,
+    matchMode: record.matchMode,
     conditions: record.conditions,
     actions: record.actions,
+    stopProcessing: record.stopProcessing,
     createdAt: new Date(record.createdAt).toISOString(),
   }
 }

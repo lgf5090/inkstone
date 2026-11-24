@@ -24,6 +24,7 @@ import {
   parseEmailFilterConditions,
   type EmailFilterAction,
   type EmailFilterCondition,
+  type EmailFilterMatchMode,
 } from './rules'
 import { EMAIL_SAVED_SEARCH_MAX, parseEmailSavedSearchInput } from './searches'
 import { EMAIL_TEMPLATE_MAX, parseEmailTemplateInput } from './templates'
@@ -146,8 +147,10 @@ export interface EmailBackupFilter {
   name: string
   enabled: boolean
   sortOrder: number
+  matchMode?: EmailFilterMatchMode
   conditions: EmailFilterCondition[]
   actions: EmailFilterAction[]
+  stopProcessing?: boolean
   createdAt: number
 }
 
@@ -650,14 +653,18 @@ function parseFilters(value: unknown): EmailBackupFilter[] | null {
     const conditions = parseEmailFilterConditions(raw.conditions)
     const actions = parseEmailFilterActions(raw.actions)
     if (!conditions || !actions) return null
+    if (raw.matchMode !== undefined && raw.matchMode !== 'all' && raw.matchMode !== 'any') return null
+    if (raw.stopProcessing !== undefined && typeof raw.stopProcessing !== 'boolean') return null
     ids.add(raw.id)
     filters.push({
       id: raw.id,
       name,
       enabled: raw.enabled,
       sortOrder: raw.sortOrder,
+      matchMode: raw.matchMode ?? 'all',
       conditions,
       actions,
+      stopProcessing: raw.stopProcessing ?? false,
       createdAt: raw.createdAt,
     })
   }

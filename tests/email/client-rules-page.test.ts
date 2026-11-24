@@ -32,8 +32,10 @@ const filter: EmailFilter = {
   name: 'Invoices',
   enabled: true,
   sortOrder: 0,
-  conditions: [{ field: 'subjectContains', value: 'invoice' }],
+  matchMode: 'all',
+  conditions: [{ field: 'subjectContains', value: 'invoice', negate: false }],
   actions: [{ type: 'moveTo', folder: 'archive' }, { type: 'markRead' }],
+  stopProcessing: false,
   createdAt: '2026-10-01T00:00:00.000Z',
 }
 
@@ -69,11 +71,39 @@ function inputFor(label: string): HTMLInputElement {
   return input
 }
 
+function selectFor(label: string): HTMLSelectElement {
+  const target = [...document.querySelectorAll('label')].find((node) => node.textContent?.trim() === label)
+  if (!target?.htmlFor) throw new Error(`no field labelled ${label}`)
+  const select = document.getElementById(target.htmlFor)
+  if (!(select instanceof HTMLSelectElement)) throw new Error(`field ${label} is not a select`)
+  return select
+}
+
+function switchByLabel(label: string): HTMLButtonElement {
+  const control = document.querySelector<HTMLButtonElement>(`button[role="switch"][aria-label="${label}"]`)
+  if (!control) throw new Error(`no switch labelled ${label}`)
+  return control
+}
+
+function negateFor(label: string): HTMLButtonElement {
+  const control = inputFor(label).parentElement?.parentElement?.parentElement?.querySelector<HTMLButtonElement>('[role="switch"]')
+  if (!control) throw new Error(`no negate switch for ${label}`)
+  return control
+}
+
 function change(input: HTMLInputElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
   act(() => {
     setter.call(input, value)
     input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+function changeSelect(select: HTMLSelectElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!
+  act(() => {
+    setter.call(select, value)
+    select.dispatchEvent(new Event('change', { bubbles: true }))
   })
 }
 
@@ -94,8 +124,10 @@ beforeEach(() => {
     name: input.name,
     enabled: input.enabled,
     sortOrder: 1,
+    matchMode: input.matchMode,
     conditions: input.conditions,
     actions: input.actions,
+    stopProcessing: input.stopProcessing,
     createdAt: '2026-10-02T00:00:00.000Z',
   }))
   vi.spyOn(api.email, 'deleteFilter').mockResolvedValue(undefined)
@@ -165,12 +197,65 @@ describe('the rules page', () => {
 
     expect(api.email.updateFilter).toHaveBeenCalledWith(account.id, filter.id, expect.objectContaining({
       name: 'Invoices 2',
-      conditions: [{ field: 'subjectContains', value: 'invoice' }],
+      matchMode: 'all',
+      conditions: [{ field: 'subjectContains', value: 'invoice', negate: false }],
       actions: [{ type: 'moveTo', folder: 'archive' }, { type: 'markRead' }],
+      stopProcessing: false,
     }))
     await settle()
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(document.body.textContent).toContain('Invoices 2')
+  })
+
+  it('round-trips OR, NOT and stop controls with keyboard-focusable semantics', async () => {
+    vi.mocked(api.email.listFilters).mockResolvedValue([{
+      ...filter,
+      matchMode: 'any',
+      conditions: [{ field: 'subjectContains', value: 'invoice', negate: true }],
+      stopProcessing: true,
+    }])
+    view = harness()
+    await settle()
+
+    act(() => { buttonByLabel(t('email.rules.edit_named', { name: 'Invoices' })).click() })
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+    const matchMode = selectFor(t('email.rules.match_mode'))
+    const stop = switchByLabel(t('email.rules.stop_processing'))
+    const negate = negateFor(t('email.rules.subject'))
+    expect(document.body.textContent).toContain(t('email.rules.summary.not', {
+      value: t('email.rules.summary.subject', { value: 'invoice' }),
+    }))
+    expect(document.body.textContent).toContain(t('email.rules.summary.any'))
+    expect(document.body.textContent).toContain(t('email.rules.summary.stop'))
+    expect(matchMode.value).toBe('any')
+    expect(negate.getAttribute('aria-checked')).toBe('true')
+    expect(stop.getAttribute('aria-checked')).toBe('true')
+
+    act(() => {
+      matchMode.focus()
+      matchMode.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }))
+    })
+    expect(matchMode.value).toBe('all')
+    act(() => {
+      matchMode.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+    })
+    expect(matchMode.value).toBe('any')
+    act(() => { negate.focus() })
+    expect(document.activeElement).toBe(negate)
+    expect(negate.tabIndex).toBe(0)
+    act(() => { stop.focus() })
+    expect(document.activeElement).toBe(stop)
+    expect(stop.tabIndex).toBe(0)
+
+    await act(async () => {
+      buttonByText(t('common.save'), dialog).click()
+      await Promise.resolve()
+    })
+    expect(api.email.updateFilter).toHaveBeenCalledWith(account.id, filter.id, expect.objectContaining({
+      matchMode: 'any',
+      conditions: [{ field: 'subjectContains', value: 'invoice', negate: true }],
+      stopProcessing: true,
+    }))
   })
 
   it('creates a filter from the dialog with conditions and actions', async () => {
@@ -181,6 +266,9 @@ describe('the rules page', () => {
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
     change(inputFor(t('email.rules.name')), 'Billing')
     change(inputFor(t('email.rules.from')), 'billing@example.com')
+    changeSelect(selectFor(t('email.rules.match_mode')), 'any')
+    act(() => { negateFor(t('email.rules.from')).click() })
+    act(() => { switchByLabel(t('email.rules.stop_processing')).click() })
     act(() => { buttonByText(t('email.rules.trash'), dialog).click() })
     await act(async () => {
       buttonByText(t('common.save'), dialog).click()
@@ -190,8 +278,10 @@ describe('the rules page', () => {
     expect(api.email.createFilter).toHaveBeenCalledWith(account.id, {
       name: 'Billing',
       enabled: true,
-      conditions: [{ field: 'fromContains', value: 'billing@example.com' }],
+      matchMode: 'any',
+      conditions: [{ field: 'fromContains', value: 'billing@example.com', negate: true }],
       actions: [{ type: 'trash' }],
+      stopProcessing: true,
     })
     await settle()
     expect(document.body.textContent).toContain('Billing')

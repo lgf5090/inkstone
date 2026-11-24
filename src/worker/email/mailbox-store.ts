@@ -32,6 +32,7 @@ import {
   type EmailFilterAction,
   type EmailFilterCondition,
   type EmailFilterInput,
+  type EmailFilterMatchMode,
   type EmailFilterPatch,
 } from '@shared/email/rules'
 import { isValidEmailTagPath, normalizeEmailTagPath } from '@shared/email/tags'
@@ -156,8 +157,10 @@ export interface EmailFilterRecord {
   name: string
   enabled: boolean
   sortOrder: number
+  matchMode: EmailFilterMatchMode
   conditions: EmailFilterCondition[]
   actions: EmailFilterAction[]
+  stopProcessing: boolean
   createdAt: number
 }
 
@@ -225,7 +228,10 @@ export interface MessageTagRestoreData {
   createdAt: number
 }
 
-export type FilterRestoreData = EmailFilterRecord
+export type FilterRestoreData = Omit<EmailFilterRecord, 'matchMode' | 'stopProcessing'> & {
+  matchMode?: EmailFilterMatchMode
+  stopProcessing?: boolean
+}
 
 export interface BlockedSenderRestoreData {
   address: string
@@ -382,24 +388,66 @@ function pushFlagFilters(
   }
 }
 
-function emailFilterMatches(conditions: readonly EmailFilterCondition[], input: InboundRuleInput): boolean {
+interface StoredEmailFilterConditions {
+  conditions: EmailFilterCondition[]
+  matchMode: EmailFilterMatchMode
+  stopProcessing: boolean
+}
+
+function parseStoredEmailFilterConditions(value: unknown): StoredEmailFilterConditions | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = Array.isArray(value) ? { conditions: value } : value as Record<string, unknown>
+  const matchMode = raw.matchMode
+  const stopProcessing = raw.stopProcessing
+  if (matchMode !== undefined && matchMode !== 'all' && matchMode !== 'any') return null
+  if (stopProcessing !== undefined && typeof stopProcessing !== 'boolean') return null
+  const conditions = parseEmailFilterConditions(raw.conditions)
+  if (!conditions) return null
+  return {
+    conditions,
+    matchMode: matchMode ?? 'all',
+    stopProcessing: stopProcessing ?? false,
+  }
+}
+
+function serializeEmailFilterConditions(
+  conditions: readonly EmailFilterCondition[],
+  matchMode: EmailFilterMatchMode = 'all',
+  stopProcessing = false,
+): string {
+  return JSON.stringify({ conditions, matchMode, stopProcessing })
+}
+
+function emailFilterMatches(
+  conditions: readonly EmailFilterCondition[],
+  matchMode: EmailFilterMatchMode,
+  input: InboundRuleInput,
+): boolean {
   const sender = input.sender.toLowerCase()
   const recipients = `${input.recipient} ${input.cc ?? ''} ${input.bcc ?? ''}`.toLowerCase()
   const subject = input.subject.toLowerCase()
-  return conditions.every((condition) => {
+  const matches = (condition: EmailFilterCondition): boolean => {
+    let matched: boolean
     switch (condition.field) {
       case 'fromContains':
-        return sender.includes(condition.value.toLowerCase())
+        matched = sender.includes(condition.value.toLowerCase())
+        break
       case 'toContains':
-        return recipients.includes(condition.value.toLowerCase())
+        matched = recipients.includes(condition.value.toLowerCase())
+        break
       case 'subjectContains':
-        return subject.includes(condition.value.toLowerCase())
+        matched = subject.includes(condition.value.toLowerCase())
+        break
       case 'hasAttachment':
-        return input.hasAttachment === condition.value
+        matched = input.hasAttachment === condition.value
+        break
       case 'minBytes':
-        return input.size >= condition.value
+        matched = input.size >= condition.value
+        break
     }
-  })
+    return condition.negate ? !matched : matched
+  }
+  return matchMode === 'any' ? conditions.some(matches) : conditions.every(matches)
 }
 
 function resolveFilterFolder(folders: readonly FolderRow[], reference: string): FolderRow | null {
@@ -709,8 +757,10 @@ export class MailboxStore {
     const parsed = parseEmailFilterInput({
       name: filter.name,
       enabled: filter.enabled,
+      matchMode: filter.matchMode,
       conditions: filter.conditions,
       actions: filter.actions,
+      stopProcessing: filter.stopProcessing,
     })
     if (!parsed || !Number.isSafeInteger(filter.sortOrder) || filter.sortOrder < 0 || !Number.isSafeInteger(filter.createdAt)) {
       return false
@@ -722,7 +772,7 @@ export class MailboxStore {
       parsed.name,
       parsed.enabled ? 1 : 0,
       filter.sortOrder,
-      JSON.stringify(parsed.conditions),
+      serializeEmailFilterConditions(parsed.conditions, parsed.matchMode, parsed.stopProcessing),
       JSON.stringify(parsed.actions),
       filter.createdAt,
     )
@@ -1490,9 +1540,9 @@ export class MailboxStore {
       console.warn('[inkstone] email filter JSON could not be read', row.id, error)
       return null
     }
-    const conditions = parseEmailFilterConditions(conditionsValue)
+    const storedConditions = parseStoredEmailFilterConditions(conditionsValue)
     const actions = parseEmailFilterActions(actionsValue)
-    if (!conditions || !actions) {
+    if (!storedConditions || !actions) {
       console.warn('[inkstone] email filter contents are not valid', row.id)
       return null
     }
@@ -1501,8 +1551,10 @@ export class MailboxStore {
       name: row.name,
       enabled: Boolean(row.enabled),
       sortOrder: Number(row.sort_order),
-      conditions,
+      matchMode: storedConditions.matchMode,
+      conditions: storedConditions.conditions,
       actions,
+      stopProcessing: storedConditions.stopProcessing,
       createdAt: Number(row.created_at),
     }
   }
@@ -1537,7 +1589,7 @@ export class MailboxStore {
       input.name,
       input.enabled ? 1 : 0,
       Number(next?.next_order ?? 0),
-      JSON.stringify(input.conditions),
+      serializeEmailFilterConditions(input.conditions, input.matchMode, input.stopProcessing),
       JSON.stringify(input.actions),
       Date.now(),
     )
@@ -1545,8 +1597,12 @@ export class MailboxStore {
   }
 
   updateFilter(id: string, patch: EmailFilterPatch): EmailFilterRecord | null {
-    const existing = this.one<{ id: string }>(`SELECT id FROM email_filters WHERE id = ?1`, id)
-    if (!existing) return null
+    const row = this.one<EmailFilterRow>(`SELECT * FROM email_filters WHERE id = ?1`, id)
+    if (!row) return null
+    const changesConditions = patch.conditions !== undefined
+      || patch.matchMode !== undefined
+      || patch.stopProcessing !== undefined
+    const existing = changesConditions ? this.filterRecord(row) : null
     const sets: string[] = []
     const bindings: unknown[] = []
     if (patch.name !== undefined) {
@@ -1557,9 +1613,15 @@ export class MailboxStore {
       sets.push('enabled = ?')
       bindings.push(patch.enabled ? 1 : 0)
     }
-    if (patch.conditions !== undefined) {
+    if (changesConditions) {
+      const conditions = patch.conditions ?? existing?.conditions
+      if (!conditions) return null
       sets.push('conditions_json = ?')
-      bindings.push(JSON.stringify(patch.conditions))
+      bindings.push(serializeEmailFilterConditions(
+        conditions,
+        patch.matchMode ?? existing?.matchMode,
+        patch.stopProcessing ?? existing?.stopProcessing,
+      ))
     }
     if (patch.actions !== undefined) {
       sets.push('actions_json = ?')
@@ -1781,7 +1843,7 @@ export class MailboxStore {
     let trash = false
     const tagPaths: string[] = []
     for (const filter of this.listFilters()) {
-      if (!filter.enabled || !emailFilterMatches(filter.conditions, input)) continue
+      if (!filter.enabled || !emailFilterMatches(filter.conditions, filter.matchMode ?? 'all', input)) continue
       for (const type of EMAIL_FILTER_ACTION_TYPES) {
         for (const action of filter.actions) {
           if (action.type !== type) continue
@@ -1806,6 +1868,7 @@ export class MailboxStore {
           }
         }
       }
+      if (filter.stopProcessing) break
     }
     return { blocked: false, folderId, read, starred, trash, tagPaths }
   }

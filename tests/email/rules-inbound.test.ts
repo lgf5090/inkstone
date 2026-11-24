@@ -108,6 +108,39 @@ describe('inbound filter application', () => {
     expect(autoDraftCount()).toBe(1)
   })
 
+  it('applies OR and NOT rules before honoring stopProcessing on inbound mail', async () => {
+    const store = harness.store(ACCOUNT)
+    store.createFilter({
+      name: 'Stop on non-Alice mail',
+      enabled: true,
+      matchMode: 'any',
+      conditions: [
+        { field: 'fromContains', value: 'alice', negate: true },
+        { field: 'subjectContains', value: 'digest' },
+      ],
+      actions: [{ type: 'star' }],
+      stopProcessing: true,
+    })
+    store.createFilter({
+      name: 'Later trash rule',
+      enabled: true,
+      conditions: [{ field: 'subjectContains', value: 'other' }],
+      actions: [{ type: 'trash' }, { type: 'addTag', tag: 'later' }],
+    })
+
+    expect(await deliver({
+      from: 'Bob <bob@example.com>',
+      subject: 'Other',
+      messageId: 'or-not-stop',
+    })).toBe('created')
+
+    expect(store.getEmails({ folder: 'inbox' })).toHaveLength(1)
+    const [row] = store.getEmails({ folder: 'inbox' })
+    expect(row!.starred).toBe(1)
+    expect(store.listTrash()).toHaveLength(0)
+    expect(store.findTagByPath('later')).toBeNull()
+  })
+
   it('soft-deletes a message the rule trashes and skips its auto-draft', async () => {
     harness.store(ACCOUNT).createFilter({
       name: 'Trash digest',

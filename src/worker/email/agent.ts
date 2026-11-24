@@ -201,8 +201,10 @@ function filterDto(row: EmailFilterRecord): EmailFilter {
     name: row.name,
     enabled: row.enabled,
     sortOrder: row.sortOrder,
+    matchMode: row.matchMode,
     conditions: row.conditions,
     actions: row.actions,
+    stopProcessing: row.stopProcessing,
     createdAt: new Date(row.createdAt).toISOString(),
   }
 }

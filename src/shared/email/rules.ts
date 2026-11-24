@@ -18,17 +18,20 @@ export const EMAIL_FILTER_CONDITION_FIELDS = [
 ] as const
 
 export const EMAIL_FILTER_ACTION_TYPES = ['moveTo', 'addTag', 'markRead', 'star', 'trash'] as const
+export const EMAIL_FILTER_MATCH_MODES = ['all', 'any'] as const
 
 export type EmailFilterConditionField = (typeof EMAIL_FILTER_CONDITION_FIELDS)[number]
 
 export type EmailFilterActionType = (typeof EMAIL_FILTER_ACTION_TYPES)[number]
 
+export type EmailFilterMatchMode = (typeof EMAIL_FILTER_MATCH_MODES)[number]
+
 export type EmailFilterCondition =
-  | { field: 'fromContains'; value: string }
-  | { field: 'toContains'; value: string }
-  | { field: 'subjectContains'; value: string }
-  | { field: 'hasAttachment'; value: boolean }
-  | { field: 'minBytes'; value: number }
+  | { field: 'fromContains'; value: string; negate?: boolean }
+  | { field: 'toContains'; value: string; negate?: boolean }
+  | { field: 'subjectContains'; value: string; negate?: boolean }
+  | { field: 'hasAttachment'; value: boolean; negate?: boolean }
+  | { field: 'minBytes'; value: number; negate?: boolean }
 
 export type EmailFilterAction =
   | { type: 'moveTo'; folder: string }
@@ -40,15 +43,19 @@ export type EmailFilterAction =
 export interface EmailFilterInput {
   name: string
   enabled: boolean
+  matchMode?: EmailFilterMatchMode
   conditions: EmailFilterCondition[]
   actions: EmailFilterAction[]
+  stopProcessing?: boolean
 }
 
 export interface EmailFilterPatch {
   name?: string
   enabled?: boolean
+  matchMode?: EmailFilterMatchMode
   conditions?: EmailFilterCondition[]
   actions?: EmailFilterAction[]
+  stopProcessing?: boolean
 }
 
 export interface EmailFilter {
@@ -56,8 +63,10 @@ export interface EmailFilter {
   name: string
   enabled: boolean
   sortOrder: number
+  matchMode?: EmailFilterMatchMode
   conditions: EmailFilterCondition[]
   actions: EmailFilterAction[]
+  stopProcessing?: boolean
   createdAt: string
 }
 
@@ -101,21 +110,23 @@ function readConditionText(value: unknown): string | null {
 function readCondition(value: unknown): EmailFilterCondition | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const raw = value as Record<string, unknown>
+  if (raw.negate !== undefined && typeof raw.negate !== 'boolean') return null
+  const negate = raw.negate ?? false
   switch (raw.field) {
     case 'fromContains':
     case 'toContains':
     case 'subjectContains': {
       const text = readConditionText(raw.value)
-      return text ? { field: raw.field, value: text } : null
+      return text ? { field: raw.field, value: text, negate } : null
     }
     case 'hasAttachment':
-      return typeof raw.value === 'boolean' ? { field: 'hasAttachment', value: raw.value } : null
+      return typeof raw.value === 'boolean' ? { field: 'hasAttachment', value: raw.value, negate } : null
     case 'minBytes':
       return typeof raw.value === 'number'
         && Number.isSafeInteger(raw.value)
         && raw.value >= 0
         && raw.value <= EMAIL_INBOUND_MAX_BYTES
-        ? { field: 'minBytes', value: raw.value }
+        ? { field: 'minBytes', value: raw.value, negate }
         : null
     default:
       return null
@@ -179,10 +190,14 @@ export function parseEmailFilterInput(value: unknown): EmailFilterInput | null {
   const raw = value as Record<string, unknown>
   const name = readFilterName(raw.name)
   const enabled = raw.enabled === undefined ? true : typeof raw.enabled === 'boolean' ? raw.enabled : null
+  const matchMode = raw.matchMode === undefined ? 'all' : raw.matchMode === 'all' || raw.matchMode === 'any' ? raw.matchMode : null
+  const stopProcessing = raw.stopProcessing === undefined
+    ? false
+    : typeof raw.stopProcessing === 'boolean' ? raw.stopProcessing : null
   const conditions = parseEmailFilterConditions(raw.conditions)
   const actions = parseEmailFilterActions(raw.actions)
-  if (!name || enabled === null || !conditions || !actions) return null
-  return { name, enabled, conditions, actions }
+  if (!name || enabled === null || matchMode === null || stopProcessing === null || !conditions || !actions) return null
+  return { name, enabled, matchMode, conditions, actions, stopProcessing }
 }
 
 export function parseEmailFilterPatch(value: unknown): EmailFilterPatch | null {
@@ -197,6 +212,14 @@ export function parseEmailFilterPatch(value: unknown): EmailFilterPatch | null {
   if (raw.enabled !== undefined) {
     if (typeof raw.enabled !== 'boolean') return null
     patch.enabled = raw.enabled
+  }
+  if (raw.matchMode !== undefined) {
+    if (raw.matchMode !== 'all' && raw.matchMode !== 'any') return null
+    patch.matchMode = raw.matchMode
+  }
+  if (raw.stopProcessing !== undefined) {
+    if (typeof raw.stopProcessing !== 'boolean') return null
+    patch.stopProcessing = raw.stopProcessing
   }
   if (raw.conditions !== undefined) {
     const conditions = parseEmailFilterConditions(raw.conditions)

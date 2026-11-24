@@ -56,10 +56,14 @@ function actionSummary(action: EmailFilterAction, folders: readonly EmailFolder[
 }
 
 function filterSummary(filter: EmailFilter, folders: readonly EmailFolder[]): string {
-  return [
-    ...filter.conditions.map((condition) => conditionSummary(condition)),
-    ...filter.actions.map((action) => actionSummary(action, folders)),
-  ].join(' · ')
+  const conditions = filter.conditions.map((condition) => {
+    const summary = conditionSummary(condition)
+    return condition.negate ? t('email.rules.summary.not', { value: summary }) : summary
+  })
+  if (filter.matchMode === 'any') conditions.unshift(t('email.rules.summary.any'))
+  const actions = filter.actions.map((action) => actionSummary(action, folders))
+  if (filter.stopProcessing) actions.push(t('email.rules.summary.stop'))
+  return [...conditions, ...actions].join(' · ')
 }
 
 export function RulesPage({ accountId, onBack }: { accountId: string; onBack?: () => void }) {

@@ -10,10 +10,11 @@ import {
   type EmailFilterAction,
   type EmailFilterCondition,
   type EmailFilterInput,
+  type EmailFilterMatchMode,
 } from '@shared/email/rules'
 import { EMAIL_TAG_PATH_MAX_CHARS } from '@shared/email/tags'
 import { Button } from '../../components/primitives'
-import { Checkbox, Field, Input, Select } from '../../components/form'
+import { Checkbox, Field, Input, Select, Switch } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
@@ -22,36 +23,76 @@ import { folderLabel } from './format'
 
 interface RuleDraft {
   name: string
+  matchMode: EmailFilterMatchMode
   from: string
+  negateFrom: boolean
   to: string
+  negateTo: boolean
   subject: string
+  negateSubject: boolean
   hasAttachment: boolean
+  negateHasAttachment: boolean
   minBytes: string
+  negateMinBytes: boolean
   moveTo: string
   tag: string
   markRead: boolean
   star: boolean
   trash: boolean
+  stopProcessing: boolean
 }
 
 const EMPTY_DRAFT: RuleDraft = {
   name: '',
+  matchMode: 'all',
   from: '',
+  negateFrom: false,
   to: '',
+  negateTo: false,
   subject: '',
+  negateSubject: false,
   hasAttachment: false,
+  negateHasAttachment: false,
   minBytes: '',
+  negateMinBytes: false,
   moveTo: '',
   tag: '',
   markRead: false,
   star: false,
   trash: false,
+  stopProcessing: false,
+}
+
+function conditionFor(
+  conditions: readonly EmailFilterCondition[],
+  field: EmailFilterCondition['field'],
+): EmailFilterCondition | undefined {
+  return conditions.find((entry) => entry.field === field)
 }
 
 function conditionValue(conditions: readonly EmailFilterCondition[], field: EmailFilterCondition['field']): string {
-  const condition = conditions.find((entry) => entry.field === field)
+  const condition = conditionFor(conditions, field)
   if (!condition) return ''
   return typeof condition.value === 'string' ? condition.value : String(condition.value)
+}
+
+function NegateSwitch({
+  checked,
+  disabled,
+  label,
+  onChange,
+}: {
+  checked: boolean
+  disabled: boolean
+  label: string
+  onChange: (next: boolean) => void
+}) {
+  return (
+    <div className="flex h-11 shrink-0 items-center gap-2 md:h-[34px]">
+      <span aria-hidden="true" className="text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)]">{t('email.rules.negate')}</span>
+      <Switch checked={checked} disabled={disabled} label={t('email.rules.negate_named', { label })} onChange={onChange} />
+    </div>
+  )
 }
 
 function actionOfType<T extends EmailFilterAction['type']>(
@@ -65,18 +106,30 @@ function draftFromFilter(filter: EmailFilter | null): RuleDraft {
   if (!filter) return EMPTY_DRAFT
   const moveTo = actionOfType(filter.actions, 'moveTo')
   const addTag = actionOfType(filter.actions, 'addTag')
+  const from = conditionFor(filter.conditions, 'fromContains')
+  const to = conditionFor(filter.conditions, 'toContains')
+  const subject = conditionFor(filter.conditions, 'subjectContains')
+  const hasAttachment = conditionFor(filter.conditions, 'hasAttachment')
+  const minBytes = conditionFor(filter.conditions, 'minBytes')
   return {
     name: filter.name,
+    matchMode: filter.matchMode ?? 'all',
     from: conditionValue(filter.conditions, 'fromContains'),
+    negateFrom: from?.negate ?? false,
     to: conditionValue(filter.conditions, 'toContains'),
+    negateTo: to?.negate ?? false,
     subject: conditionValue(filter.conditions, 'subjectContains'),
-    hasAttachment: filter.conditions.some((entry) => entry.field === 'hasAttachment' && entry.value),
+    negateSubject: subject?.negate ?? false,
+    hasAttachment: hasAttachment?.field === 'hasAttachment' && hasAttachment.value,
+    negateHasAttachment: hasAttachment?.negate ?? false,
     minBytes: conditionValue(filter.conditions, 'minBytes'),
+    negateMinBytes: minBytes?.negate ?? false,
     moveTo: moveTo?.folder ?? '',
     tag: addTag?.tag ?? '',
     markRead: filter.actions.some((entry) => entry.type === 'markRead'),
     star: filter.actions.some((entry) => entry.type === 'star'),
     trash: filter.actions.some((entry) => entry.type === 'trash'),
+    stopProcessing: filter.stopProcessing ?? false,
   }
 }
 
@@ -84,17 +137,19 @@ function draftInput(draft: RuleDraft, enabled: boolean): EmailFilterInput | Mess
   const name = draft.name.trim()
   if (!name) return 'email.rules.invalid_name'
   const conditions: EmailFilterCondition[] = []
-  if (draft.from.trim()) conditions.push({ field: 'fromContains', value: draft.from.trim() })
-  if (draft.to.trim()) conditions.push({ field: 'toContains', value: draft.to.trim() })
-  if (draft.subject.trim()) conditions.push({ field: 'subjectContains', value: draft.subject.trim() })
-  if (draft.hasAttachment) conditions.push({ field: 'hasAttachment', value: true })
+  if (draft.from.trim()) conditions.push({ field: 'fromContains', value: draft.from.trim(), negate: draft.negateFrom })
+  if (draft.to.trim()) conditions.push({ field: 'toContains', value: draft.to.trim(), negate: draft.negateTo })
+  if (draft.subject.trim()) conditions.push({ field: 'subjectContains', value: draft.subject.trim(), negate: draft.negateSubject })
+  if (draft.hasAttachment) {
+    conditions.push({ field: 'hasAttachment', value: true, negate: draft.negateHasAttachment })
+  }
   const minBytes = draft.minBytes.trim()
   if (minBytes) {
     const bytes = Number(minBytes)
     if (!/^\d+$/.test(minBytes) || !Number.isSafeInteger(bytes) || bytes > EMAIL_INBOUND_MAX_BYTES) {
       return 'email.rules.invalid_min_bytes'
     }
-    conditions.push({ field: 'minBytes', value: bytes })
+    conditions.push({ field: 'minBytes', value: bytes, negate: draft.negateMinBytes })
   }
   if (conditions.length === 0) return 'email.rules.invalid_conditions'
   const actions: EmailFilterAction[] = []
@@ -104,7 +159,7 @@ function draftInput(draft: RuleDraft, enabled: boolean): EmailFilterInput | Mess
   if (draft.star) actions.push({ type: 'star' })
   if (draft.trash) actions.push({ type: 'trash' })
   if (actions.length === 0) return 'email.rules.invalid_actions'
-  return { name, enabled, conditions, actions }
+  return { name, enabled, matchMode: draft.matchMode, conditions, actions, stopProcessing: draft.stopProcessing }
 }
 
 export function RuleEditor({
@@ -183,36 +238,97 @@ export function RuleEditor({
           <legend className="px-1 text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {t('email.rules.conditions')}
           </legend>
-          <p className="m-0 mb-3 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
-            {t('email.rules.conditions_hint', { count: EMAIL_FILTER_MAX_CONDITIONS })}
-          </p>
+          {draft.matchMode === 'all' && (
+            <p className="m-0 mb-3 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
+              {t('email.rules.conditions_hint', { count: EMAIL_FILTER_MAX_CONDITIONS })}
+            </p>
+          )}
+          <Field label={t('email.rules.match_mode')} className="mb-3">
+            <Select
+              value={draft.matchMode}
+              onChange={(event) => update('matchMode', event.target.value as EmailFilterMatchMode)}
+              onKeyDown={(event) => {
+                if (event.key === 'Home') {
+                  event.preventDefault()
+                  update('matchMode', 'all')
+                } else if (event.key === 'End') {
+                  event.preventDefault()
+                  update('matchMode', 'any')
+                } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  update('matchMode', draft.matchMode === 'all' ? 'any' : 'all')
+                }
+              }}
+            >
+              <option value="all">{t('email.rules.match_all')}</option>
+              <option value="any">{t('email.rules.match_any')}</option>
+            </Select>
+          </Field>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <Field label={t('email.rules.from')}>
-              <Input value={draft.from} maxLength={EMAIL_FILTER_TEXT_MAX_CHARS} onChange={(event) => update('from', event.target.value)} />
-            </Field>
-            <Field label={t('email.rules.to')}>
-              <Input value={draft.to} maxLength={EMAIL_FILTER_TEXT_MAX_CHARS} onChange={(event) => update('to', event.target.value)} />
-            </Field>
-            <Field label={t('email.rules.subject')}>
-              <Input value={draft.subject} maxLength={EMAIL_FILTER_TEXT_MAX_CHARS} onChange={(event) => update('subject', event.target.value)} />
-            </Field>
-            <Field label={t('email.rules.min_bytes')}>
-              <Input
-                type="number"
-                min={0}
-                max={EMAIL_INBOUND_MAX_BYTES}
-                step={1}
-                inputMode="numeric"
-                value={draft.minBytes}
-                onChange={(event) => update('minBytes', event.target.value)}
+            <div className="flex min-w-0 items-end gap-2">
+              <Field label={t('email.rules.from')} className="min-w-0 flex-1">
+                <Input value={draft.from} maxLength={EMAIL_FILTER_TEXT_MAX_CHARS} onChange={(event) => update('from', event.target.value)} />
+              </Field>
+              <NegateSwitch
+                checked={draft.negateFrom}
+                disabled={!draft.from.trim()}
+                label={t('email.rules.from')}
+                onChange={(next) => update('negateFrom', next)}
               />
-            </Field>
+            </div>
+            <div className="flex min-w-0 items-end gap-2">
+              <Field label={t('email.rules.to')} className="min-w-0 flex-1">
+                <Input value={draft.to} maxLength={EMAIL_FILTER_TEXT_MAX_CHARS} onChange={(event) => update('to', event.target.value)} />
+              </Field>
+              <NegateSwitch
+                checked={draft.negateTo}
+                disabled={!draft.to.trim()}
+                label={t('email.rules.to')}
+                onChange={(next) => update('negateTo', next)}
+              />
+            </div>
+            <div className="flex min-w-0 items-end gap-2">
+              <Field label={t('email.rules.subject')} className="min-w-0 flex-1">
+                <Input value={draft.subject} maxLength={EMAIL_FILTER_TEXT_MAX_CHARS} onChange={(event) => update('subject', event.target.value)} />
+              </Field>
+              <NegateSwitch
+                checked={draft.negateSubject}
+                disabled={!draft.subject.trim()}
+                label={t('email.rules.subject')}
+                onChange={(next) => update('negateSubject', next)}
+              />
+            </div>
+            <div className="flex min-w-0 items-end gap-2">
+              <Field label={t('email.rules.min_bytes')} className="min-w-0 flex-1">
+                <Input
+                  type="number"
+                  min={0}
+                  max={EMAIL_INBOUND_MAX_BYTES}
+                  step={1}
+                  inputMode="numeric"
+                  value={draft.minBytes}
+                  onChange={(event) => update('minBytes', event.target.value)}
+                />
+              </Field>
+              <NegateSwitch
+                checked={draft.negateMinBytes}
+                disabled={!draft.minBytes.trim()}
+                label={t('email.rules.min_bytes')}
+                onChange={(next) => update('negateMinBytes', next)}
+              />
+            </div>
           </div>
-          <div className="mt-2">
+          <div className="mt-2 flex flex-wrap items-center gap-4">
             <Checkbox
               checked={draft.hasAttachment}
               onChange={(next) => update('hasAttachment', next)}
               label={t('email.rules.has_attachment')}
+            />
+            <NegateSwitch
+              checked={draft.negateHasAttachment}
+              disabled={!draft.hasAttachment}
+              label={t('email.rules.has_attachment')}
+              onChange={(next) => update('negateHasAttachment', next)}
             />
           </div>
         </fieldset>
@@ -247,6 +363,13 @@ export function RuleEditor({
             <Checkbox checked={draft.trash} onChange={(next) => update('trash', next)} label={t('email.rules.trash')} />
           </div>
         </fieldset>
+        <Field label={t('email.rules.stop_processing')}>
+          <Switch
+            checked={draft.stopProcessing}
+            label={t('email.rules.stop_processing')}
+            onChange={(next) => update('stopProcessing', next)}
+          />
+        </Field>
         {error && (
           <p role="alert" className="m-0 rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-11)] text-[var(--danger)]">
             {error}

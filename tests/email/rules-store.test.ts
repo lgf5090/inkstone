@@ -52,8 +52,9 @@ describe('email filter contracts', () => {
     expect(parseEmailFilterInput({
       name: '  Invoices  ',
       enabled: false,
+      matchMode: 'any',
       conditions: [
-        { field: 'fromContains', value: 'billing' },
+        { field: 'fromContains', value: 'billing', negate: true },
         { field: 'toContains', value: 'me' },
         { field: 'subjectContains', value: 'invoice' },
         { field: 'hasAttachment', value: true },
@@ -66,15 +67,17 @@ describe('email filter contracts', () => {
         { type: 'star' },
         { type: 'trash' },
       ],
+      stopProcessing: true,
     })).toEqual({
       name: 'Invoices',
       enabled: false,
+      matchMode: 'any',
       conditions: [
-        { field: 'fromContains', value: 'billing' },
-        { field: 'toContains', value: 'me' },
-        { field: 'subjectContains', value: 'invoice' },
-        { field: 'hasAttachment', value: true },
-        { field: 'minBytes', value: 1024 },
+        { field: 'fromContains', value: 'billing', negate: true },
+        { field: 'toContains', value: 'me', negate: false },
+        { field: 'subjectContains', value: 'invoice', negate: false },
+        { field: 'hasAttachment', value: true, negate: false },
+        { field: 'minBytes', value: 1024, negate: false },
       ],
       actions: [
         { type: 'moveTo', folder: 'archive' },
@@ -83,6 +86,7 @@ describe('email filter contracts', () => {
         { type: 'star' },
         { type: 'trash' },
       ],
+      stopProcessing: true,
     })
 
     const base = {
@@ -96,9 +100,12 @@ describe('email filter contracts', () => {
       { ...base, name: '' },
       { ...base, name: 'x'.repeat(81) },
       { ...base, enabled: 'yes' },
+      { ...base, matchMode: 'some' },
+      { ...base, stopProcessing: 'yes' },
       { ...base, conditions: [] },
       { ...base, conditions: sixConditions },
       { ...base, conditions: [{ field: 'bodyContains', value: 'x' }] },
+      { ...base, conditions: [{ field: 'subjectContains', value: 'x', negate: 'yes' }] },
       { ...base, conditions: [{ field: 'minBytes', value: -1 }] },
       { ...base, conditions: [{ field: 'minBytes', value: 1.5 }] },
       { ...base, conditions: [{ field: 'minBytes', value: EMAIL_INBOUND_MAX_BYTES + 1 }] },
@@ -108,8 +115,22 @@ describe('email filter contracts', () => {
       { ...base, actions: [{ type: 'moveTo', folder: ' ' }] },
     ]
     for (const value of invalid) expect(parseEmailFilterInput(value)).toBeNull()
+    expect(parseEmailFilterInput(base)).toEqual({
+      name: 'Rule',
+      enabled: true,
+      matchMode: 'all',
+      conditions: [{ field: 'subjectContains', value: 'x', negate: false }],
+      actions: [{ type: 'markRead' }],
+      stopProcessing: false,
+    })
     expect(parseEmailFilterPatch({})).toBeNull()
     expect(parseEmailFilterPatch({ enabled: false })).toEqual({ enabled: false })
+    expect(parseEmailFilterPatch({ matchMode: 'any', stopProcessing: true })).toEqual({
+      matchMode: 'any',
+      stopProcessing: true,
+    })
+    expect(parseEmailFilterPatch({ matchMode: 'some' })).toBeNull()
+    expect(parseEmailFilterPatch({ stopProcessing: 'yes' })).toBeNull()
   })
 })
 
@@ -130,6 +151,43 @@ describe('email filter storage', () => {
     expect(store.deleteFilter(second.id)).toBe(true)
     expect(store.deleteFilter(second.id)).toBe(false)
     expect(store.listFilters().map((filter) => filter.id)).toEqual([first.id])
+  })
+
+  it('persists rule options and reads legacy condition arrays with defaults', () => {
+    const filter = createFilter({
+      matchMode: 'any',
+      stopProcessing: true,
+      conditions: [{ field: 'subjectContains', value: 'digest', negate: true }],
+    })
+    expect(store.getFilter(filter.id)).toMatchObject({
+      matchMode: 'any',
+      stopProcessing: true,
+      conditions: [{ field: 'subjectContains', value: 'digest', negate: true }],
+    })
+
+    expect(store.updateFilter(filter.id, { matchMode: 'all' })).toMatchObject({
+      matchMode: 'all',
+      stopProcessing: true,
+      conditions: [{ field: 'subjectContains', value: 'digest', negate: true }],
+    })
+    expect(store.updateFilter(filter.id, {
+      conditions: [{ field: 'fromContains', value: 'alice' }],
+      stopProcessing: false,
+    })).toMatchObject({
+      matchMode: 'all',
+      stopProcessing: false,
+      conditions: [{ field: 'fromContains', value: 'alice', negate: false }],
+    })
+
+    sqlite.prepare('UPDATE email_filters SET conditions_json = ? WHERE id = ?').run(
+      JSON.stringify([{ field: 'subjectContains', value: 'digest' }]),
+      filter.id,
+    )
+    expect(store.getFilter(filter.id)).toMatchObject({
+      matchMode: 'all',
+      stopProcessing: false,
+      conditions: [{ field: 'subjectContains', value: 'digest', negate: false }],
+    })
   })
 
   it('caps the rule count', () => {
@@ -175,6 +233,65 @@ describe('email filter matching', () => {
     createFilter({ conditions: [{ field: 'minBytes', value: 4096 }], actions: [{ type: 'star' }] })
     expect(store.evaluateInboundRules(inbound({ size: 4096 })).starred).toBe(true)
     expect(store.evaluateInboundRules(inbound({ size: 4095 })).starred).toBe(false)
+  })
+
+  it('matches any condition when matchMode is any', () => {
+    createFilter({
+      matchMode: 'any',
+      conditions: [
+        { field: 'fromContains', value: 'alice' },
+        { field: 'subjectContains', value: 'digest' },
+      ],
+      actions: [{ type: 'star' }],
+    })
+    expect(store.evaluateInboundRules(inbound({ sender: 'Bob <bob@example.com>' })).starred).toBe(true)
+    expect(store.evaluateInboundRules(inbound({
+      sender: 'Bob <bob@example.com>',
+      subject: 'Other',
+    })).starred).toBe(false)
+  })
+
+  it('negates a condition before applying all or any', () => {
+    createFilter({
+      conditions: [{ field: 'subjectContains', value: 'digest', negate: true }],
+      actions: [{ type: 'star' }],
+    })
+    expect(store.evaluateInboundRules(inbound({ subject: 'Other' })).starred).toBe(true)
+    expect(store.evaluateInboundRules(inbound()).starred).toBe(false)
+
+    store.updateFilter(store.listFilters()[0]!.id, {
+      matchMode: 'any',
+      conditions: [
+        { field: 'subjectContains', value: 'digest', negate: true },
+        { field: 'hasAttachment', value: true, negate: true },
+      ],
+    })
+    expect(store.evaluateInboundRules(inbound({ hasAttachment: false })).starred).toBe(true)
+    expect(store.evaluateInboundRules(inbound({ hasAttachment: true })).starred).toBe(false)
+  })
+
+  it('stops after a matching rule only when stopProcessing is enabled', () => {
+    const first = createFilter({
+      name: 'First',
+      stopProcessing: true,
+      actions: [{ type: 'star' }],
+    })
+    createFilter({
+      name: 'Second',
+      actions: [{ type: 'trash' }, { type: 'addTag', tag: 'later' }],
+    })
+    expect(store.evaluateInboundRules(inbound())).toMatchObject({
+      starred: true,
+      trash: false,
+      tagPaths: [],
+    })
+
+    store.updateFilter(first.id, { conditions: [{ field: 'subjectContains', value: 'no match' }] })
+    expect(store.evaluateInboundRules(inbound())).toMatchObject({
+      starred: false,
+      trash: true,
+      tagPaths: ['later'],
+    })
   })
 
   it('ignores disabled filters', () => {

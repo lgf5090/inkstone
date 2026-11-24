@@ -350,12 +350,14 @@ describe('email backup format and reads', () => {
     const filter = store.createFilter({
       name: 'Client mail',
       enabled: true,
-      conditions: [{ field: 'fromContains', value: '@client.example' }],
+      matchMode: 'any',
+      conditions: [{ field: 'fromContains', value: '@client.example', negate: true }],
       actions: [
         { type: 'moveTo', folder: child.id },
         { type: 'addTag', tag: 'work/client' },
         { type: 'markRead' },
       ],
+      stopProcessing: true,
     })!
     store.addBlockedSender('blocked@example.com')
     store.createTemplate({ name: 'Follow up', subject: 'Following up', body: 'Hello again' })
@@ -413,7 +415,12 @@ describe('email backup format and reads', () => {
       tagId: tag.id,
       createdAt: expect.any(Number),
     }])
-    expect(bundle.accounts[0]?.filters[0]?.id).toBe(filter.id)
+    expect(bundle.accounts[0]?.filters[0]).toMatchObject({
+      id: filter.id,
+      matchMode: 'any',
+      conditions: [{ field: 'fromContains', value: '@client.example', negate: true }],
+      stopProcessing: true,
+    })
     expect(bundle.contacts[0]?.usageCount).toBe(4)
     expect(bundle.groupMembers[0]).toMatchObject({ groupId: group.id, contactId: contact.id })
     const attachmentBytes = await readFile(exported.attachments[0]!)
@@ -796,6 +803,14 @@ describe('email restore', () => {
       mutate: (bundle: EmailBackupBundle) => {
         bundle.accounts[0]!.filters[0]!.conditions = [{ field: 'fromContains', value: '' } as never]
       },
+    },
+    {
+      name: 'invalid filter match mode',
+      mutate: (bundle: EmailBackupBundle) => { bundle.accounts[0]!.filters[0]!.matchMode = 'some' as never },
+    },
+    {
+      name: 'invalid filter stop flag',
+      mutate: (bundle: EmailBackupBundle) => { bundle.accounts[0]!.filters[0]!.stopProcessing = 'yes' as never },
     },
     {
       name: 'duplicate template name',
