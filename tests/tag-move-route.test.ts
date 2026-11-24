@@ -209,6 +209,7 @@ describe('moving a tag between levels', () => {
     expect(response.moved).toBe(15)
     expect(total).toBe(15 * 6)
     expect(deepest).toBeLessThanOrEqual(80)
+    expect(deepest % 6).toBe(0)
     expect(deepest).toBeGreaterThan(0)
     expect(await names()).toEqual(['inbox', ...chainNames.map((name) => `inbox/${name}`)].sort())
   })

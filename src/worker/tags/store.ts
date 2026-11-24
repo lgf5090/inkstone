@@ -494,10 +494,10 @@ export async function applyTagFamily(
     ]
   })
 
-  // Six statements per member, so a family of fourteen already outgrows the batch ceiling this
-  // repo respects elsewhere (the sibling renumbering in the folders store). Each chunk is its own
-  // transaction, so a late failure leaves the earlier chunk applied; note bodies still roll back.
-  const MAX_BATCH_STATEMENTS = 80
+  // Six statements per member, so every chunk must end on a member boundary. Splitting a member
+  // across batches makes its row move visible without the matching source delete and change records.
+  const STATEMENTS_PER_MEMBER = 6
+  const MAX_BATCH_STATEMENTS = Math.floor(80 / STATEMENTS_PER_MEMBER) * STATEMENTS_PER_MEMBER
   let outcomes: D1Result[]
   try {
     outcomes = []
@@ -556,7 +556,7 @@ export async function rewriteTagInNotes(
   budgetNotes = Number.POSITIVE_INFINITY,
 ): Promise<TagRewriteResult> {
   const db = env.DB
-  const { results } = await db.prepare(
+  let { results } = await db.prepare(
     `SELECT n.id FROM notes n
        JOIN note_tags nt ON nt.note_id = n.id
       WHERE nt.tag_id = ?1 AND n.user_id = ?2`,
@@ -571,11 +571,26 @@ export async function rewriteTagInNotes(
     return { rewritten: 0, remaining: 0, rollback: async () => {} }
   }
 
+  // Delete and merge remove the source tag memberships before the deferred row runs. The tag id is
+  // therefore no longer a candidate index; fall back to a keyset body scan and let the exact rewrite
+  // decide which rows really contain the tag.
+  if (forceInline && results.length === 0) {
+    const scanLimit = Number.isFinite(budgetNotes)
+      ? Math.max(1, Math.trunc(budgetNotes)) + 1
+      : REWRITE_LOAD_CHUNK + 1
+    const scanned = await db.prepare(
+      `SELECT id FROM notes
+        WHERE user_id = ?1 AND id > ?2 AND instr(lower(content), lower(?3)) > 0
+        ORDER BY id ASC LIMIT ?4`,
+    ).bind(userId, '', from, scanLimit).all<{ id: string }>()
+    results = scanned.results
+  }
+
   let rewritten = 0
   const rewrittenNotes: RewrittenTagNote[] = []
   try {
     const candidateIds = results.map((c) => c.id)
-    const plan = Number.isFinite(budgetNotes) ? candidateIds.slice(0, budgetNotes) : candidateIds
+    const plan = Number.isFinite(budgetNotes) ? candidateIds.slice(0, budgetNotes) : candidateIds.slice(0, REWRITE_LOAD_CHUNK)
     const remaining = candidateIds.length - plan.length
     type CandidateNote = {
       id: string
@@ -631,12 +646,13 @@ export async function rewriteTagInNotes(
                 userId,
                 currentNote.rev,
               )
+              const snapshotId = newId()
               const snapshot = db.prepare(
                 `INSERT INTO note_versions (id, note_id, user_id, title, content, size, created_at)
                  SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
                   WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
               ).bind(
-                newId(),
+                snapshotId,
                 currentNote.id,
                 userId,
                 currentNote.title,
@@ -677,7 +693,7 @@ export async function rewriteTagInNotes(
               )
               const [updated] = await db.batch(statements)
               if (updated?.meta.changes) {
-                return { success: true, rewrittenNote: { note: currentNote, nextRev, updatedAt: now } }
+                return { success: true, rewrittenNote: { note: currentNote, nextRev, updatedAt: now, snapshotId } }
               }
               currentNote = await db.prepare(
                 `SELECT id, title, content, rev, updated_at, deleted_at
@@ -724,6 +740,7 @@ interface RewrittenTagNote {
   }
   nextRev: number
   updatedAt: number
+  snapshotId: string
 }
 
 async function rollbackTagRewrites(
@@ -734,9 +751,11 @@ async function rollbackTagRewrites(
 ): Promise<void> {
   const db = env.DB
   for (const rewritten of rewrittenNotes.toReversed()) {
-    const { note, nextRev, updatedAt } = rewritten
+    const { note, nextRev, updatedAt, snapshotId } = rewritten
     const hash = await sha256Hex(note.content)
     const { words, chars } = countText(note.content)
+    const rollbackRev = nextRev + 1
+    const rollbackAt = Math.max(Date.now(), updatedAt + 1)
     const update = db.prepare(
       `UPDATE notes SET content = ?1, excerpt = ?2, word_count = ?3, char_count = ?4,
          content_hash = ?5, rev = ?6, updated_at = ?7
@@ -747,8 +766,8 @@ async function rollbackTagRewrites(
       words,
       chars,
       hash,
-      note.rev,
-      note.updated_at,
+      rollbackRev,
+      rollbackAt,
       note.id,
       userId,
       nextRev,
@@ -763,19 +782,24 @@ async function rollbackTagRewrites(
         title: note.title,
         content: note.content,
         ftsEnabled,
-        expectedRev: note.rev,
+        expectedRev: rollbackRev,
         expectedContentHash: hash,
         expectedTitle: note.title,
-        expectedUpdatedAt: note.updated_at,
+        expectedUpdatedAt: rollbackAt,
       }).statements)
     }
     statements.push(
+      db.prepare(
+        `DELETE FROM note_versions WHERE id = ?1 AND note_id = ?2 AND user_id = ?3
+          AND EXISTS (SELECT 1 FROM notes
+            WHERE id = ?2 AND user_id = ?3 AND rev = ?4 AND updated_at = ?5)`,
+      ).bind(snapshotId, note.id, userId, rollbackRev, rollbackAt),
       db.prepare(
         `INSERT INTO changes (user_id, entity, entity_id, op, at)
          SELECT ?1, 'note', ?2, 'upsert', ?3
           WHERE EXISTS (SELECT 1 FROM notes
             WHERE id = ?2 AND user_id = ?1 AND rev = ?4 AND updated_at = ?5)`,
-      ).bind(userId, note.id, Date.now(), note.rev, note.updated_at),
+      ).bind(userId, note.id, rollbackAt, rollbackRev, rollbackAt),
     )
     const [restored] = await db.batch(statements)
     if (!restored?.meta.changes) throw new Error('tag rewrite rollback conflict')
