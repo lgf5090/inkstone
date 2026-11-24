@@ -46,7 +46,7 @@ export async function runEmailTrashCleanup(
         if (!messageIds.length) continue
         result.messages += messageIds.length
         await removeAttachments(env, account.user_id, messageIds, result)
-        const raw = await deleteEmailRawMimesForMessages(env, account.user_id, messageIds)
+        const raw = await deleteEmailRawMimesForMessages(env, account.user_id, account.id, messageIds)
         if (raw.cleanupPending) console.warn('[inkstone] Email raw MIME cleanup is pending for expired trash')
       } catch (error) {
         console.warn('[inkstone] email trash cleanup failed for one mailbox', error)

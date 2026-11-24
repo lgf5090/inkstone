@@ -1,15 +1,18 @@
 export const EMAIL_RAW_MIME_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS email_raw_messages (
-    message_id TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     account_id TEXT NOT NULL,
     object_key TEXT NOT NULL UNIQUE,
     size INTEGER NOT NULL CHECK (size > 0),
     sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, account_id, message_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_email_raw_messages_account
      ON email_raw_messages(user_id, account_id, created_at, message_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_email_raw_messages_message
+     ON email_raw_messages(message_id)`,
 ]
 
 export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
@@ -194,6 +197,7 @@ export const EMAIL_REQUIRED_TABLES: readonly string[] = [
 
 export const EMAIL_REQUIRED_INDEXES: readonly string[] = [
   'idx_email_raw_messages_account',
+  'idx_email_raw_messages_message',
   'idx_email_accounts_address',
   'idx_email_accounts_id',
   'idx_email_accounts_user',

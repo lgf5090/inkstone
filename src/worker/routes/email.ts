@@ -501,10 +501,11 @@ async function rawMimeResponse(c: Ctx): Promise<Response> {
 async function removeRawMimes(
   env: Env,
   userId: string,
+  accountId: string,
   messageIds: readonly string[],
   operation: string,
 ): Promise<void> {
-  const result = await deleteEmailRawMimesForMessages(env, userId, messageIds)
+  const result = await deleteEmailRawMimesForMessages(env, userId, accountId, messageIds)
   if (result.cleanupPending) console.warn(`[inkstone] Email raw MIME cleanup is pending for ${operation}`)
 }
 
@@ -930,7 +931,7 @@ emailRoutes.delete('/accounts/:id/folders/:folderId', async (c) => {
   if (result.deletedMessageIds.length) {
     const pending = await deleteEmailAttachmentsForMessages(c.env, c.get('userId'), result.deletedMessageIds)
     if (pending) console.warn('[inkstone] Email attachment cleanup is pending for a deleted folder')
-    await removeRawMimes(c.env, c.get('userId'), result.deletedMessageIds, 'a deleted folder')
+    await removeRawMimes(c.env, c.get('userId'), row.id, result.deletedMessageIds, 'a deleted folder')
   }
   return c.body(null, 204)
 })
@@ -1113,7 +1114,7 @@ emailRoutes.delete('/accounts/:id/emails/:messageId', async (c) => {
   if (!(await mailbox.deleteEmail(id))) throw messageNotFound()
   const pending = await deleteEmailAttachmentsForMessages(c.env, c.get('userId'), [id])
   if (pending) console.warn('[inkstone] Email attachment cleanup is pending for a deleted message')
-  await removeRawMimes(c.env, c.get('userId'), [id], 'a deleted message')
+  await removeRawMimes(c.env, c.get('userId'), row.id, [id], 'a deleted message')
   return c.body(null, 204)
 })
 
@@ -1218,7 +1219,7 @@ emailRoutes.delete('/accounts/:id/trash', async (c) => {
   const ids = await emailMailbox(c.env, row.id).emptyTrash()
   const pending = await deleteEmailAttachmentsForMessages(c.env, c.get('userId'), ids)
   if (pending) console.warn('[inkstone] Email attachment cleanup is pending for an emptied trash')
-  await removeRawMimes(c.env, c.get('userId'), ids, 'an emptied trash')
+  await removeRawMimes(c.env, c.get('userId'), row.id, ids, 'an emptied trash')
   return c.body(null, 204)
 })
 

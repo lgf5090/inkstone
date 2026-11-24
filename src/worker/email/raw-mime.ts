@@ -181,9 +181,10 @@ async function deleteRows(
   if (!rows.length) return result
   result.cleanupPending = await deleteEmailAttachmentObjects(env, rows[0]!.user_id, rows.map((row) => row.object_key))
   for (const group of chunk(rows, DELETE_ID_CHUNK)) {
-    const placeholders = group.map((_, index) => `?${index + 1}`).join(',')
-    await env.DB.prepare(`DELETE FROM email_raw_messages WHERE message_id IN (${placeholders})`)
-      .bind(...group.map((row) => row.message_id)).run()
+    const placeholders = group.map((_, index) => `?${index + 3}`).join(',')
+    await env.DB.prepare(
+      `DELETE FROM email_raw_messages WHERE user_id = ?1 AND account_id = ?2 AND message_id IN (${placeholders})`,
+    ).bind(rows[0]!.user_id, rows[0]!.account_id, ...group.map((row) => row.message_id)).run()
   }
   return result
 }
@@ -201,16 +202,17 @@ export async function deleteEmailRawMimeForMessage(
 export async function deleteEmailRawMimesForMessages(
   env: Env,
   userId: string,
+  accountId: string,
   messageIds: readonly string[],
 ): Promise<EmailRawMimeDeletionResult> {
   const rows: EmailRawMimeRow[] = []
   for (const group of chunk(messageIds, DELETE_ID_CHUNK)) {
-    const placeholders = group.map((_, index) => `?${index + 2}`).join(',')
+    const placeholders = group.map((_, index) => `?${index + 3}`).join(',')
     const { results } = await env.DB.prepare(
       `SELECT message_id, user_id, account_id, object_key, size, sha256, created_at
          FROM email_raw_messages
-        WHERE user_id = ?1 AND message_id IN (${placeholders})`,
-    ).bind(userId, ...group).all<EmailRawMimeRow>()
+        WHERE user_id = ?1 AND account_id = ?2 AND message_id IN (${placeholders})`,
+    ).bind(userId, accountId, ...group).all<EmailRawMimeRow>()
     rows.push(...results)
   }
   return deleteRows(env, rows)

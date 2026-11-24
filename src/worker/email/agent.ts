@@ -1291,7 +1291,7 @@ export async function deleteEmailAgent(
     const ids = await mailbox.emptyTrash()
     if (ids.length) {
       await deleteEmailAttachmentsForMessages(env, userId, ids)
-      await deleteEmailRawMimesForMessages(env, userId, ids)
+      await deleteEmailRawMimesForMessages(env, userId, account.id, ids)
     }
     return { status: 'emptied', deleted: ids.length }
   }
@@ -1302,7 +1302,7 @@ export async function deleteEmailAgent(
     if (input.permanent) {
       if (!(await mailbox.deleteEmail(input.id))) throw new ApiError(404, 'email_message_not_found', 'Email not found')
       await deleteEmailAttachmentsForMessages(env, userId, [input.id])
-      await deleteEmailRawMimesForMessages(env, userId, [input.id])
+      await deleteEmailRawMimesForMessages(env, userId, account.id, [input.id])
       return { status: 'deleted', emailId: input.id }
     }
     if (!(await mailbox.trashEmail(input.id))) throw new ApiError(404, 'email_message_not_found', 'Email not found')
@@ -1316,7 +1316,7 @@ export async function deleteEmailAgent(
     if (!result) throw new ApiError(404, 'email_folder_not_found', 'Folder not found')
     if (result.deletedMessageIds.length) {
       await deleteEmailAttachmentsForMessages(env, userId, result.deletedMessageIds)
-      await deleteEmailRawMimesForMessages(env, userId, result.deletedMessageIds)
+      await deleteEmailRawMimesForMessages(env, userId, account.id, result.deletedMessageIds)
     }
     return { status: 'deleted', folderId: folder.id, deletedEmails: result.deletedMessageIds.length }
   }

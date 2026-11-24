@@ -271,7 +271,7 @@ export async function deleteMcpEmail(
     }
     const cleanupPending = await deleteEmailAttachmentsForMessages(context.env, context.userId, [targetId])
     if (cleanupPending) console.warn('[inkstone] Email attachment cleanup is pending for a deleted MCP message')
-    await deleteEmailRawMimesForMessages(context.env, context.userId, [targetId])
+    await deleteEmailRawMimesForMessages(context.env, context.userId, account.id, [targetId])
     return { status: 'deleted', emailId: targetId, permanent: true }
   }
   if (await mailbox.trashEmail(targetId) === null) {

@@ -107,7 +107,7 @@ describe('email raw MIME storage', () => {
     expect(await deleteEmailRawMimeForMessage(env, OWNER, otherAccountId, first.message_id))
       .toEqual({ messages: 0, cleanupPending: false })
     expect(bucket.objects.has(first.object_key)).toBe(true)
-    expect(await deleteEmailRawMimesForMessages(env, OWNER, [first.message_id, second.message_id]))
+    expect(await deleteEmailRawMimesForMessages(env, OWNER, accountId, [first.message_id, second.message_id]))
       .toEqual({ messages: 2, cleanupPending: false })
     expect(bucket.objects.has(first.object_key)).toBe(false)
     expect(bucket.objects.has(second.object_key)).toBe(false)
@@ -120,7 +120,7 @@ describe('email raw MIME storage', () => {
     const row = await save(newId())
     vi.spyOn(bucket, 'delete').mockRejectedValueOnce(new Error('R2 unavailable'))
 
-    expect(await deleteEmailRawMimesForMessages(env, OWNER, [row.message_id]))
+    expect(await deleteEmailRawMimesForMessages(env, OWNER, accountId, [row.message_id]))
       .toEqual({ messages: 1, cleanupPending: true })
     expect(await getEmailRawMimeMetadata(database.db, OWNER, accountId, row.message_id)).toBeNull()
     expect(bucket.objects.has(row.object_key)).toBe(true)
