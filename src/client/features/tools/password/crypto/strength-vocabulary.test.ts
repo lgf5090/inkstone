@@ -13,7 +13,7 @@ import {
   ZH_CN_PASSWORD_WARNINGS,
 } from '@shared/locales/zh-CN-tools'
 import { initI18n, setLocale } from '../../../../lib/i18n'
-import { evaluatePasswordStrength } from './strength'
+import { evaluatePasswordStrength } from '../../../../lib/password-strength'
 
 // A corpus wide enough to reach every feedback branch the evaluator can take.
 const CORPUS = [

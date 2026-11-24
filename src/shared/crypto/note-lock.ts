@@ -198,6 +198,11 @@ function assertNoteContext(noteId: string, field: NoteLockField): void {
   if (typeof noteId !== 'string' || !noteId || (field !== 'title' && field !== 'content')) invalidEnvelope()
 }
 
+/** The one whitespace policy for note passwords: surrounding whitespace is never key material. */
+export function normalizeNoteLockPassword(passphrase: string): string {
+  return passphrase.trim()
+}
+
 /** One passphrase prompt's key material: one PBKDF2 derivation reused for the note's fields. */
 export class NoteLockSession {
   private constructor(
@@ -210,13 +215,13 @@ export class NoteLockSession {
     passphrase: string,
     options: { salt?: string; iterations?: number } = {},
   ): Promise<NoteLockSession> {
-    const trimmed = passphrase.trim()
-    if (!trimmed) throw new NoteUnlockError('invalid-envelope')
+    const normalized = normalizeNoteLockPassword(passphrase)
+    if (!normalized) throw new NoteUnlockError('invalid-envelope')
     const iterations = options.iterations ?? NOTE_LOCK_KDF_ITERATIONS
     assertIterations(iterations)
     const salt = options.salt ?? toBase64Url(randomBytes(SALT_BYTES))
     const saltBytes = fromBase64Url(salt, SALT_BYTES)
-    const key = await deriveKey(trimmed, saltBytes, iterations)
+    const key = await deriveKey(normalized, saltBytes, iterations)
     return new NoteLockSession(salt, iterations, key)
   }
 

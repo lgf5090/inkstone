@@ -11,7 +11,7 @@ import {
   generateRandomPassword,
   DEFAULT_CUSTOM_SYMBOLS,
 } from './utils/generator'
-import { evaluatePasswordStrength, type PasswordStrengthResult } from './crypto/strength'
+import { evaluatePasswordStrength, type PasswordStrengthResult } from '../../../lib/password-strength'
 
 export interface PasswordGeneratorFormProps {
   onApply?: (password: string) => void

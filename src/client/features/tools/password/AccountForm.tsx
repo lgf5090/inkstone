@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import {
   ArrowLeft,
   Check,
@@ -21,7 +21,7 @@ import { Empty } from '../../../components/feedback'
 import { IconButton, Spinner } from '../../../components/primitives'
 import { Input, Textarea } from '../../../components/form'
 import { Tooltip, confirm } from '../../../components/overlay'
-import { evaluatePasswordStrength } from './crypto/strength'
+import { PasswordStrengthIndicator } from '../../../components/password-strength'
 import { TotpCodeLine } from './TotpCodeLine'
 import { usePasswordVaultStore } from './store'
 import { copySecret } from './utils/clipboard'
@@ -30,54 +30,6 @@ import { FaviconAvatar } from './FaviconAvatar'
 export interface AccountFormProps {
   onBack?: () => void
   className?: string
-}
-
-export function PasswordStrengthIndicator({ password }: { password: string }) {
-  // zxcvbn is the expensive part of this form: running it synchronously on every keystroke made
-  // typing a long password feel laggy. The deferred value lets React paint the character first and
-  // score the value a moment later.
-  const deferred = useDeferredValue(password)
-  if (!password) return null
-
-  const result = evaluatePasswordStrength(deferred || password)
-  const score = result.score // 0 to 4
-
-  const getBarColor = (index: number) => {
-    if (index >= score && score > 0) return 'bg-[var(--border-subtle)]'
-    if (score === 0 || score === 1) return 'bg-[var(--danger)]'
-    if (score === 2) return 'bg-[var(--warning)]'
-    if (score === 3) return 'bg-[var(--accent)]'
-    return 'bg-[var(--success)]'
-  }
-
-  return (
-    <div className="mt-1.5 space-y-1" data-testid="password-strength-indicator">
-      <div className="flex items-center gap-1">
-        {[0, 1, 2, 3].map((barIndex) => (
-          <div
-            key={barIndex}
-            data-testid="strength-bar"
-            className={cn(
-              'h-1.5 flex-1 rounded-full transition-colors duration-200',
-              getBarColor(barIndex),
-            )}
-          />
-        ))}
-        <span
-          className="ml-2 text-[length:var(--text-11)] font-medium text-[var(--text-secondary)] shrink-0"
-          data-testid="strength-label"
-        >
-          {result.label}
-        </span>
-      </div>
-
-      {(result.warning || (result.suggestions && result.suggestions.length > 0)) && (
-        <div className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-          {result.warning || result.suggestions[0]}
-        </div>
-      )}
-    </div>
-  )
 }
 
 export function AccountForm({ onBack, className }: AccountFormProps) {

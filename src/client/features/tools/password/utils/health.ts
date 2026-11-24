@@ -1,5 +1,5 @@
 import type { DecryptedAccount } from '@shared/tools/password/types'
-import { evaluatePasswordStrength } from '../crypto/strength'
+import { evaluatePasswordStrength } from '../../../../lib/password-strength'
 
 /** A password untouched for this long is worth rotating even if it is strong. */
 export const STALE_AFTER_DAYS = 180

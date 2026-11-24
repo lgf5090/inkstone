@@ -3,10 +3,14 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mergeSettings, mergeSettingsPatch } from '@shared/constants'
 import type { NoteSummary } from '@shared/types'
+import { NoteLockSession, sealNote } from '@shared/crypto'
 import { initI18n, t } from '../../lib/i18n'
+import { api } from '../../lib/api'
+import { localDb } from '../../lib/db'
 import { useNotes } from '../../store/notes'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
+import { lockAll, unlockNote, useNoteLocks } from '../../store/note-locks'
 import { Workspace } from './Workspace'
 
 /**
@@ -17,6 +21,7 @@ import { Workspace } from './Workspace'
  * was given. `live` and `value` stay read through the DOM, as the cases above already do.
  */
 const editorProps = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }))
+const previewProps = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }))
 
 vi.mock('../../editor/CodeEditor', () => ({
   DeferredCodeEditor: (props: { live: boolean; value: string }) => {
@@ -25,7 +30,10 @@ vi.mock('../../editor/CodeEditor', () => ({
   },
 }))
 vi.mock('../preview/Preview', () => ({
-  Preview: () => createElement('div', { 'data-test-preview': true }),
+  Preview: (props: { content: string; noteTitle: string }) => {
+    previewProps.last = props as unknown as Record<string, unknown>
+    return createElement('div', { 'data-test-preview': true }, props.content)
+  },
 }))
 
 let root: Root
@@ -57,6 +65,7 @@ beforeEach(async () => {
   useNotes.setState({ notes: { [note.id]: note }, contents: { [note.id]: '# Source\n\n**Markdown**' }, folders: [], tags: [] })
   useUi.setState({ activeNoteId: note.id, mobilePane: 'editor', outlineOpen: false, backlinksOpen: false })
   editorProps.last = null
+  previewProps.last = null
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -66,6 +75,7 @@ afterEach(async () => {
   await act(() => root.unmount())
   container.remove()
   restoreSession()
+  lockAll()
   vi.unstubAllGlobals()
 })
 
@@ -146,5 +156,79 @@ describe('the templater highlighting switch the workspace hands down', () => {
     useSession.setState({ settings: mergeSettings({ templater: { syntaxHighlighting: desktop, syntaxHighlightingMobile: touch } }) })
     await act(() => root.render(createElement(Workspace)))
     expect(editorProps.last?.templaterHighlight, 'the editor is handed one boolean, not the whole settings block').toBe(expected)
+  })
+})
+
+async function sealActiveNote(): Promise<{ title: string; content: string }> {
+  const sealed = await sealNote(await NoteLockSession.create('workspace password', { iterations: 100_000 }), note.id, {
+    title: 'Decrypted title',
+    content: 'Decrypted body',
+  })
+  useNotes.setState({
+    notes: { [note.id]: { ...note, isEncrypted: true, title: sealed.title } },
+    contents: { [note.id]: sealed.content },
+  })
+  return sealed
+}
+
+describe('encrypted note editing surface', () => {
+  it('keeps a fully locked note in LockedNoteView', async () => {
+    await sealActiveNote()
+    await act(() => root.render(createElement(Workspace)))
+
+    expect(container.textContent).toContain(t('notelock.locked_panel_title'))
+    expect(editorProps.last).toBeNull()
+    expect(previewProps.last).toBeNull()
+  })
+
+  it('finishes the encrypted save state when the saved envelope updates the note record', async () => {
+    await sealActiveNote()
+    await unlockNote(note.id, 'workspace password')
+    useSession.setState({ settings: mergeSettings({ editor: { autoSaveDelay: 200 } }) })
+    const patch = vi.spyOn(api.notes, 'patch').mockImplementation(async (_id, body) => ({
+      ...note,
+      isEncrypted: true,
+      title: body.title!,
+      content: body.content!,
+      rev: 2,
+      updatedAt: 2,
+    }))
+    const dropBodies = vi.spyOn(localDb, 'dropOmnisearchBodies').mockResolvedValue()
+    const clearCache = vi.spyOn(localDb, 'clearOmnisearchCache').mockResolvedValue()
+    try {
+      await act(() => root.render(createElement(Workspace)))
+      act(() => (editorProps.last!.onChange as (next: string) => void)('Autosaved encrypted body'))
+      expect(useNoteLocks.getState().drafts[note.id]?.content).toBe('Autosaved encrypted body')
+      await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 700)) })
+
+      expect(patch).toHaveBeenCalledOnce()
+      expect(patch).toHaveBeenCalledWith(note.id, expect.objectContaining({ isEncrypted: true, quiet: true }))
+      expect(container.querySelector('[role="status"]')?.textContent).toBe(t('notelock.saved'))
+      expect(useNoteLocks.getState().drafts[note.id]).toBeUndefined()
+    } finally {
+      patch.mockRestore()
+      dropBodies.mockRestore()
+      clearCache.mockRestore()
+    }
+  })
+
+  it('renders editor and preview from the decrypted draft and stages edits outside notes.contents', async () => {
+    const sealed = await sealActiveNote()
+    await unlockNote(note.id, 'workspace password')
+    useSession.setState({ settings: mergeSettings({ preview: { layout: 'split' } }) })
+    await act(() => root.render(createElement(Workspace)))
+
+    expect(editorProps.last?.value).toBe('Decrypted body')
+    expect(editorProps.last?.noteTitle).toBe('Decrypted title')
+    expect(previewProps.last?.content).toBe('Decrypted body')
+    expect(previewProps.last?.noteTitle).toBe('Decrypted title')
+
+    act(() => (editorProps.last!.onChange as (next: string) => void)('Edited decrypted body'))
+
+    expect(useNoteLocks.getState().drafts[note.id]?.content).toBe('Edited decrypted body')
+    expect(useNotes.getState().contents[note.id]).toBe(sealed.content)
+    expect(useNotes.getState().notes[note.id]?.title).toBe(sealed.title)
+    expect(container.querySelector('[data-editor-live]')?.textContent).toContain('Edited decrypted body')
+    expect(container.querySelector('[data-test-preview]')?.textContent).toContain('Edited decrypted body')
   })
 })

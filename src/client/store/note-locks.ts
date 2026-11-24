@@ -16,7 +16,7 @@ import {
   sealNote,
 } from '@shared/crypto'
 import { folderDescendantIds } from '../lib/folders'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { useNotes } from './notes'
 import { useSession } from './session'
 import { useUi } from './ui'
@@ -28,15 +28,32 @@ export interface UnlockedNote {
   expiresAt: number
 }
 
+export interface UnlockedNoteDraft {
+  title: string
+  content: string
+}
+
 interface NoteLocksState {
   /** Decrypted bodies, keyed by note id. Presence is exactly what "unlocked" means. */
   unlocked: Record<string, UnlockedNote>
+  /** Plaintext edits live only in this non-persisted store until their envelope is saved. */
+  drafts: Record<string, UnlockedNoteDraft>
 }
 
-export const useNoteLocks = create<NoteLocksState>(() => ({ unlocked: {} }))
+export const useNoteLocks = create<NoteLocksState>(() => ({ unlocked: {}, drafts: {} }))
 
+interface RetainedNoteSession {
+  session: NoteLockSession
+  title: string
+  content: string
+}
+
+/** Crypto keys never enter Zustand, local storage, IndexedDB or any persisted note cache. */
+const retainedSessions = new Map<string, RetainedNoteSession>()
 /** Timers are not state: a re-render must not reset an unlock, and React never sees them. */
 const lockTimers = new Map<string, number>()
+/** Serialize reseals so a slower earlier edit cannot overwrite a later revision. */
+const saveTails = new Map<string, Promise<unknown>>()
 
 function timeoutMs(): number {
   const minutes = useSession.getState().settings.notes?.lockTimeoutMinutes
@@ -55,19 +72,36 @@ function scheduleLock(id: string): void {
   lockTimers.set(id, window.setTimeout(() => lockNow(id), timeoutMs()))
 }
 
-/** Drop one note's key and decrypted text. Idempotent. */
+/** Object URLs embedded in decrypted text must not outlive the session that revealed them. */
+function revokeDecryptedUrls(...texts: Array<string | undefined>): void {
+  if (typeof URL === 'undefined' || typeof URL.revokeObjectURL !== 'function') return
+  const urls = new Set<string>()
+  for (const text of texts) {
+    if (!text) continue
+    for (const match of text.matchAll(/blob:[^\s"'<>)\]]+/g)) urls.add(match[0])
+  }
+  for (const url of urls) URL.revokeObjectURL(url)
+}
+
+/** Drop one note's key, draft and decrypted text. Idempotent. */
 export function lockNow(id: string): void {
   clearTimer(id)
   const state = useNoteLocks.getState()
-  if (!Object.prototype.hasOwnProperty.call(state.unlocked, id)) return
-  const { [id]: _removed, ...rest } = state.unlocked
-  useNoteLocks.setState({ unlocked: rest })
+  const unlocked = state.unlocked[id]
+  const draft = state.drafts[id]
+  retainedSessions.delete(id)
+  if (unlocked || draft) revokeDecryptedUrls(unlocked?.title, unlocked?.content, draft?.title, draft?.content)
+  if (!unlocked && !draft) return
+  const { [id]: _unlocked, ...restUnlocked } = state.unlocked
+  const { [id]: _draft, ...restDrafts } = state.drafts
+  useNoteLocks.setState({ unlocked: restUnlocked, drafts: restDrafts })
 }
 
 /** Drop every key — leaving the app, hiding the tab, or a failed unlock. */
 export function lockAll(): void {
-  for (const id of Object.keys(useNoteLocks.getState().unlocked)) clearTimer(id)
-  useNoteLocks.setState({ unlocked: {} })
+  const ids = new Set([...Object.keys(useNoteLocks.getState().unlocked), ...retainedSessions.keys()])
+  for (const id of ids) lockNow(id)
+  useNoteLocks.setState({ unlocked: {}, drafts: {} })
 }
 
 /** Re-lock every note except the one still on screen. Called when the reader switches notes. */
@@ -78,7 +112,7 @@ export function lockOthers(activeId: string | null): void {
 }
 
 export function isNoteUnlocked(id: string | null | undefined): boolean {
-  return Boolean(id && useNoteLocks.getState().unlocked[id])
+  return Boolean(id && useNoteLocks.getState().unlocked[id] && retainedSessions.has(id))
 }
 
 /**
@@ -100,13 +134,89 @@ export async function unlockNote(id: string, password: string): Promise<Unlocked
   if (content === undefined) throw new NoteUnlockError('invalid-envelope')
   const salt = saltOfEnvelope(note.title) ?? saltOfEnvelope(content)
   if (!salt) throw new NoteUnlockError('invalid-envelope')
-  const session = await NoteLockSession.create(password, { salt })
+  const session = await NoteLockSession.fromEnvelope(password, note.title)
   const opened = await openNote(session, id, { title: note.title, content })
   const now = Date.now()
   const entry: UnlockedNote = { ...opened, unlockedAt: now, expiresAt: now + timeoutMs() }
-  useNoteLocks.setState((current) => ({ unlocked: { ...current.unlocked, [id]: entry } }))
+  retainedSessions.set(id, { session, title: note.title, content })
+  useNoteLocks.setState((current) => {
+    const { [id]: _previousDraft, ...drafts } = current.drafts
+    return { unlocked: { ...current.unlocked, [id]: entry }, drafts }
+  })
   scheduleLock(id)
   return entry
+}
+
+/** Stage a plaintext edit without touching the persisted note cache or offline write queue. */
+export function updateUnlockedNoteDraft(id: string, edit: Partial<UnlockedNoteDraft>): void {
+  const state = useNoteLocks.getState()
+  const current = state.drafts[id] ?? state.unlocked[id]
+  if (!current || !retainedSessions.has(id)) return
+  const next = {
+    title: edit.title ?? current.title,
+    content: edit.content ?? current.content,
+  }
+  if (next.title === current.title && next.content === current.content) return
+  useNoteLocks.setState((latest) => ({
+    drafts: { ...latest.drafts, [id]: next },
+  }))
+}
+
+/**
+ * Re-seal both fields under the retained non-extractable key and PATCH the existing note directly.
+ * A conflict is returned to the caller and deliberately leaves the in-memory draft intact.
+ */
+export async function saveUnlockedNoteEdit(
+  id: string,
+  edit: UnlockedNoteDraft,
+): Promise<'saved' | 'conflict'> {
+  const previous = saveTails.get(id) ?? Promise.resolve()
+  const run = async (): Promise<'saved' | 'conflict'> => {
+    const retained = retainedSessions.get(id)
+    const unlocked = useNoteLocks.getState().unlocked[id]
+    const note = useNotes.getState().notes[id]
+    const content = useNotes.getState().contents[id]
+    if (!retained || !unlocked || !note?.isEncrypted || content === undefined)
+      throw new NoteUnlockError('invalid-envelope')
+    if (retained.title !== note.title || retained.content !== content) {
+      // Another device changed the envelope after this session opened it. Its key and plaintext are
+      // no longer authoritative, so fail closed instead of resealing over the remote note.
+      lockNow(id)
+      throw new NoteUnlockError('invalid-envelope')
+    }
+    const sealed = await sealNote(retained.session, id, edit)
+    try {
+      const saved = await useNotes.getState().saveNoteEnvelope(id, sealed, note.rev)
+      if (retainedSessions.get(id) !== retained) return 'saved'
+      retainedSessions.set(id, { ...retained, title: saved.title, content: saved.content })
+      useNoteLocks.setState((latest) => {
+        const currentUnlocked = latest.unlocked[id]
+        if (!currentUnlocked) return latest
+        const currentDraft = latest.drafts[id]
+        const draftStillMatches = currentDraft?.title === edit.title && currentDraft.content === edit.content
+        const { [id]: _savedDraft, ...drafts } = latest.drafts
+        return {
+          unlocked: {
+            ...latest.unlocked,
+            [id]: { ...currentUnlocked, title: edit.title, content: edit.content },
+          },
+          drafts: draftStillMatches ? drafts : latest.drafts,
+        }
+      })
+      return 'saved'
+    }
+    catch (error) {
+      if (error instanceof ApiError && error.isConflict) return 'conflict'
+      throw error
+    }
+  }
+  const task = previous.then(run, run)
+  saveTails.set(id, task)
+  const clear = () => {
+    if (saveTails.get(id) === task) saveTails.delete(id)
+  }
+  void task.then(clear, clear)
+  return task
 }
 
 /**
@@ -206,7 +316,7 @@ export async function decryptNotePermanently(id: string, password: string): Prom
   if (content === undefined) throw new NoteUnlockError('invalid-envelope')
   const salt = saltOfEnvelope(note.title) ?? saltOfEnvelope(content)
   if (!salt) throw new NoteUnlockError('invalid-envelope')
-  const session = await NoteLockSession.create(password, { salt })
+  const session = await NoteLockSession.fromEnvelope(password, note.title)
   const opened = await openNote(session, id, { title: note.title, content })
   await useNotes.getState().openNoteRecord(id, opened, rev)
   lockNow(id)
@@ -221,7 +331,6 @@ export async function decryptFolderPermanently(folderId: string, password: strin
     .map((note) => note.id)
   let opened = 0
   let skipped = 0
-  const sessions = new Map<string, NoteLockSession>()
   for (const id of ids) {
     try {
       const note = useNotes.getState().notes[id]
@@ -231,11 +340,7 @@ export async function decryptFolderPermanently(folderId: string, password: strin
         skipped++
         continue
       }
-      let session = sessions.get(salt)
-      if (!session) {
-        session = await NoteLockSession.create(password, { salt })
-        sessions.set(salt, session)
-      }
+      const session = await NoteLockSession.fromEnvelope(password, note.title)
       let content = useNotes.getState().contents[id]
       let rev = note.rev
       if (content === undefined) {
@@ -259,6 +364,19 @@ export async function decryptFolderPermanently(folderId: string, password: strin
   return { opened, skipped }
 }
 
+/** A remote envelope replacement invalidates the old key and any edit based on its plaintext. */
+function invalidateChangedEnvelope(id: string): void {
+  const retained = retainedSessions.get(id)
+  if (!retained) return
+  const state = useNotes.getState()
+  const note = state.notes[id]
+  const content = state.contents[id]
+  if (!note?.isEncrypted || content === undefined || note.title !== retained.title || content !== retained.content) {
+    lockNow(id)
+    return
+  }
+}
+
 /**
  * Wire the automatic re-lock rules once per app start.
  *
@@ -270,16 +388,28 @@ export function installNoteLockLifecycle(): () => void {
   const unsubscribe = useUi.subscribe((state, previous) => {
     if (state.activeNoteId !== previous.activeNoteId) lockOthers(state.activeNoteId)
   })
+  const unsubscribeNotes = useNotes.subscribe((state, previous) => {
+    for (const id of retainedSessions.keys()) {
+      if (previous.notes[id]?.isEncrypted && !state.notes[id]?.isEncrypted) lockNow(id)
+    }
+  })
+  const onNoteSealed = (event: Event) => {
+    const id = (event as CustomEvent<string>).detail
+    if (typeof id === 'string') invalidateChangedEnvelope(id)
+  }
   const onVisibility = () => {
     if (document.visibilityState === 'hidden') lockAll()
   }
   const onPageHide = () => lockAll()
   document.addEventListener('visibilitychange', onVisibility)
   window.addEventListener('pagehide', onPageHide)
+  window.addEventListener('inkstone:note-sealed', onNoteSealed)
   return () => {
     unsubscribe()
+    unsubscribeNotes()
     document.removeEventListener('visibilitychange', onVisibility)
     window.removeEventListener('pagehide', onPageHide)
+    window.removeEventListener('inkstone:note-sealed', onNoteSealed)
     lockAll()
   }
 }

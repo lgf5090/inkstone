@@ -11,6 +11,7 @@ export {
   NoteUnlockError as NoteLockError,
   isNoteLockEnvelope,
   iterationsOfEnvelope,
+  normalizeNoteLockPassword,
   openNote,
   parseNoteLockEnvelope,
   parseNoteLockNote,

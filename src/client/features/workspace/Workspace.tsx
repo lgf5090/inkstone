@@ -5,7 +5,7 @@ import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, Folde
 import { cn } from '../../lib/cn';
 import { insertRenderedTemplate, insertText } from '../../editor/commands';
 import { api } from '../../lib/api';
-import { readingMinutes } from '@shared/markdown-utils';
+import { countText, readingMinutes } from '@shared/markdown-utils';
 import { LIMITS } from '@shared/constants';
 import type { EditorLayout } from '@shared/types';
 import { fullTime } from '../../lib/time';
@@ -28,6 +28,7 @@ import { exportNoteAsHtml, exportNoteAsMarkdown, exportNoteAsPdf } from '../../l
 import { Preview } from '../preview/Preview';
 import { LockedNoteView } from '../notes/LockedNoteView';
 import { noteLockMenuItems } from '../notes/note-lock-menu';
+import { saveUnlockedNoteEdit, updateUnlockedNoteDraft, useNoteLocks } from '../../store/note-locks';
 import { Outline } from '../preview/Outline';
 import { FloatingOutline } from '../preview/FloatingOutline';
 import { revealPreviewTarget } from '../preview/markdown-tabs';
@@ -43,6 +44,7 @@ import type { Heading } from '../../lib/markdown/renderer';
 import { useUi, type WorkspacePane } from '../../store/ui';
 import { useSession } from '../../store/session';
 import { createContextualNote, useActiveNote, useNotes } from '../../store/notes';
+import { adoptedFrontMatterTitle, syncTitleIntoFrontMatter } from '../../store/new-note';
 import { folderPathLabel, openFolderView } from '../../lib/folders';
 import { useSyncScroll } from './sync-scroll';
 import { captureReadingPosition, readReadingPosition, readingPositionKey, restoreReadingPosition, writeReadingPosition } from './reading-position';
@@ -66,15 +68,27 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     pane?: WorkspacePane | 'active';
     grouped?: boolean;
 } = {}) {
-    const { note, content, loaded } = useActiveNote(pane);
+    const { note: storedNote, content: storedContent, loaded: storedLoaded } = useActiveNote(pane);
+    const unlockedNote = useNoteLocks((s) => storedNote?.isEncrypted && storedNote.id ? s.unlocked[storedNote.id] ?? null : null);
+    const encryptedDraft = useNoteLocks((s) => storedNote?.isEncrypted && storedNote.id ? s.drafts[storedNote.id] ?? null : null);
+    const encryptedEditing = Boolean(storedNote?.isEncrypted && unlockedNote);
+    const note = useMemo(() => {
+        if (!storedNote || !unlockedNote) return storedNote;
+        const visible = encryptedDraft ?? unlockedNote;
+        const counts = countText(visible.content);
+        return { ...storedNote, title: visible.title, excerpt: visible.content.slice(0, 160), wordCount: counts.words, charCount: counts.chars };
+    }, [storedNote, unlockedNote, encryptedDraft]);
+    const content = encryptedEditing ? encryptedDraft?.content ?? unlockedNote!.content : storedContent;
+    const loaded = storedLoaded;
     const loadError = useNotes((s) => note ? s.noteLoadErrors[note.id] : undefined);
     const editorSettings = useSession((s) => s.settings.editor);
     const previewSettings = useSession((s) => s.settings.preview);
     const templaterSettings = useSession((s) => s.settings.templater);
     const userId = useSession((s) => s.user?.id);
     const updateSettings = useSession((s) => s.updateSettings);
-    const editContent = useNotes((s) => s.editContent);
-    const editTitle = useNotes((s) => s.editTitle);
+    const editStoredContent = useNotes((s) => s.editContent);
+    const editStoredTitle = useNotes((s) => s.editTitle);
+    const editDraft = updateUnlockedNoteDraft;
     const patchNote = useNotes((s) => s.patchNote);
     const tags = useNotes((s) => s.tags);
     const folders = useNotes((s) => s.folders);
@@ -106,10 +120,59 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const previewScrollerRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const titleInputRef = useRef<HTMLInputElement>(null);
+    const contentRef = useRef(content);
+    contentRef.current = content;
     const moreButtonRef = useRef<HTMLButtonElement>(null);
     const exportMenuRef = useRef<HTMLButtonElement>(null);
     const [view, setView] = useState<EditorView | null>(null);
-    const noteEdited = useLinterDrives(note?.id ?? null, view);
+    const noteEdited = useLinterDrives(note?.isEncrypted ? null : note?.id ?? null, view);
+    const editContent = useCallback((id: string, next: string) => {
+        if (encryptedEditing && id === note?.id) {
+            const title = adoptedFrontMatterTitle(contentRef.current, next) ?? undefined;
+            editDraft(id, { content: next, ...(title !== undefined ? { title } : {}) });
+        } else editStoredContent(id, next);
+    }, [encryptedEditing, note?.id, editDraft, editStoredContent]);
+    const editTitle = useCallback((id: string, next: string) => {
+        if (encryptedEditing && id === note?.id) {
+            const title = next.slice(0, LIMITS.titleMaxLength);
+            const nextContent = syncTitleIntoFrontMatter(contentRef.current, title) ?? contentRef.current;
+            editDraft(id, { title, content: nextContent });
+        } else editStoredTitle(id, next);
+    }, [encryptedEditing, note?.id, editDraft, editStoredTitle]);
+    useEffect(() => {
+        setEncryptedSaveState('idle');
+    }, [note?.id, encryptedEditing]);
+    useEffect(() => {
+        if (!encryptedEditing || !encryptedDraft || !note?.id) return;
+        const noteId = note.id;
+        const edit = { title: encryptedDraft.title, content: encryptedDraft.content };
+        const isCurrent = () => {
+            if (!workspaceMountedRef.current || activeNoteIdRef.current !== noteId) return false;
+            const pending = useNoteLocks.getState().drafts[noteId];
+            return !pending || (pending.title === edit.title && pending.content === edit.content);
+        };
+        const timer = window.setTimeout(() => {
+            setEncryptedSaveState('saving');
+            void saveUnlockedNoteEdit(noteId, edit).then((result) => {
+                if (!isCurrent()) return;
+                if (result === 'conflict') {
+                    setEncryptedSaveState('conflict');
+                    toast({ title: t('notelock.save_conflict'), tone: 'warning' });
+                    return;
+                }
+                setEncryptedSaveState('saved');
+            }).catch((error: unknown) => {
+                if (!isCurrent()) return;
+                setEncryptedSaveState('failed');
+                toast({
+                    title: t('notelock.save_failed'),
+                    description: error instanceof Error ? error.message : String(error),
+                    tone: 'danger',
+                });
+            });
+        }, Math.max(100, editorSettings.autoSaveDelay));
+        return () => { window.clearTimeout(timer) };
+    }, [encryptedEditing, encryptedDraft, note?.id, editorSettings.autoSaveDelay, toast]);
     const readingKey = userId && note ? readingPositionKey(userId, note.id) : null;
     const pendingReadingRef = useRef<{ key: string; position: ReturnType<typeof captureReadingPosition> } | null>(null);
     const readingTimerRef = useRef<number | undefined>(undefined);
@@ -171,6 +234,14 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const [cursorLine, setCursorLine] = useState<number | null>(null);
     const [editorMenu, setEditorMenu] = useState<{ x: number; y: number; editor: EditorContext } | null>(null);
     const [editorSelection, setEditorSelection] = useState<EditorSelectionInfo | null>(null);
+    const [encryptedSaveState, setEncryptedSaveState] = useState<'idle' | 'saving' | 'saved' | 'conflict' | 'failed'>('idle');
+    const workspaceMountedRef = useRef(true);
+    const activeNoteIdRef = useRef(note?.id);
+    activeNoteIdRef.current = note?.id;
+    useEffect(() => {
+        workspaceMountedRef.current = true;
+        return () => { workspaceMountedRef.current = false };
+    }, []);
     const pendingFileKind = useRef<'image' | 'file'>('image');
     const isMobile = breakpoint === 'mobile';
     const paneActive = !grouped || pane === 'active' || activeWorkspacePane === pane;
@@ -256,6 +327,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const handlers = useMemo(() => ({
         uploadFile: async (file: File) => {
             try {
+                if (note?.isEncrypted) throw new Error(t('notelock.attachments_blocked'));
                 const optimized = await optimizeImageFile(file);
                 const uploaded = await api.files.upload(optimized, note?.id);
                 return {
@@ -277,14 +349,13 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             const noteId = note?.id;
             if (!noteId)
                 return;
-            const state = useNotes.getState();
-            const source = state.contents[noteId];
+            const source = contentRef.current;
             const at = source?.indexOf(placeholder) ?? -1;
             if (source === undefined || at < 0)
                 return;
-            state.editContent(noteId, `${source.slice(0, at)}${replacement}${source.slice(at + placeholder.length)}`);
+            editContent(noteId, `${source.slice(0, at)}${replacement}${source.slice(at + placeholder.length)}`);
         },
-    }), [note?.id, toast]);
+    }), [note?.id, toast, editContent]);
     const onChange = useCallback((next: string) => {
         if (!note)
             return;
@@ -305,9 +376,13 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         useUi.getState().setWorkspaceNote('secondary', id, true);
     }, []);
     const pickWithFileInput = useCallback((kind: 'image' | 'file') => {
+        if (note?.isEncrypted) {
+            toast({ title: t('notelock.attachments_blocked'), tone: 'warning' });
+            return;
+        }
         pendingFileKind.current = kind;
         fileInputRef.current?.click();
-    }, []);
+    }, [note?.isEncrypted, toast]);
     // The context menu is handed to `Preview`, which is memoised, so its host object has to keep its
     // identity across the re-renders the cursor causes. These two read the note through a ref rather
     // than closing over it, which is what lets the callbacks be stable.
@@ -436,9 +511,9 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     }
     const noteFolder = note.folderId ? folders.find((folder) => folder.id === note.folderId) ?? null : null;
     const noteFolderPath = note.folderId ? folderPathLabel(folders, note.folderId) : '';
-    // A sealed note gets its own surface: the editor and the ordinary preview must never receive an
-    // envelope, and an unlocked body is read-only because the server cannot re-seal an edit.
-    if (note.isEncrypted) {
+    // A fully locked note never reaches the editor or preview. Once unlocked, the same surfaces below
+    // receive only the session draft/plaintext; notes.contents continues to hold ciphertext.
+    if (note.isEncrypted && !unlockedNote) {
         return <LockedNoteView note={note} onMobileBack={onMobileBack}/>;
     }
     const exportNote = async (format: 'md' | 'html' | 'pdf') => {
@@ -478,29 +553,33 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     ];
     const mobileItems: MenuItem[] = [
         ...(isMobile ? [
-            { id: 'present', label: t("workspace.presentation_mode"), icon: <Presentation size={13}/>, onSelect: startPresentation },
+            ...(note.isEncrypted ? [] : [{ id: 'present', label: t("workspace.presentation_mode"), icon: <Presentation size={13}/>, onSelect: startPresentation }]),
             { id: 'star', label: note.isStarred ? t("common.remove_from_favorites") : t("navigation.favorites"), checked: note.isStarred, onSelect: () => void patchNote(note.id, { isStarred: !note.isStarred }) },
-            { id: 'backlinks', label: t("common.backlinks"), checked: backlinksOpen, onSelect: toggleBacklinks },
-            { id: 'local-graph', label: t("graph.local_graph"), checked: localGraphOpen, onSelect: toggleLocalGraph },
+            ...(note.isEncrypted ? [] : [
+                { id: 'backlinks', label: t("common.backlinks"), checked: backlinksOpen, onSelect: toggleBacklinks },
+                { id: 'local-graph', label: t("graph.local_graph"), checked: localGraphOpen, onSelect: toggleLocalGraph },
+            ]),
         ] : []),
-        {
+        ...(note.isEncrypted ? [] : [{
             id: 'versions',
             label: t("common.version_history"),
             icon: <History size={13}/>,
             onSelect: () => openPanel('versions'),
-        },
-        {
-            id: 'share',
-            label: t("workspace.share"),
-            icon: <Share2 size={13}/>,
-            onSelect: () => openPanel('share'),
-        },
-        {
-            id: 'share-hub',
-            label: t("share.hub_title"),
-            icon: <Globe size={13}/>,
-            onSelect: () => openPanel('share-hub'),
-        },
+        }]),
+        ...(note.isEncrypted ? [] : [
+            {
+                id: 'share',
+                label: t("workspace.share"),
+                icon: <Share2 size={13}/>,
+                onSelect: () => openPanel('share'),
+            },
+            {
+                id: 'share-hub',
+                label: t("share.hub_title"),
+                icon: <Globe size={13}/>,
+                onSelect: () => openPanel('share-hub'),
+            },
+        ]),
         {
             id: 'export-md',
             label: t("workspace.export_markdown"),
@@ -519,7 +598,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             icon: <FileDown size={13}/>,
             onSelect: () => void exportNote('pdf'),
         },
-        ...noteLockMenuItems(note, false),
+        ...noteLockMenuItems(note, Boolean(unlockedNote)),
     ];
     const groupedItems: MenuItem[] = [
         { id: 'layout-live', label: t("workspace.editing_mode"), checked: layout === 'live', onSelect: () => setEditorLayout('live') },
@@ -532,20 +611,22 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             separatorBefore: true,
             onSelect: () => void patchNote(note.id, { isStarred: !note.isStarred }),
         },
-        {
-            id: 'backlinks',
-            label: t("common.backlinks"),
-            icon: <LinkIcon size={13}/>,
-            checked: backlinksOpen && paneActive,
-            onSelect: toggleBacklinks,
-        },
-        {
-            id: 'local-graph',
-            label: t("graph.local_graph"),
-            icon: <Waypoints size={13}/>,
-            checked: localGraphOpen && paneActive,
-            onSelect: toggleLocalGraph,
-        },
+        ...(note.isEncrypted ? [] : [
+            {
+                id: 'backlinks',
+                label: t("common.backlinks"),
+                icon: <LinkIcon size={13}/>,
+                checked: backlinksOpen && paneActive,
+                onSelect: toggleBacklinks,
+            },
+            {
+                id: 'local-graph',
+                label: t("graph.local_graph"),
+                icon: <Waypoints size={13}/>,
+                checked: localGraphOpen && paneActive,
+                onSelect: toggleLocalGraph,
+            },
+        ]),
         {
             id: 'outline',
             label: t("common.outline"),
@@ -647,6 +728,11 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
               <span className={cn('absolute left-0.5 top-0.5 size-2.5 rounded-full bg-white transition-transform', livePreviewEnabled && 'translate-x-2.5')}/>
             </span>
           </button>)}
+          <Tooltip label={t("common.more_actions")} side="left">
+            <IconButton ref={moreButtonRef} label={t("common.more_actions")} size="sm" onClick={() => setMoreMenuOpen(true)}>
+              <MoreHorizontal size={16}/>
+            </IconButton>
+          </Tooltip>
           {grouped ? (<>
             <div className="mr-1 hidden 2xl:block">
               <Segmented label={t("workspace.layout")} size="sm" value={layout} onChange={setEditorLayout} options={[
@@ -655,19 +741,22 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
                 { value: 'preview', label: <Eye size={12.5}/>, title: t("workspace.reading_mode") },
               ]}/>
             </div>
-            <Tooltip label={t("common.more_actions")} side="left">
-              <IconButton ref={moreButtonRef} label={t("common.more_actions")} size="sm" onClick={() => setMoreMenuOpen(true)}>
-                <MoreHorizontal size={16}/>
-              </IconButton>
-            </Tooltip>
             {pane === 'secondary' && (<Tooltip label={t("workspace.close_right_note")} side="left">
                 <IconButton label={t("workspace.close_right_note")} size="sm" onClick={closeSecondaryNote}>
                   <X size={15}/>
                 </IconButton>
               </Tooltip>)}
           </>) : (<>
-          <span className="mr-1 hidden xl:inline-flex">
-            <SaveIndicator />
+          <span className="mr-1 inline-flex">
+            {note.isEncrypted
+              ? <span role="status" className="px-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                  {t(encryptedSaveState === 'saving' ? 'notelock.saving'
+                    : encryptedSaveState === 'saved' ? 'notelock.saved'
+                      : encryptedSaveState === 'conflict' ? 'notelock.save_conflict'
+                        : encryptedSaveState === 'failed' ? 'notelock.save_failed'
+                          : encryptedDraft ? 'notelock.editing' : 'notelock.unlocked_badge')}
+                </span>
+              : <SaveIndicator />}
           </span>
           <div className={isMobile ? 'hidden' : 'mr-1'}>
             <Segmented label={t("workspace.layout")} size="sm" value={layout} onChange={setEditorLayout} options={[
@@ -676,38 +765,38 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             { value: 'preview', label: <Eye size={12.5}/>, title: t("workspace.reading_mode") },
         ]}/>
           </div>
-          {!isMobile && <><Tooltip label={t("workspace.presentation_mode")} combo={APP_SHORTCUTS.present}>
+          {!isMobile && <>{!note.isEncrypted && <Tooltip label={t("workspace.presentation_mode")} combo={APP_SHORTCUTS.present}>
             <IconButton label={t("workspace.presentation_mode")} size="sm" onClick={startPresentation}>
               <Presentation size={14}/>
             </IconButton>
-          </Tooltip>
+          </Tooltip>}
           <Tooltip label={note.isStarred ? t("common.remove_from_favorites") : t("navigation.favorites")} combo={APP_SHORTCUTS.star}>
             <IconButton label={note.isStarred ? t("common.remove_from_favorites") : t("navigation.favorites")} size="sm" active={note.isStarred} onClick={() => void patchNote(note.id, { isStarred: !note.isStarred })}>
               <Star size={14} className={note.isStarred ? 'fill-current' : undefined}/>
             </IconButton>
           </Tooltip>
-          <Tooltip label={t("attachments.manage")}>
+          {!note.isEncrypted && <Tooltip label={t("attachments.manage")}>
             <IconButton label={t("attachments.manage")} size="sm" onClick={() => useUi.getState().setAttachmentHub('notes')}>
               <Paperclip size={14}/>
             </IconButton>
-          </Tooltip>
-          <Tooltip label={t("common.backlinks")}>
+          </Tooltip>}
+          {!note.isEncrypted && <Tooltip label={t("common.backlinks")}>
             <IconButton label={t("common.backlinks")} size="sm" active={backlinksOpen} onClick={toggleBacklinks}>
               <LinkIcon size={14}/>
             </IconButton>
-          </Tooltip>
-          <Tooltip label={t("graph.local_graph")}>
+          </Tooltip>}
+          {!note.isEncrypted && <Tooltip label={t("graph.local_graph")}>
             <IconButton label={t("graph.local_graph")} size="sm" active={localGraphOpen} onClick={toggleLocalGraph}>
               <Waypoints size={14}/>
             </IconButton>
-          </Tooltip>
+          </Tooltip>}
           {paneActive && (<Tooltip label={t("assistant.dock.toggle")}>
             <IconButton label={t("assistant.dock.toggle")} size="sm" active={assistantDockOpen} onClick={toggleAssistantDock}>
               <Sparkles size={14}/>
             </IconButton>
           </Tooltip>)}
           </>}
-          {!isMobile && (<Tooltip label={t("common.version_history")}>
+          {!isMobile && !note.isEncrypted && (<Tooltip label={t("common.version_history")}>
               <IconButton label={t("common.version_history")} size="sm" onClick={() => openPanel('versions')}>
                 <History size={14}/>
               </IconButton>
@@ -720,12 +809,12 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
               </Tooltip>
               <Menu anchor={exportMenuRef} open={exportMenuOpen} onClose={() => setExportMenuOpen(false)} items={exportMenuItems} align="end" width={200}/>
             </>)}
-          {!isMobile && (<Tooltip label={t("workspace.share")}>
+          {!isMobile && !note.isEncrypted && (<Tooltip label={t("workspace.share")}>
               <IconButton label={t("workspace.share")} size="sm" onClick={() => openPanel('share')}>
                 <Share2 size={14}/>
               </IconButton>
             </Tooltip>)}
-          {!isMobile && (<Tooltip label={t("share.hub_title")}>
+          {!isMobile && !note.isEncrypted && (<Tooltip label={t("share.hub_title")}>
               <IconButton label={t("share.hub_title")} size="sm" onClick={() => openPanel('share-hub')}>
                 <Globe size={14}/>
               </IconButton>
@@ -733,11 +822,6 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
           {(<Tooltip label={t("common.outline")} combo={isMobile ? undefined : APP_SHORTCUTS.outline}>
               <IconButton label={t("common.outline")} size="sm" active={isMobile ? mobileOutlineOpen : outlineOpen} onClick={() => isMobile ? setMobileOutlineOpen((open) => !open) : toggleOutline()}>
                 {(isMobile ? mobileOutlineOpen : outlineOpen) ? <PanelRightClose size={14}/> : <ListTree size={14}/>}
-              </IconButton>
-            </Tooltip>)}
-          {isMobile && (<Tooltip label={t("common.more_actions")} side="left">
-              <IconButton ref={moreButtonRef} label={t("common.more_actions")} size="sm" onClick={() => setMoreMenuOpen(true)}>
-                <MoreHorizontal size={16}/>
               </IconButton>
             </Tooltip>)}
           </>)}
@@ -759,11 +843,11 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
           </div>)}
         {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount} hoverPeek={outlineHoverPeek} textDirection={outlineTextDirection}/>}
         {outlineFloatingVisible && (<FloatingOutline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount} hoverPeek={outlineHoverPeek} textDirection={outlineTextDirection} collapsible={outlineMode === 'floating-circle'} containerRef={containerRef}/>)}
-        {canvasOpen && paneActive && <CanvasPanel/>}
+        {canvasOpen && paneActive && !note.isEncrypted && <CanvasPanel/>}
       </div>
 
-      {backlinksOpen && paneActive && <BacklinksPanel noteId={note.id}/>}
-      {localGraphOpen && paneActive && (<Suspense fallback={null}>
+      {backlinksOpen && paneActive && !note.isEncrypted && <BacklinksPanel noteId={note.id}/>}
+      {localGraphOpen && paneActive && !note.isEncrypted && (<Suspense fallback={null}>
           <LocalGraphPanel noteId={note.id} onClose={toggleLocalGraph} onOpenFullGraph={() => openPanel('graph')}/>
         </Suspense>)}
 

@@ -1,5 +1,5 @@
 import zxcvbn from 'zxcvbn'
-import { getLocale, t } from '../../../../lib/i18n'
+import { getLocale, t } from './i18n'
 import {
   ZH_CN_PASSWORD_LENGTH_SUGGESTION,
   ZH_CN_PASSWORD_SUGGESTIONS,

@@ -706,6 +706,10 @@ const allowed = new Map([
     "// A disabled row that carries a reason stays hoverable: the span is what the tooltip listens",
     "// to, so the explanation arrives even though the button itself refuses the press.",
   ]],
+  ["src/client/components/password-strength.tsx", [
+    "/** Shared visual feedback for any flow that asks the reader to choose a password. */",
+    "// zxcvbn is the expensive part: let the input paint before scoring the latest value.",
+  ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
     "// Right-aligned would be 1276 - 320 = 956; the caller's wider margin caps it at 1280 - 320 - 24.",
@@ -9443,7 +9447,7 @@ const allowed = new Map([
     "// in-memory state the caller clears still does its job.",
   ]],
   ["src/client/features/notes/LockedNoteView.tsx", [
-    "/**\n * The workspace surface for a sealed note.\n *\n * Locked notes never reach the editor or the ordinary preview: the store holds only ciphertext, and\n * this view is the one place that decides what a session is allowed to see. Unlocking is read-only —\n * the server cannot re-seal a plaintext edit, so editing starts by removing the lock.\n */",
+    "/** The workspace surface for a sealed note that has not been unlocked in this session. */",
   ]],
   ["src/client/features/notes/NotePicker.test.ts", [
     "// Spied rather than replaced: the folder path is what the list shows under each title, and how",
@@ -9473,15 +9477,17 @@ const allowed = new Map([
     "// is by recency and this list is ordered by name.",
     "/** A surface that cannot render a note type leaves it out of the list entirely. */",
   ]],
-  ["src/client/features/notes/note-lock-actions.ts", [
+  ["src/client/features/notes/note-lock-actions.tsx", [
     "/**\n * The menu-facing half of note locking: ask for the password, run the operation, and turn every\n * outcome into a message the reader can act on.\n *\n * The crypto itself lives in `store/note-locks.ts`; this module only owns the dialogs, so a menu\n * item is one call and the store never depends on a UI component.\n */",
+    "/** Request the project password dialog; no native prompt or password fallback exists. */",
+    "/** Accessible new-password confirmation and shared strength feedback for note encryption. */",
     "/** Add a lock to one note. The password is the key; the server never sees it. */",
     "/** Unlock a note for this session only. Nothing is written back to the server. */",
     "/** Re-lock an unlocked note without waiting for the session timeout. */",
     "/** Remove the lock: decrypt locally and write the plaintext back, a deliberate downgrade. */",
     "/** Lock every note in a folder subtree under one password. */",
-    "/** Decrypt every locked note in a folder subtree. */",
     "/** Lock the whole notebook: every live note under one password. */",
+    "/** Decrypt every locked note in a folder subtree. */",
   ]],
   ["src/client/features/notes/note-lock-menu.tsx", [
     "/**\n * The lock entries both note menus share, so the list row and the explorer row cannot drift apart.\n *\n * Lock state is passed in rather than read here: the menu is rebuilt by the component that already\n * subscribes to the session's unlocked ids, and reading `getState()` in this helper would leave the\n * \"Lock again\" entry stale until an unrelated re-render.\n */",
@@ -9623,7 +9629,6 @@ const allowed = new Map([
     "/** Called once the session is authed and the note store has hydrated. */",
     "/**\n   * A settings change that alters tokens throws the cache away rather than mixing vocabularies, which\n   * is what the reference plugin asks the reader to do by hand with a \"needs a restart\" note.\n   */",
     "/**\n   * The notes the index will hold: live, newest first, cut at the reader's own ceiling. Archived notes\n   * stay in, because hiding them is a ranking choice, not an indexing one.\n   */",
-    "/** Attachments are indexed by name only: there is no in-browser OCR for their contents. */",
     "/** At most one run may be waiting; runs never overlap. */",
     "// Attachments need no fetch: their names, sizes and owners are already in the list.",
     "/** The chunk is a slice of plain note ids; the document ids are built here, not passed in. */",
@@ -9633,6 +9638,7 @@ const allowed = new Map([
     "/**\n   * Parse and search. The reference re-indexed on window blur, so a reader could type a query and get\n   * yesterday's index; here a refresh is awaited when one is already in flight, and typing has already\n   * queued one through the store subscription.\n   */",
     "/** Force a full rebuild, the way the reference's danger-zone button does it without a restart. */",
     "/** React binding for the progress line and the settings panel. */",
+    "/** Attachment names are always indexed; a bounded set of text PDFs also contributes its pages. */",
   ]],
   ["src/client/features/omnisearch/prompt.test.ts", [
     "/** The native setter, because React's own value tracker swallows a plain assignment. */",
@@ -20073,9 +20079,6 @@ const allowed = new Map([
     "// A pending save would otherwise fire at the row 300 ms after it was deleted.",
     "/* TOTP secret and its live code */",
     "// Typing a replacement secret resolves the unreadable state for this row.",
-    "// zxcvbn is the expensive part of this form: running it synchronously on every keystroke made",
-    "// typing a long password feel laggy. The deferred value lets React paint the character first and",
-    "// score the value a moment later.",
   ]],
   ["src/client/features/tools/password/AccountList.tsx", [
     "// Map raw accounts order to decrypted accounts",
@@ -20378,9 +20381,6 @@ const allowed = new Map([
   ["src/client/features/tools/password/crypto/strength-vocabulary.test.ts", [
     "/**\n * The Chinese feedback dictionary has to speak zxcvbn's own vocabulary.\n *\n * A warning whose key is one word off is not a translation gap a reader can see: the evaluator falls\n * back to the English sentence, so a Chinese UI quietly shows \"This is similar to a commonly used\n * password\". Two keys were exactly that far off until a real browser run caught it. This pins the\n * dictionary to the strings the installed library actually emits.\n */",
     "// A corpus wide enough to reach every feedback branch the evaluator can take.",
-  ]],
-  ["src/client/features/tools/password/crypto/strength.ts", [
-    "/** zxcvbn's feedback is English; the dictionary only maps it when the reader is reading Chinese. */",
   ]],
   ["src/client/features/tools/password/door-tree.test.tsx", [
     "// Reset store state",
@@ -21245,8 +21245,8 @@ const allowed = new Map([
     "/** How many most-recently-edited notes are offered as link targets under the editor. */",
     "// A canvas draft opened in the chat stays available here, so the reader can work on the draft the",
     "// conversation produced against the note it is going into — the two are the same document.",
-    "// A sealed note gets its own surface: the editor and the ordinary preview must never receive an",
-    "// envelope, and an unlocked body is read-only because the server cannot re-seal an edit.",
+    "// A fully locked note never reaches the editor or preview. Once unlocked, the same surfaces below",
+    "// receive only the session draft/plaintext; notes.contents continues to hold ciphertext.",
   ]],
   ["src/client/features/workspace/backlinks-conversations.test.ts", [
     "/**\n * The conversations started from this note.\n *\n * The panel answers two questions about a note and a chat: which threads wrote it — the half the previous\n * file covers — and which threads were *asked about* it. The second is the one a reader standing on the page\n * wants: \"what did I talk about here?\" It is one filtered list away, and until now the note said nothing\n * about it.\n *\n * Three things are load-bearing here. The read names this note, so the list cannot be the whole library.\n * A row is a door, and it goes through the chat app's own entry point rather than a second copy of the\n * navigation. And a refused read says it failed: an empty list would tell the reader this note started no\n * conversations, which is a fact the request never established.\n */",
@@ -27718,6 +27718,9 @@ const allowed = new Map([
     "// calendar layer compared against null, which made a 0 stamp a note the list shows and the",
     "// heatmap hides. Both now read this file.",
   ]],
+  ["src/client/lib/password-strength.ts", [
+    "/** zxcvbn's feedback is English; the dictionary only maps it when the reader is reading Chinese. */",
+  ]],
   ["src/client/lib/pinyin-search.test.ts", [
     "/**\n * The labels a Chinese interface actually uses, written as escapes so the locale gate still owns\n * every piece of copy in the repository. Each one carries its reading in the gloss.\n */",
     "// quan-xuan",
@@ -31259,7 +31262,6 @@ const allowed = new Map([
     "/**\n * The session-only side of note locking.\n *\n * A key lives here and nowhere else: not in a store that persists, not in the URL, not in a cookie.\n * Unlocking decrypts the title and body into memory, schedules a timeout from the reader's setting,\n * and re-locks when the note is no longer the one being read. A page reload starts locked again,\n * which is the point — an unlock is a session, not a property of the note.\n */",
     "/** Decrypted bodies, keyed by note id. Presence is exactly what \"unlocked\" means. */",
     "/** Timers are not state: a re-render must not reset an unlock, and React never sees them. */",
-    "/** Drop one note's key and decrypted text. Idempotent. */",
     "/** Drop every key — leaving the app, hiding the tab, or a failed unlock. */",
     "/** Re-lock every note except the one still on screen. Called when the reader switches notes. */",
     "/**\n * Open one sealed note into this session.\n *\n * `saltOfEnvelope` is what lets a wrong password fail here rather than after a network call: the\n * envelope names the PBKDF2 salt, and the GCM tag is what proves the password. Every failure is\n * user-facing, so this throws rather than returning a falsy result.\n */",
@@ -31275,6 +31277,16 @@ const allowed = new Map([
     "/**\n * Lock every note in a folder subtree (the \"whole notebook\" entry) under one password.\n *\n * Each note gets its own PBKDF2 salt, matching Memos's per-row key material. Notes that are already\n * sealed are skipped rather than re-sealed under a different password.\n */",
     "// One salt per note, exactly as Memos seals one memo per salt: no two notes share key",
     "// material even when a folder is locked in one pass.",
+    "/** Plaintext edits live only in this non-persisted store until their envelope is saved. */",
+    "/** Crypto keys never enter Zustand, local storage, IndexedDB or any persisted note cache. */",
+    "/** Serialize reseals so a slower earlier edit cannot overwrite a later revision. */",
+    "/** Object URLs embedded in decrypted text must not outlive the session that revealed them. */",
+    "/** Drop one note's key, draft and decrypted text. Idempotent. */",
+    "/** Stage a plaintext edit without touching the persisted note cache or offline write queue. */",
+    "/**\n * Re-seal both fields under the retained non-extractable key and PATCH the existing note directly.\n * A conflict is returned to the caller and deliberately leaves the in-memory draft intact.\n */",
+    "// Another device changed the envelope after this session opened it. Its key and plaintext are",
+    "// no longer authoritative, so fail closed instead of resealing over the remote note.",
+    "/** A remote envelope replacement invalidates the old key and any edit based on its plaintext. */",
   ]],
   ["src/client/store/note-templates.test.ts", [
     "// One icon per built-in category, and the count is the catalog's own length rather than a second number",
@@ -31465,6 +31477,11 @@ const allowed = new Map([
     "// owns the queue's lease, the completion bookkeeping and the decision to stop when offline.",
     "// Only a note that changed from plaintext to sealed can leave a plaintext body here. Re-running",
     "// this for every encrypted summary would evict valid ciphertext caches on each sync page.",
+    "/** Replace an existing envelope without ever staging plaintext in the note cache or outbox. */",
+    "// This path deliberately bypasses the plaintext write pipeline: the only body adopted here",
+    "// is the server's ciphertext, and a failed PATCH leaves both cache and outbox untouched.",
+    "// A later write in this wave may have gone offline; its state must not be undone by the",
+    "// successful writes ahead of it whose queue commit we just finished.",
   ]],
   ["src/client/store/pinned-windows.ts", [
     "/**\n * How long a pinned window is left flashing after a link jumps to it.\n *\n * This is not a taste value: it is the duration of `pinned-window-flash` in `prose.css`, and the flag\n * that carries the class has to outlive the animation that reads it — a shorter value clips the flash\n * off mid-fade, a longer one leaves a card that no longer looks targeted still claiming to be.\n */",
@@ -33030,6 +33047,7 @@ const allowed = new Map([
     "/** Notebook-only field open. Legacy v1 notes remain readable without AAD. */",
     "/** Seal a note's title and body under one session, one salt/work factor and two fresh nonces. */",
     "/** Open a v1 or v2 note. Throws {@link NoteUnlockError} on a wrong password or an unreadable envelope. */",
+    "/** The one whitespace policy for note passwords: surrounding whitespace is never key material. */",
   ]],
   ["src/shared/development/api-tester/mock-data.ts", [
     "// The zh/en data pools are data, not interface copy: they stay out of the client i18n gate.",

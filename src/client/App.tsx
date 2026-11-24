@@ -20,6 +20,7 @@ import { initializePwa, requestOfflineWarmup, usePwa } from './store/pwa'
 import { usePresentation } from './store/presentation'
 import { useSession, watchSystemTheme } from './store/session'
 import { installNoteLockLifecycle } from './store/note-locks'
+import { NoteLockPasswordHost } from './features/notes/note-lock-actions'
 import { useUi } from './store/ui'
 import { attachmentInsertMarkdown } from './features/attachment-hub/attachment-insert'
 import type { HubAttachmentWithUsage } from '@shared/attachment-hub'
@@ -375,6 +376,7 @@ export function App() {
       <UpdateCard />
       <ConfirmHost />
       <PromptHost />
+      <NoteLockPasswordHost />
       {/* The lint preview dialog is only ever opened by a run, so its chunk stays unloaded until one asks. */}
       {status === 'authed' && <LintPreviewHost />}
       {/* A choice run asks with its own dialogs, and the gate costs one subscription until a run needs them. */}

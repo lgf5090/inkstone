@@ -67,6 +67,8 @@ interface NotesState {
     editContent: (id: string, content: string) => void;
     /** Send a client-sealed title/body to the server; the note becomes unreadable until unlocked. */
     sealNoteRecord: (id: string, sealed: { title: string; content: string }, rev?: number) => Promise<Note>;
+    /** Replace an existing envelope without ever staging plaintext in the note cache or outbox. */
+    saveNoteEnvelope: (id: string, sealed: { title: string; content: string }, rev: number) => Promise<Note>;
     /** Send a decrypted title/body back, turning the note into an ordinary plaintext note. */
     openNoteRecord: (id: string, opened: { title: string; content: string }, rev?: number) => Promise<Note>;
     /** Compute a closed note's next body from its current server copy; null refuses the write. */
@@ -767,7 +769,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         const state = get();
         const summary = state.notes[id];
         const content = state.contents[id];
-        if (!summary || content === undefined)
+        if (!summary || summary.isEncrypted || content === undefined)
             return;
         const nextTitle = title.slice(0, LIMITS.titleMaxLength);
         if (summary.title === nextTitle)
@@ -777,7 +779,7 @@ export const useNotes = create<NotesState>((set, get) => ({
     editContent(id, content) {
         const state = get();
         const summary = state.notes[id];
-        if (!summary || !hasOwnContent(state.contents, id) || state.contents[id] === content)
+        if (!summary || summary.isEncrypted || !hasOwnContent(state.contents, id) || state.contents[id] === content)
             return;
         stageNoteTextWrite(id, content, adoptedFrontMatterTitle(state.contents[id], content) ?? dirty.get(id)?.title, set, get);
     },
@@ -799,6 +801,22 @@ export const useNotes = create<NotesState>((set, get) => ({
         });
         // `adoptNote` is what evicts the plaintext cache when it sees `isEncrypted`; calling it with
         // the server row keeps this path identical to a lock arriving through sync.
+        adoptNote(saved, set, get);
+        return saved;
+    },
+    async saveNoteEnvelope(id, sealed, rev) {
+        const summary = get().notes[id];
+        if (!summary?.isEncrypted)
+            throw new Error('Note is not encrypted');
+        const saved = await api.notes.patch(id, {
+            rev,
+            title: sealed.title,
+            content: sealed.content,
+            isEncrypted: true,
+            quiet: true,
+        });
+        // This path deliberately bypasses the plaintext write pipeline: the only body adopted here
+        // is the server's ciphertext, and a failed PATCH leaves both cache and outbox untouched.
         adoptNote(saved, set, get);
         return saved;
     },
@@ -1256,6 +1274,8 @@ export const useNotes = create<NotesState>((set, get) => ({
      * copy said it was; the caller's transform returning null is the refusal, and nothing is sent.
      */
     async editRemoteContent(id, transform) {
+        if (get().notes[id]?.isEncrypted)
+            return 'conflict';
         if (!(await saveDirtyBeforeDestructiveMutation(id, set, get)))
             return 'missing';
         return enqueueNoteWrite(id, async () => {
@@ -1883,7 +1903,7 @@ if (typeof window !== 'undefined') {
 function stageNoteTextWrite(id: string, content: string, title: string | undefined, set: SetNotesState, get: () => NotesState, options?: { create?: boolean }): void {
     const state = get();
     const summary = state.notes[id];
-    if (!summary || !hasOwnContent(state.contents, id))
+    if (!summary || summary.isEncrypted || !hasOwnContent(state.contents, id))
         return;
     const previousDirty = dirty.get(id);
     const writeId = newLocalWriteId();
