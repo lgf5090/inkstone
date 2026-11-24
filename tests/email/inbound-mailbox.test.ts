@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EmailAccountSettings, EmailVacationSettings } from '../../src/shared/email/model'
+import { EMAIL_BODY_MAX_BYTES, type EmailAccountSettings, type EmailVacationSettings } from '../../src/shared/email/model'
 import type { Env } from '../../src/worker/env'
 import {
   createEmailAccount,
@@ -136,6 +136,44 @@ describe('the inbound mailbox handler', () => {
 
     const [row] = inbox()
     expect(row!.body).toBe('Just text\n')
+  })
+
+  // PostalMime keeps the final line break when a body part ends with the message.
+  it.each([
+    { part: 'HTML', body: { html: 'x'.repeat(EMAIL_BODY_MAX_BYTES - 1) } },
+    { part: 'plain-text', body: { text: 'x'.repeat(EMAIL_BODY_MAX_BYTES - 1) } },
+  ] as const)('accepts a parsed $part body at the 1 MiB boundary', async ({ body }) => {
+    expect(await deliver({
+      to: ADDRESS,
+      raw: buildMime({ to: ADDRESS, messageId: '<boundary@example.com>', ...body }),
+    })).toBe('created')
+
+    const [summary] = inbox()
+    expect(summary).toBeDefined()
+    const row = harness.store(ACCOUNT).getEmail(summary!.id)
+    expect(new TextEncoder().encode(row!.body).byteLength).toBe(EMAIL_BODY_MAX_BYTES)
+  })
+
+  it.each([
+    { part: 'HTML', body: { html: 'é'.repeat(EMAIL_BODY_MAX_BYTES / 2 + 1), text: 'Small text' } },
+    { part: 'plain-text', body: { text: 'é'.repeat(EMAIL_BODY_MAX_BYTES / 2 + 1), html: '<p>Small HTML</p>' } },
+  ] as const)('rejects an oversized $part body without claiming or storing it', async ({ part, body }) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const messageId = `<oversized-${part}@example.com>`
+    const message = forwardedMail({
+      to: ADDRESS,
+      raw: buildMime({ to: ADDRESS, messageId, ...body }),
+    })
+    const reject = vi.spyOn(message, 'setReject')
+
+    expect(await handleMailboxInbound(message, account, env, executionContext())).toBe('dropped')
+
+    expect(reject).toHaveBeenCalledTimes(1)
+    expect(reject).toHaveBeenCalledWith(`The inbound message body exceeds the ${EMAIL_BODY_MAX_BYTES}-byte limit`)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('parsed body exceeds'))
+    expect(harness.store(ACCOUNT).claimInbound(`oversized-${part}@example.com`, Date.now())).toBe(true)
+    const row = harness.sqlite(ACCOUNT).prepare('SELECT COUNT(*) AS total FROM email_messages').get() as { total: number }
+    expect(Number(row.total)).toBe(0)
   })
 
   it('persists attachments under the mail prefix with a locked row for the message', async () => {

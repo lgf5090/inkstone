@@ -1,6 +1,7 @@
 import PostalMime from 'postal-mime'
 import {
   EMAIL_ATTACHMENT_MAX_BYTES,
+  EMAIL_BODY_MAX_BYTES,
   EMAIL_INBOUND_MAX_BYTES,
   EMAIL_SUBJECT_MAX_CHARS,
   EMAIL_VACATION_AUTO_SUBJECT_PREFIX,
@@ -8,6 +9,7 @@ import {
 } from '@shared/email/model'
 import type { EmailVacationSettings } from '@shared/email/model'
 import { textToEmailHtml } from '@shared/email/format'
+import { utf8ByteLength } from '@shared/text-utils'
 import { normalizeEmailSenderAddress } from '@shared/email/rules'
 import { deleteAttachmentObjects, selectAttachmentStorage } from '../attachments/backend'
 import { persistEmailAttachment } from '../attachments/storage'
@@ -122,6 +124,14 @@ export async function handleMailboxInbound(
     throw error
   }
 
+  const html = parsed.html ?? ''
+  const text = parsed.text ?? ''
+  if (utf8ByteLength(html) > EMAIL_BODY_MAX_BYTES || utf8ByteLength(text) > EMAIL_BODY_MAX_BYTES) {
+    console.warn(`[inkstone] inbound mail rejected: a parsed body exceeds the ${EMAIL_BODY_MAX_BYTES}-byte limit`)
+    message.setReject(`The inbound message body exceeds the ${EMAIL_BODY_MAX_BYTES}-byte limit`)
+    return 'dropped'
+  }
+
   const sender = normalizeEnvelopeAddress(message.from)
   if (sender && sender === account.address_normalized) {
     console.warn('[inkstone] inbound mail dropped: the message is addressed from its own mailbox')
@@ -183,7 +193,7 @@ export async function handleMailboxInbound(
       cc,
       bcc,
       date: clampInboundDate(parsed.date, receivedAt),
-      body: parsed.html || parsed.text || '',
+      body: html || text,
       bodySource: null,
       read: plan.read,
       starred: plan.starred,

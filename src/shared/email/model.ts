@@ -1,7 +1,7 @@
 import { LIMITS } from '@shared/constants'
 
 export const EMAIL_SUBJECT_MAX_CHARS = 1000
-export const EMAIL_BODY_MAX_BYTES = 5 * 1024 * 1024
+export const EMAIL_BODY_MAX_BYTES = 1024 * 1024
 export const EMAIL_INBOUND_MAX_BYTES = 25 * 1024 * 1024
 export const EMAIL_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
 export const EMAIL_ATTACHMENT_QUOTA_BYTES = LIMITS.attachmentQuotaBytes

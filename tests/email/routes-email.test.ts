@@ -1251,14 +1251,36 @@ describe('email drafts and attachments', () => {
     })
     expect(tooLong.status).toBe(400)
     expect((await errorOf(tooLong)).code).toBe('email_draft_invalid')
+  })
 
-    const tooLarge = await call('POST', `/accounts/${accountId}/drafts`, {
+  it('accepts both draft bodies at 1 MiB and rejects either one over the UTF-8 limit', async () => {
+    expect(EMAIL_BODY_MAX_BYTES).toBe(1024 * 1024)
+    const body = 'x'.repeat(EMAIL_BODY_MAX_BYTES)
+    const created = await call('POST', `/accounts/${accountId}/drafts`, {
       to: 'bob@example.com',
-      subject: 'Big',
-      body: 'x',
-      bodyHtml: 'x'.repeat(EMAIL_BODY_MAX_BYTES + 1),
+      subject: 'Boundary',
+      body,
+      bodyHtml: body,
     })
-    expect(tooLarge.status).toBe(413)
+    expect(created.status).toBe(201)
+    const { draftId } = await json<{ draftId: string }>(created)
+    expect(store.getEmail(draftId)).toMatchObject({ body, body_source: body })
+
+    const oversized = 'é'.repeat(EMAIL_BODY_MAX_BYTES / 2 + 1)
+    for (const field of ['body', 'bodyHtml'] as const) {
+      const response = await call('POST', `/accounts/${accountId}/drafts`, {
+        to: 'bob@example.com',
+        subject: `Oversized ${field}`,
+        body: field === 'body' ? oversized : 'Small',
+        bodyHtml: field === 'bodyHtml' ? oversized : '<p>Small</p>',
+      })
+      expect(response.status).toBe(413)
+      expect(await errorOf(response)).toEqual({
+        code: 'payload_too_large',
+        message: 'The draft body exceeds the 1 MiB limit',
+      })
+    }
+    expect(store.getEmails({ folder: 'draft' })).toHaveLength(1)
   })
 
   it('refuses a draft write typed on a superseded revision and names the newer copy', async () => {

@@ -1444,7 +1444,7 @@ emailRoutes.post('/accounts/:id/drafts', async (c) => {
     throw draftInvalid('The bcc field must be a string')
   }
   if (utf8ByteLength(body.body) > EMAIL_BODY_MAX_BYTES || utf8ByteLength(body.bodyHtml) > EMAIL_BODY_MAX_BYTES) {
-    throw ApiError.tooLarge('The draft body exceeds the 5 MB limit')
+    throw ApiError.tooLarge('The draft body exceeds the 1 MiB limit')
   }
   if (body.subject.length > EMAIL_SUBJECT_MAX_CHARS) throw draftInvalid('The subject is too long')
   let draftId: string | null = null
