@@ -204,6 +204,8 @@ export const ZH_CN_OFFICE = {
   'office.settings.reset': '恢复默认',
   'office.settings.cancel': '取消',
   'office.settings.save': '保存',
+  'office.settings.exchange.on': 'Office 导入导出已接入：{endpoint}。',
+  'office.settings.exchange.off': 'Office 导入导出（xlsx、docx、pptx）需要外部 exchange 服务，当前未配置。',
   'office.settings.usage.title': '存储用量',
   'office.settings.usage.line': '{files} / {fileLimit} 个文件 · {bytes} / {byteLimit}',
   'office.settings.usage.unknown': '暂时无法读取存储用量。',

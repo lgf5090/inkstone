@@ -9684,6 +9684,9 @@ const allowed = new Map([
   ["src/client/features/office/office-drag.ts", [
     "/**\n * One private `dataTransfer` type for every in-app drag the office shell starts: files onto a\n * folder, folders into another folder, and tags under another tag. The payload is also kept in a\n * module variable because `dataTransfer` refuses to hand its data back before the drop, and every\n * drop target has to decide whether to accept the drag while it is still in flight.\n */",
   ]],
+  ["src/client/features/office/office-exchange.ts", [
+    "/**\n * The external Univer exchange endpoint, when the deployment has one.\n *\n * Importing an xlsx/docx/pptx (or exporting one) is not something the Web SDK can do alone: the bytes\n * have to be converted into a Univer unit by a separate Exchange service. `.env.example` has promised\n * `VITE_UNIVER_EXCHANGE_ENDPOINT` since the first draft, so this module is the code behind that promise:\n * empty means the actions stay hidden, set means the browser may call that origin.\n *\n * The worker never proxies it, so the endpoint must also be allowed by the page's CSP (`connect-src`).\n */",
+  ]],
   ["src/client/features/office/office-menus.tsx", [
     "/** The six products as menu rows; shared by every \"new file\" menu in the shell. */",
     "/** One row per tag, filtered as the reader types; the panel is a submenu, not a dialog. */",
@@ -51138,6 +51141,9 @@ const allowed = new Map([
   ]],
   ["tests/office-backup.test.ts", [
     "/**\n * One backup is a manifest plus the bytes it points at, written under its own stamp.\n *\n * The assertions read the objects back: a manifest that names a file whose bytes were never copied\n * would restore into a file that cannot open.\n */",
+  ]],
+  ["tests/office-exchange.test.ts", [
+    "/**\n * The exchange contract: an empty variable hides the actions, a set one enables them and is read once.\n */",
   ]],
   ["tests/office-folders.test.ts", [
     "/**\n * The office tree: folder hierarchy rules, tag families and revision trimming.\n *\n * These are the rules that keep a flat `parent_id` table from becoming a corrupt one — depth,\n * cycles, sibling names, promotion on delete — plus the `/` family rewrite that must not touch an\n * unrelated tag whose name merely starts with the same letters.\n */",

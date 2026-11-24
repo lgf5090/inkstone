@@ -6,6 +6,7 @@ import { Modal } from '../../components/overlay'
 import { officeApi } from './api'
 import { formatBytes } from '@shared/byte-format'
 import { OFFICE_LIMITS } from '@shared/office/constants'
+import { officeExchangeEnabled, officeExchangeEndpoint } from './office-exchange'
 import {
   DEFAULT_OFFICE_PREFS,
   OFFICE_AUTOSAVE_DELAYS,
@@ -148,6 +149,11 @@ export function OfficeSettingsDialog({ open, prefs, onClose, onSave }: OfficeSet
 
         <section className="flex flex-col gap-2">
           <h3 className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{t('office.settings.usage.title')}</h3>
+          <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {officeExchangeEnabled()
+              ? t('office.settings.exchange.on', { endpoint: officeExchangeEndpoint() })
+              : t('office.settings.exchange.off')}
+          </p>
           <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
             {usage
               ? t('office.settings.usage.line', {

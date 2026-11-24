@@ -204,6 +204,8 @@ export const EN_US_OFFICE = {
   'office.settings.reset': 'Reset',
   'office.settings.cancel': 'Cancel',
   'office.settings.save': 'Save',
+  'office.settings.exchange.on': 'Office import/export is configured through {endpoint}.',
+  'office.settings.exchange.off': 'Office import/export (xlsx, docx, pptx) needs an external exchange endpoint; none is configured.',
   'office.settings.usage.title': 'Storage',
   'office.settings.usage.line': '{files} of {fileLimit} files · {bytes} of {byteLimit}',
   'office.settings.usage.unknown': 'Storage usage is unavailable right now.',
