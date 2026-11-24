@@ -1,9 +1,10 @@
 import { create } from 'zustand'
 import { DEFAULT_SETTINGS, mergeSettings, mergeSettingsPatch } from '@shared/constants'
 import type { PublicUser, SessionInfo, SiteInfo, TotpLoginChallenge, UserSettings } from '@shared/types'
-import { api, ApiError } from '../lib/api'
+import { api, ApiError, CLIENT_ID } from '../lib/api'
 import { getLocale, setLocale, t } from '../lib/i18n'
-import { localDb } from '../lib/db'
+import { localDb, publishBroadcast } from '../lib/db'
+import { PINNED_WINDOWS_STORAGE_KEY, UI_STORAGE_KEY } from '../lib/runtime'
 import { applyThemeToDom, useUi } from './ui'
 
 interface SessionState {
@@ -53,6 +54,44 @@ let logoutPromise: Promise<void> | null = null
 let registrationMutationSequence = 0
 let sessionCacheTask: Promise<void> = Promise.resolve()
 let sessionCacheEpoch = 0
+const SESSION_CLEAR_KEY = 'inkstone.session-cleared'
+
+function prepareLocalAccountClear(notifyOtherTabs: boolean): void {
+  localDb.disableWrites()
+  localStorage.removeItem(UI_STORAGE_KEY)
+  localStorage.removeItem(PINNED_WINDOWS_STORAGE_KEY)
+  if (notifyOtherTabs) {
+    localStorage.setItem(SESSION_CLEAR_KEY, String(Date.now()))
+    publishBroadcast({ type: 'session-cleared', clientId: CLIENT_ID })
+  }
+}
+
+async function clearLocalAccountData(): Promise<void> {
+  prepareLocalAccountClear(false)
+  await localDb.clear()
+  useSession.setState({ status: 'anonymous', user: null, site: null, settings: DEFAULT_SETTINGS })
+}
+
+let remoteSessionClear: Promise<void> | null = null
+function clearRemoteSessionTab(): void {
+  if (remoteSessionClear) return
+  remoteSessionClear = clearLocalAccountData().finally(() => location.reload())
+}
+
+if (typeof window !== 'undefined') {
+  if (typeof BroadcastChannel !== 'undefined') {
+    const channel = new BroadcastChannel('inkstone')
+    channel.onmessage = (event) => {
+      const payload = event.data as { type?: string, clientId?: string, userId?: string }
+      if (payload.type !== 'session-cleared' || payload.clientId === CLIENT_ID) return
+      clearRemoteSessionTab()
+    }
+  }
+  window.addEventListener('storage', (event) => {
+    if (event.key === SESSION_CLEAR_KEY && event.newValue !== null)
+      clearRemoteSessionTab()
+  })
+}
 
 export const useSession = create<SessionState>((set, get) => ({
   status: 'loading',
@@ -71,6 +110,10 @@ export const useSession = create<SessionState>((set, get) => ({
       adopt(info, set)
     } catch (err) {
       if (sequence !== sessionRequestSequence) return
+      if (err instanceof ApiError && err.isAuth) {
+        await clearLocalAccountData()
+        return
+      }
       if (err instanceof ApiError && err.isOffline) {
         const cached = await localDb.loadSession()
         if (sequence !== sessionRequestSequence) return
@@ -132,11 +175,19 @@ export const useSession = create<SessionState>((set, get) => ({
 
   async refresh() {
     const sequence = ++sessionRequestSequence
-    const info = await api.session()
-    if (sequence !== sessionRequestSequence) return
-    await persistSession(info)
-    if (sequence !== sessionRequestSequence) return
-    adopt(info, set)
+    try {
+      const info = await api.session()
+      if (sequence !== sessionRequestSequence) return
+      await persistSession(info)
+      if (sequence !== sessionRequestSequence) return
+      adopt(info, set)
+    } catch (error) {
+      if (error instanceof ApiError && error.isAuth) {
+        await clearLocalAccountData()
+        set({ authError: failureDescription(error) })
+      }
+      throw error
+    }
   },
 
   async refreshSettings() {
@@ -264,6 +315,7 @@ export const useSession = create<SessionState>((set, get) => ({
       sessionCacheEpoch++
       const pendingSessionCache = sessionCacheTask
       resetSettingsPersistence(null)
+      prepareLocalAccountClear(true)
       // Waiting only for the queue to drain, not for its answer: `localDb.clear()` on the next line wipes
       // exactly what that write would have written, and the epoch above already turned any task that has
       // not started into a no-op. Reporting its failure would describe a cache about to be destroyed.

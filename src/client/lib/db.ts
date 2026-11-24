@@ -1,4 +1,4 @@
-import { clear as clearStore, createStore, del, get, getMany, set, setMany, update } from 'idb-keyval'
+import { clear as clearStore, createStore, del, get, getMany, set, setMany, update as idbUpdate } from 'idb-keyval'
 import * as idbKeyval from 'idb-keyval'
 import type { UseStore } from 'idb-keyval'
 import type { Folder, Note, NoteSummary, NoteTemplate, NoteTemplateCategory, PublicUser, SessionInfo, SiteInfo, Tag } from '@shared/types'
@@ -57,6 +57,7 @@ let pendingShell: (() => ShellSources) | null = null
 let pendingShellUserId: string | null = null
 let lastSavedShell: ShellSources | null = null
 let activeUserId: string | null = null
+let localWritesDisabled = false
 const supportsUserNamespaces = typeof entries === 'function' && typeof delMany === 'function'
 let forceUserNamespaces = false
 
@@ -183,12 +184,18 @@ async function safeGet<T>(key: string): Promise<T | undefined> {
 }
 
 async function safeSet(key: string, value: unknown): Promise<void> {
+  if (localWritesDisabled) return
   try {
     await set(key, value, store)
   } catch {
     // A cache write is best-effort: the caller's in-memory state already holds the value, so a
     // browser that refuses IndexedDB (private mode, a full disk) must not fail the edit behind it.
   }
+}
+
+function update<T = any>(key: IDBValidKey, updater: (oldValue: T | undefined) => T, customStore?: UseStore): Promise<void> {
+  if (localWritesDisabled) return Promise.reject(new Error('local writes are disabled'))
+  return idbUpdate(key, updater, customStore)
 }
 
 function userScopedKey(key: string, userId = activeUserId): string {
@@ -223,6 +230,7 @@ async function bindLocalUser(userId: string): Promise<void> {
       forceUserNamespaces = false
       await set(KEY.userId, userId, store)
     }
+    localWritesDisabled = false
     return
   }
   if (!supportsUserNamespaces) {
@@ -239,12 +247,14 @@ async function bindLocalUser(userId: string): Promise<void> {
     }
     activeUserId = userId
     await set(KEY.userId, userId, store)
+    localWritesDisabled = false
     return
   }
   activeUserId = userId
   const legacyUserId = await safeGet<string>(KEY.userId)
   if (legacyUserId === userId) await migrateLegacyData(userId)
   await set(KEY.userId, userId, store)
+  localWritesDisabled = false
 }
 
 export const localDb = {
@@ -262,7 +272,7 @@ export const localDb = {
   },
 
   async saveSession(info: SessionInfo): Promise<void> {
-    if (!info.user) return
+    if (!info.user || localWritesDisabled) return
     // Mirroring a session the caller already holds in memory and the server already has in its cookie.
     // This copy only lets the next start skip a round trip, so a refused write (quota, a database that
     // closed under us) costs that fast start and nothing else.
@@ -821,6 +831,10 @@ export const localDb = {
     await bindLocalUser(userId)
   },
 
+  disableWrites(): void {
+    localWritesDisabled = true
+  },
+
   async clear(): Promise<void> {
     try {
       await clearLocalData()
@@ -832,10 +846,12 @@ export const localDb = {
     }
     activeUserId = null
     forceUserNamespaces = false
+    localWritesDisabled = true
   },
 }
 
 async function clearLocalData(): Promise<void> {
+  localWritesDisabled = true
   window.clearTimeout(shellSaveTimer)
   shellSaveTimer = 0
   pendingShell = null
@@ -959,6 +975,7 @@ export type BroadcastPayload = (
   | { type: 'quickadd-changed'; clientId: string }
   | { type: 'profile-changed'; clientId: string }
   | { type: 'site-changed'; clientId: string }
+  | { type: 'session-cleared'; clientId: string }
   | {
       type: 'outbox-base-advanced'
       clientId: string

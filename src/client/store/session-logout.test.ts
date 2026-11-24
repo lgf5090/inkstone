@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { localDb } from '../lib/db'
 import { useSession } from './session'
 import { saveEmailOfflineDraft } from '../features/email/offline-outbox'
+import { PINNED_WINDOWS_STORAGE_KEY } from '../lib/runtime'
 
 const confirmMock = vi.hoisted(() => vi.fn(async (_options: { title: string; description?: string; tone?: string }) => false))
 const notes = vi.hoisted(() => ({ pendingCount: 2, flushFails: true }))
@@ -77,9 +78,11 @@ describe('signing out with unsynced edits', () => {
       threadId: null,
     })
     localStorage.setItem('inkstone.ui', '{}')
+    localStorage.setItem(PINNED_WINDOWS_STORAGE_KEY, '{"items":[{"title":"Secret"}]}')
     await useSession.getState().logout()
     expect(localStorage.getItem('inkstone:email:offline-draft:v1:draft:a1:d1')).toBeNull()
-    expect(localStorage.getItem('inkstone.ui')).toBe('{}')
+    expect(localStorage.getItem('inkstone.ui')).toBeNull()
+    expect(localStorage.getItem(PINNED_WINDOWS_STORAGE_KEY)).toBeNull()
   })
 
   it('removes the calendar snapshots that belong to the account that left', async () => {
@@ -91,6 +94,6 @@ describe('signing out with unsynced edits', () => {
     await useSession.getState().logout()
     expect(localStorage.getItem('inkstone.calendar.first-paint.v1:alice')).toBeNull()
     expect(localStorage.getItem('inkstone.calendar.range.v1:alice')).toBeNull()
-    expect(localStorage.getItem('inkstone.ui')).toBe('{}')
+    expect(localStorage.getItem('inkstone.ui')).toBeNull()
   })
 })
