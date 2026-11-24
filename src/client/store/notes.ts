@@ -463,9 +463,9 @@ export const useNotes = create<NotesState>((set, get) => ({
     },
     applySync(payload) {
         if (payload.settingsChanged)
-            void useSession.getState().refreshSettings().catch(() => { });
+            void useSession.getState().refreshSettings().catch((error) => console.warn('[inkstone] Settings refresh failed:', error));
         if (payload.profileChanged || payload.siteChanged)
-            void useSession.getState().refresh().catch(() => { });
+            void useSession.getState().refresh().catch((error) => console.warn('[inkstone] Profile refresh failed:', error));
         const deletionIds = payload.deletions
             .filter((item) => item.entity === 'note')
             .map((item) => item.id);

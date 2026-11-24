@@ -24,7 +24,7 @@ export function DrawerSearchField({
     placeholder: string;
     autoFocus?: boolean;
 }) {
-    return (<div className="sticky top-0 z-10 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+    return (<div className="sticky top-0 z-[var(--z-sticky)] border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
       <FilterInput
         size="drawer"
         escapeWhenEmpty="release"

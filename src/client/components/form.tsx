@@ -177,7 +177,7 @@ export function Switch({
       <span
         aria-hidden="true"
         className={cn(
-          'absolute left-[2px] top-[2px] size-5 rounded-full bg-white shadow-sm md:size-[16px]',
+          'absolute left-[2px] top-[2px] size-5 rounded-full bg-[var(--plate-lightest)] shadow-[var(--shadow-sm)] md:size-[16px]',
           'transition-transform duration-[var(--dur-base)] ease-[var(--ease-out)]',
           checked ? 'translate-x-5 md:translate-x-[14px]' : 'translate-x-0',
         )}
@@ -315,12 +315,12 @@ export function Segmented<T extends string>({
             onClick={() => onChange(option.value)}
             onKeyDown={roving.keyHandlerFor(index)}
             className={cn(
-              'relative z-10 inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--r-sm)] font-medium',
+              'relative z-[var(--z-sticky)] inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-[var(--r-sm)] font-medium',
               'transition-[color,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
               'disabled:pointer-events-none disabled:opacity-45',
               size === 'sm' ? 'h-8 px-2.5 text-[length:var(--text-11-5)] md:h-[22px] md:px-2' : 'h-9 px-3 text-[length:var(--text-12-5)] md:h-[26px] md:px-2.5',
               active
-                ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-[0_1px_2px_rgba(0,0,0,.10)]'
+                ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-[var(--shadow-sm)]'
                 : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
             )}
           >

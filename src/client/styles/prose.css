@@ -2510,7 +2510,7 @@
   height: 100vh;
   margin: 0;
   border-radius: 0;
-  z-index: 9999;
+  z-index: var(--z-top);
   background: var(--bg-base);
 }
 .ink-prose .excalidraw-block-head {

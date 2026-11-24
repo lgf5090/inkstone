@@ -83,7 +83,7 @@ export function Tabs<T extends string>({
               'transition-[color,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
               'disabled:pointer-events-none disabled:opacity-45',
               active
-                ? 'bg-[var(--bg-surface)] font-medium text-[var(--text-primary)] shadow-[0_1px_2px_rgba(0,0,0,.08)]'
+                ? 'bg-[var(--bg-surface)] font-medium text-[var(--text-primary)] shadow-[var(--shadow-sm)]'
                 : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]',
             )}
           >

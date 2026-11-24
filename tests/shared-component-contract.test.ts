@@ -112,7 +112,7 @@ describe('the stacking scale is one source of truth', () => {
     for (const file of sourceFiles(COMPONENTS)) {
       const source = read(file)
       source.split('\n').forEach((line, index) => {
-        if (/z-\[\d+\]/.test(line) || /\bzIndex\s*[:=]\s*\d/.test(line)) {
+        if (/z-(?:\[\d+\]|\d+)\b/.test(line) || /\bzIndex\s*[:=]\s*\d/.test(line)) {
           offenders.push(`${show(file)}:${index + 1}`)
         }
       })
@@ -174,6 +174,37 @@ describe('the focus ring is one token per role', () => {
         .map(({ at }) => `${show(file)}:${at}`)
     })
     expect(offenders).toEqual([])
+  })
+})
+
+describe('shared surfaces read their paint and stacking tokens', () => {
+  it('defines the shadow, fixed-light and fullscreen tokens the shared surfaces use', () => {
+    const source = read(TOKENS)
+    for (const token of ['--shadow-sm', '--plate-lightest', '--z-top']) {
+      expect(source, `${token} is missing from the design tokens`).toMatch(new RegExp(`${token}\\s*:`))
+    }
+  })
+
+  it('keeps raw shadow and color literals out of the shared surface files', () => {
+    const files = [
+      'src/client/components/primitives.tsx',
+      'src/client/components/tabs.tsx',
+      'src/client/components/form.tsx',
+      'src/client/styles/ui-primitives.css',
+    ]
+    for (const file of files) {
+      const source = read(file)
+      expect(source, `${file} spells a shadow by hand`).not.toMatch(/shadow-\[0_|box-shadow:\s*(?:0|inset)/i)
+      expect(source, `${file} names a raw UI color`).not.toMatch(/\b(?:bg|text|border)-(?:white|black)\b|#[\da-f]{3,8}\b|\brgba?\(/i)
+    }
+  })
+
+  it('routes the fullscreen embedded editor through the top stacking token', () => {
+    const source = read('src/client/styles/prose.css')
+    const rule = /\.ink-prose \.excalidraw-block\.excalidraw-fullscreen\s*\{([^}]+)\}/.exec(source)?.[1]
+    expect(rule).toBeDefined()
+    expect(rule).toMatch(/z-index:\s*var\(--z-top\)/)
+    expect(rule).not.toMatch(/z-index:\s*\d+/)
   })
 })
 

@@ -678,7 +678,7 @@ const TREE_SPACING_KEYS = new Set(['paddingLeft', 'marginLeft', 'paddingInlineSt
 const ARITHMETIC_KINDS = new Set([ts.SyntaxKind.BinaryExpression, ts.SyntaxKind.PrefixUnaryExpression, ts.SyntaxKind.PostfixUnaryExpression])
 /** Residual formulas that predate this guard, keyed `file:line` so a new one fails and a fix fails too. */
 const INLINE_TREE_INDENT_BASELINE = new Map<string, string>([
-  ['src/client/features/preview/Outline.tsx:703', 'Competing formula `OUTLINE_INDENT_BASE + tier * OUTLINE_INDENT_STEP` with its own constants — a real second source of truth that should call treeIndent(tier). Recorded, not audited as correct.'],
+  ['src/client/features/preview/Outline.tsx:704', 'Competing formula `OUTLINE_INDENT_BASE + tier * OUTLINE_INDENT_STEP` with its own constants — a real second source of truth that should call treeIndent(tier). Recorded, not audited as correct.'],
 ])
 
 /** Inline tree indents today: a spacing property whose value does arithmetic on a depth variable. */
@@ -742,10 +742,10 @@ describe('converged tree indent keeps using treeIndent()', () => {
 /**
  * `z-index` has one scale — `Z_INDEX` in `src/client/lib/z-index.ts`, mirrored by `--z-*` tokens.
  * `shared-component-contract.test.ts` pins the scale; this is the complementary check that call
- * sites reach for it instead of a raw number, in every form it gets written: a `z-[N]` utility, a
- * `zIndex` property, and a `z-index` declaration in a stylesheet.
+ * sites reach for it instead of a raw number, in every form it gets written: a `z-[N]` or plain
+ * `z-N` utility, a `zIndex` property, and a `z-index` declaration in a stylesheet.
  */
-const Z_INDEX_CLASS_RE = /(?<![\w-])z-\[([\d.]+)\]/g
+const Z_INDEX_CLASS_RE = /(?<![\w-])z-(?:\[([\d.]+)\]|(\d+))(?=$|[\s"'`])/g
 const Z_INDEX_CSS_RE = /z-index\s*:\s*([^;}\r\n]+)/g
 /** A CSS value that resolves through the scale rather than naming a level. */
 const Z_INDEX_TOKEN_VALUE_RE = /^\s*(?:var\(\s*--z-[a-z0-9-]+\s*\)|Z_INDEX\.[A-Za-z0-9_]+)\s*$/
@@ -757,6 +757,18 @@ function rawZIndexSites(): Array<{ key: string; file: string; value: string; for
     const trimmed = value.trim()
     if (!/^\d+$/.test(trimmed)) return
     sites.push({ key: `${file}:${line}`, file, value: trimmed, form })
+  }
+  const pushClasses = (file: string, line: number, raw: string, origin: 'className' | 'string'): void => {
+    for (const match of raw.matchAll(Z_INDEX_CLASS_RE)) {
+      const arbitrary = match[1] !== undefined
+      push(file, line, match[1] ?? match[2]!, `${origin} ${arbitrary ? 'z-[N]' : 'z-N'}`)
+    }
+  }
+  const inClassAttribute = (node: ts.Node): boolean => {
+    let current: ts.Node | undefined = node.parent
+    while (current && !ts.isJsxAttribute(current)) current = current.parent
+    return current !== undefined && ts.isJsxAttribute(current)
+      && (current.name.getText() === 'className' || current.name.getText() === 'class')
   }
   for (const pathName of walkFiles(CLIENT_DIR)) {
     const name = relative(pathName)
@@ -778,25 +790,20 @@ function rawZIndexSites(): Array<{ key: string; file: string; value: string; for
       if (ts.isJsxAttribute(node)) {
         const attributeName = node.name.getText()
         const raw = attributeText(node.initializer)
-        if (attributeName === 'className' || attributeName === 'class') {
-          for (const match of raw.matchAll(Z_INDEX_CLASS_RE)) push(name, line, match[1], 'className z-[N]')
-        }
+        if (attributeName === 'className' || attributeName === 'class') pushClasses(name, line, raw, 'className')
         // `zIndex={240}` arrives here with its braces, which is a number the browser will read but the
         // digit test below would not have seen.
         if (attributeName === 'zIndex') push(name, line, raw.replace(/[{}]/g, ''), 'zIndex prop')
       }
-      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && !inClassAttribute(node)) {
         // A class list built in a variable or a helper never reaches a `className` attribute node, so
-        // reading only attributes left `const base = 'fixed z-[255] …'` invisible to this guard.
-        for (const match of node.getText().matchAll(Z_INDEX_CLASS_RE)) push(name, line, match[1], 'string z-[N]')
+        // reading only attributes left `const base = 'fixed z-[255] …'` invisible to this guard. Nested
+        // strings in a class attribute are skipped because the attribute scan already read them once.
+        pushClasses(name, line, node.getText(), 'string')
       }
       if (ts.isPropertyAssignment(node)) {
         const key = node.name.getText()
         if (key === 'zIndex') push(name, line, node.initializer.getText(), 'style zIndex')
-      }
-      if (ts.isJsxExpression(node) && node.expression && ts.isCallExpression(node.expression)) {
-        // Values passed through cn()/styles.* are still read above through the attribute text.
-        void node.expression
       }
       ts.forEachChild(node, visit)
     }
@@ -811,8 +818,8 @@ function rawZIndexSites(): Array<{ key: string; file: string; value: string; for
  */
 const RAW_Z_INDEX_BASELINE = new Map<string, { value: string; reason: string }>([
   ['src/client/features/excalidraw/TextToDiagramModal.tsx:424', { value: '100', reason: 'Inside the Excalidraw host, whose canvas already fixes its own stacking context; the app scale governs the viewport-fixed tiers and reaching for one here would fight the vendor surface.' }],
-  ['src/client/features/graph/graph-panel/overlays.tsx:46', { value: '1', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
-  ['src/client/features/graph/graph-panel/overlays.tsx:169', { value: '3', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
+  ['src/client/features/graph/graph-panel/overlays.tsx:49', { value: '1', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
+  ['src/client/features/graph/graph-panel/overlays.tsx:173', { value: '3', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
   ['src/client/features/graph/graph-panel/settings.tsx:53', { value: '235', reason: 'The panel’s own settings drawer: deliberately above the workspace tier it opens from and below every prompt, which no band in the scale names. A band would be invented for one site; arithmetic on two bands would be a tier nobody can look up.' }],
   ['src/client/features/reading/reader/CommentCard.tsx:62', { value: '7', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
   ['src/client/features/reading/reader/LookupCard.tsx:52', { value: '8', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
@@ -822,11 +829,72 @@ const RAW_Z_INDEX_BASELINE = new Map<string, { value: string; reason: string }>(
   ['src/client/features/inkpad/ink-hud.tsx:73', { value: '4', reason: 'Local HUD layer inside the ink canvas; it sits above the drawing surface and below app menus.' }],
 ])
 
+const LOCAL_STACK_REASON = 'Local stacking counter inside this component-owned surface; it never competes with a viewport-fixed shell tier.'
+const LOCAL_STICKY_REASON = 'Sticky header or cell inside its own scrolling surface; the counter orders only that surface’s children.'
+const LOCAL_OVERLAY_REASON = 'Control, badge or handle layered over content inside its own card or panel; it does not open a shell layer.'
+
+/**
+ * Plain Tailwind `z-N` utilities predate the token guard. These are exact per-file value counts, not
+ * open budgets: a new site or a retuned value fails, while moving a line does not make the baseline
+ * stale. Each file says which local surface owns the counter; none is a viewport-fixed app tier.
+ */
+const PLAIN_Z_INDEX_BASELINE = new Map<string, { values: Record<string, number>; reason: string }>([
+  ['src/client/features/clouddrive/album/AlbumPage.tsx', { values: { '10': 2 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/clouddrive/album/MediaViewer.tsx', { values: { '10': 1 }, reason: LOCAL_OVERLAY_REASON }],
+  ['src/client/features/development/api-tester/components/RawViewer.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/development/database/DataTable.tsx', { values: { '20': 1 }, reason: 'Mobile query side panel layered inside the database workspace, not over the app shell.' }],
+  ['src/client/features/development/database/ErdView.tsx', { values: { '10': 1 }, reason: LOCAL_OVERLAY_REASON }],
+  ['src/client/features/development/database/MassDropPanel.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/development/database/QueryTab.tsx', { values: { '20': 2 }, reason: 'Query side panels layered inside the database workspace on narrow screens.' }],
+  ['src/client/features/development/database/ResultGrid.tsx', { values: { '10': 4, '20': 2, '30': 3 }, reason: 'Sticky headers, pinned columns, resize handles and grid overlays share this local table stacking context.' }],
+  ['src/client/features/development/database/SchemaEditor.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/development/database/SvgFlow.tsx', { values: { '10': 1 }, reason: LOCAL_OVERLAY_REASON }],
+  ['src/client/features/development/github/components/DiscoverCard.tsx', { values: { '10': 3 }, reason: LOCAL_OVERLAY_REASON }],
+  ['src/client/features/development/github/components/FavoritesView.tsx', { values: { '10': 1 }, reason: LOCAL_OVERLAY_REASON }],
+  ['src/client/features/development/icons/IconsApp.tsx', { values: { '10': 1, '30': 1 }, reason: 'Sticky table head and development jobs overlay are local to the icon catalog surface.' }],
+  ['src/client/features/excalidraw/ExcalidrawFloatingCapsule.tsx', { values: { '40': 1 }, reason: 'Floating control inside the Excalidraw host’s own canvas stacking context.' }],
+  ['src/client/features/excalidraw/ExcalidrawToolsPanel.tsx', { values: { '50': 1 }, reason: 'Tools panel inside the Excalidraw host’s own canvas stacking context.' }],
+  ['src/client/features/excalidraw/TextToDiagramModal.tsx', { values: { '50': 1 }, reason: 'Prompt palette inside the Excalidraw host’s own canvas stacking context.' }],
+  ['src/client/features/folders/FolderAppearanceMenus.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/imgbed/library/LibraryPage.tsx', { values: { '20': 2 }, reason: LOCAL_OVERLAY_REASON }],
+  ['src/client/features/list/NoteList.tsx', { values: { '20': 1 }, reason: 'Scroll-to-bottom control layered over the note list’s own scrollport.' }],
+  ['src/client/features/music/components/FullLyrics.tsx', { values: { '10': 4, '20': 1 }, reason: 'Header, lyric scroller, comments and controls are ordered within the full-lyrics surface.' }],
+  ['src/client/features/nav/NavApp.tsx', { values: { '0': 1, '10': 4, '20': 1 }, reason: 'Stretched link, text and hover actions form one local nav-card stacking context.' }],
+  ['src/client/features/preview/FloatingOutline.tsx', { values: { '20': 2 }, reason: 'Outline button and anchored panel are layered inside the reading surface.' }],
+  ['src/client/features/preview/Outline.tsx', { values: { '10': 1 }, reason: LOCAL_OVERLAY_REASON }],
+  ['src/client/features/quickadd/note-name-input.tsx', { values: { '20': 1 }, reason: 'Suggestion list layered over the quick-add field’s own row.' }],
+  ['src/client/features/rss/RssApp.tsx', { values: { '40': 1 }, reason: 'Mobile navigation panel layered inside the RSS shell.' }],
+  ['src/client/features/rss/RssListParts.tsx', { values: { '10': 1, '20': 1, '30': 1 }, reason: 'Sticky section head, floating actions and resize handle are local to the RSS list.' }],
+  ['src/client/features/settings/ExcalidrawSettings.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/share/ConversationSharePage.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/share/SharePage.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/shell/Resizer.tsx', { values: { '10': 1 }, reason: 'Resize handle lifted above the two panes it separates, inside the shell’s layout context.' }],
+  ['src/client/features/subscriptions/SubscriptionDetail.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/subscriptions/SubscriptionList.tsx', { values: { '10': 2 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/templates/community-panel.tsx', { values: { '10': 1 }, reason: LOCAL_STACK_REASON }],
+  ['src/client/features/templates/template-card.tsx', { values: { '0': 1, '10': 4, '20': 1 }, reason: 'Stretched link, card content and format badge form one local template-card stacking context.' }],
+  ['src/client/features/todos/BoardView.tsx', { values: { '10': 1 }, reason: 'Quick-add field lifted above its board column’s local layers.' }],
+  ['src/client/features/todos/CalendarView.tsx', { values: { '10': 4 }, reason: 'Event markers, labels, current-time line and event chips are ordered within the calendar grid.' }],
+  ['src/client/features/tools/color/components/ColorSlider.tsx', { values: { '10': 1 }, reason: 'Slider input lifted over its track inside the color-control surface.' }],
+  ['src/client/features/tools/color/components/GradientBarController.tsx', { values: { '10': 1, '20': 1 }, reason: 'Gradient control and selected stop are layered inside the controller.' }],
+  ['src/client/features/tools/compare/lib/VirtualDiffView.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/tools/id-photo/preview/IdPhotoPreviewCard.tsx', { values: { '10': 1 }, reason: LOCAL_OVERLAY_REASON }],
+  ['src/client/features/tools/network-panel/FullscreenScreen.tsx', { values: { '10': 1 }, reason: LOCAL_OVERLAY_REASON }],
+  ['src/client/features/tools/shortlinks/BundlesView.tsx', { values: { '0': 1, '10': 1 }, reason: 'Stretched row link and action cluster form one local bundle-row stacking context.' }],
+  ['src/client/features/webssh/RecordingsPanel.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/webssh/SftpPanel.tsx', { values: { '30': 1, '40': 1 }, reason: 'Mobile file pane and drag overlay are ordered inside the terminal workspace.' }],
+  ['src/client/features/webssh/TerminalPane.tsx', { values: { '10': 1 }, reason: 'Active terminal pane lifted above its sibling panes inside the workspace.' }],
+  ['src/client/features/webssh/TerminalWorkspace.tsx', { values: { '20': 4 }, reason: 'Mobile terminal, files and recordings panes are ordered inside the workspace.' }],
+  ['src/client/features/workspace/BacklinksPanel.tsx', { values: { '10': 5 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/youtube/discover/VideoRow.tsx', { values: { '0': 1, '10': 1 }, reason: 'Stretched video link and content form one local discovery-card stacking context.' }],
+  ['src/client/lib/markdown/kanban/ui/kanban-calendar-view.tsx', { values: { '10': 3 }, reason: 'Drag handle and calendar grids are ordered within the kanban board’s local stacking context.' }],
+])
+
 /** Stylesheet declarations are the bulk of the residual, so they are budgeted per file by count. */
 const RAW_Z_INDEX_CSS_BASELINE = new Map<string, number>([
   ['src/client/styles/app.css', 1],
   ['src/client/styles/editor.css', 3],
-  ['src/client/styles/prose.css', 11],
+  ['src/client/styles/prose.css', 10],
   ['src/client/styles/reading.css', 5],
   ['src/client/styles/inkpad.css', 1],
 ])
@@ -834,8 +902,15 @@ const RAW_Z_INDEX_CSS_BASELINE = new Map<string, number>([
 describe('converged z-index keeps using the token scale', () => {
   const SITES = rawZIndexSites()
 
-  it('fails when a component writes a raw z-index instead of the token scale', () => {
-    const componentSites = SITES.filter((site) => !site.file.endsWith('.css'))
+  it('recognizes arbitrary and plain numeric utilities without treating token classes as raw', () => {
+    const sample = 'z-20 hover:z-30 z-[20] before:z-0 z-[var(--z-menu)] z-[calc(1+1)] pizza-20'
+    Z_INDEX_CLASS_RE.lastIndex = 0
+    const values = [...sample.matchAll(Z_INDEX_CLASS_RE)].map((match) => match[1] ?? match[2])
+    expect(values).toEqual(['20', '30', '20', '0'])
+  })
+
+  it('fails when a component writes an arbitrary raw z-index instead of the token scale', () => {
+    const componentSites = SITES.filter((site) => !site.file.endsWith('.css') && !site.form.endsWith(' z-N'))
     const byKey = new Map(componentSites.map((site) => [site.key, site]))
     const lines: string[] = []
     for (const site of componentSites) {
@@ -847,6 +922,33 @@ describe('converged z-index keeps using the token scale', () => {
       if (!byKey.has(key)) lines.push(`${key}: baseline lists a raw z-index site that no longer exists — delete the entry`)
     }
     expect(lines, `${lines.length} component z-index site(s) are outside the ${RAW_Z_INDEX_BASELINE.size} baselined with a reason.`).toEqual([])
+  })
+
+  it('allows plain z-N utilities only at the documented local baselines', () => {
+    const counts = new Map<string, Map<string, number>>()
+    for (const site of SITES) {
+      if (site.file.endsWith('.css') || !site.form.endsWith(' z-N')) continue
+      const values = counts.get(site.file) ?? new Map<string, number>()
+      values.set(site.value, (values.get(site.value) ?? 0) + 1)
+      counts.set(site.file, values)
+    }
+    const lines: string[] = []
+    for (const [file, values] of counts) {
+      const allowed = PLAIN_Z_INDEX_BASELINE.get(file)
+      if (allowed === undefined) {
+        lines.push(`${file}: plain z-N utilities have no local baseline — use var(--z-*) or document the local surface`)
+        continue
+      }
+      for (const value of new Set([...values.keys(), ...Object.keys(allowed.values)])) {
+        const actual = values.get(value) ?? 0
+        const expected = allowed.values[value] ?? 0
+        if (actual !== expected) lines.push(`${file}: baseline allows ${expected} z-${value} site(s) but the file now writes ${actual}`)
+      }
+    }
+    for (const file of PLAIN_Z_INDEX_BASELINE.keys()) {
+      if (!counts.has(file)) lines.push(`${file}: baseline lists local z-N utilities that no longer exist — delete the entry`)
+    }
+    expect(lines, `${lines.length} file(s) changed their documented local z-N baselines.`).toEqual([])
   })
 
   it('fails when a stylesheet grows a raw z-index beyond its baseline', () => {
