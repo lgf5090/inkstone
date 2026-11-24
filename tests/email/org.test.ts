@@ -143,7 +143,7 @@ describe('mailbox migrations', () => {
     )
     const messageColumns = legacy.prepare(`PRAGMA table_info(email_messages)`).all() as Array<{ name: string }>
     expect(messageColumns.map((column) => column.name)).toEqual(
-      expect.arrayContaining(['snoozed_until', 'important', 'muted', 'follow_up_at', 'focused', 'snippet']),
+      expect.arrayContaining(['snoozed_until', 'important', 'muted', 'follow_up_at', 'focused', 'snippet', 'deleted_folder_id']),
     )
     const tables = legacy.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('email_tags', 'email_message_tags')`,
@@ -153,7 +153,7 @@ describe('mailbox migrations', () => {
       `SELECT parent_id, color, sort_order FROM email_folders WHERE id = 'fold1'`,
     ).get() as { parent_id: string | null; color: string | null; sort_order: number }
     expect(upgraded).toEqual({ parent_id: null, color: null, sort_order: 0 })
-    const applied = legacy.prepare(`SELECT name FROM email_migrations ORDER BY name`).all() as Array<{ name: string }>
+    const applied = legacy.prepare(`SELECT name FROM email_migrations ORDER BY CAST(name AS INTEGER), name`).all() as Array<{ name: string }>
     expect(applied.map((row) => row.name)).toEqual([
       '1_initial_setup',
       '2_org_tags',
@@ -164,6 +164,7 @@ describe('mailbox migrations', () => {
       '7_focused_inbox',
       '8_saved_searches',
       '9_snippet',
+      '10_trash_origin',
     ])
     const ruleTables = legacy.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('email_filters', 'email_blocked_senders')`,
@@ -181,7 +182,7 @@ describe('mailbox migrations', () => {
 
     applyMailboxMigrations(sql)
     const reapplied = legacy.prepare(`SELECT COUNT(*) AS total FROM email_migrations`).get() as { total: number }
-    expect(reapplied.total).toBe(9)
+    expect(reapplied.total).toBe(10)
     const folderCount = legacy.prepare(`SELECT COUNT(*) AS total FROM email_folders`).get() as { total: number }
     expect(folderCount.total).toBe(7)
   })

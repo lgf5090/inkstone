@@ -8,6 +8,7 @@ import { storedStringArray } from '../lib/json'
 import { listEmailAccounts, readAccountSettings, type EmailAccountRow } from '../email/account-store'
 import { deleteEmailAttachmentsForMessages, loadEmailAttachments, lockEmailAttachments } from '../email/attachments'
 import { emailMailbox } from '../email/mailbox-stub'
+import { deleteEmailRawMimesForMessages } from '../email/raw-mime'
 import { reserveEmailSendBudget } from '../email/send-budget'
 import {
   buildOutgoingHeaders,
@@ -270,6 +271,7 @@ export async function deleteMcpEmail(
     }
     const cleanupPending = await deleteEmailAttachmentsForMessages(context.env, context.userId, [targetId])
     if (cleanupPending) console.warn('[inkstone] Email attachment cleanup is pending for a deleted MCP message')
+    await deleteEmailRawMimesForMessages(context.env, context.userId, [targetId])
     return { status: 'deleted', emailId: targetId, permanent: true }
   }
   if (await mailbox.trashEmail(targetId) === null) {

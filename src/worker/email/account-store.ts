@@ -156,6 +156,8 @@ export async function updateEmailAccount(
 export async function deleteEmailAccount(db: D1Database, userId: string, id: string): Promise<boolean> {
   await db.prepare(`DELETE FROM email_auto_draft_jobs WHERE user_id = ?1 AND account_id = ?2`)
     .bind(userId, id).run()
+  await db.prepare(`DELETE FROM email_raw_messages WHERE user_id = ?1 AND account_id = ?2`)
+    .bind(userId, id).run()
   const result = await db.prepare(`DELETE FROM email_accounts WHERE user_id = ?1 AND id = ?2`)
     .bind(userId, id).run()
   return Boolean(result.meta.changes)

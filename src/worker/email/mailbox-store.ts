@@ -112,6 +112,7 @@ export interface EmailRow {
   has_attachment: number
   size: number
   deleted_at: number | null
+  deleted_folder_id: string | null
   snoozed_until: number | null
   created_at: number
   updated_at: number
@@ -264,6 +265,7 @@ export interface EmailRestoreData extends EmailData {
   folderId: string
   receivedAt: number
   deletedAt: number | null
+  deletedFolderId?: string | null
   snoozedUntil: number | null
   createdAt: number
   updatedAt: number
@@ -322,13 +324,13 @@ const SORT_COLUMNS: Record<string, string> = {
 const EMAIL_LIST_COLUMNS = `id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
   read, starred, important, muted, focused, follow_up_at, in_reply_to, email_references, thread_id,
   message_id, delivery_status, delivery_error, provider_message_id, attachments_skipped, has_attachment,
-  size, deleted_at, snoozed_until, created_at, updated_at, snippet,
+  size, deleted_at, deleted_folder_id, snoozed_until, created_at, updated_at, snippet,
   '' AS body, NULL AS body_source, NULL AS raw_headers`
 
 const EMAIL_SEARCH_COLUMNS = `e.id, e.folder_id, e.subject, e.sender, e.recipient, e.cc, e.bcc, e.date, e.received_at,
   e.read, e.starred, e.important, e.muted, e.focused, e.follow_up_at, e.in_reply_to, e.email_references, e.thread_id,
   e.message_id, e.delivery_status, e.delivery_error, e.provider_message_id, e.attachments_skipped, e.has_attachment,
-  e.size, e.deleted_at, e.snoozed_until, e.created_at, e.updated_at, e.snippet,
+  e.size, e.deleted_at, e.deleted_folder_id, e.snoozed_until, e.created_at, e.updated_at, e.snippet,
   '' AS body, NULL AS body_source, NULL AS raw_headers`
 
 const NORMALIZED_SUBJECT_SQL = `LOWER(TRIM(
@@ -673,14 +675,16 @@ export class MailboxStore {
     if (existing) return false
     const folder = this.one<{ id: string }>(`SELECT id FROM email_folders WHERE id = ?1`, email.folderId)
     if (!folder) return false
+    const deletedFolderId = email.deletedFolderId ?? null
+    if (deletedFolderId && !this.one<{ id: string }>(`SELECT id FROM email_folders WHERE id = ?1`, deletedFolderId)) return false
     this.sql.exec(
       `INSERT INTO email_messages (
          id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
          read, starred, important, muted, focused, follow_up_at, body, body_source, in_reply_to, email_references, thread_id,
          message_id, raw_headers, delivery_status, delivery_error, provider_message_id,
-         attachments_skipped, has_attachment, size, deleted_at, snoozed_until, snippet, created_at, updated_at
+         attachments_skipped, has_attachment, size, deleted_at, deleted_folder_id, snoozed_until, snippet, created_at, updated_at
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33)`,
+         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34)`,
       email.id,
       email.folderId,
       email.subject,
@@ -710,6 +714,7 @@ export class MailboxStore {
       email.hasAttachment ? 1 : 0,
       email.size ?? 0,
       email.deletedAt,
+      deletedFolderId,
       email.snoozedUntil,
       emailSnippet(email.body, 300),
       email.createdAt,
@@ -1246,7 +1251,7 @@ export class MailboxStore {
     if (!row) return null
     const now = Date.now()
     this.sql.exec(
-      `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?1, snoozed_until = NULL, updated_at = ?1
+      `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?1, deleted_folder_id = folder_id, snoozed_until = NULL, updated_at = ?1
         WHERE id = ?2 AND deleted_at IS NULL`,
       now,
       id,
@@ -1262,7 +1267,11 @@ export class MailboxStore {
     if (!row?.deleted_at) return false
     const now = Date.now()
     this.sql.exec(
-      `UPDATE email_messages SET folder_id = 'inbox', deleted_at = NULL, snoozed_until = NULL, updated_at = ?1 WHERE id = ?2`,
+      `UPDATE email_messages
+          SET folder_id = CASE WHEN EXISTS (SELECT 1 FROM email_folders WHERE id = deleted_folder_id AND id != 'trash')
+            THEN deleted_folder_id ELSE 'inbox' END,
+            deleted_at = NULL, deleted_folder_id = NULL, snoozed_until = NULL, updated_at = ?1
+        WHERE id = ?2`,
       now,
       id,
     )
@@ -1393,7 +1402,7 @@ export class MailboxStore {
           if (!targetFolder) return { updated: 0 }
           if (targetFolder === 'trash') {
             this.sql.exec(
-              `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, snoozed_until = NULL, updated_at = ?
+              `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, deleted_folder_id = folder_id, snoozed_until = NULL, updated_at = ?
                 WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
               now,
               now,
@@ -1410,7 +1419,7 @@ export class MailboxStore {
           }
         } else if (action === 'trash') {
           this.sql.exec(
-            `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, snoozed_until = NULL, updated_at = ?
+            `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, deleted_folder_id = folder_id, snoozed_until = NULL, updated_at = ?
               WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
             now,
             now,
@@ -1418,7 +1427,10 @@ export class MailboxStore {
           )
         } else if (action === 'restore') {
           this.sql.exec(
-            `UPDATE email_messages SET folder_id = 'inbox', deleted_at = NULL, snoozed_until = NULL, updated_at = ?
+            `UPDATE email_messages
+                SET folder_id = CASE WHEN EXISTS (SELECT 1 FROM email_folders WHERE id = deleted_folder_id AND id != 'trash')
+                  THEN deleted_folder_id ELSE 'inbox' END,
+                    deleted_at = NULL, deleted_folder_id = NULL, snoozed_until = NULL, updated_at = ?
               WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`,
             now,
             ...chunk,

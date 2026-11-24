@@ -24,6 +24,7 @@ import { emailMailbox } from './mailbox-stub'
 import { buildOutgoingHeaders, buildThreadingHeaders, normalizeMessageId, outgoingMessageId, replyToHeader, sendViaProvider } from './outbound'
 import { reserveEmailSendBudget } from './send-budget'
 import { createEmailNotification } from './notifications'
+import { deleteEmailRawMimeForMessage, saveEmailRawMime } from './raw-mime'
 
 export const MAX_MAILBOX_INBOUND_BYTES = EMAIL_INBOUND_MAX_BYTES
 
@@ -148,9 +149,22 @@ export async function handleMailboxInbound(
   const emailId = newId()
   let attachmentKeys: string[] = []
   let emailStored = false
+  let rawStored = false
   try {
     const attachments = await persistInboundAttachments(env, account, emailId, parsed.attachments, receivedAt)
     attachmentKeys = attachments.keys
+    if (env.FILES) {
+      await saveEmailRawMime(env, {
+        userId: account.user_id,
+        accountId: account.id,
+        messageId: emailId,
+        receivedAt,
+        bytes: raw,
+      })
+      rawStored = true
+    } else {
+      console.warn('[inkstone] inbound original MIME could not be stored because R2 is not configured')
+    }
 
     const references = extractInboundMessageIds(parsed.references)
     const inReplyTo = extractInboundMessageIds(parsed.inReplyTo)[0] ?? null
@@ -246,8 +260,16 @@ export async function handleMailboxInbound(
     if (emailStored) {
       try {
         await mailbox.deleteEmail(emailId)
+        emailStored = false
       } catch (deleteError) {
         console.warn('[inkstone] inbound message row could not be rolled back', deleteError)
+      }
+    }
+    if (rawStored && !emailStored) {
+      try {
+        await deleteEmailRawMimeForMessage(env, account.user_id, account.id, emailId)
+      } catch (cleanupError) {
+        console.error('[inkstone] inbound raw MIME could not be rolled back', cleanupError)
       }
     }
     await discardEmailAttachments(env, account.user_id, emailId, attachmentKeys)

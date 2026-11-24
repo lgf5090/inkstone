@@ -6,6 +6,7 @@ import {
   EMAIL_EXPORT_MAX_BYTES,
   EMAIL_EXPORT_MAX_MESSAGES,
   EMAIL_FOLDER_SEED_NAMES,
+  EMAIL_INBOUND_MAX_BYTES,
   EMAIL_SIGNATURE_NAME_MAX_CHARS,
   EMAIL_SIGNATURE_TEXT_MAX_CHARS,
   EMAIL_SIGNATURES_MAX,
@@ -42,6 +43,7 @@ export const EMAIL_BACKUP_FORMAT = 'inkstone-email-backup'
 export const EMAIL_BACKUP_VERSION = 2 as const
 export type EmailBackupVersion = 1 | typeof EMAIL_BACKUP_VERSION
 export const EMAIL_BACKUP_ATTACHMENTS_ROOT = 'email-attachments'
+export const EMAIL_BACKUP_RAW_MIME_ROOT = 'email-raw-mime'
 export const EMAIL_BACKUP_V1_MISSING_FIELDS = [
   'folders.parentId',
   'folders.color',
@@ -51,6 +53,8 @@ export const EMAIL_BACKUP_V1_MISSING_FIELDS = [
   'accounts.settings.vacation',
   'accounts.settings.replyTo',
   'messages.snoozedUntil',
+  'messages.deletedFolderId',
+  'messages.rawMime',
   'accounts.tags',
   'accounts.messageTags',
   'accounts.filters',
@@ -93,6 +97,12 @@ export interface EmailBackupAttachment {
   missing?: boolean
 }
 
+export interface EmailBackupRawMime {
+  size: number
+  sha256: string
+  missing?: boolean
+}
+
 export interface EmailBackupMessage {
   id: string
   folderId: string
@@ -124,9 +134,11 @@ export interface EmailBackupMessage {
   hasAttachment: boolean
   size: number
   deletedAt: number | null
+  deletedFolderId?: string | null
   createdAt: number
   updatedAt: number
   attachments: EmailBackupAttachment[]
+  rawMime?: EmailBackupRawMime
 }
 
 export interface EmailBackupTag {
@@ -256,6 +268,16 @@ export function backupEmailAttachmentPath(
     throw new Error('Invalid email backup attachment id')
   }
   return `${EMAIL_BACKUP_ATTACHMENTS_ROOT}/${snapshot}/${accountId}/${messageId}/${attachmentId}/${safeFilename(filename)}`
+}
+
+export function backupEmailRawMimePath(
+  snapshot: string,
+  accountId: string,
+  messageId: string,
+): string {
+  if (!STAMP_RE.test(snapshot)) throw new Error('Invalid backup snapshot name')
+  if (!ID_RE.test(accountId) || !ID_RE.test(messageId)) throw new Error('Invalid email backup raw MIME id')
+  return `${EMAIL_BACKUP_RAW_MIME_ROOT}/${snapshot}/${accountId}/${messageId}.eml`
 }
 
 export function emailBackupAttachmentPrefix(snapshot: string): string {
@@ -483,6 +505,10 @@ function parseMessages(
     if (!Array.isArray(raw.attachments)) return null
     const attachments = parseAttachments(raw.attachments, version, includesAttachments, attachmentIds)
     if (!attachments) return null
+    const rawMime = parseRawMime(raw.rawMime, version)
+    if (rawMime === false) return null
+    if (raw.deletedFolderId !== undefined && raw.deletedFolderId !== null &&
+      (typeof raw.deletedFolderId !== 'string' || !folders.some((folder) => folder.id === raw.deletedFolderId))) return null
 
     ids.add(raw.id)
     messages.push({
@@ -516,9 +542,11 @@ function parseMessages(
       hasAttachment: raw.hasAttachment,
       size: raw.size,
       deletedAt: raw.deletedAt,
+      ...(raw.deletedFolderId !== undefined ? { deletedFolderId: raw.deletedFolderId } : {}),
       createdAt: raw.createdAt,
       updatedAt: raw.updatedAt,
       attachments,
+      ...(rawMime ? { rawMime } : {}),
     })
   }
   return messages
@@ -594,6 +622,18 @@ function parseAttachments(
     })
   }
   return attachments
+}
+
+function parseRawMime(
+  value: unknown,
+  version: EmailBackupVersion,
+): EmailBackupRawMime | null | undefined | false {
+  if (version === 1 || value === undefined) return undefined
+  if (!isRecord(value)) return false
+  if (!isFiniteNumber(value.size) || value.size <= 0 || value.size > EMAIL_INBOUND_MAX_BYTES) return false
+  if (typeof value.sha256 !== 'string' || !HASH_RE.test(value.sha256)) return false
+  if (value.missing !== undefined && typeof value.missing !== 'boolean') return false
+  return { size: value.size, sha256: value.sha256, ...(value.missing === true ? { missing: true } : {}) }
 }
 
 function parseTags(value: unknown): EmailBackupTag[] | null {

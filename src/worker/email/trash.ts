@@ -2,6 +2,7 @@ import { EMAIL_TRASH_RETENTION_DAYS } from '@shared/email/model'
 import type { Env } from '../env'
 import { deleteEmailAttachmentsForMessagesWithCount } from './attachments'
 import { emailMailbox } from './mailbox-stub'
+import { deleteEmailRawMimesForMessages } from './raw-mime'
 
 export const EMAIL_TRASH_ACCOUNT_PAGE_SIZE = 50
 
@@ -45,6 +46,8 @@ export async function runEmailTrashCleanup(
         if (!messageIds.length) continue
         result.messages += messageIds.length
         await removeAttachments(env, account.user_id, messageIds, result)
+        const raw = await deleteEmailRawMimesForMessages(env, account.user_id, messageIds)
+        if (raw.cleanupPending) console.warn('[inkstone] Email raw MIME cleanup is pending for expired trash')
       } catch (error) {
         console.warn('[inkstone] email trash cleanup failed for one mailbox', error)
       }

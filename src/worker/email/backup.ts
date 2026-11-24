@@ -2,6 +2,7 @@ import { LIMITS } from '@shared/constants'
 import {
   backupEmailAttachmentPath,
   backupEmailPath,
+  backupEmailRawMimePath,
   EMAIL_BACKUP_FORMAT,
   EMAIL_BACKUP_VERSION,
   parseEmailBackupBundle,
@@ -16,6 +17,7 @@ import {
   type EmailBackupGroupMember,
   type EmailBackupMessage,
   type EmailBackupMessageTag,
+  type EmailBackupRawMime,
   type EmailBackupSavedSearch,
   type EmailBackupTag,
   type EmailBackupTemplate,
@@ -42,6 +44,14 @@ import {
 import { validateMailboxAddress } from './address-validation'
 import { effectiveEmailDomains } from './deployment'
 import { emailMailbox } from './mailbox-stub'
+import {
+  getEmailRawMimeOwner,
+  listEmailRawMimesForAccount,
+  openEmailRawMime,
+  readEmailRawMime,
+  saveEmailRawMime,
+  sumEmailRawMimeBytes,
+} from './raw-mime'
 import { settingsFrom } from './settings'
 import { assertEmailOwner } from './tools'
 
@@ -50,7 +60,7 @@ export interface EmailBackupFile {
   byteLength: number
   sha256: string
   contentType: string
-  kind: 'email' | 'email-attachment'
+  kind: 'email' | 'email-attachment' | 'email-raw-mime'
   open: () => Promise<ReadableStream<Uint8Array>>
 }
 
@@ -67,6 +77,8 @@ export interface ReadBackupEmailResult {
   accountCount: number
   messageCount: number
   attachmentCount: number
+  rawMimeCount: number
+  rawMimeBytes: number
 }
 
 export interface EmailBackupArchive {
@@ -89,6 +101,11 @@ export interface EmailRestoreSummary {
   skippedAttachments: number
   restoredAttachmentBytes: number
   missingAttachments: number
+  rawMime: number
+  createdRawMime: number
+  skippedRawMime: number
+  restoredRawMimeBytes: number
+  missingRawMime: number
   warnings: string[]
 }
 
@@ -143,6 +160,7 @@ interface EmailMessageRow {
   has_attachment: number
   size: number
   deleted_at: number | null
+  deleted_folder_id: string | null
   snoozed_until: number | null
   created_at: number
   updated_at: number
@@ -203,6 +221,8 @@ export async function readBackupEmail(
       accountCount: 0,
       messageCount: 0,
       attachmentCount: 0,
+      rawMimeCount: 0,
+      rawMimeBytes: 0,
     }
   }
   if (options.includeAttachments && !env.FILES) {
@@ -215,11 +235,15 @@ export async function readBackupEmail(
   let messageCount = 0
   let attachmentCount = 0
   let attachmentBytes = 0
+  let rawMimeCount = 0
+  let rawMimeBytes = 0
 
   for (const account of accounts) {
     const mailbox = emailMailbox(env, account.id)
     const folderRows = await mailbox.getFolders()
     const attachmentsByMessage = await loadAccountAttachments(env.DB, userId, account.id)
+    const rawByMessage = new Map((await listEmailRawMimesForAccount(env.DB, userId, account.id))
+      .map((row) => [row.message_id, row]))
     const folders: EmailBackupFolder[] = folderRows.map((folder) => ({
       id: folder.id,
       name: folder.name,
@@ -322,7 +346,41 @@ export async function readBackupEmail(
           }
           attachments.push(meta)
         }
-        const message = toBackupMessage(row, attachments)
+        const rawRow = rawByMessage.get(row.id)
+        let rawMime: EmailBackupRawMime | undefined
+        if (rawRow) {
+          rawMimeCount++
+          rawMime = { size: rawRow.size, sha256: rawRow.sha256 }
+          if (options.includeAttachments) {
+            const object = await env.FILES!.head(rawRow.object_key)
+            if (!object) {
+              rawMime.missing = true
+            } else {
+              if (object.size !== rawRow.size) throw new Error(`Email raw MIME size changed while the backup was running: ${row.id}`)
+              const bytes = await readEmailRawMime(env, rawRow)
+              if (!bytes) throw new Error(`Email raw MIME data is missing: ${row.id}`)
+              rawMimeBytes += rawRow.size
+              attachmentBytes += rawRow.size
+              if (attachmentBytes > LIMITS.attachmentQuotaBytes) {
+                throw new ApiError(
+                  413,
+                  'email_export_too_large',
+                  `Email files exceed the ${LIMITS.attachmentQuotaBytes}-byte account budget`,
+                )
+              }
+              const path = backupEmailRawMimePath(options.snapshot, account.id, row.id)
+              attachmentFiles.push({
+                path,
+                byteLength: rawRow.size,
+                sha256: rawRow.sha256,
+                contentType: 'message/rfc822',
+                kind: 'email-raw-mime',
+                open: () => openEmailRawMime(env, rawRow),
+              })
+            }
+          }
+        }
+        const message = toBackupMessage(row, attachments, rawMime)
         exportBytes += encoder.encode(JSON.stringify(message)).byteLength
         if (messageCount + messages.length >= EMAIL_EXPORT_MAX_MESSAGES || exportBytes > EMAIL_EXPORT_MAX_BYTES) {
           throw ApiError.tooLarge('The email export exceeds the safe mailbox export budget')
@@ -382,6 +440,8 @@ export async function readBackupEmail(
     accountCount: accounts.length,
     messageCount,
     attachmentCount,
+    rawMimeCount,
+    rawMimeBytes,
   }
 }
 
@@ -407,6 +467,18 @@ export async function applyBackupEmail(
   }
   for (const account of bundle.accounts) {
     for (const message of account.messages) {
+      if (message.rawMime) {
+        const path = backupEmailRawMimePath(bundle.snapshot, account.id, message.id).toLowerCase()
+        const bytes = archive.attachments.get(path)
+        if (!bytes) continue
+        if (message.rawMime.missing === true) throw ApiError.badRequest('Missing raw MIME cannot include file bytes')
+        if (bytes.byteLength !== message.rawMime.size) {
+          throw ApiError.badRequest(`The email raw MIME size does not match: ${message.id}`)
+        }
+        if (await sha256Hex(bytes) !== message.rawMime.sha256) {
+          throw ApiError.badRequest(`The email raw MIME checksum does not match: ${message.id}`)
+        }
+      }
       for (const attachment of message.attachments) {
         const path = backupEmailAttachmentPath(
           bundle.snapshot,
@@ -448,21 +520,38 @@ export async function applyBackupEmail(
     prepared.push({ backup: account, address, settings, existing })
   }
 
+  const rawToRestore = new Set<string>()
+  for (const { backup } of prepared) {
+    for (const message of backup.messages) {
+      if (!message.rawMime) continue
+      const owner = await getEmailRawMimeOwner(env.DB, message.id)
+      if (owner && (owner.user_id !== userId || owner.account_id !== backup.id)) {
+        throw ApiError.badRequest('The email backup contains raw MIME owned by another account')
+      }
+      if (!owner) rawToRestore.add(`${backup.id}\u0000${message.id}`)
+    }
+  }
+
   const existingAttachmentIds = await loadExistingAttachmentIds(env.DB)
   const ownedAttachmentIds = await loadOwnedAttachmentIds(env.DB, userId)
   const usage = await env.DB.prepare(
     `SELECT COALESCE(SUM(size), 0) AS bytes FROM email_attachments WHERE user_id = ?1`,
   ).bind(userId).first<{ bytes: number }>()
-  let plannedBytes = Number(usage?.bytes ?? 0)
+  let plannedBytes = Number(usage?.bytes ?? 0) + await sumEmailRawMimeBytes(env.DB, userId)
   for (const { backup } of prepared) {
     for (const message of backup.messages) {
+      if (bundle.includesAttachments && message.rawMime && !message.rawMime.missing &&
+        rawToRestore.has(`${backup.id}\u0000${message.id}`) &&
+        archive.attachments.has(backupEmailRawMimePath(bundle.snapshot, backup.id, message.id).toLowerCase())) {
+        plannedBytes += message.rawMime.size
+      }
       for (const attachment of message.attachments) {
         if (!ownedAttachmentIds.has(attachment.id)) plannedBytes += attachment.size
       }
     }
   }
   if (plannedBytes > LIMITS.attachmentQuotaBytes) {
-    throw ApiError.tooLarge('The account email attachment quota has been reached')
+    throw ApiError.tooLarge('The account email storage quota has been reached')
   }
 
   await restoreAddressBook(env.DB, userId, bundle)
@@ -535,11 +624,38 @@ export async function applyBackupEmail(
         hasAttachment: message.hasAttachment,
         size: message.size,
         deletedAt: message.deletedAt,
+        deletedFolderId: message.deletedFolderId,
         createdAt: message.createdAt,
         updatedAt: message.updatedAt,
       })
       if (inserted) summary.createdMessages++
       else summary.skippedMessages++
+
+      if (message.rawMime) {
+        summary.rawMime++
+        const rawKey = `${account.id}\u0000${message.id}`
+        if (!rawToRestore.has(rawKey)) {
+          summary.skippedRawMime++
+        } else if (!bundle.includesAttachments) {
+          summary.skippedRawMime++
+        } else {
+          const path = backupEmailRawMimePath(bundle.snapshot, account.id, message.id).toLowerCase()
+          const bytes = archive.attachments.get(path)
+          if (bytes) {
+            const saved = await saveEmailRawMime(env, {
+              userId,
+              accountId: account.id,
+              messageId: message.id,
+              receivedAt: message.receivedAt,
+              bytes,
+            })
+            summary.createdRawMime++
+            summary.restoredRawMimeBytes += saved.size
+          } else {
+            summary.missingRawMime++
+          }
+        }
+      }
 
       for (const attachment of message.attachments) {
         summary.attachments++
@@ -606,6 +722,9 @@ export async function applyBackupEmail(
     }
   }
 
+  if (summary.missingRawMime > 0) {
+    addWarning(summary, `${summary.missingRawMime} original email MIME files were not present in the backup`)
+  }
   return summary
 }
 
@@ -680,7 +799,11 @@ function attachmentTags(raw: string, attachmentId: string): string[] {
   }
 }
 
-function toBackupMessage(row: EmailMessageRow, attachments: EmailBackupAttachment[]): EmailBackupMessage {
+function toBackupMessage(
+  row: EmailMessageRow,
+  attachments: EmailBackupAttachment[],
+  rawMime?: EmailBackupRawMime,
+): EmailBackupMessage {
   return {
     id: row.id,
     folderId: row.folder_id,
@@ -712,9 +835,11 @@ function toBackupMessage(row: EmailMessageRow, attachments: EmailBackupAttachmen
     hasAttachment: row.has_attachment === 1,
     size: row.size,
     deletedAt: row.deleted_at,
+    deletedFolderId: row.deleted_folder_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     attachments,
+    ...(rawMime ? { rawMime } : {}),
   }
 }
 
@@ -784,6 +909,11 @@ function emptySummary(): EmailRestoreSummary {
     skippedAttachments: 0,
     restoredAttachmentBytes: 0,
     missingAttachments: 0,
+    rawMime: 0,
+    createdRawMime: 0,
+    skippedRawMime: 0,
+    restoredRawMimeBytes: 0,
+    missingRawMime: 0,
     warnings: [],
   }
 }
@@ -994,6 +1124,13 @@ function declaredAttachmentPaths(bundle: EmailBackupBundle): Map<string, true> {
   const paths = new Map<string, true>()
   for (const account of bundle.accounts) {
     for (const message of account.messages) {
+      if (message.rawMime) {
+        const path = backupEmailRawMimePath(bundle.snapshot, account.id, message.id)
+        if (paths.has(path.toLowerCase())) {
+          throw ApiError.badRequest(`The email backup contains a duplicate raw MIME path: ${path}`)
+        }
+        paths.set(path.toLowerCase(), true)
+      }
       for (const attachment of message.attachments) {
         const path = backupEmailAttachmentPath(
           bundle.snapshot,

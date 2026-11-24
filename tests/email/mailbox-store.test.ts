@@ -214,7 +214,7 @@ describe('mailbox store', () => {
     expect(store.countTrash()).toBe(0)
   })
 
-  it('keeps trashed messages out of lists and restores them to the inbox', () => {
+  it('keeps trashed messages out of lists and restores them to their original folder', () => {
     store.createEmail('inbox', message('m1', { body: 'x'.repeat(400), date: 2_000 }))
     store.createEmail('inbox', message('m2', { date: 1_000 }))
     const listed = store.getEmails({ folder: 'inbox' })
@@ -227,6 +227,16 @@ describe('mailbox store', () => {
     expect(store.restoreEmail('m1')).toBe(false)
     expect(store.restoreEmail('m2')).toBe(true)
     expect(store.getEmail('m2')?.folder_id).toBe('inbox')
+  })
+
+  it('restores a deleted custom folder origin to the inbox when the folder is gone', () => {
+    const custom = store.createFolder('Projects')!
+    store.createEmail(custom.id, message('m1'))
+    expect(store.trashEmail('m1')).toBe(custom.id)
+    expect(store.listTrash()[0]?.deleted_folder_id).toBe(custom.id)
+    expect(store.deleteFolder(custom.id)).toEqual({ deletedMessageIds: [] })
+    expect(store.restoreEmail('m1')).toBe(true)
+    expect(store.getEmail('m1')).toMatchObject({ folder_id: 'inbox', deleted_at: null, deleted_folder_id: null })
   })
 
   it('deletes a custom folder by moving its messages or deleting them', () => {
@@ -302,13 +312,13 @@ describe('mailbox store', () => {
     expect(store.batchUpdate(['m1', 'm2'], 'trash')).toEqual({ updated: 0 })
 
     expect(store.batchUpdate(['m1', 'm2'], 'restore')).toEqual({ updated: 2 })
-    expect(store.getEmail('m1')?.folder_id).toBe('inbox')
-    expect(store.getEmail('m2')?.deleted_at).toBeNull()
+    expect(store.getEmail('m1')?.folder_id).toBe('archive')
+    expect(store.getEmail('m2')).toMatchObject({ folder_id: 'archive', deleted_at: null, deleted_folder_id: null })
     expect(store.batchUpdate(['m1', 'm2'], 'restore')).toEqual({ updated: 0 })
 
     expect(store.batchUpdate(['m1'], 'move', 'trash')).toEqual({ updated: 1 })
     expect(store.getEmail('m1')).toBeNull()
-    expect(store.getEmail('m2')?.folder_id).toBe('inbox')
+    expect(store.getEmail('m2')?.folder_id).toBe('archive')
   })
 
   it.each(EMAIL_BATCH_ACTIONS)('chunks every %s query and update to at most 90 ids', (action) => {

@@ -39,6 +39,7 @@ import {
   EMAIL_REQUIRED_COLUMNS,
   EMAIL_REQUIRED_INDEXES,
   EMAIL_REQUIRED_TABLES,
+  EMAIL_RAW_MIME_SCHEMA_STATEMENTS,
   EMAIL_SCHEMA_STATEMENTS,
 } from '../email/schema'
 import {
@@ -4551,6 +4552,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 419,
     skipIfColumnExists: { table: 'email_scheduled_sends', column: 'snapshot_json' },
     statements: [`ALTER TABLE email_scheduled_sends ADD COLUMN snapshot_json TEXT`],
+  },
+  {
+    version: 420,
+    statements: EMAIL_RAW_MIME_SCHEMA_STATEMENTS,
   },
 ]
 

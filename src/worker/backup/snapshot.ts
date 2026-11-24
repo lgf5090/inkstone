@@ -47,7 +47,7 @@ import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { safeAttachmentMime } from '../lib/image'
 
-export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'todos' | 'music' | 'calendar' | 'email' | 'email-attachment' | 'inknote'
+export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'todos' | 'music' | 'calendar' | 'email' | 'email-attachment' | 'email-raw-mime' | 'inknote'
 
 export interface BackupFile {
   path: string

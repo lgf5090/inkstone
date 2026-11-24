@@ -261,4 +261,16 @@ export const EMAIL_MAILBOX_MIGRATIONS: readonly MailboxMigration[] = [
       }
     },
   },
+  {
+    name: '10_trash_origin',
+    apply: (sql) => {
+      const columns = new Set(
+        [...sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('email_messages')`)]
+          .map((row) => row.name),
+      )
+      if (!columns.has('deleted_folder_id')) {
+        sql.exec(`ALTER TABLE email_messages ADD COLUMN deleted_folder_id TEXT`)
+      }
+    },
+  },
 ]

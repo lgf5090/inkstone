@@ -1,4 +1,19 @@
+export const EMAIL_RAW_MIME_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS email_raw_messages (
+    message_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    object_key TEXT NOT NULL UNIQUE,
+    size INTEGER NOT NULL CHECK (size > 0),
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_email_raw_messages_account
+     ON email_raw_messages(user_id, account_id, created_at, message_id)`,
+]
+
 export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
+  ...EMAIL_RAW_MIME_SCHEMA_STATEMENTS,
   `CREATE TABLE IF NOT EXISTS email_accounts (
     id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -164,6 +179,7 @@ export const EMAIL_SCHEMA_STATEMENTS: readonly string[] = [
 ]
 
 export const EMAIL_REQUIRED_TABLES: readonly string[] = [
+  'email_raw_messages',
   'email_accounts',
   'email_account_deletions',
   'email_send_budget',
@@ -177,6 +193,7 @@ export const EMAIL_REQUIRED_TABLES: readonly string[] = [
 ]
 
 export const EMAIL_REQUIRED_INDEXES: readonly string[] = [
+  'idx_email_raw_messages_account',
   'idx_email_accounts_address',
   'idx_email_accounts_id',
   'idx_email_accounts_user',
@@ -195,6 +212,7 @@ export const EMAIL_REQUIRED_INDEXES: readonly string[] = [
 ]
 
 export const EMAIL_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  email_raw_messages: ['message_id', 'user_id', 'account_id', 'object_key', 'size', 'sha256', 'created_at'],
   email_accounts: ['id', 'user_id', 'address', 'address_normalized', 'display_name', 'settings', 'created_at', 'updated_at'],
   email_account_deletions: ['user_id', 'account_id', 'created_at'],
   email_send_budget: ['user_id', 'bucket', 'window_start', 'count'],

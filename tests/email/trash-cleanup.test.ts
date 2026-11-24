@@ -6,6 +6,7 @@ import { newId } from '../../src/worker/lib/id'
 import { persistEmailAttachment } from '../../src/worker/attachments/storage'
 import { drainAttachmentCleanup } from '../../src/worker/attachments/cleanup'
 import { runEmailTrashCleanup } from '../../src/worker/email/trash'
+import { saveEmailRawMime } from '../../src/worker/email/raw-mime'
 import { createEmailAccount } from '../../src/worker/email/account-store'
 import { testBindings, testR2Bucket, type TestR2Bucket } from '../doubles/bindings'
 import {
@@ -67,6 +68,16 @@ async function attach(accountId: string, userId: string, messageId: string): Pro
   return stored.objectKey
 }
 
+async function saveRaw(accountId: string, userId: string, messageId: string) {
+  return saveEmailRawMime(env, {
+    userId,
+    accountId,
+    messageId,
+    receivedAt: Date.now(),
+    bytes: new TextEncoder().encode('Subject: trash\r\n\r\noriginal'),
+  })
+}
+
 async function attachmentCount(userId: string): Promise<number> {
   const row = await database.db.prepare(
     `SELECT COUNT(*) AS total FROM email_attachments WHERE user_id = ?1`,
@@ -82,6 +93,8 @@ describe('email trash cleanup', () => {
     trashMessage('owner-account', 'expired', cutoff - 1)
     trashMessage('owner-account', 'recent', cutoff + DAY_MS)
     const objectKey = await attach('owner-account', OWNER, 'expired')
+    const raw = await saveRaw('owner-account', OWNER, 'expired')
+    const recentRaw = await saveRaw('owner-account', OWNER, 'recent')
     expect(r2.objects.has(objectKey)).toBe(true)
 
     const result = await runEmailTrashCleanup(env, now)
@@ -90,6 +103,9 @@ describe('email trash cleanup', () => {
     expect(harness.store('owner-account').listTrash().map((row) => row.id)).toEqual(['recent'])
     expect(await attachmentCount(OWNER)).toBe(0)
     expect(r2.objects.has(objectKey)).toBe(false)
+    expect(r2.objects.has(raw.object_key)).toBe(false)
+    expect(r2.objects.has(recentRaw.object_key)).toBe(true)
+    expect(await database.db.prepare('SELECT message_id FROM email_raw_messages').first()).toEqual({ message_id: 'recent' })
   })
 
   it('queues an R2 failure before removing the attachment row and retries the object later', async () => {
@@ -97,21 +113,28 @@ describe('email trash cleanup', () => {
     const now = Date.now()
     trashMessage('owner-account', 'expired', now - (EMAIL_TRASH_RETENTION_DAYS + 1) * DAY_MS)
     const objectKey = await attach('owner-account', OWNER, 'expired')
+    const raw = await saveRaw('owner-account', OWNER, 'expired')
     vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const deleteObject = vi.spyOn(r2, 'delete').mockRejectedValueOnce(new Error('R2 unavailable'))
+    const deleteObject = vi.spyOn(r2, 'delete').mockRejectedValue(new Error('R2 unavailable'))
 
     const result = await runEmailTrashCleanup(env, now)
 
     expect(result).toEqual({ accounts: 1, messages: 1, attachments: 1 })
     expect(await attachmentCount(OWNER)).toBe(0)
     expect(r2.objects.has(objectKey)).toBe(true)
+    expect(r2.objects.has(raw.object_key)).toBe(true)
     expect(await database.db.prepare(
       `SELECT object_key FROM attachment_cleanup WHERE object_key = ?1 AND user_id = ?2`,
     ).bind(`r2:${objectKey}`, OWNER).first()).toEqual({ object_key: `r2:${objectKey}` })
+    expect(await database.db.prepare(
+      `SELECT object_key FROM attachment_cleanup WHERE object_key = ?1 AND user_id = ?2`,
+    ).bind(`r2:${raw.object_key}`, OWNER).first()).toEqual({ object_key: `r2:${raw.object_key}` })
+    expect(await database.db.prepare('SELECT message_id FROM email_raw_messages').first()).toBeNull()
 
     deleteObject.mockRestore()
-    expect(await drainAttachmentCleanup(env, OWNER)).toEqual({ processed: 1, pending: false })
+    expect(await drainAttachmentCleanup(env, OWNER)).toEqual({ processed: 2, pending: false })
     expect(r2.objects.has(objectKey)).toBe(false)
+    expect(r2.objects.has(raw.object_key)).toBe(false)
     expect(await database.db.prepare(
       `SELECT object_key FROM attachment_cleanup WHERE object_key = ?1`,
     ).bind(`r2:${objectKey}`).first()).toBeNull()

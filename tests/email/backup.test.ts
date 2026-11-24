@@ -14,10 +14,12 @@ import {
 import {
   EMAIL_BACKUP_FORMAT,
   EMAIL_BACKUP_VERSION,
+  backupEmailRawMimePath,
   parseEmailBackupBundle,
   type EmailBackupBundle,
 } from '../../src/shared/email/backup'
 import { LIMITS, mergeSettingsPatch } from '../../src/shared/constants'
+import { EMAIL_INBOUND_MAX_BYTES } from '../../src/shared/email/model'
 import type { ImportResult } from '../../src/shared/types'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
 import {
@@ -37,6 +39,7 @@ import type { AppBindings, Env } from '../../src/worker/env'
 import { errorResponse } from '../../src/worker/lib/errors'
 import { newId } from '../../src/worker/lib/id'
 import { emailRoutes } from '../../src/worker/routes/email'
+import { getEmailRawMimeMetadata, readEmailRawMime, saveEmailRawMime } from '../../src/worker/email/raw-mime'
 import { transferRoutes } from '../../src/worker/routes/transfer'
 import { restoreMarkdownBackupFolder } from '../../src/client/lib/backup-import'
 import { makeD1 } from '../doubles/d1-sqlite'
@@ -127,6 +130,10 @@ function seedAttachment(input: {
     bucket.put(objectKey, bytes, { httpMetadata: { contentType: mime }, customMetadata: { sha256: sha(bytes) } })
   }
   return { id, objectKey, path: backupEmailAttachmentPath(STAMP, accountId, input.emailId, id, filename), bytes }
+}
+
+async function seedRaw(messageId: string, bytes = new TextEncoder().encode('Subject: original\r\n\r\nraw body')) {
+  return saveEmailRawMime(env, { userId, accountId, messageId, receivedAt: NOW, bytes })
 }
 
 function emailApp(): Hono<AppBindings> {
@@ -344,6 +351,8 @@ describe('email backup format and reads', () => {
     sqlite.prepare(`UPDATE email_messages SET snoozed_until = ? WHERE id = ?`).run(NOW + 7_200_000, messageId)
     expect(store.attachTag(messageId, tag.id)).toBe(true)
     const attachment = seedAttachment({ emailId: messageId, filename: 'complete.pdf', lock: true })
+    const rawBytes = new Uint8Array([0x46, 0x72, 0x6f, 0x6d, 0x3a, 0x20, 0x78, 0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0xff])
+    const raw = await seedRaw(messageId, rawBytes)
     sqlite.prepare(
       `UPDATE email_attachments SET folder_id = 'inbox', is_starred = 1, is_pinned = 1, tags = ? WHERE id = ?`,
     ).run(JSON.stringify(['important', 'client']), attachment.id)
@@ -410,6 +419,10 @@ describe('email backup format and reads', () => {
       tags: ['important', 'client'],
       sha256: sha(attachment.bytes),
     })
+    expect(bundle.accounts[0]?.messages[0]?.rawMime).toEqual({ size: rawBytes.byteLength, sha256: sha(rawBytes) })
+    expect(exported.rawMimeCount).toBe(1)
+    expect(exported.rawMimeBytes).toBe(rawBytes.byteLength)
+    expect(exported.attachments.map((file) => file.kind)).toEqual(['email-attachment', 'email-raw-mime'])
     expect(bundle.accounts[0]?.messageTags).toEqual([{
       messageId,
       tagId: tag.id,
@@ -424,18 +437,25 @@ describe('email backup format and reads', () => {
     expect(bundle.contacts[0]?.usageCount).toBe(4)
     expect(bundle.groupMembers[0]).toMatchObject({ groupId: group.id, contactId: contact.id })
     const attachmentBytes = await readFile(exported.attachments[0]!)
+    const archivedRawBytes = await readFile(exported.attachments[1]!)
+    expect(archivedRawBytes).toEqual(rawBytes)
 
     store.deleteAll()
     sqlite.prepare('DELETE FROM email_attachments WHERE user_id = ?').run(userId)
+    sqlite.prepare('DELETE FROM email_raw_messages WHERE user_id = ?').run(userId)
     sqlite.prepare('DELETE FROM email_accounts WHERE user_id = ?').run(userId)
     sqlite.prepare('DELETE FROM email_group_members WHERE user_id = ?').run(userId)
     sqlite.prepare('DELETE FROM email_contacts WHERE user_id = ?').run(userId)
     sqlite.prepare('DELETE FROM email_groups WHERE user_id = ?').run(userId)
     bucket.objects.delete(attachment.objectKey)
+    bucket.objects.delete(raw.object_key)
 
     const restored = await applyBackupEmail(env, userId, {
       bundle,
-      attachments: new Map([[attachment.path.toLowerCase(), attachmentBytes]]),
+      attachments: new Map([
+        [attachment.path.toLowerCase(), attachmentBytes],
+        [backupEmailRawMimePath(STAMP, accountId, messageId).toLowerCase(), archivedRawBytes],
+      ]),
     })
     expect(restored).toMatchObject({
       createdAccounts: 1,
@@ -443,7 +463,15 @@ describe('email backup format and reads', () => {
       createdAttachments: 1,
       missingAttachments: 0,
       restoredAttachmentBytes: attachment.bytes.byteLength,
+      rawMime: 1,
+      createdRawMime: 1,
+      skippedRawMime: 0,
+      restoredRawMimeBytes: rawBytes.byteLength,
+      missingRawMime: 0,
     })
+    const restoredRaw = await getEmailRawMimeMetadata(db, userId, accountId, messageId)
+    expect(restoredRaw).not.toBeNull()
+    expect(await readEmailRawMime(env, restoredRaw!)).toEqual(rawBytes)
     const reexported = await readEmailBundle(await readBackupEmail(env, userId, {
       includeAttachments: true,
       snapshot: STAMP,
@@ -453,6 +481,26 @@ describe('email backup format and reads', () => {
     expect(reexported.groups).toEqual(bundle.groups)
     expect(reexported.groupMembers).toEqual(bundle.groupMembers)
     expect(reexported.missingFields).toEqual([])
+  })
+
+  it('round-trips the folder a trashed message should return to', async () => {
+    await setupAccount()
+    const custom = store.createFolder('Projects')!
+    const messageId = newId()
+    seedMessage(messageId, { folder: custom.id })
+    expect(store.trashEmail(messageId)).toBe(custom.id)
+    const bundle = await readEmailBundle(await readBackupEmail(env, userId, {
+      includeAttachments: false,
+      snapshot: STAMP,
+    }))
+    expect(bundle.accounts[0]?.messages[0]?.deletedFolderId).toBe(custom.id)
+
+    store.deleteAll()
+    sqlite.prepare('DELETE FROM email_accounts WHERE user_id = ?').run(userId)
+    await applyBackupEmail(env, userId, { bundle, attachments: new Map() })
+    expect(store.listTrash()[0]?.deleted_folder_id).toBe(custom.id)
+    expect(store.restoreEmail(messageId)).toBe(true)
+    expect(store.getEmail(messageId)?.folder_id).toBe(custom.id)
   })
 
   it('allows equal folder names under different parents and restores their hierarchy', async () => {
@@ -509,6 +557,108 @@ describe('email backup format and reads', () => {
     expect(presentMeta?.sha256).toBe(sha(present.bytes))
     expect(presentMeta?.missing).toBeUndefined()
     expect(absentMeta?.missing).toBe(true)
+  })
+
+  it('archives raw MIME separately and rejects tampered bytes before restore', async () => {
+    await setupAccount()
+    const messageId = newId()
+    seedMessage(messageId)
+    const bytes = new Uint8Array([0x53, 0x75, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x3a, 0x20, 0x78, 0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0xff])
+    await seedRaw(messageId, bytes)
+    const exported = await readBackupEmail(env, userId, { includeAttachments: true, snapshot: STAMP })
+    const bundle = await readEmailBundle(exported)
+    const path = backupEmailRawMimePath(STAMP, accountId, messageId).toLowerCase()
+    expect(exported.attachments).toHaveLength(1)
+    expect(exported.attachments[0]).toMatchObject({ path, kind: 'email-raw-mime', byteLength: bytes.byteLength })
+    expect(await readFile(exported.attachments[0]!)).toEqual(bytes)
+    expect(bundle.accounts[0]!.messages[0]!.attachments).toEqual([])
+    expect(bundle.accounts[0]!.messages[0]!.rawMime).toEqual({ size: bytes.byteLength, sha256: sha(bytes) })
+
+    const changed = bytes.slice()
+    changed[0] ^= 0xff
+    await expect(applyBackupEmail(env, userId, {
+      bundle, attachments: new Map([[path, changed]]),
+    })).rejects.toMatchObject({ status: 400, code: 'bad_request' })
+    await expect(applyBackupEmail(env, userId, {
+      bundle, attachments: new Map([[path, bytes.slice(1)]]),
+    })).rejects.toMatchObject({ status: 400, code: 'bad_request' })
+  })
+
+  it('marks missing raw MIME and does not invent an original during restore', async () => {
+    await setupAccount()
+    const messageId = newId()
+    seedMessage(messageId)
+    const raw = await seedRaw(messageId)
+    bucket.objects.delete(raw.object_key)
+    const exported = await readBackupEmail(env, userId, { includeAttachments: true, snapshot: STAMP })
+    const bundle = await readEmailBundle(exported)
+    expect(exported.attachments).toEqual([])
+    expect(bundle.accounts[0]!.messages[0]!.rawMime).toEqual({
+      size: raw.size, sha256: raw.sha256, missing: true,
+    })
+
+    store.deleteAll()
+    sqlite.prepare('DELETE FROM email_raw_messages WHERE user_id = ?').run(userId)
+    sqlite.prepare('DELETE FROM email_accounts WHERE user_id = ?').run(userId)
+    const restored = await applyBackupEmail(env, userId, { bundle, attachments: new Map() })
+    expect(restored).toMatchObject({ rawMime: 1, createdRawMime: 0, missingRawMime: 1 })
+    expect(restored.warnings.join(' ')).toContain('original email MIME files were not present')
+    expect(await getEmailRawMimeMetadata(db, userId, accountId, messageId)).toBeNull()
+  })
+
+  it('keeps raw metadata but skips its bytes when attachments are excluded', async () => {
+    await setupAccount()
+    const messageId = newId()
+    seedMessage(messageId)
+    await seedRaw(messageId)
+    const exported = await readBackupEmail(env, userId, { includeAttachments: false, snapshot: STAMP })
+    const bundle = await readEmailBundle(exported)
+    expect(exported.rawMimeCount).toBe(1)
+    expect(exported.rawMimeBytes).toBe(0)
+    expect(bundle.accounts[0]!.messages[0]!.rawMime?.sha256).toHaveLength(64)
+
+    sqlite.prepare('DELETE FROM email_raw_messages WHERE user_id = ?').run(userId)
+    const restored = await applyBackupEmail(env, userId, { bundle, attachments: new Map() })
+    expect(restored).toMatchObject({ rawMime: 1, createdRawMime: 0, skippedRawMime: 1, missingRawMime: 0 })
+  })
+
+  it('rejects raw MIME that belongs to another account', async () => {
+    await setupAccount()
+    const messageId = newId()
+    seedMessage(messageId)
+    const raw = await seedRaw(messageId)
+    const bundle = await readEmailBundle(await readBackupEmail(env, userId, {
+      includeAttachments: true, snapshot: STAMP,
+    }))
+    const bytes = bucket.objects.get(raw.object_key)!
+    sqlite.prepare('DELETE FROM email_raw_messages WHERE message_id = ?').run(messageId)
+    const otherAccountId = (await createEmailAccount(db, {
+      userId: OTHER, address: 'other@example.com', displayName: 'Other',
+    })).id
+    await saveEmailRawMime(env, {
+      userId: OTHER, accountId: otherAccountId, messageId, receivedAt: NOW, bytes,
+    })
+
+    await expect(applyBackupEmail(env, userId, {
+      bundle,
+      attachments: new Map([[backupEmailRawMimePath(STAMP, accountId, messageId).toLowerCase(), bytes]]),
+    })).rejects.toMatchObject({ status: 400, code: 'bad_request' })
+  })
+
+  it.each([
+    { name: 'oversized raw MIME', mutate: (bundle: EmailBackupBundle) => { bundle.accounts[0]!.messages[0]!.rawMime!.size = EMAIL_INBOUND_MAX_BYTES + 1 } },
+    { name: 'invalid raw checksum', mutate: (bundle: EmailBackupBundle) => { bundle.accounts[0]!.messages[0]!.rawMime!.sha256 = 'bad' } },
+    { name: 'invalid raw missing flag', mutate: (bundle: EmailBackupBundle) => { (bundle.accounts[0]!.messages[0]!.rawMime! as { missing?: unknown }).missing = 'yes' } },
+  ])('rejects $name in a v2 bundle', async ({ mutate }) => {
+    await setupAccount()
+    const messageId = newId()
+    seedMessage(messageId)
+    await seedRaw(messageId)
+    const bundle = await readEmailBundle(await readBackupEmail(env, userId, {
+      includeAttachments: false, snapshot: STAMP,
+    }))
+    mutate(bundle)
+    expect(parseEmailBackupBundle(bundle)).toBeNull()
   })
 
   it('refuses to include attachments past the account quota', async () => {
@@ -631,6 +781,7 @@ describe('email restore', () => {
     expect(parsed?.missingFields).toEqual(expect.arrayContaining([
       'folders.parentId',
       'messages.snoozedUntil',
+      'messages.rawMime',
       'accounts.tags',
       'contacts',
       'groups',
@@ -1059,6 +1210,31 @@ describe('email export route', () => {
 })
 
 describe('transfer integration', () => {
+  it('restores a declared raw MIME file through transfer import', async () => {
+    await setupAccount()
+    const messageId = newId()
+    seedMessage(messageId)
+    const bytes = new Uint8Array([0x53, 0x75, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x3a, 0x20, 0x78, 0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0xff])
+    const raw = await seedRaw(messageId, bytes)
+    const result = await readBackupEmail(env, userId, { includeAttachments: true, snapshot: STAMP })
+    const emailBytes = await readFile(result.file!)
+    const rawPath = backupEmailRawMimePath(STAMP, accountId, messageId)
+    const manifest = manifestFor(emailBytes, true)
+    const form = new FormData()
+    form.append('backupManifest', JSON.stringify(manifest))
+    form.append('backupPaths', JSON.stringify([manifest.email!.path, rawPath]))
+    form.append('file', new File([emailBytes], 'email.json'))
+    form.append('file', new File([bytes], 'raw.eml'))
+    sqlite.prepare('DELETE FROM email_raw_messages WHERE user_id = ?').run(userId)
+    bucket.objects.delete(raw.object_key)
+
+    const response = await transferApp().request('/transfer/import', { method: 'POST', body: form }, env)
+    expect(response.status).toBe(200)
+    const restored = await getEmailRawMimeMetadata(db, userId, accountId, messageId)
+    expect(restored).not.toBeNull()
+    expect(await readEmailRawMime(env, restored!)).toEqual(bytes)
+  })
+
   it('rejects a file that is not listed in the email bundle', async () => {
     await setupAccount()
     const messageId = newId()
@@ -1085,26 +1261,29 @@ describe('client restore selection', () => {
     const messageId = newId()
     seedMessage(messageId)
     const attachment = seedAttachment({ emailId: messageId })
+    await seedRaw(messageId)
     const result = await readBackupEmail(env, userId, { includeAttachments: true, snapshot: STAMP })
     const emailBytes = await readFile(result.file!)
     const manifest = manifestFor(emailBytes, true)
     const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest))
     const completeBytes = new TextEncoder().encode(backupCompleteBody(sha(manifestBytes)))
     const sends: Array<{ paths: string[]; manifest: MarkdownBackupManifest }> = []
+    const rawPath = backupEmailRawMimePath(STAMP, accountId, messageId)
     const files = [
       fileOf('manifest.json', manifestBytes),
       fileOf('COMPLETE', completeBytes),
       fileOf(manifest.email!.path, emailBytes),
       fileOf(attachment.path, await readFile(result.attachments[0]!)),
+      fileOf(rawPath, await readFile(result.attachments[1]!)),
     ]
     const output = await restoreMarkdownBackupFolder(files, async (batch, sentManifest, paths) => {
       sends.push({ manifest: sentManifest, paths })
-      expect(batch).toHaveLength(2)
+      expect(batch).toHaveLength(3)
       return emptyImportResult()
     })
     expect(output.warnings).toEqual([])
     expect(sends).toHaveLength(1)
-    expect(sends[0]!.paths).toEqual([manifest.email!.path, attachment.path])
+    expect(sends[0]!.paths).toEqual([manifest.email!.path, rawPath, attachment.path])
     expect(sends[0]!.manifest.email).toEqual(manifest.email)
   })
 

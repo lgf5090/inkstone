@@ -6,6 +6,7 @@ import type { Env } from '../env'
 import { findEmailAccountByAddress, getEmailAccount, listEmailAccounts, toEmailAccount, type EmailAccountRow } from './account-store'
 import { loadEmailAttachments } from './attachments'
 import { emailMailbox } from './mailbox-stub'
+import { deleteEmailRawMimeForMessage } from './raw-mime'
 import type { EmailRow } from './mailbox-store'
 
 function iso(value: number | null | undefined): string | null {
@@ -275,7 +276,9 @@ export async function discardDraftTool(
   const account = await resolveEmailAccount(env, userId, input.accountId)
   const row = await emailMailbox(env, account.id).getEmail(input.draftId)
   if (!row || row.folder_id !== 'draft') return false
-  return emailMailbox(env, account.id).deleteEmail(input.draftId)
+  if (!await emailMailbox(env, account.id).deleteEmail(input.draftId)) return false
+  await deleteEmailRawMimeForMessage(env, userId, account.id, input.draftId)
+  return true
 }
 
 export async function findEmailAccountForInbound(env: Env, address: string): Promise<EmailAccountRow | null> {

@@ -17,6 +17,7 @@ import {
   readRawWithCap,
 } from '../../src/worker/email/mailbox'
 import type { MailboxInboundResult } from '../../src/worker/email/mailbox'
+import { getEmailRawMimeMetadata, readEmailRawMime } from '../../src/worker/email/raw-mime'
 import { testBindings, testR2Bucket, type TestR2Bucket } from '../doubles/bindings'
 import { safeAttachmentMime } from '../../src/worker/lib/image'
 import {
@@ -128,17 +129,30 @@ describe('the inbound mailbox handler', () => {
     expect(row!.message_id).toBe('html@example.com')
     expect(row!.read).toBe(0)
     expect(row!.size).toBe(new TextEncoder().encode(raw).byteLength)
+    const rawMeta = await getEmailRawMimeMetadata(database.db, USER, ACCOUNT, row!.id)
+    expect(rawMeta).not.toBeNull()
+    expect(await readEmailRawMime(env, rawMeta!)).toEqual(new TextEncoder().encode(raw))
+    const headers = JSON.parse(row!.raw_headers!) as { key: string; value: string }[]
+    expect(headers.some((header) => header.key === 'subject' && header.value.includes('Q2Fmw6kgcnVu'))).toBe(true)
+    expect(headers).toContainEqual({ key: 'message-id', value: '<html@example.com>' })
     const notification = database.sqlite.prepare(
       `SELECT title, body, link FROM chat_notifications WHERE user_id = ?1`,
-    ).get(USER) as { title: string, body: string, link: string }
+    ).get(USER) as { title: string; body: string; link: string }
     expect(notification).toEqual({
       title: 'Café run',
       body: 'Alice <alice@example.com>',
       link: `email:${ACCOUNT}:${row!.id}`,
     })
-    const headers = JSON.parse(row!.raw_headers!) as { key: string; value: string }[]
-    expect(headers.some((header) => header.key === 'subject' && header.value.includes('Q2Fmw6kgcnVu'))).toBe(true)
-    expect(headers).toContainEqual({ key: 'message-id', value: '<html@example.com>' })
+  })
+
+  it('rolls back stored raw MIME when the mailbox rejects the message', async () => {
+    const raw = buildMime({ to: ADDRESS, messageId: '<rollback@example.com>', text: 'Retry me' })
+    vi.spyOn(harness.store(ACCOUNT), 'createEmail').mockReturnValueOnce(false)
+    await expect(deliver({ to: ADDRESS, raw })).rejects.toThrow('did not accept')
+    expect(inbox()).toEqual([])
+    expect(r2.objects.size).toBe(0)
+    expect(await database.db.prepare('SELECT COUNT(*) AS total FROM email_raw_messages').first()).toEqual({ total: 0 })
+    expect(harness.store(ACCOUNT).claimInbound('rollback@example.com', Date.now())).toBe(true)
   })
 
   it('stores a text-only body when the message has no HTML part', async () => {
@@ -231,7 +245,7 @@ describe('the inbound mailbox handler', () => {
     expect(attachments.get(row!.id)![0]!.filename).toBe('report.pdf')
   })
 
-  it('keeps the message but skips attachments when R2 is not configured', async () => {
+  it('keeps the message but skips attachments and original MIME when R2 is not configured', async () => {
     env = testBindings(database.db, { EMAIL_MAILBOX: harness.namespace })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
@@ -249,6 +263,7 @@ describe('the inbound mailbox handler', () => {
     const [row] = inbox()
     expect(row!.attachments_skipped).toBe(1)
     expect(row!.has_attachment).toBe(0)
+    expect(await getEmailRawMimeMetadata(database.db, USER, ACCOUNT, row!.id)).toBeNull()
     const attachments = await database.db.prepare(
       `SELECT COUNT(*) AS total FROM email_attachments WHERE user_id = ?1`,
     ).bind(USER).first<{ total: number }>()

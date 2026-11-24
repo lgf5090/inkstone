@@ -14,6 +14,7 @@ import type { AppBindings, Env } from '../../src/worker/env'
 import { errorResponse } from '../../src/worker/lib/errors'
 import { newId } from '../../src/worker/lib/id'
 import { emailRoutes } from '../../src/worker/routes/email'
+import { getEmailRawMimeMetadata, saveEmailRawMime } from '../../src/worker/email/raw-mime'
 import { emailRulesRoutes } from '../../src/worker/routes/email-rules'
 import { emailSendRoutes } from '../../src/worker/routes/email-send'
 import { sendMcpEmail, sendMcpEmailReply } from '../../src/worker/mcp/email'
@@ -124,6 +125,16 @@ async function seedAttachment(input: {
     Date.now(),
   )
   return id
+}
+
+async function seedRaw(messageId: string, bytes = new TextEncoder().encode('Subject: stored\r\n\r\noriginal')) {
+  return saveEmailRawMime(env, {
+    userId,
+    accountId,
+    messageId,
+    receivedAt: 1_700_000_000_000,
+    bytes,
+  })
 }
 
 function count(sql: string, ...values: Array<string | number | null>): number {
@@ -601,6 +612,7 @@ describe('email folders', () => {
     const messageId = newId()
     seedMessage(messageId, { folder: folder.id })
     const attachmentId = await seedAttachment({ emailId: messageId })
+    const raw = await seedRaw(messageId)
     const key = `mail/docs/${attachmentId}.pdf`
     expect(bucket.objects.has(key)).toBe(true)
 
@@ -608,12 +620,17 @@ describe('email folders', () => {
     expect(response.status).toBe(204)
     expect(store.getEmail(messageId)).toBeNull()
     expect(count('SELECT COUNT(*) AS n FROM email_attachments WHERE id = ?', attachmentId)).toBe(0)
+    expect(count('SELECT COUNT(*) AS n FROM email_raw_messages WHERE message_id = ?', messageId)).toBe(0)
     expect(bucket.objects.has(key)).toBe(false)
+    expect(bucket.objects.has(raw.object_key)).toBe(false)
   })
 })
 
 describe('email account deletion', () => {
   it('keeps the account and a retry marker when Durable Object cleanup fails', async () => {
+    const messageId = newId()
+    seedMessage(messageId)
+    const raw = await seedRaw(messageId)
     const base = fakeEmailMailboxNamespace(store)
     env = testBindings(db, {
       FILES: bucket,
@@ -630,11 +647,14 @@ describe('email account deletion', () => {
     expect((await errorOf(failed)).code).toBe('email_delete_failed')
     expect(count('SELECT COUNT(*) AS n FROM email_accounts WHERE id = ?', accountId)).toBe(1)
     expect(count('SELECT COUNT(*) AS n FROM email_account_deletions WHERE account_id = ?', accountId)).toBe(1)
+    expect(count('SELECT COUNT(*) AS n FROM email_raw_messages WHERE message_id = ?', messageId)).toBe(1)
+    expect(bucket.objects.has(raw.object_key)).toBe(true)
 
     env = testBindings(db, { FILES: bucket, EMAIL_MAILBOX: mailboxNamespace(store) })
     expect((await call('DELETE', `/accounts/${accountId}`)).status).toBe(204)
     expect(count('SELECT COUNT(*) AS n FROM email_accounts WHERE id = ?', accountId)).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM email_account_deletions WHERE account_id = ?', accountId)).toBe(0)
+    expect(bucket.objects.has(raw.object_key)).toBe(false)
   })
 })
 
@@ -734,6 +754,8 @@ describe('email raw download', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toBe('message/rfc822')
     expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(response.headers.get('x-inkstone-raw-mime')).toBe('reconstructed')
     const disposition = response.headers.get('content-disposition') ?? ''
     expect(disposition).toContain('attachment')
     expect(disposition).toContain('filename="Quarterly report.eml"')
@@ -755,6 +777,53 @@ describe('email raw download', () => {
     expect(eml).not.toContain('ignored duplicate')
     expect(eml).toContain('X-Inkstone-Attachments-Omitted: true')
     expect(eml).toContain('\r\n\r\n<p>The numbers are ready.</p>')
+  })
+
+  it('serves stored original bytes with HEAD and Range support', async () => {
+    const messageId = newId()
+    seedMessage(messageId, { subject: 'Stored original' })
+    const bytes = new Uint8Array([0x46, 0x72, 0x6f, 0x6d, 0x3a, 0x20, 0x61, 0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0xff])
+    const raw = await seedRaw(messageId, bytes)
+    const path = `/accounts/${accountId}/emails/${messageId}/raw`
+
+    const response = await call('GET', path)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-inkstone-raw-mime')).toBe('original')
+    expect(response.headers.get('content-type')).toBe('message/rfc822')
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(response.headers.get('accept-ranges')).toBe('bytes')
+    expect(response.headers.get('etag')).toBe(`"${raw.sha256}"`)
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes)
+
+    const head = await call('HEAD', path)
+    expect(head.status).toBe(200)
+    expect(head.headers.get('content-length')).toBe(String(bytes.byteLength))
+    expect(head.headers.get('x-inkstone-raw-mime')).toBe('original')
+    expect(await head.text()).toBe('')
+
+    const ranged = await app().request(`/api/email${path}`, { headers: { range: 'bytes=2-5' } }, env)
+    expect(ranged.status).toBe(206)
+    expect(ranged.headers.get('content-range')).toBe(`bytes 2-5/${bytes.byteLength}`)
+    expect(new Uint8Array(await ranged.arrayBuffer())).toEqual(bytes.slice(2, 6))
+
+    const suffix = await app().request(`/api/email${path}`, { headers: { range: 'bytes=-2' } }, env)
+    expect(suffix.status).toBe(206)
+    expect(new Uint8Array(await suffix.arrayBuffer())).toEqual(bytes.slice(-2))
+
+    const invalid = await app().request(`/api/email${path}`, { headers: { range: 'bytes=99-100' } }, env)
+    expect(invalid.status).toBe(416)
+    expect(invalid.headers.get('content-range')).toBe(`bytes */${bytes.byteLength}`)
+  })
+
+  it('keeps stored raw MIME inside its user', async () => {
+    const messageId = newId()
+    seedMessage(messageId)
+    await seedRaw(messageId)
+    const path = `/accounts/${accountId}/emails/${messageId}/raw`
+
+    userId = newId()
+    expect((await call('GET', path)).status).toBe(404)
   })
 
   it('strips injected line breaks and folds long header values', async () => {
@@ -899,10 +968,13 @@ describe('email updates, trash and moves', () => {
     const messageId = newId()
     seedMessage(messageId)
     const attachmentId = await seedAttachment({ emailId: messageId })
+    const raw = await seedRaw(messageId)
     const key = `mail/docs/${attachmentId}.pdf`
 
     expect((await call('DELETE', `/accounts/${accountId}/emails/${messageId}`)).status).toBe(204)
     expect(store.getEmail(messageId)).toBeNull()
+    expect(bucket.objects.has(raw.object_key)).toBe(true)
+    expect(await getEmailRawMimeMetadata(db, userId, accountId, messageId)).not.toBeNull()
     const trash = await json<EmailListResponse>(await call('GET', `/accounts/${accountId}/trash`))
     expect(trash.totalCount).toBe(1)
     expect(trash.emails[0]!.id).toBe(messageId)
@@ -914,7 +986,9 @@ describe('email updates, trash and moves', () => {
     expect((await call('DELETE', `/accounts/${accountId}/emails/${messageId}?permanent=true`)).status).toBe(204)
     expect(store.getEmail(messageId)).toBeNull()
     expect(count('SELECT COUNT(*) AS n FROM email_attachments WHERE id = ?', attachmentId)).toBe(0)
+    expect(count('SELECT COUNT(*) AS n FROM email_raw_messages WHERE message_id = ?', messageId)).toBe(0)
     expect(bucket.objects.has(key)).toBe(false)
+    expect(bucket.objects.has(raw.object_key)).toBe(false)
 
     const notInTrash = await call('POST', `/accounts/${accountId}/emails/${newId()}/restore`)
     expect(notInTrash.status).toBe(404)
@@ -926,6 +1000,7 @@ describe('email updates, trash and moves', () => {
     seedMessage(messageId)
     await call('DELETE', `/accounts/${accountId}/emails/${messageId}`)
     const attachmentId = await seedAttachment({ emailId: messageId })
+    const raw = await seedRaw(messageId)
     const key = `mail/docs/${attachmentId}.pdf`
 
     const refused = await call('DELETE', `/accounts/${accountId}/trash`)
@@ -935,7 +1010,9 @@ describe('email updates, trash and moves', () => {
     expect((await call('DELETE', `/accounts/${accountId}/trash?confirm=true`)).status).toBe(204)
     expect(store.countTrash()).toBe(0)
     expect(count('SELECT COUNT(*) AS n FROM email_attachments WHERE id = ?', attachmentId)).toBe(0)
+    expect(count('SELECT COUNT(*) AS n FROM email_raw_messages WHERE message_id = ?', messageId)).toBe(0)
     expect(bucket.objects.has(key)).toBe(false)
+    expect(bucket.objects.has(raw.object_key)).toBe(false)
   })
 
   it('moves messages between folders and uses the trash for trash moves', async () => {
@@ -1019,7 +1096,7 @@ describe('email batch actions', () => {
       action: 'restore',
     })
     expect(await json<{ updated: number }>(restored)).toEqual({ updated: 2 })
-    expect(store.getEmail(first)?.folder_id).toBe('inbox')
+    expect(store.getEmail(first)?.folder_id).toBe('archive')
     expect(store.getEmail(second)?.deleted_at).toBeNull()
   })
 

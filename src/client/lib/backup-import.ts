@@ -9,7 +9,7 @@ import {
   type MarkdownBackupManifest,
   type MarkdownBackupNoteEntry,
 } from '@shared/backup-format'
-import { parseEmailBackupBundle } from '@shared/email/backup'
+import { backupEmailRawMimePath, parseEmailBackupBundle } from '@shared/email/backup'
 import { LIMITS } from '@shared/constants'
 import type { ImportResult } from '@shared/types'
 import { t } from './i18n'
@@ -337,6 +337,13 @@ async function selectEmailAttachments(
   const selected: SelectedEmailAttachment[] = []
   for (const account of bundle.accounts) {
     for (const message of account.messages) {
+      if (message.rawMime && !message.rawMime.missing) {
+        const path = backupEmailRawMimePath(bundle.snapshot, account.id, message.id)
+        const file = byPath.get(`${rootPrefix}${path}`.toLowerCase())
+        if (file) {
+          selected.push({ file, path, bytes: message.rawMime.size, sha256: message.rawMime.sha256 })
+        }
+      }
       for (const attachment of message.attachments) {
         if (attachment.missing) continue
         const path = backupEmailAttachmentPath(

@@ -95,6 +95,15 @@ describe('email snooze store', () => {
     expect(store.wakeSnoozed(now + 2 * MINUTE_MS)).toEqual([])
   })
 
+  it('wakes a snoozed message back into its original folder', () => {
+    const now = Date.now()
+    store.createEmail('archive', message('m1', { read: true }))
+    expect(store.snoozeEmail('m1', now + MINUTE_MS)).not.toBeNull()
+    expect(store.wakeSnoozed(now + 2 * MINUTE_MS)).toEqual(['m1'])
+    expect(store.getEmail('m1')).toMatchObject({ folder_id: 'archive', snoozed_until: null, read: 0 })
+    expect(store.getEmails({ folder: 'archive' }).map((row) => row.id)).toContain('m1')
+  })
+
   it('wakes at most the requested batch of due messages', () => {
     const until = Date.now() + MINUTE_MS
     for (const id of ['m1', 'm2', 'm3']) {

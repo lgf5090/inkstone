@@ -53,11 +53,14 @@ import { applyBackupInknote } from '../inknote/backup'
 import { applyBackupCalendar } from '../calendar/backup'
 import {
   backupEmailAttachmentPath,
+  backupEmailRawMimePath,
   emailBackupAttachmentPrefix,
   parseEmailBackupBundle,
   type EmailBackupAttachment,
   type EmailBackupBundle,
+  type EmailBackupRawMime,
 } from '@shared/email/backup'
+import { EMAIL_INBOUND_MAX_BYTES } from '@shared/email/model'
 import { applyBackupEmail } from '../email/backup'
 import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
@@ -501,9 +504,15 @@ async function importBackupFileBatch(
     }
   }
   const emailAttachmentByPath = new Map<string, EmailBackupAttachment>()
+  const emailRawMimeByPath = new Map<string, EmailBackupRawMime>()
   if (emailBundle?.includesAttachments) {
     for (const account of emailBundle.accounts) {
       for (const message of account.messages) {
+        if (message.rawMime && !message.rawMime.missing) {
+          const rawPath = backupEmailRawMimePath(emailBundle.snapshot, account.id, message.id).toLowerCase()
+          if (emailRawMimeByPath.has(rawPath)) throw new Error(`The email backup contains a duplicate raw MIME path: ${rawPath}`)
+          emailRawMimeByPath.set(rawPath, message.rawMime)
+        }
         for (const attachment of message.attachments) {
           if (attachment.missing) continue
           const attachmentPath = backupEmailAttachmentPath(
@@ -538,10 +547,11 @@ async function importBackupFileBatch(
     const inknote = inknoteByPath !== null && key === inknoteByPath
     const email = emailByPath !== null && key === emailByPath
     const emailAttachment = emailAttachmentByPath.get(key) ?? null
-    if (!note && !attachment && !templates && !automation && !subscriptions && !todos && !music && !calendar && !email && !emailAttachment && !inknote) {
+    const emailRawMime = emailRawMimeByPath.get(key) ?? null
+    if (!note && !attachment && !templates && !automation && !subscriptions && !todos && !music && !calendar && !email && !emailAttachment && !emailRawMime && !inknote) {
       throw new Error(`The file is not listed in the backup manifest: ${path}`)
     }
-    return { file, path, note, attachment, templates, automation, subscriptions, todos, music, calendar, email, emailAttachment, inknote }
+    return { file, path, note, attachment, templates, automation, subscriptions, todos, music, calendar, email, emailAttachment, emailRawMime, inknote }
   })
 
   const cachedBytes = new Map<string, Uint8Array>()
@@ -566,6 +576,20 @@ async function importBackupFileBatch(
         throw new Error(`${item.emailAttachment.filename}: the attachment exceeds ${formatBytes(LIMITS.attachmentMaxBytes)}`)
       }
       if (item.emailAttachment.sha256 && (await sha256Hex(bytes)) !== item.emailAttachment.sha256) {
+        throw new Error(`Backup file SHA-256 verification failed: ${item.path}`)
+      }
+      cachedBytes.set(item.path.toLowerCase(), bytes)
+      continue
+    }
+    if (item.emailRawMime) {
+      const bytes = new Uint8Array(await item.file.arrayBuffer())
+      if (bytes.byteLength !== item.emailRawMime.size) {
+        throw new Error(`Backup file length verification failed: ${item.path}`)
+      }
+      if (bytes.byteLength > EMAIL_INBOUND_MAX_BYTES) {
+        throw new Error(`The raw MIME exceeds ${formatBytes(EMAIL_INBOUND_MAX_BYTES)}`)
+      }
+      if (await sha256Hex(bytes) !== item.emailRawMime.sha256) {
         throw new Error(`Backup file SHA-256 verification failed: ${item.path}`)
       }
       cachedBytes.set(item.path.toLowerCase(), bytes)
@@ -677,7 +701,7 @@ async function importBackupFileBatch(
   if (emailBundle && emailBytes) {
     const attachments = new Map<string, Uint8Array>()
     for (const item of planned) {
-      if (!item.emailAttachment) continue
+      if (!item.emailAttachment && !item.emailRawMime) continue
       const bytes = cachedBytes.get(item.path.toLowerCase())
       if (bytes) attachments.set(item.path.toLowerCase(), bytes)
     }

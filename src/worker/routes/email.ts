@@ -43,7 +43,7 @@ import {
 } from '@shared/email/deployment'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { utf8ByteLength } from '@shared/text-utils'
-import type { AppBindings } from '../env'
+import type { AppBindings, Env } from '../env'
 import { createBackupArchive } from '../backup/archive'
 import { buildEmailExportSnapshot } from '../backup/snapshot'
 import { ApiError } from '../lib/errors'
@@ -84,6 +84,13 @@ import {
 } from '../email/attachments'
 import type { EmailRow, FolderRow, FolderPatch, TagPatch, TagRow } from '../email/mailbox-store'
 import { emailMailbox } from '../email/mailbox-stub'
+import {
+  deleteEmailRawMimesForAccount,
+  deleteEmailRawMimesForMessages,
+  getEmailRawMimeMetadata,
+  readEmailRawMime,
+  readEmailRawMimeRange,
+} from '../email/raw-mime'
 import { withEmailSettingsLock } from '../email/settings-lock'
 import { settingsFrom } from '../email/settings'
 import { buildAddress, configuredAddresses } from '../email/address-validation'
@@ -442,6 +449,65 @@ function buildEml(message: EmailRow, domain: string): string {
   return `${lines.join('\r\n')}\r\n\r\n${message.body}${ending}`
 }
 
+async function rawMimeResponse(c: Ctx): Promise<Response> {
+  const account = await requireAccount(c, c.req.param('id') ?? '')
+  const userId = c.get('userId')
+  const id = messageIdParam(c.req.param('messageId') ?? '')
+  const message = await emailMailbox(c.env, account.id).getEmail(id)
+  if (!message) throw messageNotFound()
+  const raw = await getEmailRawMimeMetadata(c.env.DB, userId, account.id, id)
+  const stored = raw ? await readEmailRawMime(c.env, raw) : null
+  if (raw && !stored) throw new Error(`Email raw MIME data is missing for message ${id}`)
+  const domain = account.address.split('@')[1] ?? 'inkstone.local'
+  const bytes = stored ?? new TextEncoder().encode(buildEml(message, domain))
+  const filename = emlFilename(message.subject)
+  const headers: Record<string, string> = {
+    'Content-Type': 'message/rfc822',
+    'Content-Disposition': `attachment; filename="${emlAsciiFilename(filename)}"; filename*=UTF-8''${encodeContentDispositionFilename(filename)}`,
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Accept-Ranges': 'bytes',
+    'Content-Length': String(bytes.byteLength),
+    'X-Inkstone-Raw-Mime': raw ? 'original' : 'reconstructed',
+  }
+  if (raw) headers.ETag = `"${raw.sha256}"`
+  if (c.req.method === 'HEAD') return c.body(null, 200, headers)
+  const rangeHeader = c.req.header('range')
+  if (rangeHeader) {
+    const range = parseByteRange(rangeHeader, bytes.byteLength)
+    if (range === 'invalid') {
+      return new Response(null, {
+        status: 416,
+        headers: { ...headers, 'Content-Length': '0', 'Content-Range': `bytes */${bytes.byteLength}` },
+      })
+    }
+    const length = range.end - range.start + 1
+    const part = raw
+      ? await readEmailRawMimeRange(c.env, raw, range.start, length)
+      : bytes.slice(range.start, range.end + 1)
+    if (!part) throw new Error(`Email raw MIME data is missing for message ${id}`)
+    return new Response(part, {
+      status: 206,
+      headers: {
+        ...headers,
+        'Content-Length': String(length),
+        'Content-Range': `bytes ${range.start}-${range.end}/${bytes.byteLength}`,
+      },
+    })
+  }
+  return new Response(bytes, { status: 200, headers })
+}
+
+async function removeRawMimes(
+  env: Env,
+  userId: string,
+  messageIds: readonly string[],
+  operation: string,
+): Promise<void> {
+  const result = await deleteEmailRawMimesForMessages(env, userId, messageIds)
+  if (result.cleanupPending) console.warn(`[inkstone] Email raw MIME cleanup is pending for ${operation}`)
+}
+
 function toMessage(row: EmailRow, attachments: EmailAttachment[]): EmailMessage {
   const snippet = (row as SummaryRow).snippet ?? null
   return {
@@ -762,6 +828,8 @@ emailRoutes.delete('/accounts/:id', async (c) => {
   const pending = await deleteEmailAttachmentObjects(c.env, userId, keys)
   if (pending) console.warn('[inkstone] Email attachment cleanup is pending for a deleted mailbox')
   await deleteEmailAttachmentsForAccount(c.env.DB, userId, row.id)
+  const rawPending = await deleteEmailRawMimesForAccount(c.env, userId, row.id)
+  if (rawPending.cleanupPending) console.warn('[inkstone] Email raw MIME cleanup is pending for a deleted mailbox')
   await deleteScheduledSendsForAccount(c.env.DB, userId, row.id)
   const removed = await deleteEmailAccount(c.env.DB, userId, row.id)
   if (!removed) throw mailboxNotFound()
@@ -862,6 +930,7 @@ emailRoutes.delete('/accounts/:id/folders/:folderId', async (c) => {
   if (result.deletedMessageIds.length) {
     const pending = await deleteEmailAttachmentsForMessages(c.env, c.get('userId'), result.deletedMessageIds)
     if (pending) console.warn('[inkstone] Email attachment cleanup is pending for a deleted folder')
+    await removeRawMimes(c.env, c.get('userId'), result.deletedMessageIds, 'a deleted folder')
   }
   return c.body(null, 204)
 })
@@ -993,23 +1062,8 @@ emailRoutes.get('/accounts/:id/emails/:messageId', async (c) => {
   return c.json(toMessage(message, await messageAttachments(c.env, c.get('userId'), message)))
 })
 
-emailRoutes.get('/accounts/:id/emails/:messageId/raw', async (c) => {
-  const account = await requireAccount(c, c.req.param('id') ?? '')
-  const id = messageIdParam(c.req.param('messageId') ?? '')
-  const message = await emailMailbox(c.env, account.id).getEmail(id)
-  if (!message) throw messageNotFound()
-  const filename = emlFilename(message.subject)
-  const domain = account.address.split('@')[1] ?? 'inkstone.local'
-  return new Response(buildEml(message, domain), {
-    status: 200,
-    headers: {
-      'Content-Type': 'message/rfc822',
-      'Content-Disposition': `attachment; filename="${emlAsciiFilename(filename)}"; filename*=UTF-8''${encodeContentDispositionFilename(filename)}`,
-      'Cache-Control': 'private, no-store',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  })
-})
+emailRoutes.get('/accounts/:id/emails/:messageId/raw', rawMimeResponse)
+emailRoutes.on('HEAD', '/accounts/:id/emails/:messageId/raw', rawMimeResponse)
 
 emailRoutes.patch('/accounts/:id/emails/:messageId', async (c) => {
   const row = await requireAccount(c, c.req.param('id') ?? '')
@@ -1059,6 +1113,7 @@ emailRoutes.delete('/accounts/:id/emails/:messageId', async (c) => {
   if (!(await mailbox.deleteEmail(id))) throw messageNotFound()
   const pending = await deleteEmailAttachmentsForMessages(c.env, c.get('userId'), [id])
   if (pending) console.warn('[inkstone] Email attachment cleanup is pending for a deleted message')
+  await removeRawMimes(c.env, c.get('userId'), [id], 'a deleted message')
   return c.body(null, 204)
 })
 
@@ -1163,6 +1218,7 @@ emailRoutes.delete('/accounts/:id/trash', async (c) => {
   const ids = await emailMailbox(c.env, row.id).emptyTrash()
   const pending = await deleteEmailAttachmentsForMessages(c.env, c.get('userId'), ids)
   if (pending) console.warn('[inkstone] Email attachment cleanup is pending for an emptied trash')
+  await removeRawMimes(c.env, c.get('userId'), ids, 'an emptied trash')
   return c.body(null, 204)
 })
 

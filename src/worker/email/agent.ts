@@ -77,6 +77,7 @@ import {
 } from './account-store'
 import { withEmailSettingsLock } from './settings-lock'
 import { deleteEmailAttachmentsForMessages } from './attachments'
+import { deleteEmailRawMimesForMessages } from './raw-mime'
 import {
   addEmailGroupMember,
   createEmailContact,
@@ -1288,7 +1289,10 @@ export async function deleteEmailAgent(
   const kind = input.kind
   if (kind === 'trash') {
     const ids = await mailbox.emptyTrash()
-    if (ids.length) await deleteEmailAttachmentsForMessages(env, userId, ids)
+    if (ids.length) {
+      await deleteEmailAttachmentsForMessages(env, userId, ids)
+      await deleteEmailRawMimesForMessages(env, userId, ids)
+    }
     return { status: 'emptied', deleted: ids.length }
   }
   if (!input.id) throw ApiError.badRequest('An id is required')
@@ -1298,6 +1302,7 @@ export async function deleteEmailAgent(
     if (input.permanent) {
       if (!(await mailbox.deleteEmail(input.id))) throw new ApiError(404, 'email_message_not_found', 'Email not found')
       await deleteEmailAttachmentsForMessages(env, userId, [input.id])
+      await deleteEmailRawMimesForMessages(env, userId, [input.id])
       return { status: 'deleted', emailId: input.id }
     }
     if (!(await mailbox.trashEmail(input.id))) throw new ApiError(404, 'email_message_not_found', 'Email not found')
@@ -1309,7 +1314,10 @@ export async function deleteEmailAgent(
     if (!folder.is_deletable) throw new ApiError(400, 'email_folder_not_deletable', 'System folders cannot be deleted')
     const result = await mailbox.deleteFolder(folder.id, input.deleteEmails === true)
     if (!result) throw new ApiError(404, 'email_folder_not_found', 'Folder not found')
-    if (result.deletedMessageIds.length) await deleteEmailAttachmentsForMessages(env, userId, result.deletedMessageIds)
+    if (result.deletedMessageIds.length) {
+      await deleteEmailAttachmentsForMessages(env, userId, result.deletedMessageIds)
+      await deleteEmailRawMimesForMessages(env, userId, result.deletedMessageIds)
+    }
     return { status: 'deleted', folderId: folder.id, deletedEmails: result.deletedMessageIds.length }
   }
   if (kind === 'tag') {
