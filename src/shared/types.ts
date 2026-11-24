@@ -498,6 +498,12 @@ export interface SearchWeightProperty {
   weight: number
 }
 
+export interface SavedNoteSearch {
+  id: string
+  name: string
+  query: string
+}
+
 export interface SearchSettings {
   /** Turning the local index off leaves the note list's server search untouched. */
   enabled: boolean
@@ -539,6 +545,7 @@ export interface SearchSettings {
   maxContentChars: number
   /** Ceiling on the note bodies kept on this device for excerpts. */
   indexStorageMb: number
+  savedSearches?: SavedNoteSearch[]
 }
 
 /** Which parts of a template function's documentation the completion popup shows. Upstream numbers these `0`–`4`. */

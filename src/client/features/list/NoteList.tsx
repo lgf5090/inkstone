@@ -33,6 +33,7 @@ import { FolderPicker } from '../folders/FolderPicker';
 import { useLintNoteMenuItems } from '../linter/useLintMenuItems';
 import { noteLockMenuItems } from '../notes/note-lock-menu';
 import { TemplateQuickActions } from '../templates/quick-actions';
+import { SavedSearchMenu } from './SavedSearchMenu';
 import { OmnisearchEntry } from '../omnisearch/OmnisearchEntry';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
@@ -131,7 +132,7 @@ export function NoteList() {
     // Leaving a folder or a tag view changes what the box means, so the query goes with it.
     // Entering global search does not: a menu writes an expression there and flips the flag in
     // the same action, and clearing it one effect later would drop what was just asked for.
-    useEffect(() => setFilter(''), [view, folderId, tagFilters]);
+    useEffect(() => { if (!searchList) setFilter('') }, [view, folderId, tagFilters, searchList]);
     useEffect(() => {
         if (searchList) filterRef.current?.focus();
     }, [searchList, searchRequest]);
@@ -390,6 +391,7 @@ export function NoteList() {
               listRef.current?.focus();
             }}
           />
+          {searchList && <SavedSearchMenu/>}
           {breakpoint === 'mobile' && <><OmnisearchEntry mobile className="mobile-library-omnisearch"/><Tooltip label={t("notes.sort_and_display")}>
             <IconButton label={t("notes.sort_and_display")} size="sm" className="mobile-library-sort" ref={sortButtonRef} onClick={() => setSortMenuOpen(true)}>
               <ArrowDownWideNarrow size={17}/>

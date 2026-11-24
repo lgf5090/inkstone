@@ -20,6 +20,7 @@ import type {
   PropertyFormatChoice,
   PropertyProgressChoice,
   SavedDataviewQuery,
+  SavedNoteSearch,
   SavedTodoFilter,
   SidebarTab,
   SkinTone,
@@ -549,6 +550,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     maxIndexedNotes: 3000,
     maxContentChars: 100000,
     indexStorageMb: 64,
+    savedSearches: [],
   },
   dataview: {
     enabled: true,
@@ -674,6 +676,9 @@ export const TODO_TAG_LIST_MAX = 8
 export const TODO_SAVED_FILTER_MAX = 30
 export const TODO_SAVED_FILTER_NAME_MAX = 60
 export const TODO_SAVED_FILTER_QUERY_MAX = 200
+export const NOTE_SAVED_SEARCH_MAX = 20
+export const NOTE_SAVED_SEARCH_NAME_MAX = 60
+export const NOTE_SAVED_SEARCH_QUERY_MAX = 200
 
 /**
  * The range a daily or weekly goal may name, in whole tasks.
@@ -1499,6 +1504,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.search.maxIndexedNotes = integerInRange(search.maxIndexedNotes, 200, 20000, base.search.maxIndexedNotes)
   base.search.maxContentChars = integerInRange(search.maxContentChars, 2000, 200000, base.search.maxContentChars)
   base.search.indexStorageMb = integerInRange(search.indexStorageMb, 8, 512, base.search.indexStorageMb)
+  base.search.savedSearches = savedNoteSearches(search.savedSearches)
   base.dataview.enabled = booleanValue(dataview.enabled, base.dataview.enabled)
   base.dataview.inlineQueries = booleanValue(dataview.inlineQueries, base.dataview.inlineQueries)
   base.dataview.inlineFields = booleanValue(dataview.inlineFields, base.dataview.inlineFields)
@@ -1758,6 +1764,27 @@ function savedTodoFilters(value: unknown): SavedTodoFilter[] {
     seen.add(key)
     out.push({ id: key, name, query })
     if (out.length >= TODO_SAVED_FILTER_MAX) break
+  }
+  return out
+}
+
+function savedNoteSearches(value: unknown): SavedNoteSearch[] {
+  if (!Array.isArray(value)) return []
+  const out: SavedNoteSearch[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const record = asRecord(item)
+    const name = trimmedText(record.name, NOTE_SAVED_SEARCH_NAME_MAX)
+    const query = typeof record.query === 'string'
+      ? record.query.trim().slice(0, NOTE_SAVED_SEARCH_QUERY_MAX)
+      : ''
+    if (!name || !query) continue
+    const id = /^[a-z0-9][a-z0-9-]{3,63}$/i.test(String(record.id ?? '')) ? String(record.id).toLowerCase() : ''
+    const key = id || `${name}\u0000${query}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ id: key, name, query })
+    if (out.length >= NOTE_SAVED_SEARCH_MAX) break
   }
   return out
 }
@@ -2166,6 +2193,7 @@ function cloneDefaultSettings(): UserSettings {
       ...DEFAULT_SETTINGS.search,
       weightCustomProperties: [],
       downrankedFolders: [],
+      savedSearches: [],
     },
     dataview: {
       ...DEFAULT_SETTINGS.dataview,
