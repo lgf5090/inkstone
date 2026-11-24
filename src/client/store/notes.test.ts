@@ -34,6 +34,8 @@ vi.mock('../lib/db', () => ({
       })
     },
     advanceOutboxDependents: vi.fn(async () => {}), markOutboxFailure: mocks.markOutboxFailure,
+    retryOutboxItem: async (id: string, writeId: string) => { mocks.queue = mocks.queue.map((item: any) => item.id === id && item.writeId === writeId ? { ...item, attempts: 0, failed: false, nextAttemptAt: undefined, lastError: undefined } : item) },
+    discardOutboxItem: async (id: string, writeId: string) => { mocks.queue = mocks.queue.filter((item: any) => item.id !== id || item.writeId !== writeId) },
     withOutboxReplayLock: async (_owner: string, task: () => Promise<void>) => { await task(); return true },
   }, publishBroadcast: vi.fn(),
 }))
@@ -77,7 +79,11 @@ beforeEach(() => {
   mocks.queue = []
   mocks.get.mockReset(); mocks.patch.mockReset(); mocks.create.mockReset(); mocks.linkMention.mockReset()
   mocks.setContent.mockReset().mockResolvedValue(undefined)
-  mocks.markOutboxFailure.mockReset().mockResolvedValue(undefined)
+  mocks.markOutboxFailure.mockReset().mockImplementation(async (id: string, writeId: string, message: string, options?: { permanent?: boolean }) => {
+    mocks.queue = mocks.queue.map((item: any) => item.id === id && item.writeId === writeId
+      ? { ...item, attempts: item.attempts + 1, lastError: message, failed: options?.permanent === true, nextAttemptAt: options?.permanent ? undefined : Date.now() + 1000 }
+      : item)
+  })
   useNotes.setState({ notes: { [note.id]: note }, contents: { [note.id]: note.content },
     folders: [], tags: [], cursor: 1, pendingCount: 0, online: true })
 })
@@ -190,6 +196,52 @@ it('caches a sealed body with its real revision', async () => {
   await Promise.resolve()
 
   expect(mocks.setContent).toHaveBeenCalledWith(note.id, expect.objectContaining({ content: 'cipher', rev: 2 }))
+})
+
+it('stops replaying a permanent 4xx failure and exposes it in the issue list', async () => {
+  mocks.queue.push({
+    id: `patch:${note.id}`, clientId: 'client', writeId: 'write-400', entity: 'note', entityId: note.id,
+    payload: { content: 'body', contentDirty: true, rev: 1 }, attempts: 0, createdAt: 1,
+  })
+  mocks.patch.mockRejectedValue(new ApiError(400, 'bad_request', 'invalid payload'))
+
+  await useNotes.getState().replayPending()
+  await useNotes.getState().replayPending()
+
+  expect(mocks.patch).toHaveBeenCalledTimes(1)
+  expect(mocks.queue[0]).toMatchObject({ failed: true, attempts: 1 })
+  expect(useNotes.getState().failedOutbox).toHaveLength(1)
+})
+
+it('backs off a retryable 5xx failure instead of retrying on every flush', async () => {
+  mocks.queue.push({
+    id: `patch:${note.id}`, clientId: 'client', writeId: 'write-500', entity: 'note', entityId: note.id,
+    payload: { content: 'body', contentDirty: true, rev: 1 }, attempts: 0, createdAt: 1,
+  })
+  mocks.patch.mockRejectedValue(new ApiError(500, 'internal', 'temporary'))
+
+  await useNotes.getState().replayPending()
+  await useNotes.getState().replayPending()
+  expect(mocks.patch).toHaveBeenCalledTimes(1)
+  expect(mocks.queue[0]?.nextAttemptAt).toBeGreaterThan(Date.now())
+
+  vi.advanceTimersByTime(1000)
+  await useNotes.getState().replayPending()
+  expect(mocks.patch).toHaveBeenCalledTimes(2)
+})
+
+it('discards a failed write and reloads the server body', async () => {
+  useNotes.getState().editContent(note.id, 'failed local draft')
+  await flushLocalDbWrites()
+  const item = mocks.queue[0]
+  mocks.queue = [{ ...item, failed: true, lastError: 'refused' }]
+  mocks.get.mockResolvedValue(note)
+
+  await useNotes.getState().discardOutboxItem(item.id, item.writeId, note.id)
+
+  expect(mocks.queue).toHaveLength(0)
+  expect(useNotes.getState().contents[note.id]).toBe(note.content)
+  expect(useNotes.getState().failedOutbox).toHaveLength(0)
 })
 
 it('keeps a refused 413 body in the outbox instead of calling it saved', async () => {

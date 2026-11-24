@@ -75,6 +75,13 @@ export interface OutboxItem {
   attempts: number
   createdAt: number
   lastError?: string
+  failed?: boolean
+  nextAttemptAt?: number
+}
+
+export const OUTBOX_MAX_ATTEMPTS = 5
+export function outboxRetryDelay(attempts: number): number {
+  return Math.min(30_000, 1_000 * 2 ** Math.max(0, attempts - 1))
 }
 
 export interface CachedNoteContent {
@@ -150,6 +157,10 @@ export function normalizeOutboxItem(value: unknown): OutboxItem | null {
     attempts: candidate.attempts,
     createdAt: candidate.createdAt,
     ...(typeof candidate.lastError === 'string' ? { lastError: candidate.lastError } : {}),
+    ...(candidate.failed === true ? { failed: true } : {}),
+    ...(typeof candidate.nextAttemptAt === 'number' && Number.isFinite(candidate.nextAttemptAt)
+      ? { nextAttemptAt: candidate.nextAttemptAt }
+      : {}),
   }
 }
 
@@ -684,13 +695,41 @@ export const localDb = {
     )
   },
 
-  markOutboxFailure(id: string, writeId: string, message: string): Promise<void> {
+  markOutboxFailure(id: string, writeId: string, message: string, options: { permanent?: boolean, retryAfterMs?: number } = {}): Promise<void> {
+    return update<OutboxItem[]>(
+      userScopedKey(KEY.outbox),
+      (current) => normalizeOutbox(current)
+        .map((item) => {
+          if (item.id !== id || item.writeId !== writeId) return item
+          const attempts = item.attempts + 1
+          const failed = options.permanent === true || attempts >= OUTBOX_MAX_ATTEMPTS
+          return {
+            ...item,
+            attempts,
+            lastError: message,
+            failed,
+            nextAttemptAt: failed ? undefined : Date.now() + (options.retryAfterMs ?? outboxRetryDelay(attempts)),
+          }
+        }),
+      store,
+    )
+  },
+
+  retryOutboxItem(id: string, writeId: string): Promise<void> {
     return update<OutboxItem[]>(
       userScopedKey(KEY.outbox),
       (current) => normalizeOutbox(current)
         .map((item) => item.id === id && item.writeId === writeId
-          ? { ...item, attempts: item.attempts + 1, lastError: message }
+          ? { ...item, attempts: 0, failed: false, nextAttemptAt: undefined, lastError: undefined }
           : item),
+      store,
+    )
+  },
+
+  discardOutboxItem(id: string, writeId: string): Promise<void> {
+    return update<OutboxItem[]>(
+      userScopedKey(KEY.outbox),
+      (current) => normalizeOutbox(current).filter((item) => item.id !== id || item.writeId !== writeId),
       store,
     )
   },

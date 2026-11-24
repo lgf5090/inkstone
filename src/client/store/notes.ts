@@ -51,6 +51,7 @@ interface NotesState {
     saveStatus: SaveStatus;
     lastSavedAt: number;
     pendingCount: number;
+    failedOutbox: OutboxItem[];
     online: boolean;
     bootstrap: () => Promise<void>;
     pull: (options?: {
@@ -121,6 +122,9 @@ interface NotesState {
     refreshFolders: () => Promise<void>;
     refreshTags: () => Promise<void>;
     replayPending: () => Promise<void>;
+    retryOutboxItem: (id: string, writeId: string) => Promise<void>;
+    saveOutboxItemAsCopy: (id: string, writeId: string, entityId: string) => Promise<string | null>;
+    discardOutboxItem: (id: string, writeId: string, entityId: string) => Promise<void>;
     setOnline: (online: boolean) => void;
     applySync: (payload: SyncResponse) => void;
 }
@@ -282,6 +286,7 @@ export const useNotes = create<NotesState>((set, get) => ({
     saveStatus: 'idle',
     lastSavedAt: 0,
     pendingCount: 0,
+    failedOutbox: [],
     online: typeof navigator === 'undefined' ? true : navigator.onLine,
     bootstrap() {
 
@@ -693,7 +698,7 @@ export const useNotes = create<NotesState>((set, get) => ({
                         const pendingIds = new Set(outbox.filter((item) => item.entity === 'note').map((item) => item.entityId));
                         for (const noteId of dirty.keys())
                             pendingIds.add(noteId);
-                        set({ pendingCount: pendingIds.size });
+                        set({ pendingCount: pendingIds.size, failedOutbox: outbox.filter((item) => item.failed) });
                     }
                 }
                 set((s) => ({
@@ -823,6 +828,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         set((state) => ({
             saveStatus: pendingCount ? (state.online ? 'dirty' : 'offline') : 'synced',
             pendingCount,
+            failedOutbox: remaining.filter((item) => item.failed),
         }));
     },
     async createNote(input) {
@@ -1544,6 +1550,43 @@ export const useNotes = create<NotesState>((set, get) => ({
     },
     replayPending() {
         return replayOutbox(get, set);
+    },
+    async retryOutboxItem(id, writeId) {
+        await localDb.retryOutboxItem(id, writeId);
+        await replayOutbox(get, set);
+    },
+    async saveOutboxItemAsCopy(id, writeId, entityId) {
+        const item = (await localDb.getOutbox()).find((entry) => entry.id === id && entry.writeId === writeId)
+        if (!item || typeof item.payload.content !== 'string') return null
+        const source = get().notes[entityId]
+        const title = source && !source.isEncrypted && source.title
+            ? duplicateNoteTitle(source.title, LIMITS.titleMaxLength)
+            : t('notes.copy_title')
+        const copyId = await get().createNote({ title, content: item.payload.content, folderId: source?.folderId ?? null, open: true })
+        if (!copyId) return null
+        await localDb.discardOutboxItem(id, writeId)
+        if (dirty.get(entityId)?.writeId === writeId) {
+            dirty.delete(entityId)
+            pendingOutboxWrites.delete(entityId)
+            pendingContentWrites.delete(entityId)
+        }
+        const remaining = await localDb.getOutbox()
+        set({ pendingCount: pendingNoteCount(remaining), failedOutbox: remaining.filter((entry) => entry.failed) })
+        return copyId
+    },
+    async discardOutboxItem(id, writeId, entityId) {
+        await localDb.discardOutboxItem(id, writeId);
+        const pending = dirty.get(entityId);
+        if (pending?.writeId === writeId) {
+            dirty.delete(entityId);
+            pendingOutboxWrites.delete(entityId);
+            pendingContentWrites.delete(entityId);
+            await localDb.dropContent(entityId);
+            if (get().online)
+                adoptNote(await api.notes.get(entityId), set, get);
+        }
+        const remaining = await localDb.getOutbox();
+        set({ pendingCount: pendingNoteCount(remaining), failedOutbox: remaining.filter((item) => item.failed) });
     },
     setOnline(online) {
         set({ online });
@@ -2629,6 +2672,7 @@ async function loadReplayOutbox(): Promise<OutboxItem[]> {
     const outbox = await localDb.getOutbox();
     const latestSlots = new Map([...dirty.values()].map((pending) => [pending.queueId, pending.writeId]));
     return sortOutboxForReplay(outbox.filter((item) => {
+        if (item.failed || (item.nextAttemptAt !== undefined && item.nextAttemptAt > Date.now())) return false
         const latestWriteId = latestSlots.get(item.id);
         return !latestWriteId || latestWriteId === item.writeId;
     }));
@@ -2745,7 +2789,7 @@ function replayOutbox(get: () => NotesState, set: SetNotesState): Promise<void> 
         if (acquired)
             return;
         const pending = await localDb.getOutbox();
-        set({ pendingCount: pendingNoteCount(pending) });
+        set({ pendingCount: pendingNoteCount(pending), failedOutbox: pending.filter((item) => item.failed) });
     }).finally(() => {
         outboxReplayPromise = null;
     });
@@ -2875,7 +2919,7 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
             const title = typeof queuedTitle === 'string' ? queuedTitle : undefined;
             const rev = latestLocal?.rev ?? item.payload.rev;
             if (typeof content !== 'string' || !Number.isInteger(rev) || (rev as number) < 1) {
-                await localDb.markOutboxFailure(item.id, item.writeId, 'invalid offline journal payload').catch(() => { });
+                await localDb.markOutboxFailure(item.id, item.writeId, 'invalid offline journal payload', { permanent: true }).catch(() => { });
                 continue;
             }
             // The first write of a note that was created while offline is a create, not a patch.
@@ -2883,7 +2927,7 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
             // create answers with the note if a previous attempt landed.
             if (item.payload.create === true) {
                 if (noteContentTooLarge(content)) {
-                    await localDb.markOutboxFailure(item.id, item.writeId, 'note content exceeds the save limit').catch(() => { });
+                    await localDb.markOutboxFailure(item.id, item.writeId, 'note content exceeds the save limit', { permanent: true }).catch(() => { });
                     warnOversizedContent(item.entityId, t("notes.content_too_large"));
                     continue;
                 }
@@ -2920,7 +2964,7 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                         break;
                     }
                     await localDb.markOutboxFailure(item.id, item.writeId,
-                        error instanceof Error ? error.message : String(error)).catch(() => { });
+                        error instanceof Error ? error.message : String(error), outboxFailureOptions(error)).catch(() => { });
                 }
                 continue;
             }
@@ -3009,11 +3053,11 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                         continue;
                     }
                     if (!server) {
-                        await localDb.markOutboxFailure(item.id, item.writeId, 'conflict response did not include the server note').catch(() => { });
+                        await localDb.markOutboxFailure(item.id, item.writeId, 'conflict response did not include the server note', outboxFailureOptions(err)).catch(() => { });
                         continue;
                     }
                     if (server.isEncrypted) {
-                        await localDb.markOutboxFailure(item.id, item.writeId, t('notes.locked_elsewhere_pending_description')).catch(() => { });
+                        await localDb.markOutboxFailure(item.id, item.writeId, t('notes.locked_elsewhere_pending_description'), { permanent: true }).catch(() => { });
                         if (!notifiedLockedConflicts.has(item.entityId)) {
                             notifiedLockedConflicts.add(item.entityId);
                             useUi.getState().toast({
@@ -3104,7 +3148,7 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                     // A 413 is a refusal, not a save: the old branch completed the queue row and the
                     // editor then believed the body had landed. Keep the write queued with its failure,
                     // so it is not silently dropped, and tell the reader once what the limit is.
-                    await localDb.markOutboxFailure(item.id, item.writeId, err.message).catch(() => { });
+                    await localDb.markOutboxFailure(item.id, item.writeId, err.message, { permanent: true }).catch(() => { });
                     warnOversizedContent(item.entityId, err.message);
                     continue;
                 }
@@ -3116,12 +3160,13 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                     item.id,
                     item.writeId,
                     err instanceof Error ? err.message : String(err),
+                    outboxFailureOptions(err),
                 ).catch(() => {});
             }
         }
     }
     const remaining = await localDb.getOutbox();
-    set({ pendingCount: pendingNoteCount(remaining) });
+    set({ pendingCount: pendingNoteCount(remaining), failedOutbox: remaining.filter((item) => item.failed) });
 }
 function pendingNoteCount(outbox: OutboxItem[]): number {
     const ids = new Set(outbox.filter((item) => item.entity === 'note').map((item) => item.entityId));
@@ -3129,9 +3174,16 @@ function pendingNoteCount(outbox: OutboxItem[]): number {
         ids.add(id);
     return ids.size;
 }
+function outboxFailureOptions(error: unknown): { permanent: boolean } {
+    if (!(error instanceof ApiError)) return { permanent: false }
+    if (error.status === 413) return { permanent: true }
+    if (error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 409 && error.status !== 425 && error.status !== 429)
+        return { permanent: true }
+    return { permanent: false }
+}
 function refreshPendingCount(): void {
     void localDb.getOutbox()
-        .then((outbox) => useNotes.setState({ pendingCount: pendingNoteCount(outbox) }))
+        .then((outbox) => useNotes.setState({ pendingCount: pendingNoteCount(outbox), failedOutbox: outbox.filter((item) => item.failed) }))
         .catch(() => { });
 }
 export function acknowledgeOutboxBaseAdvanced(

@@ -1,9 +1,11 @@
-import { CloudOff } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, CloudOff } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { Tooltip } from '../../components/overlay';
 import { useRelativeTime } from '../../lib/hooks';
 import { useNotes } from '../../store/notes';
 import { t } from "../../lib/i18n";
+import { SyncIssuesDialog } from './SyncIssuesDialog';
 
 
 export function SaveIndicator() {
@@ -11,6 +13,8 @@ export function SaveIndicator() {
     const lastSavedAt = useNotes((s) => s.lastSavedAt);
     const online = useNotes((s) => s.online);
     const pending = useNotes((s) => s.pendingCount);
+    const failed = useNotes((s) => s.failedOutbox);
+    const [issuesOpen, setIssuesOpen] = useState(false);
     const offline = !online || status === 'offline';
     const saving = status === 'saving';
     const dirty = status === 'dirty';
@@ -27,6 +31,18 @@ export function SaveIndicator() {
                 : lastSavedAt
                     ? t("shell.synced_value0", { value0: savedAgo })
                     : t("shell.synced");
+    if (failed.length) {
+        const issueLabel = t('shell.sync_issues_value0', { value0: failed.length });
+        return (<>
+          <Tooltip label={issueLabel} side="bottom">
+            <button type="button" aria-label={issueLabel} onClick={() => setIssuesOpen(true)} className="flex h-7 items-center gap-1 rounded-[var(--r-sm)] px-1.5 text-[length:var(--text-11)] text-[var(--danger)] hover:bg-[var(--danger-soft)]">
+              <AlertTriangle size={14}/>
+              <span aria-hidden="true">{failed.length}</span>
+            </button>
+          </Tooltip>
+          <SyncIssuesDialog open={issuesOpen} onClose={() => setIssuesOpen(false)}/>
+        </>);
+    }
     if (offline) {
         return (<Tooltip label={label} side="bottom">
         <span role="img" aria-label={label} className="flex h-6 items-center gap-1.5 rounded-[var(--r-sm)] px-1.5 text-[length:var(--text-11)] text-[var(--warning)]">
