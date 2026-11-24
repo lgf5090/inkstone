@@ -76,6 +76,7 @@ export async function sendDraftEmail(
   account: EmailAccountRow,
   draftId: string,
   input: EmailSendInput,
+  options: { attachmentMode?: 'merge' | 'snapshot' } = {},
 ): Promise<DraftSendOutcome> {
   const mailbox = emailMailbox(env, account.id)
   let draft = await mailbox.getEmail(draftId)
@@ -86,7 +87,9 @@ export async function sendDraftEmail(
   const body = validateBody(input)
   const loadAttachments = async () => await loadOutgoingAttachments(env, userId, draftId, [...new Set([
     ...(input.attachmentIds ?? []),
-    ...((await loadEmailAttachments(env.DB, userId, [draftId])).get(draftId) ?? []).map((entry) => entry.id),
+    ...(options.attachmentMode === 'snapshot'
+      ? []
+      : ((await loadEmailAttachments(env.DB, userId, [draftId])).get(draftId) ?? []).map((entry) => entry.id)),
   ])], true)
   let attachments: Awaited<ReturnType<typeof loadAttachments>> | undefined
   const requestHash = await sha256Hex(JSON.stringify({ mode: 'draft', account: account.id, draftId, input }))

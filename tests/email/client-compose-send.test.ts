@@ -144,6 +144,34 @@ afterEach(() => {
 })
 
 describe('the compose panel undo send window', () => {
+  it('saves the visible edits before queueing an existing draft', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(api.email, 'getEmail').mockResolvedValue({
+      ...original,
+      id: 'd1',
+      folderId: 'draft',
+      recipient: 'grace@example.com',
+      subject: 'Saved subject',
+      body: '<p>Saved body</p>',
+      bodySource: 'Saved body',
+      inReplyTo: null,
+      threadId: null,
+    })
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
+    const view = renderElement(createElement(ComposePanel, {
+      account, mode: 'new', draftId: 'd1', original: null, onClose: vi.fn(), onSent: vi.fn(),
+    }))
+    await flush()
+    change(inputFor(t('email.compose.subject')), 'Visible subject')
+    await act(async () => { button(t('email.compose.send')).click() })
+    await flush()
+
+    expect(saveDraft).toHaveBeenCalledWith(account.id, expect.objectContaining({ draftId: 'd1', subject: 'Visible subject' }))
+    expect(saveDraft.mock.invocationCallOrder[0]).toBeLessThan(scheduleDraftSend.mock.invocationCallOrder[0]!)
+    saveDraft.mockRestore()
+    view.unmount()
+  })
+
   it('waits before sending and announces the countdown', async () => {
     vi.useFakeTimers()
     const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
@@ -379,6 +407,38 @@ describe('the compose panel schedule send menu', () => {
       .toBe(true)
     saveDraft.mockRestore()
     scheduleDraftSend.mockRestore()
+    view.unmount()
+  })
+
+  it('schedules a custom date and time through the date picker', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-10T10:00:00.000Z'))
+    const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
+    const onSent = vi.fn()
+    const view = panel(onSent)
+    completeRecipient()
+    act(() => { labelled(t('email.compose.schedule_send')).click() })
+    const custom = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((node) => node.textContent?.trim() === t('preview.kanban_select_date'))
+    if (!custom) throw new Error('no custom schedule item')
+    act(() => { custom.click() })
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
+    const picker = dialog?.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')
+    if (!picker) throw new Error('no custom date picker')
+    act(() => { picker.click() })
+    const days = [...document.querySelectorAll<HTMLButtonElement>('.grid.grid-cols-7 button')]
+    const futureDay = days.at(-1)
+    if (!futureDay) throw new Error('no calendar day')
+    act(() => { futureDay.click() })
+    await act(async () => { button(t('email.compose.schedule_send')).click() })
+    await flush()
+
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    expect(scheduleDraftSend).toHaveBeenCalledTimes(1)
+    const sendAt = Date.parse(String(scheduleDraftSend.mock.calls[0]?.[2].sendAt))
+    expect(sendAt).toBeGreaterThan(Date.now())
+    expect(onSent).toHaveBeenCalledTimes(1)
+    saveDraft.mockRestore()
     view.unmount()
   })
 

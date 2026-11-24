@@ -4547,6 +4547,11 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    version: 419,
+    skipIfColumnExists: { table: 'email_scheduled_sends', column: 'snapshot_json' },
+    statements: [`ALTER TABLE email_scheduled_sends ADD COLUMN snapshot_json TEXT`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

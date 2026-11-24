@@ -7403,6 +7403,8 @@ const allowed = new Map([
     "// page inside nine seconds must still deliver, and undo is a cancel of that job.",
     "// Capture the job itself rather than looking it up through component state: this toast outlives the",
     "// editor when the reader follows a link or switches accounts during the undo window.",
+    "// The queued job must start from the fields shown now, even when this draft already existed and the",
+    "// autosave pause has not fired yet. Save first so scheduling does not read an older revision.",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",
@@ -41864,6 +41866,10 @@ const allowed = new Map([
   ["src/worker/email/mailbox-store.ts", [
     "/** What one draft save did: the row it wrote, or why it wrote nothing. */",
     "/**\n   * Save a draft, optionally refusing to overwrite a newer write.\n   *\n   * The comparison happens inside the mailbox's own synchronous store, so there is no window between\n   * reading `updated_at` and the write it guards: two tabs editing the same draft cannot both pass the\n   * check. Without `expectedUpdatedAt` the save is the unconditional one the agent and import paths use.\n   */",
+  ]],
+  ["src/worker/email/scheduled-send.ts", [
+    "// The mailbox store owns both D1 and KV counters. Waiting a full reported window from this refusal",
+    "// clears either implementation without reading a second, potentially different copy of the mailbox.",
   ]],
   ["src/worker/env.ts", [
     "/** Workers AI binding for semantic search; optional so AI search degrades gracefully. */",

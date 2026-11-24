@@ -7,6 +7,7 @@ import type {
   EmailFolder,
   EmailMailboxStats,
   EmailMessage,
+  EmailScheduledSend,
   EmailSummary,
   EmailTag,
 } from '@shared/email/model'
@@ -14,7 +15,7 @@ import { EMAIL_PAGE_SIZE } from '@shared/email/model'
 import { emailSearchParams, parseEmailSearchQuery } from '@shared/email/search'
 import type { EmailSavedSearch } from '@shared/email/searches'
 import type { EmailContact, EmailGroupWithMembers } from '@shared/email/contacts'
-import { api } from '../../lib/api'
+import { api, type EmailScheduledSendPage } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { emailErrorText } from './errors'
 
@@ -80,6 +81,8 @@ let contactsSequence = 0
 let foldersSequence = 0
 let tagsSequence = 0
 let searchesSequence = 0
+let scheduledActiveSequence = 0
+let scheduledHistorySequence = 0
 let mutationSequence = 0
 let structuralMutationSequence = 0
 const mutationVersions = new Map<string, number>()
@@ -147,6 +150,21 @@ interface EmailState {
   trashPage: number
 
   actionError: string | null
+
+  scheduledAccountId: string | null
+  scheduledActive: EmailScheduledSend[]
+  scheduledHistory: EmailScheduledSend[]
+  scheduledActiveStatus: EmailLoadStatus
+  scheduledHistoryStatus: EmailLoadStatus
+  scheduledActiveError: string | null
+  scheduledHistoryError: string | null
+  scheduledHistoryCursor: string | null
+  scheduledHistoryRequestCursor: string | null
+
+  loadScheduledSends: (accountId: string, options?: { silent?: boolean, history?: boolean, cursor?: string, append?: boolean }) => Promise<void>
+  cancelScheduledSend: (accountId: string, jobId: string) => Promise<boolean>
+  rescheduleScheduledSend: (accountId: string, jobId: string, sendAt: string | number) => Promise<EmailScheduledSend | null>
+  cleanupScheduledSends: (accountId: string, olderThan: string | number) => Promise<number | null>
 
   loadAccounts: () => Promise<void>
   createAccount: (input: { localPart: string; domain: string; displayName?: string }) => Promise<EmailAccount>
@@ -255,6 +273,15 @@ const INITIAL = {
   trashError: null as string | null,
   trashPage: 1,
   actionError: null as string | null,
+  scheduledAccountId: null as string | null,
+  scheduledActive: [] as EmailScheduledSend[],
+  scheduledHistory: [] as EmailScheduledSend[],
+  scheduledActiveStatus: 'idle' as EmailLoadStatus,
+  scheduledHistoryStatus: 'idle' as EmailLoadStatus,
+  scheduledActiveError: null as string | null,
+  scheduledHistoryError: null as string | null,
+  scheduledHistoryCursor: null as string | null,
+  scheduledHistoryRequestCursor: null as string | null,
 }
 
 const visibilityHandler = (): void => {
@@ -414,6 +441,15 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         trashTotal: 0,
         trashStatus: 'idle',
         trashError: null,
+        scheduledAccountId: null,
+        scheduledActive: [],
+        scheduledHistory: [],
+        scheduledActiveStatus: 'idle',
+        scheduledHistoryStatus: 'idle',
+        scheduledActiveError: null,
+        scheduledHistoryError: null,
+        scheduledHistoryCursor: null,
+        scheduledHistoryRequestCursor: null,
       })
     }
     set((state) => ({ accounts: state.accounts.filter((account) => account.id !== accountId) }))
@@ -699,6 +735,15 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       tasks.push(get().searchEmails(state.accountId, state.searchQuery, state.page, { silent: true }))
     } else if (state.folderId) {
       tasks.push(get().loadList(state.accountId, state.folderId, state.page, { silent: true }))
+    }
+    if (state.scheduledAccountId) {
+      tasks.push(get().loadScheduledSends(state.scheduledAccountId, { silent: true }))
+      tasks.push(get().loadScheduledSends(state.scheduledAccountId, {
+        silent: true,
+        history: true,
+        ...(state.scheduledHistoryRequestCursor ? { cursor: state.scheduledHistoryRequestCursor } : {}),
+        append: false,
+      }))
     }
     await Promise.allSettled(tasks)
   },
@@ -1150,6 +1195,89 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     } catch (reason) {
       set({ actionError: emailErrorText(reason) })
       return false
+    }
+  },
+
+  loadScheduledSends: async (accountId, options) => {
+    const history = options?.history === true
+    const silent = options?.silent === true
+    const cursor = options?.cursor
+    const sequence = history ? ++scheduledHistorySequence : ++scheduledActiveSequence
+    const statusKey = history ? 'scheduledHistoryStatus' : 'scheduledActiveStatus'
+    const errorKey = history ? 'scheduledHistoryError' : 'scheduledActiveError'
+    set((state) => ({
+      scheduledAccountId: accountId,
+      ...(state.scheduledAccountId === accountId ? {} : {
+        scheduledActive: [],
+        scheduledHistory: [],
+        scheduledHistoryCursor: null,
+        scheduledHistoryRequestCursor: null,
+      }),
+      [statusKey]: silent ? (state.scheduledAccountId === accountId ? state[statusKey] : 'loading') : 'loading',
+      [errorKey]: null,
+      ...(history ? { scheduledHistoryRequestCursor: cursor ?? null } : {}),
+    }))
+    try {
+      const page: EmailScheduledSendPage = await api.email.listScheduledSends(accountId, {
+        status: history ? 'history' : 'active',
+        limit: EMAIL_PAGE_SIZE,
+        ...(cursor ? { cursor } : {}),
+      })
+      if (sequence !== (history ? scheduledHistorySequence : scheduledActiveSequence) || get().scheduledAccountId !== accountId) return
+      set((state) => ({
+        [statusKey]: 'ready',
+        [errorKey]: null,
+        ...(history
+          ? {
+              scheduledHistory: cursor && options?.append !== false ? [...state.scheduledHistory, ...page.items] : page.items,
+              scheduledHistoryCursor: page.nextCursor,
+            }
+          : { scheduledActive: page.items }),
+      }))
+    } catch (reason) {
+      if (sequence !== (history ? scheduledHistorySequence : scheduledActiveSequence) || get().scheduledAccountId !== accountId) return
+      set({ [statusKey]: silent ? get()[statusKey] : 'error', [errorKey]: emailErrorText(reason) })
+    }
+  },
+
+  cancelScheduledSend: async (accountId, jobId) => {
+    try {
+      await api.email.cancelScheduledSend(accountId, jobId)
+      const cursor = get().scheduledHistoryRequestCursor
+      await Promise.all([
+        get().loadScheduledSends(accountId, { silent: true }),
+        get().loadScheduledSends(accountId, { silent: true, history: true, ...(cursor ? { cursor } : {}), append: false }),
+      ])
+      return true
+    } catch (reason) {
+      set({ scheduledActiveError: emailErrorText(reason) })
+      return false
+    }
+  },
+
+  rescheduleScheduledSend: async (accountId, jobId, sendAt) => {
+    try {
+      const updated = await api.email.rescheduleScheduledSend(accountId, jobId, sendAt)
+      const cursor = get().scheduledHistoryRequestCursor
+      await Promise.all([
+        get().loadScheduledSends(accountId, { silent: true }),
+        get().loadScheduledSends(accountId, { silent: true, history: true, ...(cursor ? { cursor } : {}), append: false }),
+      ])
+      return updated
+    } catch (reason) {
+      set({ scheduledActiveError: emailErrorText(reason) })
+      return null
+    }
+  },
+
+  cleanupScheduledSends: async (accountId, olderThan) => {
+    try {
+      const result = await api.email.cleanupScheduledSends(accountId, olderThan)
+      await get().loadScheduledSends(accountId, { silent: true, history: true })
+      return result.deleted
+    } catch (reason) {
+      set({ scheduledHistoryError: emailErrorText(reason) })
+      return null
     }
   },
 

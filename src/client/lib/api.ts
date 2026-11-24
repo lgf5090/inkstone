@@ -857,6 +857,11 @@ function logQueryParams(query: LogQuery): URLSearchParams {
   return params
 }
 
+export interface EmailScheduledSendPage {
+  items: EmailScheduledSend[]
+  nextCursor: string | null
+}
+
 export const api = {
   session: () => request<SessionInfo>('/api/auth/session'),
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
@@ -1654,8 +1659,15 @@ export const api = {
       request<EmailScheduledSend>(`/api/email/accounts/${id}/drafts/${draftId}/schedule`, { method: 'POST', body }),
     cancelScheduledSend: (id: string, jobId: string) =>
       request<void>(`/api/email/accounts/${id}/scheduled/${jobId}`, { method: 'DELETE' }),
-    listScheduledSends: (id: string) =>
-      request<EmailScheduledSend[]>(`/api/email/accounts/${id}/scheduled`),
+    listScheduledSends: (id: string, params: { status?: 'active' | 'history', cursor?: string, limit?: number } = {}) =>
+      request<EmailScheduledSendPage>(`/api/email/accounts/${id}/scheduled${toQuery(params)}`),
+    rescheduleScheduledSend: (id: string, jobId: string, sendAt: string | number) =>
+      request<EmailScheduledSend>(`/api/email/accounts/${id}/scheduled/${encodeURIComponent(jobId)}`, {
+        method: 'PATCH',
+        body: { sendAt },
+      }),
+    cleanupScheduledSends: (id: string, olderThan: string | number, limit = 100) =>
+      request<{ deleted: number }>(`/api/email/accounts/${id}/scheduled${toQuery({ olderThan, limit })}`, { method: 'DELETE' }),
     linkAttachment: (
       id: string,
       draftId: string,

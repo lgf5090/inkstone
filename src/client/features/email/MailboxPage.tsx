@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   Bookmark,
   Bot,
+  Clock,
   PanelLeft,
   PanelLeftClose,
   Paperclip,
@@ -10,17 +11,19 @@ import {
   Settings,
   X,
 } from 'lucide-react'
-import type { EmailAccount, EmailBatchAction, EmailSummary, EmailTag } from '@shared/email/model'
+import type { EmailAccount, EmailBatchAction, EmailScheduledSend, EmailSummary, EmailTag } from '@shared/email/model'
 import type { EmailContact, EmailGroupWithMembers } from '@shared/email/contacts'
 import { MAX_EMAIL_CONTEXT_SNIPPET, type EmailAssistantContext } from '@shared/email/assistant-context'
 import { parseEmailSearchQuery } from '@shared/email/search'
 import { Avatar, Button, IconButton } from '../../components/primitives'
-import { Input } from '../../components/form'
+import { Field, Input } from '../../components/form'
+import { DatePicker } from '../../components/date-picker'
 import { Drawer, Modal, Tooltip, confirm, prompt } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { navigateToAddress, navigateToPath, usePathname } from '../../lib/app-history'
 import { useBreakpoint } from '../../lib/hooks'
+import { fullTime } from '../../lib/time'
 import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
 import { Resizer } from '../shell/Resizer'
 import { useAssistant } from '../chat/assistant-store'
@@ -87,6 +90,12 @@ const EMAIL_WRITE_TOOLS = new Set([
 ])
 
 const NAV_RAIL_WIDTH = 48
+const SCHEDULE_HISTORY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+
+function localDateTimeValue(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 
 function searchMessageAddress(accountId: string, query: string, messageId: string, contactId?: string | null): { path: string; search: string } {
   return {
@@ -155,6 +164,17 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
   const deleteMessage = useEmailStore((state) => state.deleteMessage)
   const snoozeMessage = useEmailStore((state) => state.snoozeMessage)
   const retrySend = useEmailStore((state) => state.retrySend)
+  const scheduledActive = useEmailStore((state) => state.scheduledActive)
+  const scheduledHistory = useEmailStore((state) => state.scheduledHistory)
+  const scheduledActiveStatus = useEmailStore((state) => state.scheduledActiveStatus)
+  const scheduledHistoryStatus = useEmailStore((state) => state.scheduledHistoryStatus)
+  const scheduledActiveError = useEmailStore((state) => state.scheduledActiveError)
+  const scheduledHistoryError = useEmailStore((state) => state.scheduledHistoryError)
+  const scheduledHistoryCursor = useEmailStore((state) => state.scheduledHistoryCursor)
+  const loadScheduledSends = useEmailStore((state) => state.loadScheduledSends)
+  const cancelScheduledSend = useEmailStore((state) => state.cancelScheduledSend)
+  const rescheduleScheduledSend = useEmailStore((state) => state.rescheduleScheduledSend)
+  const cleanupScheduledSends = useEmailStore((state) => state.cleanupScheduledSends)
   const startPolling = useEmailStore((state) => state.startPolling)
   const stopPolling = useEmailStore((state) => state.stopPolling)
 
@@ -172,6 +192,11 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
   const [searchDraft, setSearchDraft] = useState(query)
   const [folderDrawer, setFolderDrawer] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
+  const [scheduledOpen, setScheduledOpen] = useState(false)
+  const [reschedulingJob, setReschedulingJob] = useState<EmailScheduledSend | null>(null)
+  const [rescheduleDate, setRescheduleDate] = useState('')
+  const [historyCursors, setHistoryCursors] = useState<Array<string | null>>([null])
+  const [historyPageIndex, setHistoryPageIndex] = useState(0)
   const railWidth = breakpoint === 'mobile' ? 48 : 56
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const navCollapsed = useUi((state) => state.emailNavCollapsed)
@@ -234,6 +259,20 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
   useEffect(() => {
     void loadContacts()
   }, [loadContacts])
+
+  useEffect(() => {
+    setReschedulingJob(null)
+    setHistoryCursors([null])
+    setHistoryPageIndex(0)
+  }, [account.id])
+
+  useEffect(() => {
+    if (!scheduledOpen) return
+    setHistoryCursors([null])
+    setHistoryPageIndex(0)
+    void loadScheduledSends(account.id)
+    void loadScheduledSends(account.id, { history: true })
+  }, [account.id, scheduledOpen, loadScheduledSends])
 
   useEffect(() => {
     setAccountsOpen(panel === 'accounts')
@@ -360,6 +399,64 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
     const snoozed = await snoozeMessage(account.id, messageId, until)
     if (snoozed) useUi.getState().toast({ title: t('email.snooze.done'), tone: 'success' })
     return snoozed
+  }
+
+  const cancelScheduledJob = async (job: EmailScheduledSend): Promise<void> => {
+    const cancelled = await cancelScheduledSend(account.id, job.id)
+    useUi.getState().toast({
+      title: t(cancelled ? 'email.compose.send_cancelled' : 'email.compose.send_cancel_failed'),
+      tone: cancelled ? 'success' : 'danger',
+    })
+  }
+
+  const beginReschedule = (job: EmailScheduledSend): void => {
+    setRescheduleDate(localDateTimeValue(new Date(job.sendAt)))
+    setScheduledOpen(false)
+    setReschedulingJob(job)
+  }
+
+  const saveReschedule = async (): Promise<void> => {
+    if (!reschedulingJob || !rescheduleDate) return
+    const at = new Date(rescheduleDate)
+    if (!Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) return
+    const updated = await rescheduleScheduledSend(account.id, reschedulingJob.id, at.toISOString())
+    if (!updated) {
+      useUi.getState().toast({
+        title: useEmailStore.getState().scheduledActiveError ?? t('email.compose.schedule_failed'),
+        tone: 'danger',
+      })
+      return
+    }
+    setReschedulingJob(null)
+    setScheduledOpen(true)
+    useUi.getState().toast({ title: t('email.compose.schedule_sent', { time: fullTime(Date.parse(updated.sendAt)) }), tone: 'success' })
+  }
+
+  const nextScheduleHistoryPage = (): void => {
+    if (!scheduledHistoryCursor) return
+    setHistoryCursors((current) => [...current.slice(0, historyPageIndex + 1), scheduledHistoryCursor])
+    setHistoryPageIndex((current) => current + 1)
+    void loadScheduledSends(account.id, { history: true, cursor: scheduledHistoryCursor })
+  }
+
+  const previousScheduleHistoryPage = (): void => {
+    if (historyPageIndex === 0) return
+    const previous = historyPageIndex - 1
+    const cursor = historyCursors[previous]
+    setHistoryPageIndex(previous)
+    void loadScheduledSends(account.id, { history: true, ...(cursor ? { cursor } : {}), append: false })
+  }
+
+  const cleanupScheduleHistory = async (): Promise<void> => {
+    const confirmed = await confirm({ title: t('common.delete'), confirmLabel: t('common.delete'), tone: 'danger' })
+    if (!confirmed) return
+    const deleted = await cleanupScheduledSends(account.id, Date.now() - SCHEDULE_HISTORY_RETENTION_MS)
+    if (deleted === null) {
+      useUi.getState().toast({ title: useEmailStore.getState().scheduledHistoryError ?? t('common.delete_failed'), tone: 'danger' })
+      return
+    }
+    setHistoryCursors([null])
+    setHistoryPageIndex(0)
   }
 
   const removeFolder = async (id: string): Promise<void> => {
@@ -598,6 +695,11 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
           <Bot size={15} />
         </IconButton>
       </Tooltip>
+      <Tooltip label={t('email.compose.schedule_send')} side="bottom">
+        <IconButton label={t('email.compose.schedule_send')} size="sm" onClick={() => setScheduledOpen(true)}>
+          <Clock size={15} />
+        </IconButton>
+      </Tooltip>
       <Tooltip label={t('email.header.settings')} side="bottom">
         <IconButton label={t('email.header.settings')} size="sm" className="size-11 md:size-7" onClick={() => navigateToPath(emailSettingsPath(account.id))}>
           <Settings size={15} />
@@ -833,6 +935,40 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
     </div>
   )
 
+  const scheduledJobRow = (job: EmailScheduledSend) => {
+    const statusLabel = job.status === 'queued'
+      ? t('preview.kanban_status_scheduled')
+      : job.status === 'running'
+        ? t('email.settings.delivery_status_sending')
+        : job.status === 'sent'
+          ? t('email.folder.sent')
+          : job.status === 'failed'
+            ? t('email.list.send_failed')
+            : t('email.compose.send_cancelled')
+    return (
+      <li key={job.id} className="space-y-1 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] text-[var(--text-primary)]" title={job.draftId}>
+            {job.draftId}
+          </span>
+          <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{statusLabel}</span>
+          {job.status === 'queued' && (
+            <>
+              <IconButton label={t('common.edit')} size="xs" onClick={() => beginReschedule(job)}>
+                <Clock size={12} />
+              </IconButton>
+              <IconButton label={t('common.delete')} size="xs" onClick={() => { void cancelScheduledJob(job) }}>
+                <X size={12} />
+              </IconButton>
+            </>
+          )}
+        </div>
+        <div className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{fullTime(Date.parse(job.sendAt))}</div>
+        {job.lastError && <div role="alert" className="text-[length:var(--text-11-5)] text-[var(--danger)]">{job.lastError}</div>}
+      </li>
+    )
+  }
+
   const pane = (
     <MessagePane
       account={account}
@@ -952,6 +1088,69 @@ export function MailboxPage({ address, account, panel = null }: { address: Mailb
           {folderSidebar()}
         </Drawer>
       )}
+      <Modal
+        open={scheduledOpen}
+        onClose={() => setScheduledOpen(false)}
+        width={680}
+        title={t('email.compose.schedule_send')}
+        footer={(
+          <div className="flex w-full items-center justify-between gap-2">
+            <Button size="sm" variant="ghost" onClick={() => { void cleanupScheduleHistory() }} disabled={scheduledHistoryStatus === 'loading'}>
+              {t('common.delete')}
+            </Button>
+            <Button size="sm" onClick={() => setScheduledOpen(false)}>{t('common.close')}</Button>
+          </div>
+        )}
+      >
+        <div className="space-y-4">
+          <section className="space-y-2" aria-label={t('email.compose.schedule_send')}>
+            {scheduledActiveStatus === 'loading' && <p className="text-sm text-[var(--text-tertiary)]">{t('common.loading')}</p>}
+            {scheduledActiveError && <p role="alert" className="text-sm text-[var(--danger)]">{scheduledActiveError}</p>}
+            {scheduledActiveStatus === 'ready' && scheduledActive.length === 0 && (
+              <p className="text-sm text-[var(--text-tertiary)]">{t('email.list.empty.search')}</p>
+            )}
+            {scheduledActive.length > 0 && <ul className="space-y-2">{scheduledActive.map(scheduledJobRow)}</ul>}
+          </section>
+          <div className="space-y-2">
+            {scheduledHistoryStatus === 'loading' && <p className="text-sm text-[var(--text-tertiary)]">{t('common.loading')}</p>}
+            {scheduledHistoryError && <p role="alert" className="text-sm text-[var(--danger)]">{scheduledHistoryError}</p>}
+            {scheduledHistoryStatus === 'ready' && scheduledHistory.length === 0 && (
+              <p className="text-sm text-[var(--text-tertiary)]">{t('email.list.empty.search')}</p>
+            )}
+            {scheduledHistory.length > 0 && <ul className="space-y-2">{scheduledHistory.map(scheduledJobRow)}</ul>}
+            {scheduledHistoryCursor && (
+              <nav className="flex items-center justify-between" aria-label={t('email.list.pagination')}>
+                <Button size="sm" variant="ghost" disabled={historyPageIndex === 0 || scheduledHistoryStatus === 'loading'} onClick={previousScheduleHistoryPage}>
+                  {t('email.list.page_prev')}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={scheduledHistoryStatus === 'loading'} onClick={nextScheduleHistoryPage}>
+                  {t('email.list.page_next')}
+                </Button>
+              </nav>
+            )}
+          </div>
+        </div>
+      </Modal>
+      <Modal
+        open={Boolean(reschedulingJob)}
+        onClose={() => { setReschedulingJob(null); setScheduledOpen(true) }}
+        width={420}
+        title={t('email.compose.schedule_send')}
+        footer={(
+          <div className="flex w-full items-center justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => { setReschedulingJob(null); setScheduledOpen(true) }}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={() => { void saveReschedule() }} disabled={!rescheduleDate || !Number.isFinite(new Date(rescheduleDate).getTime()) || new Date(rescheduleDate).getTime() <= Date.now()}>
+              {t('common.save')}
+            </Button>
+          </div>
+        )}
+      >
+        <Field label={t('preview.kanban_select_date')} required>
+          <DatePicker label={t('preview.kanban_select_date')} value={rescheduleDate} onChange={setRescheduleDate} withTime />
+        </Field>
+      </Modal>
       <TrashPanel open={trashOpen} accountId={account.id} onClose={() => setTrashOpen(false)} />
       <AccountManagerDialog
         open={accountsOpen}

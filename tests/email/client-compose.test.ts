@@ -6,11 +6,13 @@ import { EMAIL_ATTACHMENT_MAX_BYTES } from '@shared/email/model'
 import type { HubAttachmentWithUsage } from '@shared/attachment-hub'
 import { api, ApiError } from '../../src/client/lib/api'
 import { attachmentHubApi } from '../../src/client/features/attachment-hub/api'
-import { renderElement, type RenderedElement } from '../../src/client/lib/test-render'
+import { renderElement, stubWideShow, type RenderedElement } from '../../src/client/lib/test-render'
 import { t } from '../../src/client/lib/i18n'
 import { useUi } from '../../src/client/store/ui'
 import { ComposePanel } from '../../src/client/features/email/ComposePanel'
 import { MessagePane } from '../../src/client/features/email/MessagePane'
+import { MailboxPage } from '../../src/client/features/email/MailboxPage'
+import { useEmailStore } from '../../src/client/features/email/store'
 
 const account: EmailAccount = {
   id: 'a1',
@@ -23,6 +25,8 @@ const account: EmailAccount = {
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 }
+
+const originalEmailStore = useEmailStore.getState()
 
 const multiSignatureAccount: EmailAccount = {
   ...account,
@@ -212,8 +216,11 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  useEmailStore.getState().stopPolling()
+  useEmailStore.setState(originalEmailStore, true)
   document.body.innerHTML = ''
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
   useUi.setState({ toasts: [] })
 })
@@ -740,6 +747,86 @@ describe('the compose panel', () => {
     const image = preview?.querySelector('img')
     expect(image?.getAttribute('src')).toBe('/api/email/files/att1')
     expect(preview?.innerHTML).not.toContain('cid:')
+    view.unmount()
+  })
+})
+
+describe('the mailbox scheduled send manager', () => {
+  it('appends history pages and can replace the current page when refreshing it', async () => {
+    const first: EmailScheduledSend = {
+      id: 'job-1', accountId: account.id, draftId: 'draft-1', sendAt: new Date().toISOString(),
+      status: 'sent', attempts: 1, lastError: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    }
+    const second: EmailScheduledSend = { ...first, id: 'job-2', draftId: 'draft-2', status: 'failed', lastError: 'failed' }
+    const list = vi.spyOn(api.email, 'listScheduledSends')
+      .mockResolvedValueOnce({ items: [first], nextCursor: '200:job-1' })
+      .mockResolvedValueOnce({ items: [second], nextCursor: null })
+      .mockResolvedValueOnce({ items: [second], nextCursor: null })
+    await useEmailStore.getState().loadScheduledSends(account.id, { history: true })
+    await useEmailStore.getState().loadScheduledSends(account.id, { history: true, cursor: '200:job-1' })
+    expect(useEmailStore.getState().scheduledHistory.map((job) => job.id)).toEqual(['job-1', 'job-2'])
+    expect(useEmailStore.getState().scheduledHistoryRequestCursor).toBe('200:job-1')
+
+    await useEmailStore.getState().loadScheduledSends(account.id, { history: true, cursor: '200:job-1', append: false })
+    expect(useEmailStore.getState().scheduledHistory.map((job) => job.id)).toEqual(['job-2'])
+    expect(list).toHaveBeenLastCalledWith(account.id, expect.objectContaining({ status: 'history', cursor: '200:job-1' }))
+  })
+
+  it('lists active and failed jobs, opens rescheduling, and cancels a queued job', async () => {
+    stubWideShow()
+    const active: EmailScheduledSend = {
+      id: 'job-active', accountId: account.id, draftId: 'draft-active',
+      sendAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), status: 'queued', attempts: 0, lastError: null,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    }
+    const failed: EmailScheduledSend = {
+      id: 'job-failed', accountId: account.id, draftId: 'draft-failed',
+      sendAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(), status: 'failed', attempts: 3,
+      lastError: 'The mail service refused the message', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    }
+    vi.spyOn(api.email, 'listFolders').mockResolvedValue([])
+    vi.spyOn(api.email, 'listTags').mockResolvedValue([])
+    vi.spyOn(api.email, 'listSearches').mockResolvedValue([])
+    vi.spyOn(api.email, 'listEmails').mockResolvedValue({ emails: [], totalCount: 0 })
+    vi.spyOn(api.email, 'listContacts').mockResolvedValue([])
+    vi.spyOn(api.email, 'listGroups').mockResolvedValue([])
+    const list = vi.spyOn(api.email, 'listScheduledSends').mockImplementation(async (_id, params) => ({
+      items: params?.status === 'history' ? (active.status === 'queued' ? [failed] : [failed, { ...active, status: 'cancelled' as const }]) : (active.status === 'queued' ? [active] : []),
+      nextCursor: null,
+    }))
+    const cancel = vi.spyOn(api.email, 'cancelScheduledSend').mockImplementation(async () => {
+      active.status = 'cancelled'
+    })
+    const reschedule = vi.spyOn(api.email, 'rescheduleScheduledSend').mockResolvedValue(active)
+    const view = renderElement(createElement(MailboxPage, {
+      account,
+      address: { kind: 'mailbox', accountId: account.id, folderId: 'inbox', messageId: null, compose: null, draftId: null },
+    }))
+    await flush()
+    act(() => { ariaButton(t('email.compose.schedule_send')).click() })
+    await flush()
+    expect(document.body.textContent).toContain('draft-active')
+    expect(document.body.textContent).toContain('draft-failed')
+    expect(document.body.textContent).toContain('The mail service refused the message')
+    expect(list).toHaveBeenCalledWith(account.id, expect.objectContaining({ status: 'active' }))
+    expect(list).toHaveBeenCalledWith(account.id, expect.objectContaining({ status: 'history' }))
+
+    act(() => { ariaButton(t('common.edit')).click() })
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(t('email.compose.schedule_send'))
+    const picker = document.querySelector<HTMLButtonElement>('[role="dialog"] button[aria-haspopup="dialog"]')
+    if (!picker) throw new Error('no reschedule date picker')
+    act(() => { picker.click() })
+    const futureDay = [...document.querySelectorAll<HTMLButtonElement>('.grid.grid-cols-7 button')].at(-1)
+    if (!futureDay) throw new Error('no reschedule calendar day')
+    act(() => { futureDay.click() })
+    await act(async () => { button(t('common.save')).click() })
+    await flush()
+    expect(reschedule).toHaveBeenCalledWith(account.id, 'job-active', expect.any(String))
+    expect(Date.parse(String(reschedule.mock.calls[0]?.[2]))).toBeGreaterThan(Date.now())
+    act(() => { ariaButton(t('common.delete')).click() })
+    await flush()
+    expect(cancel).toHaveBeenCalledWith(account.id, 'job-active')
+    expect(useUi.getState().toasts.map(({ title }) => title)).toContain(t('email.compose.send_cancelled'))
     view.unmount()
   })
 })

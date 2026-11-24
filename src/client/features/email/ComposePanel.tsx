@@ -7,6 +7,7 @@ import type { EmailTemplate } from '@shared/email/templates'
 import { buildEmailQuoteMarkdown, formatEmailQuotedDate, splitEmailList, stripEmailHtmlToText } from '@shared/email/format'
 import { Button, IconButton } from '../../components/primitives'
 import { Field, Input, Segmented } from '../../components/form'
+import { DatePicker } from '../../components/date-picker'
 import { confirm, Menu, Modal, type MenuItem } from '../../components/overlay'
 import { toastWithUndo, useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
@@ -72,6 +73,11 @@ function scheduledTime(preset: SchedulePreset, now = new Date()): Date {
   next.setDate(next.getDate() + (preset === 'tomorrow' ? 1 : 7))
   next.setHours(SCHEDULE_HOUR, 0, 0, 0)
   return next
+}
+
+function localDateTimeValue(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 interface ComposedSignature {
@@ -207,6 +213,8 @@ export function ComposePanel({
   const [scheduling, setScheduling] = useState(false)
   const [undoSeconds, setUndoSeconds] = useState<number | null>(null)
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [customScheduleOpen, setCustomScheduleOpen] = useState(false)
+  const [customScheduleDate, setCustomScheduleDate] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState(draftId)
   const [threading, setThreading] = useState<{ inReplyTo: string | null, threadId: string | null }>(() => (
@@ -517,7 +525,9 @@ export function ComposePanel({
     clearAutoSaveTimer()
     setSending(true)
     setError(null)
-    const id = draft ?? await saveDraft()
+    // The queued job must start from the fields shown now, even when this draft already existed and the
+    // autosave pause has not fired yet. Save first so scheduling does not read an older revision.
+    const id = await saveDraft(true)
     if (!id) {
       setSending(false)
       return
@@ -564,8 +574,9 @@ export function ComposePanel({
     undoTimer.current = window.setTimeout(() => { void deliverPendingSend(pending) }, UNDO_WINDOW_MS)
   }
 
-  const schedule = async (preset: SchedulePreset) => {
+  const schedule = async (preset: SchedulePreset | Date) => {
     setScheduleOpen(false)
+    setCustomScheduleOpen(false)
     if (!draftReady || sending || scheduling) return
     if (!to.trim()) {
       setError(t('email.compose.error_no_recipient'))
@@ -585,7 +596,7 @@ export function ComposePanel({
         return
       }
       const job = await api.email.scheduleDraftSend(account.id, id, {
-        sendAt: scheduledTime(preset).toISOString(),
+        sendAt: (preset instanceof Date ? preset : scheduledTime(preset)).toISOString(),
         operationId: crypto.randomUUID(),
       })
       sent.current = true
@@ -604,7 +615,20 @@ export function ComposePanel({
     { id: 'hour', label: t('email.compose.schedule_in_hour'), onSelect: () => { void schedule('hour') } },
     { id: 'tomorrow', label: t('email.compose.schedule_tomorrow'), onSelect: () => { void schedule('tomorrow') } },
     { id: 'week', label: t('email.compose.schedule_next_week'), onSelect: () => { void schedule('week') } },
+    {
+      id: 'custom',
+      label: t('preview.kanban_select_date'),
+      onSelect: () => {
+        setCustomScheduleDate(localDateTimeValue(scheduledTime('hour')))
+        setCustomScheduleOpen(true)
+      },
+    },
   ]
+
+  const customScheduleAt = customScheduleDate ? new Date(customScheduleDate) : null
+  const customScheduleValid = customScheduleAt !== null
+    && Number.isFinite(customScheduleAt.getTime())
+    && customScheduleAt.getTime() > Date.now()
 
   const discard = async () => {
     clearUndoTimers()
@@ -1084,6 +1108,38 @@ export function ComposePanel({
         width={220}
         label={t('email.compose.signature')}
       />
+      <Modal
+        open={customScheduleOpen}
+        onClose={() => setCustomScheduleOpen(false)}
+        dismissible={!scheduling}
+        width={420}
+        title={t('email.compose.schedule_send')}
+        footer={(
+          <div className="flex w-full items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setCustomScheduleOpen(false)} disabled={scheduling}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              size="sm"
+              loading={scheduling}
+              disabled={!customScheduleValid || !draftReady || saving || sending}
+              onClick={() => { if (customScheduleValid && customScheduleAt) void schedule(customScheduleAt) }}
+            >
+              {t('email.compose.schedule_send')}
+            </Button>
+          </div>
+        )}
+      >
+        <Field label={t('preview.kanban_select_date')} required>
+          <DatePicker
+            label={t('preview.kanban_select_date')}
+            value={customScheduleDate}
+            onChange={setCustomScheduleDate}
+            withTime
+            invalid={Boolean(customScheduleDate) && !customScheduleValid}
+          />
+        </Field>
+      </Modal>
       {preview && (
         <FilePreviewModal
           open

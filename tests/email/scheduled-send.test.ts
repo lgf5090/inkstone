@@ -1,13 +1,17 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../../src/worker/env'
+import { EMAIL_SEND_RATE_LIMIT_HOUR } from '../../src/shared/email/model'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
 import { createEmailAccount } from '../../src/worker/email/account-store'
 import {
   cancelScheduledSend,
   claimScheduledSends,
+  cleanupScheduledSends,
+  listScheduledSendPage,
   listScheduledSends,
+  rescheduleScheduledSend,
   runScheduledSends,
   scheduleDraftSend,
 } from '../../src/worker/email/scheduled-send'
@@ -111,6 +115,10 @@ function sentMessage(index: number): Record<string, unknown> {
   return provider.mock.calls[index]?.[0] as Record<string, unknown>
 }
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
@@ -181,6 +189,45 @@ describe('scheduled send store', () => {
       .rejects.toMatchObject({ status: 404 })
   })
 
+  it('sends the queued snapshot after the draft body or attachments change', async () => {
+    const now = Date.now()
+    const draftId = newId()
+    seedDraft(draftId)
+    const job = await scheduleDraftSend(env, OWNER, accountId, draftId, now + MINUTE_MS)
+    const draft = harness.store(accountId).getEmail(draftId)!
+    expect(harness.store(accountId).saveDraft(draftId, {
+      id: draftId,
+      subject: 'Edited subject',
+      sender: draft.sender,
+      recipient: draft.recipient,
+      date: Date.now(),
+      body: '<p>Edited body</p>',
+      bodySource: 'Edited body',
+      threadId: draft.thread_id,
+    })).toBe(draftId)
+    await seedAttachment(draftId)
+
+    expect(await runScheduledSends(env, now + 2 * MINUTE_MS, 5)).toEqual({
+      started: 1,
+      sent: 1,
+      retried: 0,
+      failed: 0,
+    })
+    expect(sentMessage(0)).toMatchObject({
+      subject: 'Hello',
+      html: '<p>Hello <strong>there</strong></p>',
+      text: 'Hello there',
+    })
+    expect(sentMessage(0)).not.toHaveProperty('attachments')
+    expect(harness.store(accountId).getEmail(draftId)).toMatchObject({
+      folder_id: 'sent',
+      subject: 'Hello',
+      body: '<p>Hello <strong>there</strong></p>',
+      delivery_status: 'sent',
+    })
+    expect(jobRow(job.id).status).toBe('sent')
+  })
+
   it('cancels only a queued job', async () => {
     const draftId = newId()
     seedDraft(draftId)
@@ -204,6 +251,46 @@ describe('scheduled send store', () => {
     expect(sweep).toEqual({ started: 0, sent: 0, retried: 0, failed: 0 })
     expect(provider).not.toHaveBeenCalled()
     expect(harness.store(accountId).getEmail(draftId)?.folder_id).toBe('draft')
+  })
+
+  it('reschedules only queued jobs and keeps the operation stable', async () => {
+    const draftId = newId()
+    seedDraft(draftId)
+    const job = await scheduleDraftSend(env, OWNER, accountId, draftId, Date.now() + HOUR_MS, 'reschedule-op')
+    const sendAt = Date.now() + 2 * HOUR_MS
+    const updated = await rescheduleScheduledSend(env, OWNER, accountId, job.id, sendAt)
+    expect(updated).toMatchObject({ id: job.id, sendAt: new Date(sendAt).toISOString(), status: 'queued' })
+    expect(jobRow(job.id)).toMatchObject({ status: 'queued', send_at: sendAt })
+    await expect(rescheduleScheduledSend(env, OWNER, accountId, job.id, Date.now() - 1)).rejects.toMatchObject({ status: 400 })
+
+    const running = insertJob({ draftId: newId(), sendAt: Date.now(), status: 'running' })
+    expect(await rescheduleScheduledSend(env, OWNER, accountId, running, sendAt)).toBeNull()
+  })
+
+  it('pages terminal history separately and cleans only old terminal jobs', async () => {
+    const now = Date.now()
+    const terminal: string[] = []
+    for (let index = 0; index < 5; index += 1) {
+      const id = insertJob({ draftId: newId(), sendAt: now + index, status: index % 2 ? 'failed' : 'sent' })
+      sqlite.prepare('UPDATE email_scheduled_sends SET updated_at = ? WHERE id = ?').run(now + index, id)
+      terminal.push(id)
+    }
+    const active = insertJob({ draftId: newId(), sendAt: now + HOUR_MS, status: 'queued' })
+    sqlite.prepare('UPDATE email_scheduled_sends SET updated_at = ? WHERE id = ?').run(now - 24 * HOUR_MS, active)
+
+    const first = await listScheduledSendPage(env, OWNER, accountId, { status: 'history', limit: 2 })
+    expect(first.items.map((job) => job.id)).toEqual([terminal[4], terminal[3]])
+    expect(first.nextCursor).not.toBeNull()
+    const second = await listScheduledSendPage(env, OWNER, accountId, { status: 'history', limit: 2, cursor: first.nextCursor! })
+    expect(second.items.map((job) => job.id)).toEqual([terminal[2], terminal[1]])
+    const activePage = await listScheduledSendPage(env, OWNER, accountId, { status: 'active' })
+    expect(activePage.items.map((job) => job.id)).toEqual([active])
+
+    expect(await cleanupScheduledSends(env, OWNER, accountId, now + 2, 2)).toBe(2)
+    expect(sqlite.prepare('SELECT status FROM email_scheduled_sends WHERE id = ?').get(terminal[0]!)).toBeUndefined()
+    expect(sqlite.prepare('SELECT status FROM email_scheduled_sends WHERE id = ?').get(terminal[1]!)).toBeUndefined()
+    expect(jobRow(active).status).toBe('queued')
+    expect(jobRow(terminal[4]!).status).toBe('sent')
   })
 
   it('claims only due jobs and reclaims a stale lease', async () => {
@@ -327,6 +414,33 @@ describe('scheduled send cron sweep', () => {
     expect(attachments.map((entry) => entry.filename)).toEqual(['report.pdf'])
     expect(harness.store(accountId).getEmail(draftId)?.delivery_status).toBe('sent')
     expect(jobRow(job.id)).toMatchObject({ status: 'sent', attempts: 2, last_error: null })
+  })
+
+  it('defers a 429 to the mailbox window without consuming an ordinary attempt', async () => {
+    const now = Date.now()
+    sqlite.prepare("INSERT INTO email_send_budget (user_id, bucket, window_start, count) VALUES (?, 'hour', ?, ?)")
+      .run(OWNER, Math.floor(now / HOUR_MS) * HOUR_MS, EMAIL_SEND_RATE_LIMIT_HOUR)
+    const draftId = newId()
+    seedDraft(draftId)
+    const job = await scheduleDraftSend(env, OWNER, accountId, draftId, now + MINUTE_MS)
+    sqlite.prepare('UPDATE email_scheduled_sends SET attempts = 2 WHERE id = ?').run(job.id)
+    const retryAt = now + 2 * MINUTE_MS + HOUR_MS + 1
+    const first = await runScheduledSends(env, now + 2 * MINUTE_MS, 5)
+    expect(first).toEqual({ started: 1, sent: 0, retried: 1, failed: 0 })
+    expect(jobRow(job.id)).toMatchObject({
+      status: 'queued',
+      attempts: 2,
+      send_at: retryAt,
+      last_error: expect.stringMatching(/rate limit exceeded/i),
+    })
+    expect(provider).not.toHaveBeenCalled()
+    expect(await runScheduledSends(env, retryAt - 1, 5)).toEqual({ started: 0, sent: 0, retried: 0, failed: 0 })
+
+    vi.useFakeTimers()
+    vi.setSystemTime(retryAt)
+    const second = await runScheduledSends(env, retryAt, 5)
+    expect(second).toEqual({ started: 1, sent: 1, retried: 0, failed: 0 })
+    expect(jobRow(job.id)).toMatchObject({ status: 'sent', attempts: 3, last_error: null })
   })
 
   it('stops after three refused attempts', async () => {
