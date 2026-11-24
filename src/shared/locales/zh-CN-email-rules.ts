@@ -66,7 +66,7 @@ export const ZH_CN_EMAIL_RULES = {
   'email.rules.summary.read': '标为已读',
   'email.rules.summary.star': '加星标',
   'email.rules.summary.trash': '移入回收站',
-  'email.rules.summary.not': '非「{value}」',
+  'email.rules.summary.not': '非：{value}',
   'email.rules.summary.any': '满足任一条件',
   'email.rules.summary.stop': '此后停止处理规则',
 } as const
