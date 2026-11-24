@@ -150,6 +150,18 @@ describe('mailbox store', () => {
     expect(store.getEmail('d1')?.read).toBe(1)
   })
 
+  it('refuses to revive a sent or deleted draft through a late save', () => {
+    const sentId = store.saveDraft(null, message('sent-draft'))!
+    sqlite.prepare("UPDATE email_messages SET folder_id = 'sent' WHERE id = ?").run(sentId)
+    expect(store.saveDraftChecked(sentId, message('sent-draft', { body: 'Late edit' }))).toEqual({ ok: false, reason: 'failed' })
+    expect(store.getEmail(sentId)?.folder_id).toBe('sent')
+
+    const deletedId = store.saveDraft(null, message('deleted-draft'))!
+    store.trashEmail(deletedId)
+    expect(store.saveDraftChecked(deletedId, message('deleted-draft', { body: 'Late edit' }))).toEqual({ ok: false, reason: 'failed' })
+    expect(store.getEmail(deletedId)).toBeNull()
+  })
+
   it('counts every listable message per folder, including read and trashed rows', () => {
     store.createEmail('inbox', message('read', { read: true }))
     store.createEmail('inbox', message('unread', { read: false }))

@@ -1863,8 +1863,14 @@ export class MailboxStore {
   ): DraftSaveOutcome {
     const id = draftId ?? email.id
     const existing = draftId
-      ? this.one<{ id: string; updated_at: number }>(`SELECT id, updated_at FROM email_messages WHERE id = ?1`, draftId)
+      ? this.one<{ id: string; updated_at: number; folder_id: string; deleted_at: number | null }>(
+          `SELECT id, updated_at, folder_id, deleted_at FROM email_messages WHERE id = ?1`,
+          draftId,
+        )
       : null
+    if (existing && (existing.folder_id !== 'draft' || existing.deleted_at !== null)) {
+      return { ok: false, reason: 'failed' }
+    }
     if (existing && expectedUpdatedAt !== undefined && expectedUpdatedAt !== null
       && existing.updated_at !== expectedUpdatedAt) {
       return { ok: false, reason: 'conflict' }
@@ -1875,7 +1881,8 @@ export class MailboxStore {
       this.sql.exec(
         `UPDATE email_messages SET folder_id = 'draft', subject = ?1, sender = ?2, recipient = ?3,
            cc = ?4, bcc = ?5, body = ?6, body_source = ?7, in_reply_to = ?8,
-           thread_id = ?9, date = ?10, read = 1, updated_at = ?10 WHERE id = ?11`,
+           thread_id = ?9, date = ?10, read = 1, updated_at = ?10
+         WHERE id = ?11 AND folder_id = 'draft' AND deleted_at IS NULL`,
         email.subject,
         email.sender,
         email.recipient,
