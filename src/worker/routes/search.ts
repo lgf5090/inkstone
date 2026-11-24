@@ -9,7 +9,7 @@ import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
 import { acquireLease } from '../lib/lease'
 import { scheduleFtsDrain } from '../lib/notify'
-import { clampInt } from '../lib/request'
+import { clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
 import type { GraphLinkDirection } from '../search/store'
@@ -33,6 +33,13 @@ searchRoutes.get('/search', requireAuth, async (c) => {
     }
     return c.json(empty)
   }
+
+  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [{
+    key: `search:${userId}`,
+    maxAttempts: 1200,
+    windowMs: 10 * 60 * 1000,
+    lockMs: 60 * 1000,
+  }]), 'Too many search requests')
 
   const { ftsEnabled } = c.get('database')
   scheduleFtsDrain(c, 50)
@@ -138,8 +145,8 @@ const DOCUMENT_THROTTLE_PER_10_MIN = 1_200
 
 searchRoutes.post('/search/documents', requireAuth, async (c) => {
   const userId = c.get('userId')
-  const body = await c.req.json().catch((): unknown => null)
-  const requested = (body as { ids?: unknown } | null)?.ids
+  const body = await readJson<{ ids?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const requested = body.ids
   const ids = [...new Set(
     Array.isArray(requested)
       ? requested.filter((item): item is string => typeof item === 'string' && isValidId(item))

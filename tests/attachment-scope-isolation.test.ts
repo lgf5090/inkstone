@@ -167,6 +167,32 @@ beforeEach(() => {
  * a pre-existing hole rather than one opened here — but it means the notebook's sweep has never been
  * tested actually deleting anything, which is worth its own issue.
  */
+describe('attachment hub batch cleanup', () => {
+  it('deletes rows and their R2 objects together', async () => {
+    const first = id(10)
+    const second = id(11)
+    const firstKey = `notes/${USER}/${first}.txt`
+    const secondKey = `notes/${USER}/${second}.txt`
+    insertAttachmentRow({ id: first, userId: USER, scope: 'notes', noteId: null, filename: 'first.txt', objectKey: firstKey })
+    insertAttachmentRow({ id: second, userId: USER, scope: 'notes', noteId: null, filename: 'second.txt', objectKey: secondKey })
+    bucket.objects.set(firstKey, new Uint8Array([1, 2, 3, 4]))
+    bucket.objects.set(secondKey, new Uint8Array([5, 6, 7, 8]))
+
+    const response = await app().request('http://localhost/api/attachments/notes/files/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', ids: [first, second] }),
+    }, env)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ ok: true, count: 2, cleanupPending: false })
+    expect(fileCount(USER, 'notes')).toBe(0)
+    expect(bucket.objects.has(firstKey)).toBe(false)
+    expect(bucket.objects.has(secondKey)).toBe(false)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM attachment_cleanup WHERE user_id = ?').get(USER)).toMatchObject({ n: 0 })
+  })
+})
+
 describe('the notebook’s unreferenced sweep', () => {
   it('leaves a file a task links, through the route the settings screen calls', async () => {
     const uploaded = await uploadTaskFile(TASK, 'report.txt')

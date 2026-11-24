@@ -8,6 +8,7 @@ import { notesRoutes } from '../src/worker/routes/notes'
 import { SearchStore } from '../src/worker/search/store'
 import { emptyParsedQuery } from '../src/shared/search-query'
 import { NoteLockSession, sealNote } from '../src/shared/crypto'
+import { LIMITS } from '../src/shared/constants'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -120,6 +121,30 @@ describe('a sealed note writes only ciphertext', () => {
       .toMatchObject({ is_encrypted: 0, rev: 1, content: 'visible body\nmore words' })
     expect(sqlite.prepare(`SELECT COUNT(*) AS n FROM note_versions WHERE note_id = 'n1'`).get()).toMatchObject({ n: 1 })
     expect(sqlite.prepare(`SELECT is_enabled FROM shares WHERE note_id = 'n1'`).get()).toMatchObject({ is_enabled: 1 })
+  })
+
+  it('refuses oversized plaintext when removing a lock', async () => {
+    const session = await NoteLockSession.create('pw', { iterations: 1_000 })
+    const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body' })
+    expect((await patch({ rev: 1, title: sealed.title, content: sealed.content, isEncrypted: true, quiet: true })).status).toBe(200)
+
+    const response = await patch({
+      rev: 2,
+      title: 'Secret title',
+      content: 'a'.repeat(LIMITS.contentMaxBytes + 1),
+      isEncrypted: false,
+    })
+    expect(response.status).toBe(413)
+    expect(sqlite.prepare(`SELECT is_encrypted FROM notes WHERE id = 'n1'`).get()).toMatchObject({ is_encrypted: 1 })
+  })
+
+  it('refuses a sealed title beyond the envelope byte limit', async () => {
+    const session = await NoteLockSession.create('pw', { iterations: 1_000 })
+    const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body' })
+    const title = `memoenc:v1:${'a'.repeat(LIMITS.noteLockTitleMaxBytes)}:iv:ct`
+
+    const response = await patch({ rev: 1, title, content: sealed.content, isEncrypted: true, quiet: true })
+    expect(response.status).toBe(413)
   })
 
   it('refuses a plaintext text edit while the note is locked', async () => {

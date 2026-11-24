@@ -56,6 +56,7 @@ import {
   rewriteQueueStatement,
   shiftSqlPlaceholders,
 } from '../db/writes'
+import { FTS_NOTE_MATCH_SQL } from '../db/fts'
 import { aiDeleteNeededSql, noteIndexQueueStatement } from '../mcp/ai-search'
 import { buildFtsQuery } from '../search/store'
 import { sha256Hex } from '../lib/encoding'
@@ -837,7 +838,7 @@ export class NotesStore {
         guarded(`UPDATE blog_posts SET status = 'withdrawn' WHERE user_id = ?1 AND note_id = ?2`, [this.userId, id]),
       )
       if (this.ftsEnabled) {
-        statements.push(guarded(`DELETE FROM notes_fts WHERE note_id = ?1 AND user_id = ?2`, [id, this.userId]))
+        statements.push(guarded(`DELETE FROM notes_fts WHERE ${FTS_NOTE_MATCH_SQL} AND user_id = ?2`, [id, this.userId]))
       }
     }
 
@@ -1499,7 +1500,9 @@ export async function findUnlinkedMentions(
   const title = target.title.trim()
   if (Array.from(title).length < LIMITS.mentionMinChars)
     return []
-  const match = ftsEnabled ? buildFtsQuery([title]) : ''
+  const match = ftsEnabled
+    ? `user_id : "${userId.replace(/"/g, '""')}" AND {title body} : (${buildFtsQuery([title])})`
+    : ''
   if (ftsEnabled && !match)
     return []
   const needle = title

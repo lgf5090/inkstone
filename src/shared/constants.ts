@@ -110,6 +110,7 @@ export const LIMITS = {
   shareVisitRetentionDays: 730,
   shareAuditEntriesPerPage: 100,
   titleMaxLength: 512,
+  noteLockTitleMaxBytes: 4096,
   // D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.
   contentMaxBytes: 1_900_000,
   folderNameMaxLength: 120,

@@ -280,10 +280,11 @@ notesRoutes.patch('/:id', async (c) => {
       throw ApiError.badRequest('A lock must carry sealed envelopes, not plaintext')
     }
     // The envelope is base64 JSON around the body, so the plaintext ceiling no longer describes it.
-    if (utf8ByteLength(body.content!) > LIMITS.contentMaxBytes * 2) {
-      throw ApiError.tooLarge('Encrypted note content exceeds the limit')
+    if (utf8ByteLength(body.content!) > LIMITS.contentMaxBytes || utf8ByteLength(body.title!) > LIMITS.noteLockTitleMaxBytes) {
+      throw ApiError.tooLarge('Encrypted note content or title exceeds the limit')
     }
   }
+  if (opening) assertContentSize(body.content!)
   if (row.is_encrypted === 1 && !sealing && !opening && (body.title !== undefined || body.content !== undefined)) {
     // Metadata edits (pin, star, archive, folder) stay allowed; text edits do not, because the
     // server cannot re-seal what it cannot read. The client has to unlock first.
@@ -743,7 +744,7 @@ async function resolveFolderId(
 
 notesRoutes.post('/rebuild-derived', async (c) => {
   const userId = c.get('userId')
-  const body = await c.req.json().catch(() => ({})) as { cursor?: string | null }
+  const body = await readJson<{ cursor?: string | null }>(c, JSON_BODY_LIMITS.small)
   const cursor = typeof body.cursor === 'string' && body.cursor ? body.cursor : null
   const release = await acquireLease(
     c.env.DB,

@@ -173,6 +173,10 @@ attachmentHubRoutes.post('/:scope/files/batch', async (c) => {
   for (const id of ids) {
     if (await applyBatch(c, scope, userId, id, action, input)) count++
   }
+  if (action === 'delete') {
+    const drained = await drainAttachmentCleanup(c.env, userId, 500).catch(() => null)
+    return c.json({ ok: true, count, cleanupPending: drained?.pending ?? true })
+  }
   return c.json({ ok: true, count })
 })
 
@@ -343,8 +347,11 @@ async function applyBatch(
       return Array.isArray(input.tags)
         ? patchHubRow(c.env.DB, userId, scope, id, { tags: cleanTags(input.tags) })
         : false
-    case 'delete':
-      if (!(await loadHubRowForDeletion(c.env.DB, userId, scope, id))) return false
-      return deleteHubRow(c.env.DB, userId, scope, id)
+    case 'delete': {
+      const row = await loadHubRowForDeletion(c.env.DB, userId, scope, id)
+      if (!row || !(await deleteHubRow(c.env.DB, userId, scope, id))) return false
+      await queueHubCleanup(c.env.DB, userId, row.storage, row.objectKey)
+      return true
+    }
   }
 }
