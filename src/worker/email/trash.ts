@@ -1,14 +1,11 @@
 import { EMAIL_TRASH_RETENTION_DAYS } from '@shared/email/model'
-import { deleteAttachmentObjects } from '../attachments/backend'
 import type { Env } from '../env'
-import { deleteEmailAttachments } from './attachments'
+import { deleteEmailAttachmentsForMessagesWithCount } from './attachments'
 import { emailMailbox } from './mailbox-stub'
 
 export const EMAIL_TRASH_ACCOUNT_PAGE_SIZE = 50
 
 const DAY_MS = 24 * 60 * 60 * 1000
-
-const ATTACHMENT_DELETE_CHUNK = 50
 
 interface OwnerAccountRow {
   id: string
@@ -66,20 +63,9 @@ async function removeAttachments(
   messageIds: readonly string[],
   result: EmailTrashCleanupResult,
 ): Promise<void> {
-  const keys: string[] = []
-  for (let index = 0; index < messageIds.length; index += ATTACHMENT_DELETE_CHUNK) {
-    const chunk = messageIds.slice(index, index + ATTACHMENT_DELETE_CHUNK)
-    keys.push(...await deleteEmailAttachments(env.DB, userId, chunk))
-  }
-  result.attachments += keys.length
-  if (!keys.length) return
-  if (!env.FILES) {
-    console.warn('[inkstone] email attachment objects could not be removed: R2 is not configured')
-    return
-  }
-  try {
-    await deleteAttachmentObjects(env, 'r2', keys)
-  } catch (error) {
-    console.warn('[inkstone] email attachment objects could not be removed', error)
+  const deleted = await deleteEmailAttachmentsForMessagesWithCount(env, userId, messageIds)
+  result.attachments += deleted.attachments
+  if (deleted.cleanupPending) {
+    console.warn('[inkstone] Email attachment cleanup is pending for expired trash')
   }
 }

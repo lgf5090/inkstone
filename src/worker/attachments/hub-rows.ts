@@ -385,7 +385,7 @@ function livenessGuard(scope: AttachmentHubScope, userIdParam: string, idParam: 
            AND instr(cm.attachments, ${quotedIdParam(idParam)}) > 0
       )`
     case 'email':
-      return 'locked = 0'
+      return 'email_id IS NULL AND locked = 0'
   }
 }
 
@@ -415,7 +415,7 @@ export async function loadHubRowForDeletion(
   const descriptor = attachmentScope(scope)
   return db
     .prepare(
-      `SELECT id, size, ${descriptor.keyColumn} AS object_key, ${storageSelect(scope)}
+      `SELECT id, size, ${descriptor.keyColumn} AS objectKey, ${storageSelect(scope)}
          FROM ${descriptor.table}
         WHERE user_id = ?1 AND id = ?2 AND ${scopeColumnFilter(scope)}`,
     )
@@ -602,7 +602,7 @@ export async function pruneHubAttachments(
   return { removed, freedBytes, cleanupPending: false }
 }
 
-async function queueHubCleanup(
+export async function queueHubCleanup(
   db: D1Database,
   userId: string,
   storage: 'r2' | 'kv',

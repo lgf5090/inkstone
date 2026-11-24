@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { Env } from '../src/worker/env'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { createEmailAccount } from '../src/worker/email/account-store'
+import { persistEmailAttachment } from '../src/worker/attachments/storage'
 import { applyMailboxMigrations } from '../src/worker/email/mailbox-schema'
 import { MailboxStore, type EmailData } from '../src/worker/email/mailbox-store'
 import { createMcpApiKey } from '../src/worker/mcp/api-keys'
@@ -20,7 +21,7 @@ import { newId } from '../src/worker/lib/id'
 import { makeD1 } from './doubles/d1-sqlite'
 import { makeSqlExec } from './doubles/do-sqlite'
 import { fakeEmailMailboxNamespace } from './doubles/email-mailbox'
-import { testBindings } from './doubles/bindings'
+import { testBindings, testR2Bucket } from './doubles/bindings'
 
 const OWNER = '0123456789abcdefghjkmnpqrs'
 const MEMBER = '0123456789abcdefghjkmnpqrt'
@@ -426,10 +427,23 @@ describe('deleting is reversible unless email:trash says otherwise', () => {
     expect(await store.getEmail(messageId)).not.toBeNull()
   })
 
-  it('removes the row for good once the trash scope and switch are on', async () => {
+  it('removes the message and its D1 and R2 attachments for good once the trash scope and switch are on', async () => {
     await switchPreferences({ email: true, write: true, trash: true })
+    const bucket = testR2Bucket()
+    env = testBindings(env.DB, { ...env, FILES: bucket })
     const messageId = newId()
-    seedMessage(messageId)
+    seedMessage(messageId, 'inbox', { hasAttachment: true })
+    const attachment = await persistEmailAttachment(env, {
+      id: newId(),
+      userId: OWNER,
+      accountId: ownerAccountId,
+      emailId: messageId,
+      filename: 'report.pdf',
+      reportedMime: 'application/pdf',
+      bytes: new TextEncoder().encode('%PDF-1.4'),
+      locked: true,
+      createdAt: Date.now(),
+    })
     const outcome = await callTool(owner(EMAIL_TRASH), 'email_delete', {
       account_id: ownerAccountId,
       email_id: messageId,
@@ -438,6 +452,8 @@ describe('deleting is reversible unless email:trash says otherwise', () => {
     expect(outcome.ok).toBe(true)
     expect(outcome.body).toMatchObject({ status: 'deleted', permanent: true })
     expect(await store.getEmail(messageId)).toBeNull()
+    expect(sqlite.prepare('SELECT id FROM email_attachments WHERE id = ?').get(attachment.id)).toBeUndefined()
+    expect(bucket.objects.has(attachment.objectKey)).toBe(false)
   })
 })
 

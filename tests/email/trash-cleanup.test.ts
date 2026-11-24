@@ -4,6 +4,7 @@ import { EMAIL_TRASH_RETENTION_DAYS } from '../../src/shared/email/model'
 import type { Env } from '../../src/worker/env'
 import { newId } from '../../src/worker/lib/id'
 import { persistEmailAttachment } from '../../src/worker/attachments/storage'
+import { drainAttachmentCleanup } from '../../src/worker/attachments/cleanup'
 import { runEmailTrashCleanup } from '../../src/worker/email/trash'
 import { createEmailAccount } from '../../src/worker/email/account-store'
 import { testBindings, testR2Bucket, type TestR2Bucket } from '../doubles/bindings'
@@ -89,6 +90,31 @@ describe('email trash cleanup', () => {
     expect(harness.store('owner-account').listTrash().map((row) => row.id)).toEqual(['recent'])
     expect(await attachmentCount(OWNER)).toBe(0)
     expect(r2.objects.has(objectKey)).toBe(false)
+  })
+
+  it('queues an R2 failure before removing the attachment row and retries the object later', async () => {
+    await createEmailAccount(database.db, { id: 'owner-account', userId: OWNER, address: 'me@example.com', displayName: 'Me' })
+    const now = Date.now()
+    trashMessage('owner-account', 'expired', now - (EMAIL_TRASH_RETENTION_DAYS + 1) * DAY_MS)
+    const objectKey = await attach('owner-account', OWNER, 'expired')
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const deleteObject = vi.spyOn(r2, 'delete').mockRejectedValueOnce(new Error('R2 unavailable'))
+
+    const result = await runEmailTrashCleanup(env, now)
+
+    expect(result).toEqual({ accounts: 1, messages: 1, attachments: 1 })
+    expect(await attachmentCount(OWNER)).toBe(0)
+    expect(r2.objects.has(objectKey)).toBe(true)
+    expect(await database.db.prepare(
+      `SELECT object_key FROM attachment_cleanup WHERE object_key = ?1 AND user_id = ?2`,
+    ).bind(`r2:${objectKey}`, OWNER).first()).toEqual({ object_key: `r2:${objectKey}` })
+
+    deleteObject.mockRestore()
+    expect(await drainAttachmentCleanup(env, OWNER)).toEqual({ processed: 1, pending: false })
+    expect(r2.objects.has(objectKey)).toBe(false)
+    expect(await database.db.prepare(
+      `SELECT object_key FROM attachment_cleanup WHERE object_key = ?1`,
+    ).bind(`r2:${objectKey}`).first()).toBeNull()
   })
 
   it('leaves a non-owner mailbox out of the sweep', async () => {

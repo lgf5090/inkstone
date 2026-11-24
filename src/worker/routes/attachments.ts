@@ -16,6 +16,7 @@ import {
   listHubOwners,
   loadHubRowForDeletion,
   patchHubRow,
+  queueHubCleanup,
   pruneHubAttachments,
 } from '../attachments/hub-rows'
 import { uploadHubFile } from '../attachments/hub-upload'
@@ -237,12 +238,12 @@ attachmentHubRoutes.delete('/:scope/files/:id', async (c) => {
   const userId = c.get('userId')
   const id = c.req.param('id') ?? ''
   if (!isValidId(id)) throw ApiError.notFound('Attachment not found')
-  if (!(await loadHubRowForDeletion(c.env.DB, userId, scope, id))) {
-    throw ApiError.notFound('Attachment not found')
-  }
+  const row = await loadHubRowForDeletion(c.env.DB, userId, scope, id)
+  if (!row) throw ApiError.notFound('Attachment not found')
   if (!(await deleteHubRow(c.env.DB, userId, scope, id))) {
     throw ApiError.conflict('This file is still in use')
   }
+  await queueHubCleanup(c.env.DB, userId, row.storage, row.objectKey)
   const drained = await drainAttachmentCleanup(c.env, userId, 500).catch(() => null)
   return c.json({ ok: true, cleanupPending: Boolean(drained?.pending) })
 })

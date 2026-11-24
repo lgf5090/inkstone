@@ -6,7 +6,7 @@ import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { storedStringArray } from '../lib/json'
 import { listEmailAccounts, readAccountSettings, type EmailAccountRow } from '../email/account-store'
-import { loadEmailAttachments, lockEmailAttachments } from '../email/attachments'
+import { deleteEmailAttachmentsForMessages, loadEmailAttachments, lockEmailAttachments } from '../email/attachments'
 import { emailMailbox } from '../email/mailbox-stub'
 import {
   buildThreadingHeaders,
@@ -264,6 +264,8 @@ export async function deleteMcpEmail(
     if (!await mailbox.deleteEmail(targetId)) {
       throw new ApiError(404, 'email_message_not_found', 'Email not found')
     }
+    const cleanupPending = await deleteEmailAttachmentsForMessages(context.env, context.userId, [targetId])
+    if (cleanupPending) console.warn('[inkstone] Email attachment cleanup is pending for a deleted MCP message')
     return { status: 'deleted', emailId: targetId, permanent: true }
   }
   if (await mailbox.trashEmail(targetId) === null) {

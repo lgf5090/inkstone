@@ -8,7 +8,9 @@ import type { AppBindings, Env } from '../src/worker/env'
 import { filesRoutes } from '../src/worker/routes/files'
 import { todoAttachmentRoutes } from '../src/worker/routes/todo-attachments'
 import { attachmentHubRoutes } from '../src/worker/routes/attachments'
+import { persistEmailAttachment } from '../src/worker/attachments/storage'
 import { attachmentIdFromCleanupTarget, attachmentObjectKey } from '../src/worker/attachments/keys'
+import { mailboxHarness } from './fixtures/email/harness'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 
@@ -34,6 +36,16 @@ vi.mock('../src/worker/middleware/auth', () => ({
     next: () => Promise<void>,
   ) => {
     c.set('userId', mocks.userId)
+    c.set('user', {
+      id: mocks.userId,
+      username: 'owner',
+      login: 'owner',
+      name: 'Owner',
+      avatarUrl: '',
+      role: 'owner',
+      createdAt: 0,
+      settingsRaw: '{}',
+    })
     await next()
   },
 }))
@@ -274,6 +286,81 @@ describe('the notebook’s own file listing', () => {
     const { files } = (await listed.json()) as { files: Array<{ id: string }> }
     expect(files.map((file) => file.id)).toContain(id(63))
     expect(files.map((file) => file.id)).not.toContain(attachment.id)
+  })
+})
+
+describe('email attachments in the hub', () => {
+  const EMAIL_ACCOUNT = id(80)
+  const DRAFT = id(81)
+
+  it.each([
+    { label: 'linked draft', emailId: DRAFT, accountId: EMAIL_ACCOUNT },
+    { label: 'email-only row', emailId: DRAFT, accountId: null },
+  ])('refuses to delete the $label and keeps its attachment flag in sync', async ({ emailId, accountId }) => {
+    const mailbox = mailboxHarness()
+    env = testBindings(makeD1(sqlite), { FILES: bucket, EMAIL_MAILBOX: mailbox.namespace })
+    expect(mailbox.store(EMAIL_ACCOUNT).createEmail('draft', {
+      id: DRAFT,
+      subject: 'Draft with a file',
+      sender: 'owner@example.com',
+      recipient: 'recipient@example.com',
+      date: 1,
+      body: 'Body',
+      hasAttachment: true,
+    })).toBe(true)
+    const attachment = await persistEmailAttachment(env, {
+      id: id(82),
+      userId: USER,
+      accountId,
+      emailId,
+      filename: 'draft.pdf',
+      reportedMime: 'application/pdf',
+      bytes: new TextEncoder().encode('%PDF-1.4'),
+      locked: false,
+      createdAt: Date.now(),
+    })
+
+    const response = await app().request(`http://localhost/api/attachments/email/files/${attachment.id}`, {
+      method: 'DELETE',
+    }, env)
+
+    expect(response.status).toBe(409)
+    expect(sqlite.prepare('SELECT email_id, account_id FROM email_attachments WHERE id = ?').get(attachment.id)).toEqual({
+      email_id: emailId,
+      account_id: accountId,
+    })
+    expect(bucket.objects.has(attachment.objectKey)).toBe(true)
+    expect(mailbox.store(EMAIL_ACCOUNT).getEmail(DRAFT)?.has_attachment).toBe(1)
+  })
+
+  it('allows deleting an unfiled account upload', async () => {
+    env = testBindings(makeD1(sqlite), { FILES: bucket, EMAIL_MAILBOX: mailboxHarness().namespace })
+    const attachment = await persistEmailAttachment(env, {
+      id: id(83),
+      userId: USER,
+      accountId: EMAIL_ACCOUNT,
+      emailId: null,
+      filename: 'unused.pdf',
+      reportedMime: 'application/pdf',
+      bytes: new TextEncoder().encode('%PDF-1.4'),
+      locked: false,
+      createdAt: Date.now(),
+    })
+
+    expect(sqlite.prepare('SELECT object_key, storage FROM email_attachments WHERE id = ?').get(attachment.id)).toEqual({
+      object_key: attachment.objectKey,
+      storage: 'r2',
+    })
+    const remove = vi.spyOn(bucket, 'delete')
+    const response = await app().request(`http://localhost/api/attachments/email/files/${attachment.id}`, {
+      method: 'DELETE',
+    }, env)
+
+    expect(remove).toHaveBeenCalledWith([attachment.objectKey])
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, cleanupPending: false })
+    expect(sqlite.prepare('SELECT id FROM email_attachments WHERE id = ?').get(attachment.id)).toBeUndefined()
+    expect(bucket.objects.has(attachment.objectKey)).toBe(false)
   })
 })
 

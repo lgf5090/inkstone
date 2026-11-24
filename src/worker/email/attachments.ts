@@ -240,30 +240,45 @@ export async function deleteEmailAttachmentObject(
   return deleteEmailAttachmentObjects(env, userId, [objectKey])
 }
 
+export interface EmailAttachmentDeletionResult {
+  attachments: number
+  cleanupPending: boolean
+}
+
 export async function deleteEmailAttachmentsForMessages(
   env: Env,
   userId: string,
   emailIds: readonly string[],
 ): Promise<boolean> {
-  if (!emailIds.length) return false
-  let pending = false
+  const result = await deleteEmailAttachmentsForMessagesWithCount(env, userId, emailIds)
+  return result.cleanupPending
+}
+
+export async function deleteEmailAttachmentsForMessagesWithCount(
+  env: Env,
+  userId: string,
+  emailIds: readonly string[],
+): Promise<EmailAttachmentDeletionResult> {
+  const result: EmailAttachmentDeletionResult = { attachments: 0, cleanupPending: false }
+  if (!emailIds.length) return result
   for (const group of chunk(emailIds, DELETE_ID_CHUNK)) {
     const placeholders = group.map((_, index) => `?${index + 2}`).join(',')
     const { results } = await env.DB.prepare(
       `SELECT object_key FROM email_attachments
         WHERE user_id = ?1 AND email_id IN (${placeholders})`,
     ).bind(userId, ...group).all<{ object_key: string }>()
+    result.attachments += results.length
     const cleanupPending = await deleteEmailAttachmentObjects(
       env,
       userId,
       results.map((row) => row.object_key),
     )
-    pending = pending || cleanupPending
+    result.cleanupPending = result.cleanupPending || cleanupPending
     await env.DB.prepare(
       `DELETE FROM email_attachments WHERE user_id = ?1 AND email_id IN (${placeholders})`,
     ).bind(userId, ...group).run()
   }
-  return pending
+  return result
 }
 
 export async function sumEmailAttachmentBytes(
