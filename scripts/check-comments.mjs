@@ -42204,7 +42204,6 @@ const allowed = new Map([
     "// known to have succeeded, which is the failure this exists to prevent.",
   ]],
   ["src/worker/index.ts", [
-    "/**\n * Heavy modules are loaded inside the event handlers, not at module scope: a Worker has a one-second\n * startup CPU budget (Cloudflare error 10021), and a static import of `mcp/oauth`, the certificate tick\n * or the icon queue would evaluate the whole route graph, ACME/axios/node-forge and the resvg WASM\n * module before the Worker can answer its first request.\n */",
     "// Codex CLI drops the `iss` callback parameter while its rmcp",
     "// dependency enforces it whenever the authorization server advertises",
     "// `authorization_response_iss_parameter_supported` (openai/codex#31573), so",
@@ -42227,8 +42226,6 @@ const allowed = new Map([
     "// the sweeps themselves — `initializeDatabase` answers from its per-isolate cache.",
     "// reminder is cheap, and the sweep deduplicates by the reader's own local hour, so the fires that",
     "// follow find their deliveries already claimed.",
-    "/**\n   * Email Routing's inbound door: `u+<token>@<MAIL_DOMAIN>` becomes a task, a mailbox address is\n   * delivered to its owner's mailbox, and anything else is dropped.\n   *\n   * The handler is one call deep — routing, parsing, idempotency and the drops all live in\n   * `email/dispatch.ts` and the modules it calls, so the Worker entry stays a list of the platform's\n   * events. Nothing here answers the sender: an unknown recipient is dropped, not rejected, which is\n   * what keeps the address space from being enumerable through bounces.\n   */",
-    "/**\n * Which cron fires keep the whole-library drains.\n *\n * The minute pattern exists for the assistant's reminders. Running the queue drains on it too would\n * multiply work the deployment never asked for, so the drains are gated to the times they had before\n * the new pattern was added.\n */",
     "// ICS feeds need a copy on the server whether or not the reader has the calendar tab open;",
     "// the sweep itself spaces successes and failures, so this fire only starts what is due.",
     "// The Cloudflare app's scheduled maintenance runs on every fire: its own rows decide which",
@@ -42240,9 +42237,14 @@ const allowed = new Map([
     "// holds R2 bytes that nothing else can release until its session row is closed.",
     "// An upload the compare tool never saved into a project is an R2 object with no row pointing at",
     "// it. The sweep rides the top of the hour with the other bounded cleanups, not every minute.",
-    "/**\n   * Icon conversion. The message only names the job; the consumer loads the rows itself so a\n   * redelivery after a crash picks up exactly the items that are still queued.\n   */",
     "// One certificate order that throws must not take the whole scheduled round with it: the other",
     "// ticks, and every order behind this one, still have work to do in the same fire.",
+    "/**\r\n * Heavy modules are loaded inside the event handlers, not at module scope: a Worker has a one-second\r\n * startup CPU budget (Cloudflare error 10021), and a static import of `mcp/oauth`, the certificate tick\r\n * or the icon queue would evaluate the whole route graph, ACME/axios/node-forge and the resvg WASM\r\n * module before the Worker can answer its first request.\r\n */",
+    "// An Office asset nothing shows any more is an R2 object plus a row. The sweep reads the owners'",
+    "// live snapshots before deleting, and rides the top of the hour with the other bounded cleanups.",
+    "/**\r\n   * Email Routing's inbound door: `u+<token>@<MAIL_DOMAIN>` becomes a task, a mailbox address is\r\n   * delivered to its owner's mailbox, and anything else is dropped.\r\n   *\r\n   * The handler is one call deep — routing, parsing, idempotency and the drops all live in\r\n   * `email/dispatch.ts` and the modules it calls, so the Worker entry stays a list of the platform's\r\n   * events. Nothing here answers the sender: an unknown recipient is dropped, not rejected, which is\r\n   * what keeps the address space from being enumerable through bounces.\r\n   */",
+    "/**\r\n   * Icon conversion. The message only names the job; the consumer loads the rows itself so a\r\n   * redelivery after a crash picks up exactly the items that are still queued.\r\n   */",
+    "/**\r\n * Which cron fires keep the whole-library drains.\r\n *\r\n * The minute pattern exists for the assistant's reminders. Running the queue drains on it too would\r\n * multiply work the deployment never asked for, so the drains are gated to the times they had before\r\n * the new pattern was added.\r\n */",
   ]],
   ["src/worker/inknote/assets.ts", [
     "/**\n * Inknote's binary assets: object keys, upload validation, reference scans and the cleanup queue.\n *\n * Page JSON stays in D1; only bytes live in R2/KV. Every object key is generated here from an id the\n * server made, and every row query binds `user_id`, because a filename or note id supplied by a\n * client must never be able to name another account's object.\n */",
@@ -43367,6 +43369,11 @@ const allowed = new Map([
     "// note that no longer exists goes.",
     "/**\n * The dependent-table cleanup for one page of trashed note ids, in the order the cascade\n * needs: link retargeting before the notes go, share sessions before their shares.\n * Statements bind `?1` = account, `?2` = JSON id page, `?3` = timestamp.\n *\n * Every child-table write re-checks that the note is *still* trashed. The page is read before the\n * batch runs, so another device can restore one of its notes in between; without the guard that\n * batch would strip the tags, versions, shares and links of a note whose row itself survives (the\n * final delete already carries the same `deleted_at IS NOT NULL` predicate).\n *\n * A free function rather than a method because the bulk purge builds it per page and the batch test\n * builds it directly: neither wants a store that exists only to hold a connection.\n */",
     "/**\n   * Whether this edit's text belongs in the AI index. A lock writes ciphertext, which must not be\n   * embedded; ordinary edits leave this unset and keep the queue statement.\n   */",
+  ]],
+  ["src/worker/office/asset-retention.ts", [
+    "/**\n * How long an unused asset is kept before it is a GC candidate.\n *\n * The sweep only deletes what no current snapshot mentions, so the grace is about a file the reader\n * has not opened in months — not about avoiding a race with an editor that is open right now.\n */",
+    "/** Every asset id a stored snapshot points at: images, PDFs and boards attachments share the shape. */",
+    "/**\n * Deletes assets no live file refers to.\n *\n * Candidates are assets untouched for the grace period, bounded per run so an hour of the cron does\n * bounded work. References are read from the live snapshots of the owners involved, because the asset\n * table deliberately carries no back-reference — a snapshot is the only thing that knows what it shows.\n */",
   ]],
   ["src/worker/office/schema.ts", [
     "/**\n * The office app's tables, declared where the boot can find them.\n *\n * Every table is new, so the statements are re-run idempotently on every boot instead of spending a\n * migration number: a database built by a parallel branch that used the same number still converges.\n * Columns added to a deployed table later belong in `SCHEMA_MIGRATIONS`.\n */",
@@ -51100,6 +51107,9 @@ const allowed = new Map([
   ["tests/office-api.test.ts", [
     "/**\n * The office API's own door: files, snapshots, versions and assets.\n *\n * Ownership is the first thing every section checks: an id from another account must answer 404,\n * never a 403 that confirms the row exists. Snapshot tests assert the R2 key shape, because the\n * revision objects are what the conflict rules protect.\n */",
     "// The kept revision is untouched and no third object was published.",
+  ]],
+  ["tests/office-asset-retention.test.ts", [
+    "/**\n * The asset sweep: an unreferenced asset goes, a referenced one stays, and a young one is left alone.\n *\n * Reference is read from the snapshot itself — the asset table has no back-reference — so the test\n * writes the same `/api/office/assets/<id>` shape an image node stores.\n */",
   ]],
   ["tests/office-folders.test.ts", [
     "/**\n * The office tree: folder hierarchy rules, tag families and revision trimming.\n *\n * These are the rules that keep a flat `parent_id` table from becoming a corrupt one — depth,\n * cycles, sibling names, promotion on delete — plus the `/` family rewrite that must not touch an\n * unrelated tag whose name merely starts with the same letters.\n */",

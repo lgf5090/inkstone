@@ -37,6 +37,7 @@ import { runEmailFollowUpSweep } from './email/follow-up'
 import { runScheduledSends } from './email/scheduled-send'
 import { runShortlinksRetention } from './tools/shortlinks/maintenance'
 import { runCompareRetention } from './tools/compare/retention'
+import { runOfficeAssetRetention } from './office/asset-retention'
 import { runDueCloudflareTasks } from './cloudflare/tasks'
 import { runDueCloudDriveJobs } from './clouddrive/routes-jobs'
 import { resumeCloudDriveIndexTasks } from './clouddrive/routes-admin'
@@ -151,6 +152,14 @@ export default {
             console.warn('[inkstone] compare retention failed:', (error as Error).message)
           })
         : Promise.resolve()
+      // An Office asset nothing shows any more is an R2 object plus a row. The sweep reads the owners'
+      // live snapshots before deleting, and rides the top of the hour with the other bounded cleanups.
+      const officeAssetTick = new Date(event.scheduledTime).getUTCMinutes() === 0
+        ? runOfficeAssetRetention(env, event.scheduledTime).catch((error) => {
+            console.warn('[inkstone] office asset retention failed:', (error as Error).message)
+            return { candidates: 0, deleted: 0 }
+          })
+        : Promise.resolve({ candidates: 0, deleted: 0 })
       const projectRetentionTick = new Date(event.scheduledTime).getUTCMinutes() === 0
         ? pruneProjectActivity(env, event.scheduledTime).catch((error) => {
             console.warn('[inkstone] project activity retention failed:', (error as Error).message)
@@ -179,7 +188,7 @@ export default {
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectWebhookTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
+        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectWebhookTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick, officeAssetTick])
         return
       }
       const drains: Promise<unknown>[] = [
