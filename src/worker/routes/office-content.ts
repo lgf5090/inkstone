@@ -26,8 +26,10 @@ import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { officeBytesExceeded } from '@shared/office/quota'
 import { writeOfficeBackup } from '../office/backup'
+import { applyPlanToSheetsSnapshot } from '../office/plan-apply'
+import { validateOfficeEditPlan } from '@shared/office/ai'
 import { isValidId } from '../lib/id'
-import { readBytesWithinLimit, readJson } from '../lib/request'
+import { JSON_BODY_LIMITS, readBytesWithinLimit, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import {
   OfficeStore,
@@ -240,6 +242,35 @@ officeContentRoutes.post('/backup', async (c) => {
   requireOfficeBucket(c.env)
   const result = await writeOfficeBackup(c.env, c.get('userId'), Date.now())
   return c.json({ backup: result })
+})
+
+/**
+ * Applies an edit plan without a browser.
+ *
+ * The editor applies plans through its Facade; this route exists for the writes nobody is watching —
+ * a scheduled automation — and only takes the operations that are pure snapshot edits.
+ */
+officeContentRoutes.post('/files/:id/apply-plan', async (c) => {
+  const s = store(c)
+  const file = await s.fileRow(fileIdParam(c))
+  if (!file) throw ApiError.notFound('File not found')
+  if (file.deleted_at !== null) throw ApiError.notFound('File not found')
+  if (file.type !== 'sheets') throw ApiError.badRequest('A plan can only be applied without an editor to a sheet')
+  requireOfficeBucket(c.env)
+
+  const body = await readJson<{ plan?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const validation = validateOfficeEditPlan(body.plan, { type: 'sheets', fileId: file.id })
+  if (!validation.ok) throw ApiError.badRequest(validation.error)
+  const plan = validation.plan
+
+  const snapshotKey = file.snapshot_key
+  const object = snapshotKey ? await requireOfficeBucket(c.env).get(snapshotKey) : null
+  const current = object ? JSON.parse(await object.text()) as unknown : { sheets: {}, sheetOrder: [] }
+  const next = applyPlanToSheetsSnapshot(current, plan)
+  const text = JSON.stringify(next)
+  await assertOfficeBytesRoom(s, text.length, file.size)
+  const result = await writeSnapshot(c, s, file, file.rev, text, text.length)
+  return c.json({ ...result, applied: plan.ops.length })
 })
 
 officeContentRoutes.get('/usage', async (c) => {

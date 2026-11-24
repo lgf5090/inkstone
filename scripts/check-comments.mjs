@@ -33862,6 +33862,10 @@ const allowed = new Map([
     "// The capability declaration is a security boundary, so a file that names an unknown tool is",
     "// refused entry rather than imported into a library where the run would silently lose it.",
   ]],
+  ["src/shared/office/a1.ts", [
+    "/**\n * The subset of A1 notation the server needs to write a plan without a browser.\n *\n * Univer's own Facade parses ranges in the editor; a plan applied by the worker has no editor, so the\n * two forms our operations use — a single cell and a rectangle — are parsed here.\n */",
+    "/** `B2` or `A1:C3`, 1-based in the notation and 0-based out. Null when the text is not a range. */",
+  ]],
   ["src/shared/office/ai.ts", [
     "/** A bounded plain-text view of a snapshot for the assistant. It never returns binary assets. */",
     "/**\r\n * The op vocabulary in the words a model needs.\r\n *\r\n * A language model can only produce a plan this app accepts if the tool tells it what an op looks\r\n * like: the union above is a TypeScript type, invisible at the tool boundary. Every kind is listed\r\n * here with its fields, per product, and `OFFICE_AI_OP_KINDS` is the list a test compares the spec\r\n * against — a kind added to the union without a line here fails that test rather than the model.\r\n */",
@@ -43391,6 +43395,10 @@ const allowed = new Map([
     "/** The daily sweep: one backup per account that holds Office files, bounded per fire. */",
     "// One oversized account must not stop the others; the reason is logged for the operator.",
   ]],
+  ["src/worker/office/plan-apply.ts", [
+    "/**\n * Applies an edit plan to a stored Sheets snapshot, without an editor.\n *\n * This exists for the writes nobody is watching: a scheduled automation has no browser, and the editor\n * Facade that normally applies a plan only lives in one. The supported set is deliberately narrow —\n * cell values and formulas on the sheets product — because those are pure JSON edits. Anything else is\n * refused by name rather than half-applied.\n */",
+    "/**\n * Returns a new snapshot; the input is never mutated, so a failed plan leaves the stored one untouched.\n */",
+  ]],
   ["src/worker/office/schema.ts", [
     "/**\n * The office app's tables, declared where the boot can find them.\n *\n * Every table is new, so the statements are re-run idempotently on every boot instead of spending a\n * migration number: a database built by a parallel branch that used the same number still converges.\n * Columns added to a deployed table later belong in `SCHEMA_MIGRATIONS`.\n */",
   ]],
@@ -44799,6 +44807,7 @@ const allowed = new Map([
     "/**\r\n * Drop revisions past the per-file cap.\r\n *\r\n * Objects are deleted before their rows: a deleted object with a surviving row is a listed version\r\n * that cannot open, while a surviving object with no row is unreachable garbage. When R2 refuses,\r\n * the rows are kept and the next save retries the trim.\r\n */",
     "/** Refuses a write that would push the account past its Office storage ceiling. */",
     "// The file's own bytes are replaced, not added: a save may grow it, never spend them twice.",
+    "/**\r\n * Applies an edit plan without a browser.\r\n *\r\n * The editor applies plans through its Facade; this route exists for the writes nobody is watching —\r\n * a scheduled automation — and only takes the operations that are pure snapshot edits.\r\n */",
   ]],
   ["src/worker/routes/office-history.ts", [
     "/**\r\n * The history protocol Univer's official history panel speaks.\r\n *\r\n * The panel asks three questions — which versions exist, who wrote them, and what changed between two\r\n * revisions — and expects Univer's wire shape (`error.code`, `historyIds`, `entities.datas`), not our\r\n * own. This file answers them from `office_file_version`, the same rows our version dialog reads, so\r\n * the official panel and our dialog can never disagree about what a version is.\r\n *\r\n * What it does not answer: the per-cell diff. That needs the protocol changesets the collaboration\r\n * engine records while editing, and this deployment stores whole snapshots instead. The `cs` route\r\n * therefore returns an empty range, which the panel renders as a version without a change list rather\r\n * than as an error.\r\n */",
@@ -51121,8 +51130,8 @@ const allowed = new Map([
     "/**\n * The edit-plan vocabulary the assistant tool publishes.\n *\n * A model can only answer with an op this app accepts if the tool description spells the op out. These\n * tests keep that description honest: every kind the validator understands appears in it, and the\n * validator still refuses the cases a model is most likely to produce by accident.\n */",
   ]],
   ["tests/office-api.test.ts", [
-    "/**\n * The office API's own door: files, snapshots, versions and assets.\n *\n * Ownership is the first thing every section checks: an id from another account must answer 404,\n * never a 403 that confirms the row exists. Snapshot tests assert the R2 key shape, because the\n * revision objects are what the conflict rules protect.\n */",
     "// The kept revision is untouched and no third object was published.",
+    "/**\r\n * The office API's own door: files, snapshots, versions and assets.\r\n *\r\n * Ownership is the first thing every section checks: an id from another account must answer 404,\r\n * never a 403 that confirms the row exists. Snapshot tests assert the R2 key shape, because the\r\n * revision objects are what the conflict rules protect.\r\n */",
   ]],
   ["tests/office-asset-retention.test.ts", [
     "/**\n * The asset sweep: an unreferenced asset goes, a referenced one stays, and a young one is left alone.\n *\n * Reference is read from the snapshot itself — the asset table has no back-reference — so the test\n * writes the same `/api/office/assets/<id>` shape an image node stores.\n */",
@@ -51135,6 +51144,9 @@ const allowed = new Map([
   ]],
   ["tests/office-history.test.ts", [
     "/**\n * The history protocol the official panel reads.\n *\n * The panel is a client of a wire shape, not of our store: `error.code` has to be `ErrorCode.OK` (1),\n * versions arrive as `historyIds` + `entities.datas`, and the creator comes from `entities.users`.\n * These tests assert that shape, the ownership rule, and the one deliberate gap: no changesets.\n */",
+  ]],
+  ["tests/office-plan-apply.test.ts", [
+    "/**\n * The editor-free applier: pure JSON edits on a workbook, so a plan can land without a browser.\n */",
   ]],
   ["tests/office-quota.test.ts", [
     "// A full account re-saving a file of the same size spends nothing new.",

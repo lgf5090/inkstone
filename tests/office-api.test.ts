@@ -525,3 +525,50 @@ describe('office assets', () => {
     expect((await uploadAsset(pngBytes(), 'image/png')).status).toBe(503)
   })
 })
+
+describe('applying a plan without an editor', () => {
+  it('writes the cells and lands on a new revision', async () => {
+    const file = await createFile('sheets', 'Scheduled target')
+    const snapshot = { sheets: { s1: { name: 'Sheet1', cellData: {} } }, sheetOrder: ['s1'] }
+    const first = await call('PUT', `/files/${file.id}/snapshot`, { baseRev: 0, snapshot })
+    expect(first.status).toBe(200)
+
+    const applied = await call('POST', `/files/${file.id}/apply-plan`, {
+      plan: {
+        type: 'sheets',
+        fileId: file.id,
+        summary: 'Fill the morning row',
+        ops: [{ kind: 'sheets.set-values', sheet: 'Sheet1', range: 'B2', values: [[42]] }],
+      },
+    })
+    expect(applied.status).toBe(200)
+    const body = await bodyOf<{ rev: number; applied: number }>(applied)
+    expect(body.applied).toBe(1)
+
+    const stored = await call('GET', `/files/${file.id}/snapshot`)
+    const json = JSON.stringify((await bodyOf<{ snapshot: unknown }>(stored)).snapshot)
+    expect(json).toContain('42')
+    expect(body.rev).toBeGreaterThan(1)
+  })
+
+  it('refuses an operation the editor-free path does not implement', async () => {
+    const file = await createFile('sheets', 'Styled target')
+    const response = await call('POST', `/files/${file.id}/apply-plan`, {
+      plan: {
+        type: 'sheets',
+        fileId: file.id,
+        summary: 'Bold the header',
+        ops: [{ kind: 'sheets.set-style', range: 'A1', bold: true }],
+      },
+    })
+    expect(response.status).toBeGreaterThanOrEqual(400)
+  })
+
+  it('refuses a document that is not a sheet', async () => {
+    const file = await createFile('docs', 'Text target')
+    const response = await call('POST', `/files/${file.id}/apply-plan`, {
+      plan: { type: 'docs', fileId: file.id, summary: 'Append', ops: [{ kind: 'docs.append-paragraph', text: 'x' }] },
+    })
+    expect(response.status).toBe(400)
+  })
+})
