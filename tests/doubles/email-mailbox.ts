@@ -41,6 +41,7 @@ export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNam
     evaluateInboundRules: (input: InboundRuleInput) => store.evaluateInboundRules(input),
     mailboxStats: (now?: number) => store.mailboxStats(now),
     listAllEmails: () => store.listAllEmails(),
+    listAllEmailsPage: (afterId?: string, limit?: number) => store.listAllEmailsPage(afterId, limit),
     importFolder: (folder: FolderRestoreData) => store.importFolder(folder),
     importEmail: (email: EmailRestoreData) => store.importEmail(email),
     getEmails: (options = {}) => store.getEmails(options),

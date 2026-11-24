@@ -14,7 +14,7 @@ import {
   EMAIL_SQLITE_MAX_IDS_PER_QUERY,
 } from '@shared/email/model'
 import { utf8ByteLength } from '@shared/text-utils'
-import { normalizeSubject } from '@shared/email/format'
+import { emailSnippet, normalizeSubject } from '@shared/email/format'
 import type { EmailBatchAction, EmailFolderPatch, EmailMailboxStats, EmailTagPatch } from '@shared/email/model'
 import {
   emailFolderDepthAllowed,
@@ -94,6 +94,7 @@ export interface EmailRow {
   follow_up_at: number | null
   body: string
   body_source: string | null
+  snippet: string
   in_reply_to: string | null
   email_references: string | null
   thread_id: string | null
@@ -267,6 +268,18 @@ const SORT_COLUMNS: Record<string, string> = {
   read: 'read',
   starred: 'starred',
 }
+
+const EMAIL_LIST_COLUMNS = `id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
+  read, starred, important, muted, focused, follow_up_at, in_reply_to, email_references, thread_id,
+  message_id, delivery_status, delivery_error, provider_message_id, attachments_skipped, has_attachment,
+  size, deleted_at, snoozed_until, created_at, updated_at, snippet,
+  '' AS body, NULL AS body_source, NULL AS raw_headers`
+
+const EMAIL_SEARCH_COLUMNS = `e.id, e.folder_id, e.subject, e.sender, e.recipient, e.cc, e.bcc, e.date, e.received_at,
+  e.read, e.starred, e.important, e.muted, e.focused, e.follow_up_at, e.in_reply_to, e.email_references, e.thread_id,
+  e.message_id, e.delivery_status, e.delivery_error, e.provider_message_id, e.attachments_skipped, e.has_attachment,
+  e.size, e.deleted_at, e.snoozed_until, e.created_at, e.updated_at, e.snippet,
+  '' AS body, NULL AS body_source, NULL AS raw_headers`
 
 const NORMALIZED_SUBJECT_SQL = `LOWER(TRIM(
   REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
@@ -533,6 +546,14 @@ export class MailboxStore {
     return this.rows<EmailRow>(`SELECT * FROM email_messages ORDER BY id ASC`)
   }
 
+  listAllEmailsPage(afterId = '', limit = 100): EmailRow[] {
+    return this.rows<EmailRow>(
+      `SELECT * FROM email_messages WHERE id > ?1 ORDER BY id ASC LIMIT ?2`,
+      afterId,
+      Math.max(1, Math.min(500, Math.trunc(limit))),
+    )
+  }
+
   importFolder(folder: FolderRestoreData): boolean {
     const existing = this.one<{ id: string }>(`SELECT id FROM email_folders WHERE id = ?1`, folder.id)
     if (existing) return false
@@ -563,9 +584,9 @@ export class MailboxStore {
          id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
          read, starred, important, muted, focused, follow_up_at, body, body_source, in_reply_to, email_references, thread_id,
          message_id, raw_headers, delivery_status, delivery_error, provider_message_id,
-         attachments_skipped, has_attachment, size, deleted_at, created_at, updated_at
+         attachments_skipped, has_attachment, size, deleted_at, snippet, created_at, updated_at
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)`,
+         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)`,
       email.id,
       email.folderId,
       email.subject,
@@ -595,6 +616,7 @@ export class MailboxStore {
       email.hasAttachment ? 1 : 0,
       email.size ?? 0,
       email.deletedAt,
+      emailSnippet(email.body, 300),
       email.createdAt,
       email.updatedAt,
     )
@@ -625,7 +647,7 @@ export class MailboxStore {
     pushFlagFilters(clauses, bindings, options)
     bindings.push(limit, (page - 1) * limit)
     return this.rows<EmailRow>(
-      `SELECT *, SUBSTR(body, 1, 300) AS snippet FROM email_messages WHERE ${clauses.join(' AND ')}
+      `SELECT ${EMAIL_LIST_COLUMNS} FROM email_messages WHERE ${clauses.join(' AND ')}
         ORDER BY ${sortColumn} ${direction}, id ${direction} LIMIT ? OFFSET ?`,
       ...bindings,
     )
@@ -664,7 +686,7 @@ export class MailboxStore {
     if (options.folder === 'draft') {
       return this.rows<Record<string, unknown>>(
         `WITH folder_emails AS (
-           SELECT *, COALESCE(in_reply_to, id) AS draft_group_key
+           SELECT ${EMAIL_LIST_COLUMNS}, COALESCE(in_reply_to, id) AS draft_group_key
              FROM email_messages
             WHERE deleted_at IS NULL
               AND (snoozed_until IS NULL OR snoozed_until <= ?4)
@@ -685,7 +707,7 @@ export class MailboxStore {
                 lp.thread_id, lp.folder_id,
                 lp.cc, lp.bcc, lp.has_attachment, lp.delivery_status,
                 lp.in_reply_to, lp.email_references,
-                SUBSTR(lp.body, 1, 300) AS snippet,
+                lp.snippet,
                 ds.thread_count, ds.thread_unread_count, ds.participants
            FROM latest_per_group lp
            JOIN draft_stats ds ON lp.draft_group_key = ds.draft_group_key
@@ -699,7 +721,7 @@ export class MailboxStore {
     }
     return this.rows<Record<string, unknown>>(
       `WITH folder_emails AS (
-         SELECT *, COALESCE(thread_id, id) AS raw_thread_id,
+         SELECT ${EMAIL_LIST_COLUMNS}, COALESCE(thread_id, id) AS raw_thread_id,
                 ${NORMALIZED_SUBJECT_SQL} AS normalized_subject
            FROM email_messages
           WHERE deleted_at IS NULL
@@ -714,7 +736,8 @@ export class MailboxStore {
           GROUP BY raw_thread_id, normalized_subject, thread_id
        ),
        all_emails_with_conversation AS (
-         SELECT e.*, COALESCE(tc.conversation_id, COALESCE(e.thread_id, e.id)) AS conversation_id
+         SELECT e.id, e.thread_id, e.date, e.read, e.folder_id, e.sender,
+                COALESCE(tc.conversation_id, COALESCE(e.thread_id, e.id)) AS conversation_id
            FROM email_messages e
            LEFT JOIN thread_to_conversation tc ON COALESCE(e.thread_id, e.id) = tc.raw_thread_id
           WHERE e.deleted_at IS NULL
@@ -749,7 +772,7 @@ export class MailboxStore {
               lif.thread_id, lif.folder_id,
               lif.cc, lif.bcc, lif.has_attachment, lif.delivery_status,
               lif.in_reply_to, lif.email_references,
-              SUBSTR(lif.body, 1, 300) AS snippet,
+              lif.snippet,
               cs.thread_count, cs.thread_unread_count, cs.participants,
               CASE WHEN lmc.folder_id != 'sent' AND lmc.folder_id != 'draft' AND cs.thread_read_count > 0
                    THEN 1 ELSE 0 END AS needs_reply,
@@ -1031,7 +1054,7 @@ export class MailboxStore {
     const page = Math.max(1, Math.trunc(options.page ?? 1))
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? EMAIL_PAGE_SIZE), 1), EMAIL_MAX_PAGE_SIZE)
     return this.rows<EmailRow>(
-      `SELECT *, SUBSTR(body, 1, 300) AS snippet FROM email_messages WHERE deleted_at IS NOT NULL
+      `SELECT ${EMAIL_LIST_COLUMNS} FROM email_messages WHERE deleted_at IS NOT NULL
         ORDER BY deleted_at DESC, id DESC LIMIT ?1 OFFSET ?2`,
       limit,
       (page - 1) * limit,
@@ -1647,7 +1670,7 @@ export class MailboxStore {
     const page = Math.max(1, Math.trunc(options.page ?? 1))
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? EMAIL_PAGE_SIZE), 1), EMAIL_MAX_PAGE_SIZE)
     return this.rows<EmailRow>(
-      `SELECT e.*, SUBSTR(e.body, 1, 300) AS snippet, f.name AS folder_name FROM email_messages e
+      `SELECT ${EMAIL_SEARCH_COLUMNS}, f.name AS folder_name FROM email_messages e
          LEFT JOIN email_folders f ON f.id = e.folder_id
         WHERE ${built.where}
         ORDER BY e.date DESC, e.id DESC LIMIT ? OFFSET ?`,
@@ -1808,9 +1831,9 @@ export class MailboxStore {
          id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
          read, starred, important, muted, focused, follow_up_at, body, body_source, in_reply_to, email_references, thread_id,
          message_id, raw_headers, delivery_status, delivery_error, provider_message_id,
-         attachments_skipped, has_attachment, size, deleted_at, created_at, updated_at
+         attachments_skipped, has_attachment, size, deleted_at, snippet, created_at, updated_at
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, NULL, ?29, ?29)`,
+         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, NULL, ?29, ?30, ?30)`,
       email.id,
       folderRow.id,
       email.subject,
@@ -1839,6 +1862,7 @@ export class MailboxStore {
       email.attachmentsSkipped ? 1 : 0,
       email.hasAttachment ? 1 : 0,
       email.size ?? 0,
+      emailSnippet(email.body, 300),
       now,
     )
     return true
@@ -1880,9 +1904,9 @@ export class MailboxStore {
     if (existing) {
       this.sql.exec(
         `UPDATE email_messages SET folder_id = 'draft', subject = ?1, sender = ?2, recipient = ?3,
-           cc = ?4, bcc = ?5, body = ?6, body_source = ?7, in_reply_to = ?8,
-           thread_id = ?9, date = ?10, read = 1, updated_at = ?10
-         WHERE id = ?11 AND folder_id = 'draft' AND deleted_at IS NULL`,
+           cc = ?4, bcc = ?5, body = ?6, body_source = ?7, snippet = ?8, in_reply_to = ?9,
+           thread_id = ?10, date = ?11, read = 1, updated_at = ?11
+         WHERE id = ?12 AND folder_id = 'draft' AND deleted_at IS NULL`,
         email.subject,
         email.sender,
         email.recipient,
@@ -1890,6 +1914,7 @@ export class MailboxStore {
         email.bcc ?? null,
         email.body,
         email.bodySource ?? null,
+        emailSnippet(email.body, 300),
         email.inReplyTo ?? null,
         email.threadId ?? null,
         email.date || now,
@@ -1924,13 +1949,14 @@ export class MailboxStore {
     )
     if (!existing) return false
     this.sql.exec(
-      `UPDATE email_messages SET folder_id = 'sent', body = ?1, body_source = ?2, message_id = ?3,
-         date = ?4, sender = ?5, recipient = ?6, cc = ?7, bcc = ?8, in_reply_to = ?9,
-         thread_id = ?10, email_references = ?11, raw_headers = ?12, subject = ?13,
-         read = 1, delivery_status = 'pending', delivery_error = NULL, updated_at = ?4
-       WHERE id = ?14`,
+      `UPDATE email_messages SET folder_id = 'sent', body = ?1, body_source = ?2, snippet = ?3, message_id = ?4,
+         date = ?5, sender = ?6, recipient = ?7, cc = ?8, bcc = ?9, in_reply_to = ?10,
+         thread_id = ?11, email_references = ?12, raw_headers = ?13, subject = ?14,
+         read = 1, delivery_status = 'pending', delivery_error = NULL, updated_at = ?5
+       WHERE id = ?15`,
       fields.body,
       fields.bodySource,
+      emailSnippet(fields.body, 300),
       fields.messageId,
       fields.date,
       fields.sender,

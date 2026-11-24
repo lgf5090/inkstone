@@ -10,6 +10,7 @@ import {
   type EmailBackupBundle,
   type EmailBackupMessage,
 } from '@shared/email/backup'
+import { EMAIL_EXPORT_MAX_BYTES, EMAIL_EXPORT_MAX_MESSAGES } from '@shared/email/model'
 import { putAttachmentObject } from '../attachments/backend'
 import type { Env } from '../env'
 import { sha256Hex } from '../lib/encoding'
@@ -155,7 +156,6 @@ export async function readBackupEmail(
   for (const account of accounts) {
     const mailbox = emailMailbox(env, account.id)
     const folderRows = await mailbox.getFolders()
-    const messageRows = await mailbox.listAllEmails()
     const attachmentsByMessage = await loadAccountAttachments(env.DB, userId, account.id)
     const folders = folderRows.map((folder) => ({
       id: folder.id,
@@ -165,7 +165,12 @@ export async function readBackupEmail(
     }))
 
     const messages: EmailBackupMessage[] = []
-    for (const row of messageRows) {
+    let afterId = ''
+    let exportBytes = 0
+    for (;;) {
+      const messageRows = await mailbox.listAllEmailsPage(afterId, 100)
+      if (!messageRows.length) break
+      for (const row of messageRows) {
       const rows = attachmentsByMessage.get(row.id) ?? []
       const attachments: EmailBackupAttachment[] = []
       for (const attachment of rows) {
@@ -221,7 +226,14 @@ export async function readBackupEmail(
         }
         attachments.push(meta)
       }
-      messages.push(toBackupMessage(row, attachments))
+      const message = toBackupMessage(row, attachments)
+      exportBytes += encoder.encode(JSON.stringify(message)).byteLength
+      if (messageCount + messages.length >= EMAIL_EXPORT_MAX_MESSAGES || exportBytes > EMAIL_EXPORT_MAX_BYTES) {
+        throw ApiError.tooLarge('The email export exceeds the safe mailbox export budget')
+      }
+      messages.push(message)
+      }
+      afterId = messageRows[messageRows.length - 1]!.id
     }
 
     backupAccounts.push({

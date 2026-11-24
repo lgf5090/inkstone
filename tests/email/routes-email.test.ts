@@ -14,10 +14,12 @@ import { errorResponse } from '../../src/worker/lib/errors'
 import { newId } from '../../src/worker/lib/id'
 import { emailRoutes } from '../../src/worker/routes/email'
 import { emailSendRoutes } from '../../src/worker/routes/email-send'
+import { sendMcpEmail, sendMcpEmailReply } from '../../src/worker/mcp/email'
 import { makeD1 } from '../doubles/d1-sqlite'
 import { makeSqlExec } from '../doubles/do-sqlite'
 import { fakeEmailMailboxNamespace } from '../doubles/email-mailbox'
 import { testBindings, testDurableObjectNamespace, testR2Bucket, type TestR2Bucket } from '../doubles/bindings'
+import { seedUser } from '../fixtures/email/harness'
 
 let sqlite: DatabaseSync
 let db: D1Database
@@ -648,7 +650,7 @@ describe('email listing and detail', () => {
     expect(page.emails[0]).toMatchObject({ id: newest, subject: 'Newer', folderId: 'inbox', read: false })
     expect(page.emails[0]!.date).toBe(new Date(2_000).toISOString())
     expect('attachments' in page.emails[0]!).toBe(false)
-    expect(page.emails[0]!.snippet).toBe('<p>Hello</p>')
+    expect(page.emails[0]!.snippet).toBe('Hello')
 
     const second = await json<EmailListResponse>(await call('GET', `/accounts/${accountId}/emails?folder=inbox&limit=1&page=2`))
     expect(second.emails).toHaveLength(1)

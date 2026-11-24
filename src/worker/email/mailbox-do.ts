@@ -68,6 +68,7 @@ export class EmailMailbox extends DurableObject<Env> {
   evaluateInboundRules(input: InboundRuleInput): InboundRulePlan { return this.store.evaluateInboundRules(input) }
   mailboxStats(now?: number) { return this.store.mailboxStats(now) }
   listAllEmails() { return this.store.listAllEmails() }
+  listAllEmailsPage(afterId?: string, limit?: number) { return this.store.listAllEmailsPage(afterId, limit) }
   importFolder(folder: FolderRestoreData) { return this.store.importFolder(folder) }
   importEmail(email: EmailRestoreData) { return this.store.importEmail(email) }
   getEmails(options: ListOptions = {}) { return this.store.getEmails(options) }

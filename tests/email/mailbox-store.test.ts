@@ -139,6 +139,19 @@ describe('mailbox store', () => {
     expect(store.countSearchResults({ query: '%'.repeat(25) })).toBe(0)
   })
 
+  it('pages full mailbox exports by id without loading every body at once', () => {
+    for (const id of ['a', 'b', 'c']) store.createEmail('inbox', message(id))
+    expect(store.listAllEmailsPage('', 2).map((row) => row.id)).toEqual(['a', 'b'])
+    expect(store.listAllEmailsPage('b', 2).map((row) => row.id)).toEqual(['c'])
+    expect(store.listAllEmailsPage('c', 2)).toEqual([])
+  })
+
+  it('keeps full bodies out of list rows and stores a plain-text snippet', () => {
+    store.createEmail('inbox', message('list', { body: '<style>hidden</style><p>Hello <b>world</b></p>' }))
+    const [row] = store.getEmails({ folder: 'inbox' })
+    expect(row).toMatchObject({ body: '', body_source: null, raw_headers: null, snippet: 'Hello world' })
+  })
+
   it('stores drafts as read and keeps them out of the unread count', () => {
     const draftId = store.saveDraft(null, message('d1', { read: false }))
     expect(draftId).toBe('d1')
@@ -206,7 +219,7 @@ describe('mailbox store', () => {
     store.createEmail('inbox', message('m2', { date: 1_000 }))
     const listed = store.getEmails({ folder: 'inbox' })
     expect(listed.map((row) => row.id)).toEqual(['m1', 'm2'])
-    expect((listed[0] as typeof listed[number] & { snippet?: string }).snippet).toHaveLength(300)
+    expect((listed[0] as typeof listed[number] & { snippet?: string }).snippet).toHaveLength(303)
     expect(store.trashEmail('m2')).toBe('inbox')
     expect(store.getEmails({ folder: 'inbox' }).map((row) => row.id)).toEqual(['m1'])
     expect(store.countEmails({ folder: 'inbox' })).toBe(1)
@@ -354,6 +367,14 @@ describe('mailbox store', () => {
     expect(transactionCalls).toBe(1)
     expect(sqlCalls.every((call) => call.inTransaction)).toBe(true)
     expect(ids.every((id) => store.getEmail(id)?.read === 1)).toBe(true)
+  })
+
+  it('claims a failed delivery for retry only once', () => {
+    store.createEmail('sent', message('failed', { deliveryStatus: 'failed', deliveryError: 'Provider refused' }))
+    expect(store.claimDeliveryRetry('failed')).toBe(true)
+    expect(store.getEmail('failed')).toMatchObject({ delivery_status: 'pending', delivery_error: null })
+    expect(store.claimDeliveryRetry('failed')).toBe(false)
+    expect(store.claimDeliveryRetry('missing')).toBe(false)
   })
 
   it('skips missing rows and rejects empty, oversized or invalid batches', () => {

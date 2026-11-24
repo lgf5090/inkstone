@@ -246,4 +246,19 @@ export const EMAIL_MAILBOX_MIGRATIONS: readonly MailboxMigration[] = [
         ON email_saved_searches(name COLLATE NOCASE)`)
     },
   },
+  {
+    name: '9_snippet',
+    apply: (sql) => {
+      const columns = new Set(
+        [...sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('email_messages')`)]
+          .map((row) => row.name),
+      )
+      if (!columns.has('snippet')) {
+        sql.exec(`ALTER TABLE email_messages ADD COLUMN snippet TEXT NOT NULL DEFAULT ''`)
+      }
+      if (columns.has('body')) {
+        sql.exec(`UPDATE email_messages SET snippet = SUBSTR(body, 1, 300) WHERE snippet = ''`)
+      }
+    },
+  },
 ]
