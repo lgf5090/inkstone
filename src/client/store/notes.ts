@@ -910,9 +910,10 @@ export const useNotes = create<NotesState>((set, get) => ({
             // note is already on screen, so throwing it away would delete what the reader just
             // typed. Keep it, queue the create, and answer with its id so the caller can go on
             // treating it as the note it is.
-            if (err instanceof ApiError && err.isOffline && !dirty.has(id)) {
+            if (err instanceof ApiError && err.isOffline) {
+                const pending = dirty.get(id);
                 offlineCreates.set(id, { folderId, isStarred });
-                stageNoteTextWrite(id, content, title, set, get, { create: true });
+                stageNoteTextWrite(id, pending?.content ?? get().contents[id] ?? content, pending?.title ?? title, set, get, { create: true });
                 set({ saveStatus: 'offline' });
                 scheduleShellSave(get);
                 useUi.getState().toast({ title: t("notes.offline_draft_saved"), tone: 'warning' });
@@ -940,6 +941,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         }
     },
     async patchNote(id, patch) {
+        if (!requireOnlineMutation(get)) return;
         commitPendingSummaryDerivation(id);
         const mutation = beginNoteMutation(id, compactOptimisticPatch(patch), set, get);
         if (!mutation)
@@ -1026,12 +1028,12 @@ export const useNotes = create<NotesState>((set, get) => ({
         const prefix = settings.drawingFilenamePrefix ?? 'Drawing ';
         const ext = settings.useExcalidrawExtension ? '.excalidraw' : '';
         const title = `${prefix}${dateStr}${ext}`;
-        let resolvedFolderId = folderId ?? undefined;
+        let resolvedFolderId: string | null | undefined = folderId ?? undefined;
         if (!resolvedFolderId && settings.folder) {
             const matchedFolder = get().folders.find(
                 (f) => f.id === settings.folder || f.name.toLowerCase() === settings.folder.toLowerCase()
             );
-            resolvedFolderId = matchedFolder ? matchedFolder.id : settings.folder;
+            resolvedFolderId = matchedFolder?.id ?? null;
         }
         return get().createNote({
             title,
@@ -1105,6 +1107,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         });
     },
     async deleteNote(id) {
+        if (!requireOnlineMutation(get)) return;
         commitPendingSummaryDerivation(id);
         const before = get().notes[id];
         if (!before)
@@ -1150,6 +1153,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         });
     },
     async restoreNote(id) {
+        if (!requireOnlineMutation(get)) return;
         const mutation = beginNoteMutation(id, { deletedAt: null }, set, get);
         if (!mutation)
             return;
@@ -1167,6 +1171,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         });
     },
     async restoreVersion(id, versionId, content, title) {
+        if (!requireOnlineMutation(get)) return false;
         commitPendingSummaryDerivation(id);
         const before = get().notes[id];
         if (!before || !hasOwnContent(get().contents, id))
@@ -1275,6 +1280,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         });
     },
     async purgeNote(id) {
+        if (!requireOnlineMutation(get)) return;
         const before = get().notes[id];
         if (!before)
             return;
@@ -1316,6 +1322,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         });
     },
     async emptyTrash() {
+        if (!requireOnlineMutation(get)) return null;
         const snapshots = Object.values(get().notes)
             .filter((note) => note.deletedAt !== null)
             .map((note) => ({
@@ -1421,6 +1428,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         }
     },
     createFolder(input) {
+        if (!requireOnlineMutation(get)) return null;
         const parentId = input?.parentId ?? null;
         const current = get().folders;
         if (parentId && !current.some((folder) => folder.id === parentId))
@@ -1455,6 +1463,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         return id;
     },
     patchFolder(id, patch) {
+        if (!requireOnlineMutation(get)) return false;
         const current = get().folders.find((folder) => folder.id === id);
         if (!current)
             return false;
@@ -1474,6 +1483,7 @@ export const useNotes = create<NotesState>((set, get) => ({
         return true;
     },
     deleteFolder(id) {
+        if (!requireOnlineMutation(get)) return false;
         const folder = get().folders.find((item) => item.id === id);
         if (!folder)
             return false;
@@ -1845,6 +1855,9 @@ function flushQueuedWritesOnExit(): void {
 }
 
 if (typeof window !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') void flushLocalDbWrites();
+    });
     window.addEventListener('pagehide', flushQueuedWritesOnExit);
     window.addEventListener('beforeunload', flushQueuedWritesOnExit);
     // Alt-Tab storms used to rewrite the whole shell + outbox on every focus change. The
@@ -3424,7 +3437,7 @@ function tagEqual(a: Tag, b: Tag): boolean {
 }
 function currentFolderId(): string | null {
     const ui = useUi.getState();
-    return ui.view === 'folder' ? ui.folderId : null;
+    return ui.view === 'folder' && !isVirtualFolderId(ui.folderId) ? ui.folderId : null;
 }
 export function createContextualNote(input?: {
     title?: string;
@@ -3441,7 +3454,7 @@ export function createContextualNote(input?: {
     const inbox = inboxFolderId && (useNotes.getState().folders ?? []).some((folder) => folder.id === inboxFolderId)
         ? inboxFolderId
         : null;
-    const folderId = input?.folderId ?? (ui.view === 'folder' ? ui.folderId : inbox);
+    const folderId = input?.folderId ?? currentFolderId() ?? inbox;
     if (ui.view === 'trash' || ui.view === 'archived') {
         ui.openView('all');
         return useNotes.getState().createNote({
@@ -3466,6 +3479,11 @@ function toastError(err: unknown, fallback: string): void {
         description: err instanceof ApiError ? err.message : String(err),
         tone: 'danger',
     });
+}
+function requireOnlineMutation(get: () => NotesState): boolean {
+    if (get().online) return true;
+    useUi.getState().toast({ title: t('settings.offline'), tone: 'warning' });
+    return false;
 }
 export interface NoteGroup {
     key: string;

@@ -13,6 +13,7 @@ import {
     writeNoteDrag,
 } from './note-drag';
 import { useNotes } from '../store/notes';
+import { useUi } from '../store/ui';
 
 function dragEvent(payload: { types?: string[]; data?: Map<string, string> } = {}): {
     event: DragEvent<HTMLElement>;
@@ -98,6 +99,7 @@ describe('leftDropTarget', () => {
 describe('bulk folder moves', () => {
     beforeEach(() => {
         useNotes.setState({
+            online: true,
             notes: {
                 a: note('a', 'old'),
                 b: note('b', null),
@@ -121,6 +123,17 @@ describe('bulk folder moves', () => {
         const previous = await moveNotesToFolder(['a'], 'old');
         expect(previous).toEqual([]);
         expect(patchNote).not.toHaveBeenCalled();
+    });
+
+    it('refuses an offline bulk move with one notice and no requests', async () => {
+        const patchNote = vi.fn(async () => {});
+        const toast = vi.fn();
+        useNotes.setState({ online: false, patchNote });
+        useUi.setState({ toast });
+
+        expect(await moveNotesToFolder(['a', 'b'], 'target')).toEqual([]);
+        expect(patchNote).not.toHaveBeenCalled();
+        expect(toast).toHaveBeenCalledTimes(1);
     });
 
     it('restores every recorded home', async () => {

@@ -1,4 +1,6 @@
 import { useNotes } from '../store/notes';
+import { useUi } from '../store/ui';
+import { t } from './i18n';
 
 export const NOTE_DRAG_TYPE = 'application/x-inkstone-note';
 export const NOTES_DRAG_TYPE = 'application/x-inkstone-notes';
@@ -56,6 +58,10 @@ export function readDraggedNoteIds(event: React.DragEvent): string[] {
 }
 
 export async function moveNotesToFolder(noteIds: string[], folderId: string | null): Promise<NoteFolderAssignment[]> {
+    if (!useNotes.getState().online) {
+        useUi.getState().toast({ title: t('settings.offline'), tone: 'warning' });
+        return [];
+    }
     const notes = useNotes.getState().notes;
     const previous: NoteFolderAssignment[] = [];
     for (const id of noteIds) {
@@ -76,6 +82,10 @@ export async function moveNotesToFolder(noteIds: string[], folderId: string | nu
 }
 
 export async function restoreNoteFolders(assignments: NoteFolderAssignment[]): Promise<void> {
+    if (!useNotes.getState().online) {
+        useUi.getState().toast({ title: t('settings.offline'), tone: 'warning' });
+        return;
+    }
     const BATCH = 6;
     for (let offset = 0; offset < assignments.length; offset += BATCH) {
         await Promise.all(assignments.slice(offset, offset + BATCH).map((assignment) =>

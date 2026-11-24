@@ -50,6 +50,7 @@ import { ApiError } from '../lib/api'
 import { LIMITS } from '@shared/constants'
 import { t } from '../lib/i18n'
 import { useUi } from './ui'
+import { TODO_TREE } from '../lib/calendar-tree'
 
 const note: Note = {
   id: '01m1r8923zajxnw9y0dhs6sy8j', title: 'Example', excerpt: 'old', content: 'old',
@@ -135,6 +136,42 @@ it('saves conflicting local edits as a copy without retrying over the server not
   expect(useNotes.getState().contents[note.id]).toBe('remote important edit')
   expect(useNotes.getState().notes[note.id].rev).toBe(3)
   expect(mocks.queue).toHaveLength(0)
+})
+
+it('keeps the same create id when an in-flight create goes offline after typing', async () => {
+  const id = 'r'.repeat(26)
+  let rejectCreate!: (error: unknown) => void
+  mocks.create.mockImplementation(() => new Promise((_resolve, reject) => { rejectCreate = reject }))
+  const creating = useNotes.getState().createNote({ id, title: 'Race', content: 'first', open: false })
+  useNotes.getState().editContent(id, 'typed while create was in flight')
+  rejectCreate(new ApiError(0, 'offline', 'offline'))
+
+  expect(await creating).toBe(id)
+  await flushLocalDbWrites()
+  const queued = mocks.queue.find((item) => item.entityId === id)
+  expect(queued?.payload).toMatchObject({ create: true, content: 'typed while create was in flight' })
+})
+
+it('does not put a new note into a virtual folder', async () => {
+  useUi.setState({ view: 'folder', folderId: TODO_TREE.rootId })
+  mocks.create.mockImplementation(async (input: any) => ({ ...note, ...input, id: input.id }))
+
+  await useNotes.getState().createNote({ title: 'Virtual folder draft', content: 'body', open: false })
+
+  expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ folderId: null }))
+})
+
+it('refuses metadata mutations offline without issuing requests', async () => {
+  useNotes.setState({ online: false })
+  const originalToast = useUi.getState().toast
+  const toast = vi.fn()
+  useUi.setState({ toast })
+
+  await useNotes.getState().patchNote(note.id, { isStarred: true })
+
+  expect(mocks.patch).not.toHaveBeenCalled()
+  expect(toast).toHaveBeenCalledTimes(1)
+  useUi.setState({ toast: originalToast })
 })
 
 it('keeps a note created while offline and uploads it once the network returns', async () => {

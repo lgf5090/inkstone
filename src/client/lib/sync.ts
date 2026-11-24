@@ -27,6 +27,9 @@ export class SyncEngine {
   private isLeader = false
   private ownClaimAt = 0
   private bestClaim: { clientId: string; at: number } | null = null
+  private leaderLock: AbortController | null = null
+  private lockRequested = false
+  private usesWebLocks = false
   private scheduledPullShouldBroadcast = false
   private pullDueAt = 0
   private lastPullAt = 0
@@ -93,6 +96,9 @@ export class SyncEngine {
     this.pullTimer = 0
     this.pullDueAt = 0
     window.clearTimeout(this.leadershipTimer)
+    this.leaderLock?.abort()
+    this.leaderLock = null
+    this.setLeadership(false)
     this.socket?.close()
     this.socket = null
     this.broadcast.close()
@@ -100,6 +106,37 @@ export class SyncEngine {
 
 
   private claimLeadership(): void {
+    if (this.lockRequested || this.disposed) return
+    if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+      this.usesWebLocks = true
+      this.lockRequested = true
+      const controller = new AbortController()
+      this.leaderLock = controller
+      let lockFailed = false
+      const lockName = `inkstone-sync-leader:${useSession.getState().user?.id ?? 'anonymous'}`
+      void navigator.locks.request(lockName, { signal: controller.signal }, async () => {
+        if (this.disposed) return
+        this.setLeadership(true)
+        await new Promise<void>((resolve) => {
+          if (controller.signal.aborted) resolve()
+          else controller.signal.addEventListener('abort', () => resolve(), { once: true })
+        })
+      }).catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          lockFailed = true
+          this.usesWebLocks = false
+          console.warn('[inkstone] sync leadership lock failed', error)
+        }
+      }).finally(() => {
+        if (this.leaderLock === controller) {
+          this.leaderLock = null
+          this.lockRequested = false
+          this.setLeadership(false)
+          if (lockFailed && !this.disposed) this.claimLeadership()
+        }
+      })
+      return
+    }
     const claim = { type: 'claim-leader' as const, clientId: CLIENT_ID, at: Date.now() }
     this.ownClaimAt = claim.at
     this.bestClaim = claim
@@ -154,6 +191,7 @@ export class SyncEngine {
       return
     }
     if (payload.type === 'claim-leader') {
+      if (this.usesWebLocks) return
       if (
         payload.clientId === CLIENT_ID ||
         !Number.isFinite(payload.at) ||
@@ -424,7 +462,7 @@ export class SyncEngine {
     // Claims are "latest wins", so re-claiming on every focus made the tab you touched last
     // the permanent leader: each Alt-Tab tore down the previous leader's WebSocket and
     // re-ran a full pull. One reclaim per minute still takes over after the leader closes.
-    if (!this.isLeader && Date.now() - this.ownClaimAt > LEADER_RECLAIM_MS) this.claimLeadership()
+    if (!this.usesWebLocks && !this.isLeader && Date.now() - this.ownClaimAt > LEADER_RECLAIM_MS) this.claimLeadership()
     this.schedulePull(200)
     void this.pullTodos()
   }
