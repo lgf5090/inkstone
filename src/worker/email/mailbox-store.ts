@@ -8,9 +8,12 @@ import {
   EMAIL_MAX_PAGE_SIZE,
   EMAIL_SEND_RATE_LIMIT_DAY,
   EMAIL_SEND_RATE_LIMIT_HOUR,
+  EMAIL_SEARCH_LIKE_MAX_BYTES,
   EMAIL_SNOOZE_MAX_MS,
   EMAIL_SNOOZE_WAKE_BATCH,
+  EMAIL_SQLITE_MAX_IDS_PER_QUERY,
 } from '@shared/email/model'
+import { utf8ByteLength } from '@shared/text-utils'
 import type { EmailBatchAction, EmailFolderPatch, EmailMailboxStats, EmailTagPatch } from '@shared/email/model'
 import {
   emailFolderDepthAllowed,
@@ -283,6 +286,14 @@ const STATS_DAY_COUNT = 7
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`)
+}
+
+function chunkIds(ids: readonly string[]): string[][] {
+  const chunks: string[][] = []
+  for (let offset = 0; offset < ids.length; offset += EMAIL_SQLITE_MAX_IDS_PER_QUERY) {
+    chunks.push(ids.slice(offset, offset + EMAIL_SQLITE_MAX_IDS_PER_QUERY))
+  }
+  return chunks
 }
 
 function pushFlagFilters(
@@ -895,26 +906,26 @@ export class MailboxStore {
   }
 
   wakeFollowUps(now = Date.now(), limit = EMAIL_FOLLOW_UP_WAKE_BATCH): string[] {
-    const due = this.rows<{ id: string }>(
-      `SELECT id FROM email_messages
-        WHERE follow_up_at IS NOT NULL AND follow_up_at <= ?1 AND deleted_at IS NULL
-        ORDER BY follow_up_at ASC, id ASC LIMIT ?2`,
-      now,
-      limit,
-    ).map((row) => row.id)
-    if (!due.length) return []
-    const placeholders = due.map(() => '?').join(', ')
-    const run = () => {
-      this.sql.exec(
-        `UPDATE email_messages SET follow_up_at = NULL, important = 1, read = 0, updated_at = ?
-          WHERE id IN (${placeholders})`,
+    const run = (): string[] => {
+      const due = this.rows<{ id: string }>(
+        `SELECT id FROM email_messages
+          WHERE follow_up_at IS NOT NULL AND follow_up_at <= ?1 AND deleted_at IS NULL
+          ORDER BY follow_up_at ASC, id ASC LIMIT ?2`,
         now,
-        ...due,
-      )
+        limit,
+      ).map((row) => row.id)
+      for (const chunk of chunkIds(due)) {
+        const placeholders = chunk.map(() => '?').join(', ')
+        this.sql.exec(
+          `UPDATE email_messages SET follow_up_at = NULL, important = 1, read = 0, updated_at = ?
+            WHERE id IN (${placeholders})`,
+          now,
+          ...chunk,
+        )
+      }
+      return due
     }
-    if (this.storage) this.storage.transactionSync(run)
-    else run()
-    return due
+    return this.storage ? this.storage.transactionSync(run) : run()
   }
 
   snoozeEmail(id: string, until: number): EmailRow | null {
@@ -957,26 +968,26 @@ export class MailboxStore {
   }
 
   wakeSnoozed(now = Date.now(), limit = EMAIL_SNOOZE_WAKE_BATCH): string[] {
-    const due = this.rows<{ id: string }>(
-      `SELECT id FROM email_messages
-        WHERE snoozed_until IS NOT NULL AND snoozed_until <= ?1
-        ORDER BY snoozed_until ASC, id ASC LIMIT ?2`,
-      now,
-      limit,
-    ).map((row) => row.id)
-    if (!due.length) return []
-    const placeholders = due.map(() => '?').join(', ')
-    const run = () => {
-      this.sql.exec(
-        `UPDATE email_messages SET snoozed_until = NULL, read = 0, updated_at = ?
-          WHERE id IN (${placeholders})`,
+    const run = (): string[] => {
+      const due = this.rows<{ id: string }>(
+        `SELECT id FROM email_messages
+          WHERE snoozed_until IS NOT NULL AND snoozed_until <= ?1
+          ORDER BY snoozed_until ASC, id ASC LIMIT ?2`,
         now,
-        ...due,
-      )
+        limit,
+      ).map((row) => row.id)
+      for (const chunk of chunkIds(due)) {
+        const placeholders = chunk.map(() => '?').join(', ')
+        this.sql.exec(
+          `UPDATE email_messages SET snoozed_until = NULL, read = 0, updated_at = ?
+            WHERE id IN (${placeholders})`,
+          now,
+          ...chunk,
+        )
+      }
+      return due
     }
-    if (this.storage) this.storage.transactionSync(run)
-    else run()
-    return due
+    return this.storage ? this.storage.transactionSync(run) : run()
   }
 
   markThreadRead(threadId: string): void {
@@ -1103,7 +1114,6 @@ export class MailboxStore {
   batchUpdate(ids: string[], action: EmailBatchAction, folderId?: string): { updated: number } {
     if (ids.length === 0 || ids.length > EMAIL_BATCH_MAX_MESSAGES) return { updated: 0 }
     const unique = [...new Set(ids)]
-    const placeholders = unique.map(() => '?').join(', ')
     let targetFolder: string | null = null
     if (action === 'move') {
       if (!folderId) return { updated: 0 }
@@ -1117,64 +1127,69 @@ export class MailboxStore {
     )) return { updated: 0 }
     const run = (): { updated: number } => {
       const scope = action === 'restore' ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL'
-      const matched = this.rows<{ id: string }>(
-        `SELECT id FROM email_messages WHERE id IN (${placeholders}) AND ${scope}`,
-        ...unique,
-      ).length
-      if (matched === 0) return { updated: 0 }
       const now = Date.now()
-      if (action === 'read' || action === 'unread') {
-        this.sql.exec(
-          `UPDATE email_messages SET read = ?, updated_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
-          action === 'read' ? 1 : 0,
-          now,
-          ...unique,
-        )
-      } else if (action === 'star' || action === 'unstar') {
-        this.sql.exec(
-          `UPDATE email_messages SET starred = ?, updated_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
-          action === 'star' ? 1 : 0,
-          now,
-          ...unique,
-        )
-      } else if (action === 'move' || action === 'archive') {
-        if (!targetFolder) return { updated: 0 }
-        if (targetFolder === 'trash') {
+      let updated = 0
+      for (const chunk of chunkIds(unique)) {
+        const placeholders = chunk.map(() => '?').join(', ')
+        const matched = this.rows<{ id: string }>(
+          `SELECT id FROM email_messages WHERE id IN (${placeholders}) AND ${scope}`,
+          ...chunk,
+        ).length
+        if (matched === 0) continue
+        if (action === 'read' || action === 'unread') {
+          this.sql.exec(
+            `UPDATE email_messages SET read = ?, updated_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+            action === 'read' ? 1 : 0,
+            now,
+            ...chunk,
+          )
+        } else if (action === 'star' || action === 'unstar') {
+          this.sql.exec(
+            `UPDATE email_messages SET starred = ?, updated_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+            action === 'star' ? 1 : 0,
+            now,
+            ...chunk,
+          )
+        } else if (action === 'move' || action === 'archive') {
+          if (!targetFolder) return { updated: 0 }
+          if (targetFolder === 'trash') {
+            this.sql.exec(
+              `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, snoozed_until = NULL, updated_at = ?
+                WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+              now,
+              now,
+              ...chunk,
+            )
+          } else {
+            this.sql.exec(
+              `UPDATE email_messages SET folder_id = ?, deleted_at = NULL, updated_at = ?
+                WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+              targetFolder,
+              now,
+              ...chunk,
+            )
+          }
+        } else if (action === 'trash') {
           this.sql.exec(
             `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, snoozed_until = NULL, updated_at = ?
               WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
             now,
             now,
-            ...unique,
+            ...chunk,
+          )
+        } else if (action === 'restore') {
+          this.sql.exec(
+            `UPDATE email_messages SET folder_id = 'inbox', deleted_at = NULL, snoozed_until = NULL, updated_at = ?
+              WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`,
+            now,
+            ...chunk,
           )
         } else {
-          this.sql.exec(
-            `UPDATE email_messages SET folder_id = ?, deleted_at = NULL, updated_at = ?
-              WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
-            targetFolder,
-            now,
-            ...unique,
-          )
+          return { updated: 0 }
         }
-      } else if (action === 'trash') {
-        this.sql.exec(
-          `UPDATE email_messages SET folder_id = 'trash', deleted_at = ?, snoozed_until = NULL, updated_at = ?
-            WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
-          now,
-          now,
-          ...unique,
-        )
-      } else if (action === 'restore') {
-        this.sql.exec(
-          `UPDATE email_messages SET folder_id = 'inbox', deleted_at = NULL, snoozed_until = NULL, updated_at = ?
-            WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`,
-          now,
-          ...unique,
-        )
-      } else {
-        return { updated: 0 }
+        updated += matched
       }
-      return { updated: matched }
+      return { updated }
     }
     return this.storage ? this.storage.transactionSync(run) : run()
   }
@@ -1655,13 +1670,21 @@ export class MailboxStore {
   }
 
   private buildSearch(options: SearchOptions): { where: string; bindings: unknown[] } {
+    const like = (value: string) => `%${escapeLike(value)}%`
+    const queryTerm = options.query ? like(options.query) : null
+    const fromTerm = options.from ? like(options.from) : null
+    const toTerm = options.to ? like(options.to) : null
+    const subjectTerm = options.subject ? like(options.subject) : null
+    if ([queryTerm, fromTerm, toTerm, subjectTerm].some(
+      (term) => term !== null && utf8ByteLength(term) > EMAIL_SEARCH_LIKE_MAX_BYTES,
+    )) {
+      return { where: '0', bindings: [] }
+    }
     const clauses = ['e.deleted_at IS NULL', '(e.snoozed_until IS NULL OR e.snoozed_until <= ?)']
     const bindings: unknown[] = [Date.now()]
-    const like = (value: string) => `%${escapeLike(value)}%`
-    if (options.query) {
-      const term = like(options.query)
+    if (queryTerm) {
       clauses.push(`(e.subject LIKE ? ESCAPE '\\' OR e.body LIKE ? ESCAPE '\\' OR e.sender LIKE ? ESCAPE '\\' OR e.recipient LIKE ? ESCAPE '\\' OR e.cc LIKE ? ESCAPE '\\' OR e.bcc LIKE ? ESCAPE '\\')`)
-      bindings.push(term, term, term, term, term, term)
+      bindings.push(queryTerm, queryTerm, queryTerm, queryTerm, queryTerm, queryTerm)
     }
     if (options.folder) {
       clauses.push(`e.folder_id = (SELECT id FROM email_folders WHERE id = ? OR name = ? COLLATE NOCASE LIMIT 1)`)
@@ -1673,18 +1696,17 @@ export class MailboxStore {
          WHERE mt.message_id = e.id AND t.name = ? COLLATE NOCASE)`)
       bindings.push(options.tag)
     }
-    if (options.from) {
+    if (fromTerm) {
       clauses.push(`e.sender LIKE ? ESCAPE '\\'`)
-      bindings.push(like(options.from))
+      bindings.push(fromTerm)
     }
-    if (options.to) {
-      const term = like(options.to)
+    if (toTerm) {
       clauses.push(`(e.recipient LIKE ? ESCAPE '\\' OR e.cc LIKE ? ESCAPE '\\' OR e.bcc LIKE ? ESCAPE '\\')`)
-      bindings.push(term, term, term)
+      bindings.push(toTerm, toTerm, toTerm)
     }
-    if (options.subject) {
+    if (subjectTerm) {
       clauses.push(`e.subject LIKE ? ESCAPE '\\'`)
-      bindings.push(like(options.subject))
+      bindings.push(subjectTerm)
     }
     if (options.dateStart !== undefined) {
       clauses.push(`e.date >= ?`)

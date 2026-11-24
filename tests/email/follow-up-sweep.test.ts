@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../../src/worker/env'
 import { createEmailAccount } from '../../src/worker/email/account-store'
 import { runEmailFollowUpSweep } from '../../src/worker/email/follow-up'
+import type { SqlExec } from '../../src/worker/email/mailbox-schema'
+import { MailboxStore } from '../../src/worker/email/mailbox-store'
 import { testBindings } from '../doubles/bindings'
+import { makeSqlExec } from '../doubles/do-sqlite'
 import {
   mailboxHarness,
   seedUser,
@@ -14,15 +17,18 @@ import {
 
 const OWNER = 'owner-user'
 const MINUTE_MS = 60 * 1000
+const PLATFORM_MAX_BIND_PARAMS = 100
 
 let database: TestDatabase
 let harness: MailboxHarness
 let env: Env
+let wakeUpdateSizes: number[]
 
 beforeEach(() => {
   database = testDatabase()
   seedUser(database.sqlite, OWNER, 'owner')
   harness = mailboxHarness()
+  wakeUpdateSizes = []
   env = testBindings(database.db, { EMAIL_MAILBOX: followUpNamespace(harness) })
 })
 
@@ -39,7 +45,21 @@ function followUpNamespace(harness: MailboxHarness): DurableObjectNamespace {
       const stub = base.get(id) as unknown as {
         wakeFollowUps: (now?: number, limit?: number) => string[]
       }
-      stub.wakeFollowUps = (now?: number, limit?: number) => harness.store(name).wakeFollowUps(now, limit)
+      const sqlite = harness.sqlite(name)
+      const baseSql = makeSqlExec(sqlite)
+      const sql: SqlExec = {
+        exec<T = Record<string, unknown>>(query: string, ...bindings: unknown[]): Iterable<T> {
+          if (bindings.length > PLATFORM_MAX_BIND_PARAMS) {
+            throw new Error(`SQLite accepts at most ${PLATFORM_MAX_BIND_PARAMS} bind parameters`)
+          }
+          if (/^\s*UPDATE email_messages SET follow_up_at = NULL\b/i.test(query)) {
+            wakeUpdateSizes.push(bindings.length - 1)
+          }
+          return baseSql.exec<T>(query, ...bindings)
+        },
+      }
+      const store = new MailboxStore(sql)
+      stub.wakeFollowUps = (now?: number, limit?: number) => store.wakeFollowUps(now, limit)
       return stub as unknown as DurableObjectStub
     }) as DurableObjectNamespace['get'],
   } as DurableObjectNamespace
@@ -78,6 +98,20 @@ describe('email follow-up sweep', () => {
     expect(harness.store('a1').getEmail('due')).toMatchObject({ follow_up_at: null, important: 1, read: 0 })
     expect(harness.store('a1').getEmail('future')?.follow_up_at).toBe(now + 60 * MINUTE_MS)
     expect(harness.store('a2').getEmail('also-due')?.follow_up_at).toBeNull()
+  })
+
+  it('wakes a full 200-message batch in SQLite-sized chunks', async () => {
+    const now = Date.now()
+    await account('a1', 'one@example.com')
+    const ids = Array.from({ length: 200 }, (_, index) => `m${String(index).padStart(3, '0')}`)
+    for (const id of ids) seedFollowUp('a1', id, now + MINUTE_MS)
+
+    expect(await runEmailFollowUpSweep(env, now + 2 * MINUTE_MS)).toEqual({ accounts: 1, messages: 200 })
+    expect(wakeUpdateSizes).toEqual([90, 90, 20])
+    const woken = harness.sqlite('a1').prepare(
+      'SELECT COUNT(*) AS n FROM email_messages WHERE follow_up_at IS NULL AND important = 1 AND read = 0',
+    ).get() as { n: number }
+    expect(woken.n).toBe(200)
   })
 
   it('logs a failing mailbox and keeps sweeping the rest', async () => {

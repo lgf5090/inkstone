@@ -1,18 +1,70 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { applyMailboxMigrations } from '../../src/worker/email/mailbox-schema'
+import { EMAIL_BATCH_ACTIONS } from '../../src/shared/email/model'
+import { applyMailboxMigrations, type SqlExec } from '../../src/worker/email/mailbox-schema'
 import { MailboxStore } from '../../src/worker/email/mailbox-store'
 import { makeSqlExec } from '../doubles/do-sqlite'
 
+const PLATFORM_MAX_BIND_PARAMS = 100
+const PLATFORM_MAX_LIKE_BYTES = 50
+const MAX_IDS_PER_QUERY = 90
+
+interface SqlCall {
+  query: string
+  bindings: unknown[]
+  inTransaction: boolean
+}
+
 let sqlite: DatabaseSync
+let sql: SqlExec
 let store: MailboxStore
+let sqlCalls: SqlCall[]
+let transactionDepth: number
+let transactionCalls: number
+let updateCalls: number
+let failUpdateCall: number | null
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
-  const sql = makeSqlExec(sqlite)
+  sqlCalls = []
+  transactionDepth = 0
+  transactionCalls = 0
+  updateCalls = 0
+  failUpdateCall = null
+  const base = makeSqlExec(sqlite)
+  sql = {
+    exec<T = Record<string, unknown>>(query: string, ...bindings: unknown[]): Iterable<T> {
+      sqlCalls.push({ query, bindings, inTransaction: transactionDepth > 0 })
+      if (bindings.length > PLATFORM_MAX_BIND_PARAMS) {
+        throw new Error(`SQLite accepts at most ${PLATFORM_MAX_BIND_PARAMS} bind parameters`)
+      }
+      if (/\bLIKE\b/i.test(query)) {
+        for (const binding of bindings) {
+          if (typeof binding !== 'string' || !binding.startsWith('%') || !binding.endsWith('%')) continue
+          if (new TextEncoder().encode(binding).byteLength > PLATFORM_MAX_LIKE_BYTES) {
+            throw new Error(`SQLite LIKE patterns are limited to ${PLATFORM_MAX_LIKE_BYTES} UTF-8 bytes`)
+          }
+        }
+      }
+      if (/^\s*UPDATE email_messages\b/i.test(query) && ++updateCalls === failUpdateCall) {
+        throw new Error('Injected update failure')
+      }
+      return base.exec<T>(query, ...bindings)
+    },
+  }
   applyMailboxMigrations(sql)
   store = new MailboxStore(sql)
 })
+
+function resetSqlCalls(): void {
+  sqlCalls = []
+  transactionCalls = 0
+  updateCalls = 0
+}
+
+function messageIds(): string[] {
+  return Array.from({ length: 100 }, (_, index) => `m${String(index).padStart(3, '0')}`)
+}
 
 function message(id: string, overrides: Partial<Parameters<MailboxStore['createEmail']>[1]> = {}) {
   return {
@@ -44,6 +96,47 @@ describe('mailbox store', () => {
     expect(store.searchEmails({ query: 'Invoice' }).map((row) => row.id)).toEqual(['m1'])
     expect(store.searchEmails({ hasAttachment: true }).map((row) => row.id)).toEqual(['m1'])
     expect(store.searchEmails({ query: '%' })).toEqual([])
+  })
+
+  it.each(['query', 'from', 'to', 'subject'] as const)(
+    'returns no results when the %s LIKE pattern exceeds the UTF-8 byte limit',
+    (field) => {
+      const term = 'x'.repeat(PLATFORM_MAX_LIKE_BYTES - 1)
+      store.createEmail('inbox', message('match', {
+        subject: term,
+        sender: term,
+        recipient: term,
+        cc: term,
+        bcc: term,
+      }))
+      const options = { [field]: term }
+
+      expect(store.searchEmails(options)).toEqual([])
+      expect(store.countSearchResults(options)).toBe(0)
+      expect(sqlCalls.some((call) => /\bLIKE\b/i.test(call.query))).toBe(false)
+    },
+  )
+
+  it('counts wildcard escapes and multibyte characters toward the LIKE byte limit', () => {
+    store.createEmail('inbox', message('ascii', { subject: 'x'.repeat(48) }))
+    store.createEmail('inbox', message('unicode', { subject: 'é'.repeat(24) }))
+    store.createEmail('inbox', message('escaped', { subject: '%'.repeat(24) }))
+
+    for (const [id, term] of [
+      ['ascii', 'x'.repeat(48)],
+      ['unicode', 'é'.repeat(24)],
+      ['escaped', '%'.repeat(24)],
+    ] as const) {
+      const escaped = term.replace(/[\\%_]/g, (char) => `\\${char}`)
+      expect(new TextEncoder().encode(`%${escaped}%`).byteLength).toBe(PLATFORM_MAX_LIKE_BYTES)
+      expect(store.searchEmails({ query: term }).map((row) => row.id)).toEqual([id])
+      expect(store.countSearchResults({ query: term })).toBe(1)
+    }
+
+    expect(store.searchEmails({ query: 'é'.repeat(25) })).toEqual([])
+    expect(store.countSearchResults({ query: 'é'.repeat(25) })).toBe(0)
+    expect(store.searchEmails({ query: '%'.repeat(25) })).toEqual([])
+    expect(store.countSearchResults({ query: '%'.repeat(25) })).toBe(0)
   })
 
   it('stores drafts as read and keeps them out of the unread count', () => {
@@ -191,6 +284,64 @@ describe('mailbox store', () => {
     expect(store.batchUpdate(['m1'], 'move', 'trash')).toEqual({ updated: 1 })
     expect(store.getEmail('m1')).toBeNull()
     expect(store.getEmail('m2')?.folder_id).toBe('inbox')
+  })
+
+  it.each(EMAIL_BATCH_ACTIONS)('chunks every %s query and update to at most 90 ids', (action) => {
+    const ids = messageIds()
+    for (const id of ids) store.createEmail('inbox', message(id))
+    if (action === 'restore') {
+      for (const id of ids) expect(store.trashEmail(id)).toBe('inbox')
+    }
+    resetSqlCalls()
+
+    expect(store.batchUpdate(ids, action, action === 'move' ? 'archive' : undefined)).toEqual({ updated: 100 })
+
+    const inQueries = sqlCalls.filter((call) => /\bIN\s*\(/.test(call.query))
+    const selects = inQueries.filter((call) => /^\s*SELECT\b/i.test(call.query))
+    const updates = inQueries.filter((call) => /^\s*UPDATE\b/i.test(call.query))
+    expect(selects).toHaveLength(2)
+    expect(updates).toHaveLength(2)
+    for (const call of inQueries) {
+      expect(call.bindings.filter((binding) => typeof binding === 'string' && /^m\d{3}$/.test(binding)).length)
+        .toBeLessThanOrEqual(MAX_IDS_PER_QUERY)
+    }
+    expect(selects.map((call) => call.bindings.length)).toEqual([90, 10])
+    expect(updates.map((call) => call.bindings.filter((binding) => typeof binding === 'string' && /^m\d{3}$/.test(binding)).length))
+      .toEqual([90, 10])
+  })
+
+  it('runs all batch chunks in one transaction and rolls them back together', () => {
+    const ids = messageIds()
+    for (const id of ids) store.createEmail('inbox', message(id))
+    store = new MailboxStore(sql, {
+      transactionSync<T>(closure: () => T): T {
+        transactionCalls += 1
+        transactionDepth += 1
+        sqlite.exec('BEGIN')
+        try {
+          const result = closure()
+          sqlite.exec('COMMIT')
+          return result
+        } catch (error) {
+          sqlite.exec('ROLLBACK')
+          throw error
+        } finally {
+          transactionDepth -= 1
+        }
+      },
+    })
+    resetSqlCalls()
+
+    expect(store.batchUpdate(ids, 'read')).toEqual({ updated: 100 })
+    expect(transactionCalls).toBe(1)
+    expect(sqlCalls.every((call) => call.inTransaction)).toBe(true)
+
+    resetSqlCalls()
+    failUpdateCall = 2
+    expect(() => store.batchUpdate(ids, 'unread')).toThrow('Injected update failure')
+    expect(transactionCalls).toBe(1)
+    expect(sqlCalls.every((call) => call.inTransaction)).toBe(true)
+    expect(ids.every((id) => store.getEmail(id)?.read === 1)).toBe(true)
   })
 
   it('skips missing rows and rejects empty, oversized or invalid batches', () => {

@@ -2,18 +2,32 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { EMAIL_SNOOZE_MAX_MS } from '../../src/shared/email/model'
-import { applyMailboxMigrations } from '../../src/worker/email/mailbox-schema'
+import { applyMailboxMigrations, type SqlExec } from '../../src/worker/email/mailbox-schema'
 import { MailboxStore } from '../../src/worker/email/mailbox-store'
 import { makeSqlExec } from '../doubles/do-sqlite'
 
+const PLATFORM_MAX_BIND_PARAMS = 100
+const MINUTE_MS = 60 * 1000
+
 let sqlite: DatabaseSync
 let store: MailboxStore
-
-const MINUTE_MS = 60 * 1000
+let wakeUpdateSizes: number[]
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
-  const sql = makeSqlExec(sqlite)
+  wakeUpdateSizes = []
+  const base = makeSqlExec(sqlite)
+  const sql: SqlExec = {
+    exec<T = Record<string, unknown>>(query: string, ...bindings: unknown[]): Iterable<T> {
+      if (bindings.length > PLATFORM_MAX_BIND_PARAMS) {
+        throw new Error(`SQLite accepts at most ${PLATFORM_MAX_BIND_PARAMS} bind parameters`)
+      }
+      if (/^\s*UPDATE email_messages SET snoozed_until = NULL\b/i.test(query)) {
+        wakeUpdateSizes.push(bindings.length - 1)
+      }
+      return base.exec<T>(query, ...bindings)
+    },
+  }
   applyMailboxMigrations(sql)
   store = new MailboxStore(sql)
 })
@@ -91,6 +105,23 @@ describe('email snooze store', () => {
     expect(store.wakeSnoozed(until + 1, 2)).toHaveLength(2)
     expect(store.wakeSnoozed(until + 1, 2)).toEqual(['m3'])
     expect(store.wakeSnoozed(until + 1, 2)).toEqual([])
+  })
+
+  it('chunks a 200-message wake batch within the SQLite parameter limit', () => {
+    const until = Date.now() + MINUTE_MS
+    const ids = Array.from({ length: 200 }, (_, index) => `m${String(index).padStart(3, '0')}`)
+    for (const id of ids) {
+      store.createEmail('inbox', message(id, { read: true }))
+      expect(store.snoozeEmail(id, until)).not.toBeNull()
+    }
+    wakeUpdateSizes = []
+
+    expect(store.wakeSnoozed(until + 1, 200)).toEqual(ids)
+    expect(wakeUpdateSizes).toEqual([90, 90, 20])
+    const woken = sqlite.prepare(
+      'SELECT COUNT(*) AS n FROM email_messages WHERE snoozed_until IS NULL AND read = 0',
+    ).get() as { n: number }
+    expect(woken.n).toBe(200)
   })
 
   it('rejects invalid times and folders that cannot be snoozed', () => {
