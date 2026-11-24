@@ -1289,14 +1289,24 @@ export const api = {
     ),
     byName: (name: string, signal?: AbortSignal) =>
       request<{ files: Attachment[] }>(`/api/files${toQuery({ name })}`, { signal }),
-    upload: (file: File, noteId?: string) => {
+    upload: async (file: File, noteId?: string) => {
       const form = new FormData()
       form.append('file', file)
       if (noteId) form.append('noteId', noteId)
-      return request<Attachment>('/api/files', { method: 'POST', formData: form })
+      const attachment = await request<Attachment>('/api/files', { method: 'POST', formData: form })
+      window.dispatchEvent(new CustomEvent('inkstone:files-changed'))
+      return attachment
     },
-    remove: (id: string) => request<{ ok: true }>(`/api/files/${id}`, { method: 'DELETE' }),
-    prune: () => request<{ removed: number; freedBytes: number }>('/api/files/prune', { method: 'POST' }),
+    remove: async (id: string) => {
+      const result = await request<{ ok: true }>(`/api/files/${id}`, { method: 'DELETE' })
+      window.dispatchEvent(new CustomEvent('inkstone:files-changed'))
+      return result
+    },
+    prune: async () => {
+      const result = await request<{ removed: number; freedBytes: number }>('/api/files/prune', { method: 'POST' })
+      window.dispatchEvent(new CustomEvent('inkstone:files-changed'))
+      return result
+    },
   },
 
   backup: {

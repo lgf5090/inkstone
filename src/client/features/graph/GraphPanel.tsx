@@ -64,11 +64,29 @@ import type { CanvasNode, CanvasState, GraphCanvasControls, SceneResponse } from
 export { pickDirectional } from './graph-panel/scene'
 export type { CanvasNode } from './graph-panel/types'
 
+function mergeGraphPages(current: SceneResponse, next: SceneResponse): SceneResponse {
+  const nodes = new Map(current.nodes.map((node) => [node.id, node]))
+  for (const node of next.nodes) nodes.set(node.id, node)
+  const edges = new Map(current.edges.map((edge) => [`${edge.source}>${edge.target}`, edge]))
+  for (const edge of next.edges) edges.set(`${edge.source}>${edge.target}`, edge)
+  return {
+    ...next,
+    nodes: [...nodes.values()],
+    edges: [...edges.values()],
+    meta: {
+      ...next.meta,
+      totalNodes: Math.max(current.meta.totalNodes, next.meta.totalNodes),
+      totalEdges: Math.max(current.meta.totalEdges, next.meta.totalEdges),
+    },
+  }
+}
+
 export function GraphPanel({ onClose }: { onClose: () => void }) {
   const panelRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const stateRef = useRef<CanvasState>(createGraphState())
   const controlsRef = useRef<GraphCanvasControls | null>(null)
+  const moreControllerRef = useRef<AbortController | null>(null)
   const [prefs, setPrefs] = useState(loadPreferences)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -76,6 +94,7 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
   const query = useDebounced(search.trim(), DEBOUNCE.search)
   const [data, setData] = useState<SceneResponse | null>(null)
   const [pending, setPending] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   // Said, not swallowed: the threads are a second read, and a graph drawn without them has to say so.
   const [threadsProblem, setThreadsProblem] = useState<string | null>(null)
@@ -178,8 +197,32 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
     return () => {
       cancelled = true
       controller.abort()
+      moreControllerRef.current?.abort()
     }
   }, [request, reload, localBlocked])
+
+  const loadMore = useCallback(() => {
+    if (!data?.meta.nextCursor || loadingMore) return
+    moreControllerRef.current?.abort()
+    const controller = new AbortController()
+    moreControllerRef.current = controller
+    setLoadingMore(true)
+    api.graph({ ...request, cursor: data.meta.nextCursor }, controller.signal).then(async (response) => {
+      const merged = await attachThreads(normalizedResponse(response), request.center ?? null, controller.signal)
+      setData((current) => current ? mergeGraphPages(current, merged.scene) : merged.scene)
+      setThreadsProblem(merged.problem)
+    }).catch((error) => {
+      if ((error as Error)?.name === 'AbortError') return
+      useUi.getState().toast({
+        title: t('graph.could_not_load_graph'),
+        description: error instanceof Error ? error.message : String(error),
+        tone: 'danger',
+      })
+    }).finally(() => {
+      if (moreControllerRef.current === controller) moreControllerRef.current = null
+      setLoadingMore(false)
+    })
+  }, [data, loadingMore, request])
 
   const searchHits = useMemo(
     () => (data && query ? graphSearchHits(data.nodes, query) : null),
@@ -497,6 +540,8 @@ export function GraphPanel({ onClose }: { onClose: () => void }) {
             data={data}
             hover={hover}
             selected={selected}
+            loadingMore={loadingMore}
+            onLoadMore={() => void loadMore()}
             hint={touch ? t('graph.interaction_hint_touch') : t('graph.interaction_hint')}
             hintBrief={touch ? t('graph.interaction_hint_touch_brief') : t('graph.interaction_hint_brief')}
             legend={legend}

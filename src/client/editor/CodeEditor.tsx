@@ -11,7 +11,7 @@ import { cn } from '../lib/cn';
 import { useThemeDark } from '../lib/hooks';
 import { editorTheme } from './theme';
 import { focusModePlugin, markdownDecorations, setFocusMode, typewriterPlugin } from './decorations';
-import { codeFenceSource, emojiSource, containerDirectiveSource, tagSource, wikiLinkSource, type CompletionSources } from './completion';
+import { codeFenceSource, emojiSource, containerDirectiveSource, slashCommandSource, tagSource, wikiLinkSource, type CompletionSources } from './completion';
 import { taskFieldSource } from './task-completion';
 import { pasteExtension, type PasteHandlers } from './paste';
 import { completeCodeFenceOnEnter, completeColonFenceOnEnter, getActiveEditorView, setActiveEditorView, smartEnter, tableTab } from './commands';
@@ -211,6 +211,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             autocompletion({
                 override: [
 
+                    slashCommandSource,
                     wikiLinkSource(() => cbRef.current.sources),
                     tagSource(() => cbRef.current.sources),
                     codeFenceSource,

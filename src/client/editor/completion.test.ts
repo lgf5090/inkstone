@@ -2,7 +2,7 @@ import type { EditorView } from '@codemirror/view'
 import { CompletionContext } from '@codemirror/autocomplete'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
-import { containerDirectiveSource } from './completion'
+import { containerDirectiveSource, slashCommandSource } from './completion'
 
 function complete(doc: string) {
   const state = EditorState.create({ doc, selection: EditorSelection.cursor(doc.length) })
@@ -45,6 +45,34 @@ describe('wikiLinkSource closing brackets', () => {
 
   it('replaces what the caret already sits in, keeping the rest of the line', async () => {
     expect(await applyAt('prefix [[]] suffix', 9)).toBe('prefix [[Welcome to Inkstone]] suffix')
+  })
+})
+
+describe('slashCommandSource', () => {
+  function complete(doc: string) {
+    const state = EditorState.create({ doc, selection: EditorSelection.cursor(doc.length) })
+    return slashCommandSource(new CompletionContext(state, doc.length, true))
+  }
+
+  it('offers block and inline commands only at the start of a line', () => {
+    expect(complete('/')!.options.map((option) => option.label)).toEqual(expect.arrayContaining(['/heading1', '/task', '/table', '/bold']))
+    expect(complete('/head')!.options.map((option) => option.label)).toEqual([
+      '/heading1', '/heading2', '/heading3', '/heading4', '/heading5', '/heading6',
+    ])
+    expect(complete('text /head')).toBeNull()
+    expect(complete('https://example.com')).toBeNull()
+  })
+
+  it('inserts the selected Markdown and places the cursor in its editable slot', async () => {
+    const { EditorView } = await import('@codemirror/view')
+    const state = EditorState.create({ doc: '/task', selection: EditorSelection.cursor(5) })
+    const view = new EditorView({ state, parent: document.createElement('div') })
+    const result = slashCommandSource(new CompletionContext(state, 5, true))!
+    const option = result.options.find((entry) => entry.label === '/task')!
+    ;(option.apply as (v: EditorView, c: unknown, f: number, t: number) => void)(view, option, result.from, 5)
+    expect(view.state.doc.toString()).toBe('- [ ] ')
+    expect(view.state.selection.main.head).toBe(6)
+    view.destroy()
   })
 })
 

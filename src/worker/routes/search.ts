@@ -85,6 +85,8 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     .slice(0, LIMITS.graphExcludedMax)
   const rawDirection = c.req.query('direction')
   const direction: GraphLinkDirection = rawDirection === 'incoming' || rawDirection === 'outgoing' ? rawDirection : 'both'
+  const cursor = (c.req.query('cursor') ?? '').trim()
+  if (cursor.length > 2048) throw ApiError.badRequest('The graph cursor is not valid')
 
   if (rawCenter && !centerId) {
     throw new ApiError(400, 'bad_request', 'The center note id is not a valid note id')
@@ -127,6 +129,12 @@ searchRoutes.get('/graph', requireAuth, async (c) => {
     showTagNodes,
     excluded,
     direction,
+    cursor: cursor || undefined,
+  }).catch((error: unknown) => {
+    if (error instanceof Error && error.message === 'The graph cursor is not valid') {
+      throw ApiError.badRequest('The graph cursor is not valid')
+    }
+    throw error
   })
   return c.json(body)
 })

@@ -33,7 +33,7 @@ let closeMock = vi.fn()
 let openNoteMock = vi.fn()
 let createNoteMock = vi.fn()
 
-function graphResponse(titles: string[], folderName: string | null = null): GraphResponse {
+function graphResponse(titles: string[], folderName: string | null = null, nextCursor: string | null = null): GraphResponse {
   return {
     nodes: titles.map((title, index) => ({
       id: `note-${index}`,
@@ -54,8 +54,9 @@ function graphResponse(titles: string[], folderName: string | null = null): Grap
       depth: 1,
       totalNodes: titles.length,
       totalEdges: Math.max(0, titles.length - 1),
-      truncated: false,
+      truncated: nextCursor !== null,
       limit: 350,
+      nextCursor,
     },
   }
 }
@@ -366,6 +367,21 @@ describe('graph scene lifecycle', () => {
 
     await takeRequest()
     expect(document.querySelector('canvas')).toBe(mounted)
+  })
+
+  it('requests the next cursor and merges another page without dropping the current scene', async () => {
+    await mount()
+    const first = graphResponse(TITLES.slice(0, 2), null, 'cursor-1')
+    first.meta.totalNodes = TITLES.length
+    await act(async () => { pendingResolvers.shift()!(first) })
+    const loadMore = buttons(document).find((button) => button.textContent === t('graph.load_more'))
+    expect(loadMore).toBeDefined()
+    await click(loadMore!)
+    expect(graphCalls.at(-1)?.cursor).toBe('cursor-1')
+    await act(async () => { pendingResolvers.shift()!(graphResponse(TITLES.slice(2))) })
+    expect(buttons(document).some((button) => button.textContent === t('graph.load_more'))).toBe(false)
+    await pumpUntilIdle()
+    expect(document.querySelector('canvas')).not.toBeNull()
   })
 
   it('inherits settled node positions instead of restarting the spiral on every request', async () => {

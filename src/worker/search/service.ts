@@ -14,7 +14,7 @@ import { applyTagNodes } from '@shared/graph-tag-nodes'
 import { parseQuery, type ParsedQuery } from '@shared/search-query'
 import type { GraphResponse, SearchDocumentItem, SearchDocumentsResponse, SearchHit } from '@shared/types'
 import { toNoteSummary, type NoteRow } from '../db/rows'
-import { GRAPH_EDGE_CANDIDATE_LIMIT, SearchStore, buildFtsQuery, type GraphLinkDirection } from './store'
+import { GRAPH_EDGE_CANDIDATE_LIMIT, SearchStore, buildFtsQuery, encodeGraphCursor, type GraphLinkDirection } from './store'
 
 export interface UserSearchResult {
   results: SearchHit[]
@@ -177,6 +177,7 @@ export interface GraphParams {
   showTagNodes: boolean
   excluded: string[]
   direction: GraphLinkDirection
+  cursor?: string
 }
 
 export async function buildUserGraph(db: D1Database, params: GraphParams): Promise<GraphResponse> {
@@ -185,8 +186,10 @@ export async function buildUserGraph(db: D1Database, params: GraphParams): Promi
   const { rows: pageRows, totalNodes } = await store.graphNodeRows(params)
 
   const noteLimit = includeUnresolved ? Math.max(1, limit - 50) : limit
-  let truncated = pageRows.length > noteLimit || totalNodes > noteLimit
   const rows = pageRows.slice(0, noteLimit)
+  const hasMoreNotes = pageRows.length > rows.length
+  let truncated = hasMoreNotes
+  const nextCursor = hasMoreNotes && rows.length ? encodeGraphCursor(mode, rows[rows.length - 1]!) : null
   const known = new Set(rows.map((row) => row.id))
   const ids = [...known]
   const edges: GraphResponse['edges'] = []
@@ -276,6 +279,7 @@ export async function buildUserGraph(db: D1Database, params: GraphParams): Promi
       totalEdges: edges.length,
       truncated,
       limit,
+      nextCursor,
     },
   }
 }

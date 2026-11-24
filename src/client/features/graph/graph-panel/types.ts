@@ -14,6 +14,7 @@ export type SceneNodeKind = GraphNode['kind'] | 'conversation'
 /** A graph node as the canvas sees it: the route's rows, plus the threads merged in beside them. */
 export interface SceneNode extends Omit<GraphNode, 'kind'> {
   kind: SceneNodeKind
+  cluster?: number
 }
 
 /** The same answer, with the threads in it. Every field but the nodes is the route's own. */

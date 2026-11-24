@@ -6,7 +6,7 @@
 import { localDb } from '../../lib/db'
 import type { CachePayload } from './engine'
 
-export const OMNISEARCH_CACHE_VERSION = 1
+export const OMNISEARCH_CACHE_VERSION = 2
 
 export interface OmnisearchCacheRecord {
   version: number

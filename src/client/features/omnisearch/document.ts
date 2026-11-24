@@ -31,6 +31,7 @@ export interface FileSource {
   updatedAt: number
   size: number
   mime: string
+  text?: string
 }
 
 export interface DocumentSettings {
@@ -217,9 +218,9 @@ export function buildFileDocument(source: FileSource): BuiltDocument {
     noteId: source.noteId ?? '',
     tags: [],
     customValues: [],
-    excerpt: source.mime,
+    excerpt: source.text ? truncateText(source.text, OMNISEARCH_EXCERPT_CHARS) : source.mime,
     truncated: false,
     size: source.size,
   }
-  return { doc, stored, body: '', customValues: [], linkKeys: [] }
+  return { doc, stored, body: source.text ?? '', customValues: [], linkKeys: [] }
 }

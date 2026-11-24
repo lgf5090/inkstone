@@ -1,5 +1,5 @@
 import type { SceneNode, SceneResponse } from './types'
-import { organizerColorOrNull } from '@shared/organizer-colors'
+import { ORGANIZER_COLORS, organizerColorOrNull } from '@shared/organizer-colors'
 import { truncateText } from '@shared/text-utils'
 import type { GraphColorGroup, GraphPreferences, GroupBy } from '../../../lib/graph-settings'
 import {
@@ -100,7 +100,41 @@ export function nodeColor(node: CanvasNode, groupBy: GroupBy, fallback: string):
   if (node.colorGroup) return node.colorGroup
   if (groupBy === 'folder') return organizerColorOrNull(node.folderColor) ?? fallback
   if (groupBy === 'tag') return organizerColorOrNull(node.tags[0]?.color) ?? fallback
+  if (groupBy === 'cluster' && node.cluster !== undefined) return ORGANIZER_COLORS[node.cluster % ORGANIZER_COLORS.length]!
   return fallback
+}
+
+export function connectedClusters(response: SceneResponse): Map<string, number> {
+  const parent = new Map(response.nodes.map((node) => [node.id, node.id]))
+  const find = (id: string): string => {
+    let root = id
+    while (parent.get(root) !== root) root = parent.get(root)!
+    let cursor = id
+    while (parent.get(cursor) !== root) {
+      const next = parent.get(cursor)!
+      parent.set(cursor, root)
+      cursor = next
+    }
+    return root
+  }
+  for (const edge of response.edges) {
+    if (!parent.has(edge.source) || !parent.has(edge.target)) continue
+    const left = find(edge.source)
+    const right = find(edge.target)
+    if (left !== right) parent.set(right, left)
+  }
+  const indexes = new Map<string, number>()
+  const out = new Map<string, number>()
+  for (const node of response.nodes) {
+    const root = find(node.id)
+    let index = indexes.get(root)
+    if (index === undefined) {
+      index = indexes.size
+      indexes.set(root, index)
+    }
+    out.set(node.id, index)
+  }
+  return out
 }
 
 export function buildSceneNodes(
@@ -110,10 +144,12 @@ export function buildSceneNodes(
   pinnedIds: readonly string[],
 ): CanvasNode[] {
   const pinned = new Set(pinnedIds)
+  const clusters = prefs.groupBy === 'cluster' ? connectedClusters(response) : null
   return response.nodes.map((node, index) => {
     const held = carried.get(node.id) ?? spiralPoint(index)
     return {
       ...node,
+      cluster: clusters?.get(node.id),
       x: held.x,
       y: held.y,
       vx: 0,

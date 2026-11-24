@@ -144,6 +144,63 @@ export function codeFenceSource(context: CompletionContext): CompletionResult | 
 const EMOJI_TRIGGER_RE = /:[A-Za-z0-9+-][A-Za-z0-9_+-]{1,29}$/;
 const EMOJI_COMPLETION_LIMIT = 12;
 
+interface SlashCommand {
+  label: string
+  detail?: string
+  detailKey?: Parameters<typeof t>[0]
+  insert: string
+  cursor?: number
+}
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  ...Array.from({ length: 6 }, (_, index) => ({
+    label: `/heading${index + 1}`,
+    detail: `${'#'.repeat(index + 1)}`,
+    insert: `${'#'.repeat(index + 1)} `,
+    cursor: index + 2,
+  })),
+  { label: '/bold', detailKey: 'common.bold', insert: '**text**', cursor: 2 },
+  { label: '/italic', detailKey: 'common.italic', insert: '*text*', cursor: 1 },
+  { label: '/strike', detailKey: 'common.strikethrough', insert: '~~text~~', cursor: 2 },
+  { label: '/inline-code', detailKey: 'common.inline_code', insert: '`code`', cursor: 1 },
+  { label: '/quote', detailKey: 'common.quote', insert: '> ', cursor: 2 },
+  { label: '/bullet', detailKey: 'common.unordered_list', insert: '- ', cursor: 2 },
+  { label: '/ordered', detailKey: 'common.ordered_list', insert: '1. ', cursor: 3 },
+  { label: '/task', detailKey: 'common.task_list', insert: '- [ ] ', cursor: 6 },
+  { label: '/code-block', detailKey: 'command.code_block_language_autocomplete', insert: '```\n\n```', cursor: 4 },
+  { label: '/link', detailKey: 'command.edit_or_insert_link', insert: '[label](https://)', cursor: 1 },
+  { label: '/image', insert: '![alt](https://)', cursor: 2 },
+  { label: '/table', insert: '| Column | Column |\n| --- | --- |\n| Value | Value |', cursor: 2 },
+  { label: '/divider', insert: '---', cursor: 3 },
+]
+
+export function slashCommandSource(context: CompletionContext): CompletionResult | null {
+  const line = context.state.doc.lineAt(context.pos)
+  const before = context.matchBefore(/\/([a-z0-9-]*)$/)
+  if (!before || before.from !== line.from) return null
+  const query = before.text.slice(1)
+  const options = SLASH_COMMANDS
+    .map((command) => ({ command, match: query ? fuzzyMatch(command.label.slice(1), query) : { score: 0, ranges: [] } }))
+    .filter((entry) => entry.match)
+    .sort((left, right) => (right.match?.score ?? 0) - (left.match?.score ?? 0))
+    .map(({ command }): Completion => ({
+      label: command.label,
+      detail: command.detailKey ? t(command.detailKey) : command.detail,
+      type: 'keyword',
+      boost: 1,
+      apply: (view: EditorView, _completion, from: number, to: number) => {
+        view.dispatch({
+          changes: { from, to, insert: command.insert },
+          selection: { anchor: from + (command.cursor ?? command.insert.length) },
+          scrollIntoView: true,
+          userEvent: 'input.complete',
+        })
+      },
+    }))
+  if (!options.length) return null
+  return { from: before.from, options, filter: false, validFor: /^[a-z0-9-]*$/ }
+}
+
 /**
  * `:smi` → the emoji it names. The colon has to be the start of a word, so `https:` and `data:`
  * and the `:::` a container opens with stay out of the way, and the set is a lazy chunk, so the

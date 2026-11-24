@@ -153,6 +153,19 @@ describe('indexer', () => {
     attachmentList = []
   })
 
+  it('refreshes attachments when the shared file API reports a mutation', async () => {
+    attachmentList = []
+    seed({}, {})
+    await omnisearchIndexer.start()
+    attachmentList = [{ id: PHOTO, filename: 'new-shot.png', noteId: null, size: 12, mime: 'image/png', createdAt: 4 }]
+
+    window.dispatchEvent(new CustomEvent('inkstone:files-changed'))
+
+    await vi.waitFor(() => expect(omnisearchIndexer.has('f:' + PHOTO)).toBe(true))
+    expect((await omnisearchIndexer.query('new-shot')).results.map((result) => result.id)).toEqual(['f:' + PHOTO])
+    attachmentList = []
+  })
+
   it('indexes the body the editor is holding, not the older server copy', async () => {
     seed({ a: summary('a', { title: 'A' }) }, { a: 'server text' })
     useNotes.setState({ contents: { a: 'unsaved draft text' } })

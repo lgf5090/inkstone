@@ -34,16 +34,20 @@ export interface GraphOverlaysProps {
   onOpenConversation?: (threadId: string) => void
   preview: GraphPreviewCard | null
   announcement?: string
+  loadingMore?: boolean
+  onLoadMore?: () => void
 }
 
 export function GraphOverlays({
   data, hover, selected, hint, hintBrief, legend, legendActive, onLegendSelect,
   onOpenNote, onFocusNode, onOpenConversation, preview, announcement, unresolvedCount = 0,
+  loadingMore = false, onLoadMore,
 }: GraphOverlaysProps) {
   const shown = hover ?? selected
   return <>
     {data.meta.truncated && <GraphTruncatedBadge shown={data.nodes.length} total={data.meta.totalNodes}/>}
     <div className="pointer-events-none absolute inset-x-4 bottom-4 z-[1] flex flex-col items-center gap-2">
+      {data.meta.nextCursor && onLoadMore && <Button size="sm" variant="secondary" loading={loadingMore} onClick={onLoadMore}>{t('graph.load_more')}</Button>}
       <GraphLegend items={legend} isActive={legendActive} onSelect={onLegendSelect} unresolvedCount={unresolvedCount}/>
       {shown && <GraphNodeBadge node={shown} data={data} onOpenNote={onOpenNote} onFocusNode={onFocusNode} onOpenConversation={onOpenConversation}/>}
     </div>

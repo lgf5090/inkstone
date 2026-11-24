@@ -127,6 +127,12 @@ describe('buildFileDocument', () => {
   it('holds nothing to tokenize for a file', () => {
     expect(buildFileDocument({ id: 'f1', filename: 'a.bin', noteId: null, updatedAt: 1, size: 1, mime: '' }).body).toBe('')
   })
+
+  it('indexes extracted PDF text and derives its excerpt', () => {
+    const built = buildFileDocument({ id: 'f2', filename: 'manual.pdf', noteId: 'n1', updatedAt: 1, size: 100, mime: 'application/pdf', text: 'Searchable PDF body with details.' })
+    expect(built.body).toBe('Searchable PDF body with details.')
+    expect(built.stored.excerpt).toContain('Searchable PDF body')
+  })
 })
 
 describe('extensionOf', () => {

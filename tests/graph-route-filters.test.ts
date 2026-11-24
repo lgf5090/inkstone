@@ -142,6 +142,36 @@ describe('graph tag nodes', () => {
   })
 })
 
+describe('graph cursor pagination', () => {
+  it('walks every global node once without offsets', async () => {
+    const first = await graph({ limit: 2 })
+    expect(first.nodes).toHaveLength(2)
+    expect(first.meta.nextCursor).toBeTypeOf('string')
+    const second = await graph({ limit: 2, cursor: first.meta.nextCursor! })
+    expect(second.nodes).toHaveLength(2)
+    expect(second.meta.nextCursor).toBeNull()
+    expect([...first.nodes, ...second.nodes].map((node) => node.id).sort()).toEqual(['n-a', 'n-b', 'n-c', 'n-d'])
+  })
+
+  it('keeps local depth ordering across pages', async () => {
+    const seen: string[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < 4; page++) {
+      const body = await graph({ mode: 'local', centerId: 'n-a', limit: 1, cursor })
+      seen.push(...body.nodes.map((node) => node.id))
+      cursor = body.meta.nextCursor ?? undefined
+      if (!cursor) break
+    }
+    expect(seen).toEqual(['n-a', 'n-b', 'n-c'])
+  })
+
+  it('rejects malformed or wrong-mode cursors', async () => {
+    await expect(graph({ cursor: 'not-a-cursor' })).rejects.toThrow('The graph cursor is not valid')
+    const local = await graph({ mode: 'local', centerId: 'n-a', limit: 1 })
+    await expect(graph({ cursor: local.meta.nextCursor! })).rejects.toThrow('The graph cursor is not valid')
+  })
+})
+
 describe('graph tenant isolation', () => {
   it('never answers with another account note', async () => {
     expect(await titles()).not.toContain('Theirs')

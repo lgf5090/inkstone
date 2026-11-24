@@ -143,6 +143,7 @@ function GraphAppearanceSection({ prefs, onPref }: {
         <option value="none">{t('graph.group_none')}</option>
         <option value="folder">{t('graph.folder')}</option>
         <option value="tag">{t('graph.tag')}</option>
+        <option value="cluster">{t('graph.group_cluster')}</option>
       </Select>
     </GraphRow>
     <GraphColorRules groups={prefs.colorGroups} onChange={(value) => onPref('colorGroups', value)}/>

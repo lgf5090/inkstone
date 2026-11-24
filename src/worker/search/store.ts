@@ -94,6 +94,8 @@ export interface GraphNodeRow {
   degree: number
   in_degree: number
   out_degree: number
+  updated_at: number
+  depth?: number
 }
 
 /** The parts of a graph request that decide which rows come back; the rest is the route's assembly. */
@@ -109,6 +111,58 @@ export interface GraphNodeQuery {
   includeOrphans: boolean
   excluded: string[]
   direction: GraphLinkDirection
+  cursor?: string
+}
+
+interface GraphCursor {
+  mode: 'global' | 'local'
+  depth: number | null
+  degree: number
+  updatedAt: number
+  id: string
+}
+
+export function encodeGraphCursor(mode: 'global' | 'local', row: GraphNodeRow): string {
+  const value: GraphCursor = {
+    mode,
+    depth: mode === 'local' ? row.depth ?? 0 : null,
+    degree: Number(row.degree),
+    updatedAt: Number(row.updated_at),
+    id: row.id,
+  }
+  return btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function parseGraphCursor(raw: string, mode: 'global' | 'local'): GraphCursor {
+  try {
+    if (raw.length > 2048) throw new Error('too long')
+    const padded = raw.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (raw.length % 4)) % 4)
+    const value = JSON.parse(atob(padded)) as Partial<GraphCursor>
+    if (
+      value.mode !== mode ||
+      typeof value.id !== 'string' || !value.id || value.id.length > 64 ||
+      typeof value.degree !== 'number' || !Number.isSafeInteger(value.degree) || value.degree < 0 ||
+      typeof value.updatedAt !== 'number' || !Number.isSafeInteger(value.updatedAt) || value.updatedAt < 0 ||
+      (mode === 'local' && (typeof value.depth !== 'number' || !Number.isSafeInteger(value.depth) || value.depth! < 0))
+    ) throw new Error('invalid')
+    return value as GraphCursor
+  } catch {
+    throw new Error('The graph cursor is not valid')
+  }
+}
+
+function graphCursorClause(mode: 'global' | 'local', raw: string | undefined): { clause: string, binds: unknown[] } {
+  if (!raw) return { clause: '', binds: [] }
+  const cursor = parseGraphCursor(raw, mode)
+  const degree = 'COALESCE(lc.degree, 0)'
+  const tail = `(${degree} < ? OR (${degree} = ? AND (n.updated_at < ? OR (n.updated_at = ? AND n.id > ?))))`
+  if (mode === 'local') {
+    return {
+      clause: ` AND (nearby.depth > ? OR (nearby.depth = ? AND ${tail}))`,
+      binds: [cursor.depth, cursor.depth, cursor.degree, cursor.degree, cursor.updatedAt, cursor.updatedAt, cursor.id],
+    }
+  }
+  return { clause: ` AND ${tail}`, binds: [cursor.degree, cursor.degree, cursor.updatedAt, cursor.updatedAt, cursor.id] }
 }
 
 /** The row the document page selects, with the per-note truncation window applied. */
@@ -295,7 +349,7 @@ export class SearchStore {
   async graphNodeRows(input: GraphNodeQuery): Promise<{ rows: GraphNodeRow[]; totalNodes: number }> {
     const userId = this.userId
     const { mode, centerId, depth, limit, query, folderId, tags, tagsMatch } = input
-    const { includeOrphans, excluded, direction } = input
+    const { includeOrphans, excluded, direction, cursor } = input
     const filters: string[] = ['n.user_id = ?', 'n.deleted_at IS NULL', 'n.is_archived = 0']
     const filterBinds: unknown[] = [userId]
     if (query) {
@@ -366,6 +420,7 @@ export class SearchStore {
         GROUP BY note_id
       )`
 
+    const cursorFilter = graphCursorClause(mode, cursor)
     if (mode === 'local') {
       const neighborhood = localNeighborhoodSql(direction)
       const prefixBinds = [centerId, centerId, userId, depth]
@@ -373,7 +428,7 @@ export class SearchStore {
         this.db.prepare(
           `${neighborhood},
            ${linkDegreeCte}
-           SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color,
+           SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color, n.updated_at,
              COALESCE(lc.degree, 0) AS degree,
              COALESCE(lc.in_degree, 0) AS in_degree,
              COALESCE(lc.out_degree, 0) AS out_degree,
@@ -381,9 +436,9 @@ export class SearchStore {
            FROM nearby JOIN notes n ON n.id = nearby.id
            LEFT JOIN folders f ON f.id = n.folder_id AND f.user_id = n.user_id
            LEFT JOIN link_counts lc ON lc.note_id = n.id
-           WHERE ${filters.join(' AND ')}
+           WHERE ${filters.join(' AND ')}${cursorFilter.clause}
            ORDER BY nearby.depth ASC, degree DESC, n.updated_at DESC, n.id ASC LIMIT ?`,
-        ).bind(...prefixBinds, userId, ...filterBinds, limit + 1),
+        ).bind(...prefixBinds, userId, ...filterBinds, ...cursorFilter.binds, limit + 1),
         this.db.prepare(
           `${neighborhood} SELECT COUNT(*) AS count FROM nearby JOIN notes n ON n.id = nearby.id
            WHERE ${filters.join(' AND ')}`,
@@ -399,16 +454,16 @@ export class SearchStore {
     const [rowsResult, countResult] = await this.db.batch([
       this.db.prepare(
         `WITH ${linkDegreeCte}
-         SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color,
+         SELECT n.id, n.title, n.folder_id, f.name AS folder_name, f.color AS folder_color, n.updated_at,
            COALESCE(lc.degree, 0) AS degree,
            COALESCE(lc.in_degree, 0) AS in_degree,
            COALESCE(lc.out_degree, 0) AS out_degree
          FROM notes n
          LEFT JOIN folders f ON f.id = n.folder_id AND f.user_id = n.user_id
          LEFT JOIN link_counts lc ON lc.note_id = n.id
-         WHERE ${filters.join(' AND ')}
+         WHERE ${filters.join(' AND ')}${cursorFilter.clause}
          ORDER BY degree DESC, n.updated_at DESC, n.id ASC LIMIT ?`,
-      ).bind(userId, ...filterBinds, limit + 1),
+      ).bind(userId, ...filterBinds, ...cursorFilter.binds, limit + 1),
       this.db.prepare(
         `SELECT COUNT(*) AS count FROM notes n WHERE ${filters.join(' AND ')}`,
       ).bind(...filterBinds),

@@ -16,6 +16,7 @@ import { preloadPinyin, pinyinIsLoaded } from '../../lib/pinyin'
 import { useSession } from '../../store/session'
 import { useNotes } from '../../store/notes'
 import { buildFileDocument, buildNoteDocument, type FileSource, type NoteSource } from './document'
+import { attachPdfText } from './pdf-text'
 import { docIdForFile, docIdForNote, noteIdOfDoc, OmnisearchEngine } from './engine'
 import { buildTokenizer } from './tokenizer'
 import { foldTerm } from './fold'
@@ -48,6 +49,8 @@ const REFRESH_DELAY_MS = 900
 const CACHE_WRITE_DELAY_MS = 4000
 const IDLE_TIMEOUT_MS = 2000
 const ATTACHMENT_PAGES_MAX = 20
+const ATTACHMENT_REFRESH_DELAY_MS = 300
+const PDF_ATTACHMENTS_MAX = 20
 
 const INITIAL_STATUS: IndexerStatus = {
   phase: 'idle',
@@ -80,6 +83,7 @@ export class OmnisearchIndexer {
   private fingerprint = ''
   private bodyBytes = 0
   private refreshTimer = 0
+  private attachmentRefreshTimer = 0
   private cacheTimer = 0
   private chain: Promise<void> = Promise.resolve()
   private coalesced: Promise<void> | null = null
@@ -87,6 +91,7 @@ export class OmnisearchIndexer {
   private storeUnsubscribe: (() => void) | null = null
   private sessionUnsubscribe: (() => void) | null = null
   private sealedListenerInstalled = false
+  private filesListenerInstalled = false
   private fileSources: FileSource[] = []
 
   getStatus = (): IndexerStatus => this.status
@@ -173,6 +178,7 @@ export class OmnisearchIndexer {
   }
 
   private async shutdown(): Promise<void> {
+    window.clearTimeout(this.attachmentRefreshTimer)
     this.engine = null
     this.patch({ ...INITIAL_STATUS, phase: 'off' })
   }
@@ -193,11 +199,18 @@ export class OmnisearchIndexer {
   }
 
   private watchStores(): void {
+    if (!this.filesListenerInstalled) {
+      this.filesListenerInstalled = true
+      window.addEventListener('inkstone:files-changed', this.onFilesChanged)
+    }
     if (!this.sealedListenerInstalled) {
       this.sealedListenerInstalled = true
       window.addEventListener('inkstone:note-sealed', (event) => {
         const id = (event as CustomEvent<string>).detail
-        if (id) this.forgetNote(id)
+        if (id) {
+          this.forgetNote(id)
+          this.forgetAttachmentsForNote(id)
+        }
       })
     }
     if (!this.storeUnsubscribe) {
@@ -218,6 +231,21 @@ export class OmnisearchIndexer {
         void this.applySettingsChanged()
       })
     }
+  }
+
+  private onFilesChanged = (): void => {
+    if (!this.started || this.status.phase === 'off') return
+    window.clearTimeout(this.attachmentRefreshTimer)
+    this.attachmentRefreshTimer = window.setTimeout(() => {
+      void this.refreshAttachments().catch((error: unknown) => {
+        console.warn('[inkstone] Attachment index refresh failed:', error)
+      })
+    }, ATTACHMENT_REFRESH_DELAY_MS)
+  }
+
+  private async refreshAttachments(): Promise<void> {
+    await this.loadAttachments()
+    await this.reconcile()
   }
 
   private scheduleRefresh(): void {
@@ -246,14 +274,16 @@ export class OmnisearchIndexer {
     return { revisions, deferred: live.length - chosen.length, total: live.length }
   }
 
-  /** Attachments are indexed by name only: there is no in-browser OCR for their contents. */
+  /** Attachment names are always indexed; a bounded set of text PDFs also contributes its pages. */
   private async loadAttachments(): Promise<void> {
     const out: FileSource[] = []
+    const sealedNotes = new Set(Object.values(useNotes.getState().notes).filter((note) => note.isEncrypted).map((note) => note.id))
     let cursor: string | undefined
     for (let page = 0; page < ATTACHMENT_PAGES_MAX; page++) {
       try {
         const response = await api.files.list(cursor)
         for (const file of response.files) {
+          if (file.noteId && sealedNotes.has(file.noteId)) continue
           out.push({
             id: file.id,
             filename: file.filename,
@@ -264,11 +294,19 @@ export class OmnisearchIndexer {
           })
         }
         cursor = response.nextCursor ?? undefined
-      } catch {
+      } catch (error) {
+        console.warn('[inkstone] Attachment indexing could not finish:', error)
         cursor = undefined
         break
       }
       if (!cursor) break
+    }
+    let pdfs = 0
+    for (let index = 0; index < out.length && pdfs < PDF_ATTACHMENTS_MAX; index++) {
+      const source = out[index]!
+      if (source.mime.toLowerCase() !== 'application/pdf' && !/\.pdf$/i.test(source.filename)) continue
+      out[index] = await attachPdfText(source)
+      pdfs++
     }
     this.fileSources = out
   }
@@ -414,6 +452,16 @@ export class OmnisearchIndexer {
     for (const embedding of embeddings) engine.setEmbeddings(embedding.docId, embedding.targets)
   }
 
+  private forgetAttachmentsForNote(noteId: string): void {
+    const removed = this.fileSources.filter((file) => file.noteId === noteId)
+    if (!removed.length) return
+    this.fileSources = this.fileSources.filter((file) => file.noteId !== noteId)
+    const engine = this.engine
+    if (engine) engine.removeDocuments(removed.map((file) => docIdForFile(file.id)))
+    this.patch({ indexed: engine?.documentCount ?? this.status.indexed })
+    this.scheduleCacheWrite()
+  }
+
   private forgetNote(noteId: string): void {
     const engine = this.engine
     const docId = docIdForNote(noteId)
@@ -500,7 +548,10 @@ export class OmnisearchIndexer {
 
   dispose(): void {
     window.clearTimeout(this.refreshTimer)
+    window.clearTimeout(this.attachmentRefreshTimer)
     window.clearTimeout(this.cacheTimer)
+    window.removeEventListener('inkstone:files-changed', this.onFilesChanged)
+    this.filesListenerInstalled = false
     this.storeUnsubscribe?.()
     this.sessionUnsubscribe?.()
     this.storeUnsubscribe = null

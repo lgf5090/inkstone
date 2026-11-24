@@ -2,7 +2,7 @@ import { LIMITS } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
 import type { MessageKey } from './i18n'
 
-export type GroupBy = 'none' | 'folder' | 'tag'
+export type GroupBy = 'none' | 'folder' | 'tag' | 'cluster'
 
 export type GraphLinkDirection = 'both' | 'incoming' | 'outgoing'
 
@@ -175,7 +175,7 @@ export function loadPreferences(storage?: Pick<Storage, 'getItem'>): GraphPrefer
     showTagNodes: booleanPreference(stored.showTagNodes, DEFAULT_PREFERENCES.showTagNodes),
     arrows: booleanPreference(stored.arrows, DEFAULT_PREFERENCES.arrows),
     labels: booleanPreference(stored.labels, DEFAULT_PREFERENCES.labels),
-    groupBy: stored.groupBy === 'folder' || stored.groupBy === 'tag' ? stored.groupBy : 'none',
+    groupBy: stored.groupBy === 'folder' || stored.groupBy === 'tag' || stored.groupBy === 'cluster' ? stored.groupBy : 'none',
     colorGroups: readColorGroups(stored.colorGroups),
     folderId: typeof stored.folderId === 'string' && NOTE_ID_PATTERN.test(stored.folderId) ? stored.folderId : '',
     tags: readLegacyTags(stored),

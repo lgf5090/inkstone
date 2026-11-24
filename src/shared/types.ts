@@ -1146,6 +1146,7 @@ export interface GraphResponse {
     totalEdges: number
     truncated: boolean
     limit: number
+    nextCursor?: string | null
   }
 }
 
@@ -1169,6 +1170,7 @@ export interface GraphQuery {
   /** Which side of a link a local graph walks. Only meaningful with `mode: 'local'`. */
   direction?: 'both' | 'incoming' | 'outgoing'
   limit?: number
+  cursor?: string
 }
 
 
