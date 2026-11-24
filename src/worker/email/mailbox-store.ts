@@ -25,8 +25,10 @@ import {
 import {
   EMAIL_FILTER_ACTION_TYPES,
   EMAIL_FILTER_MAX_RULES,
+  isBlockableSenderAddress,
   parseEmailFilterActions,
   parseEmailFilterConditions,
+  parseEmailFilterInput,
   type EmailFilterAction,
   type EmailFilterCondition,
   type EmailFilterInput,
@@ -42,9 +44,11 @@ import {
 } from '@shared/email/searches'
 import {
   EMAIL_TEMPLATE_MAX,
+  parseEmailTemplateInput,
   type EmailTemplateInput,
   type EmailTemplatePatch,
 } from '@shared/email/templates'
+import { parseEmailSavedSearchInput } from '@shared/email/searches'
 import type { SqlExec } from './mailbox-schema'
 
 export interface EmailData {
@@ -203,6 +207,45 @@ export interface FolderRestoreData {
   name: string
   isDeletable: boolean
   createdAt: number
+  parentId: string | null
+  color: string | null
+  sortOrder: number
+}
+
+export interface TagRestoreData {
+  id: string
+  name: string
+  color: string | null
+  createdAt: number
+}
+
+export interface MessageTagRestoreData {
+  messageId: string
+  tagId: string
+  createdAt: number
+}
+
+export type FilterRestoreData = EmailFilterRecord
+
+export interface BlockedSenderRestoreData {
+  address: string
+  createdAt: number
+}
+
+export interface TemplateRestoreData {
+  id: string
+  name: string
+  subject: string
+  body: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface SavedSearchRestoreData {
+  id: string
+  name: string
+  query: string
+  createdAt: number
 }
 
 export type FolderPatch = EmailFolderPatch
@@ -215,6 +258,7 @@ export interface EmailRestoreData extends EmailData {
   folderId: string
   receivedAt: number
   deletedAt: number | null
+  snoozedUntil: number | null
   createdAt: number
   updatedAt: number
 }
@@ -557,19 +601,21 @@ export class MailboxStore {
   importFolder(folder: FolderRestoreData): boolean {
     const existing = this.one<{ id: string }>(`SELECT id FROM email_folders WHERE id = ?1`, folder.id)
     if (existing) return false
-    const named = this.one<{ id: string }>(
-      `SELECT id FROM email_folders
-        WHERE COALESCE(parent_id, '') = '' AND name = ?1 COLLATE NOCASE`,
-      folder.name,
-    )
-    if (named) return false
+    const refs = this.folderRefs()
+    const parentId = folder.parentId ?? null
+    if (parentId && !refs.some((entry) => entry.id === parentId)) return false
+    if (emailFolderNameTaken(refs, parentId, folder.name)) return false
+    if (!emailFolderDepthAllowed(refs, parentId)) return false
     this.sql.exec(
       `INSERT INTO email_folders (id, name, is_deletable, created_at, parent_id, color, sort_order)
-       VALUES (?1, ?2, ?3, ?4, NULL, NULL, 0)`,
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
       folder.id,
       folder.name,
       folder.isDeletable ? 1 : 0,
       folder.createdAt,
+      parentId,
+      folder.color,
+      folder.sortOrder,
     )
     return true
   }
@@ -584,9 +630,9 @@ export class MailboxStore {
          id, folder_id, subject, sender, recipient, cc, bcc, date, received_at,
          read, starred, important, muted, focused, follow_up_at, body, body_source, in_reply_to, email_references, thread_id,
          message_id, raw_headers, delivery_status, delivery_error, provider_message_id,
-         attachments_skipped, has_attachment, size, deleted_at, snippet, created_at, updated_at
+         attachments_skipped, has_attachment, size, deleted_at, snoozed_until, snippet, created_at, updated_at
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)`,
+         ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33)`,
       email.id,
       email.folderId,
       email.subject,
@@ -616,9 +662,121 @@ export class MailboxStore {
       email.hasAttachment ? 1 : 0,
       email.size ?? 0,
       email.deletedAt,
+      email.snoozedUntil,
       emailSnippet(email.body, 300),
       email.createdAt,
       email.updatedAt,
+    )
+    return true
+  }
+
+  importTag(tag: TagRestoreData): boolean {
+    if (this.one<{ id: string }>(`SELECT id FROM email_tags WHERE id = ?1`, tag.id)) return false
+    const name = normalizeEmailTagPath(tag.name)
+    if (!isValidEmailTagPath(name)) return false
+    if (this.one<{ id: string }>(`SELECT id FROM email_tags WHERE name = ?1 COLLATE NOCASE`, name)) return false
+    this.sql.exec(
+      `INSERT INTO email_tags (id, name, color, created_at) VALUES (?1, ?2, ?3, ?4)`,
+      tag.id,
+      name,
+      tag.color,
+      tag.createdAt,
+    )
+    return true
+  }
+
+  importMessageTag(link: MessageTagRestoreData): boolean {
+    if (!this.one<{ id: string }>(`SELECT id FROM email_messages WHERE id = ?1`, link.messageId)) return false
+    if (!this.one<{ id: string }>(`SELECT id FROM email_tags WHERE id = ?1`, link.tagId)) return false
+    if (this.one<{ message_id: string }>(
+      `SELECT message_id FROM email_message_tags WHERE message_id = ?1 AND tag_id = ?2`,
+      link.messageId,
+      link.tagId,
+    )) return false
+    this.sql.exec(
+      `INSERT INTO email_message_tags (message_id, tag_id, created_at) VALUES (?1, ?2, ?3)`,
+      link.messageId,
+      link.tagId,
+      link.createdAt,
+    )
+    return true
+  }
+
+  importFilter(filter: FilterRestoreData): boolean {
+    if (this.one<{ id: string }>(`SELECT id FROM email_filters WHERE id = ?1`, filter.id)) return false
+    const count = this.one<{ total: number }>(`SELECT COUNT(*) AS total FROM email_filters`)
+    if (Number(count?.total ?? 0) >= EMAIL_FILTER_MAX_RULES) return false
+    const parsed = parseEmailFilterInput({
+      name: filter.name,
+      enabled: filter.enabled,
+      conditions: filter.conditions,
+      actions: filter.actions,
+    })
+    if (!parsed || !Number.isSafeInteger(filter.sortOrder) || filter.sortOrder < 0 || !Number.isSafeInteger(filter.createdAt)) {
+      return false
+    }
+    this.sql.exec(
+      `INSERT INTO email_filters (id, name, enabled, sort_order, conditions_json, actions_json, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      filter.id,
+      parsed.name,
+      parsed.enabled ? 1 : 0,
+      filter.sortOrder,
+      JSON.stringify(parsed.conditions),
+      JSON.stringify(parsed.actions),
+      filter.createdAt,
+    )
+    return true
+  }
+
+  importBlockedSender(blocked: BlockedSenderRestoreData): boolean {
+    const address = blocked.address.trim().toLowerCase()
+    if (!isBlockableSenderAddress(address)) return false
+    if (this.getBlockedSender(address)) return false
+    this.sql.exec(
+      `INSERT INTO email_blocked_senders (email_normalized, created_at) VALUES (?1, ?2)`,
+      address,
+      blocked.createdAt,
+    )
+    return true
+  }
+
+  importTemplate(template: TemplateRestoreData): boolean {
+    if (this.one<{ id: string }>(`SELECT id FROM email_templates WHERE id = ?1`, template.id)) return false
+    if (this.countTemplates() >= EMAIL_TEMPLATE_MAX) return false
+    if (this.one<{ id: string }>(`SELECT id FROM email_templates WHERE name = ?1 COLLATE NOCASE`, template.name)) {
+      return false
+    }
+    const parsed = parseEmailTemplateInput(template)
+    if (!parsed || !Number.isSafeInteger(template.createdAt) || template.createdAt <= 0
+      || !Number.isSafeInteger(template.updatedAt) || template.updatedAt <= 0) return false
+    this.sql.exec(
+      `INSERT INTO email_templates (id, name, subject, body, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      template.id,
+      parsed.name,
+      parsed.subject,
+      parsed.body,
+      template.createdAt,
+      template.updatedAt,
+    )
+    return true
+  }
+
+  importSavedSearch(search: SavedSearchRestoreData): boolean {
+    if (this.one<{ id: string }>(`SELECT id FROM email_saved_searches WHERE id = ?1`, search.id)) return false
+    if (this.countSavedSearches() >= EMAIL_SAVED_SEARCH_MAX) return false
+    const parsed = parseEmailSavedSearchInput(search)
+    if (!parsed || !Number.isSafeInteger(search.createdAt) || search.createdAt <= 0) return false
+    if (this.one<{ id: string }>(`SELECT id FROM email_saved_searches WHERE name = ?1 COLLATE NOCASE`, parsed.name)) {
+      return false
+    }
+    this.sql.exec(
+      `INSERT INTO email_saved_searches (id, name, query, created_at) VALUES (?1, ?2, ?3, ?4)`,
+      search.id,
+      parsed.name,
+      parsed.query,
+      search.createdAt,
     )
     return true
   }
@@ -1216,6 +1374,13 @@ export class MailboxStore {
 
   listTags(): TagRow[] {
     return this.rows<TagRow>(`${TAG_SELECT} ORDER BY t.name COLLATE NOCASE ASC, t.id ASC`)
+  }
+
+  listMessageTags(): MessageTagRestoreData[] {
+    return this.rows<MessageTagRestoreData>(
+      `SELECT message_id AS messageId, tag_id AS tagId, created_at AS createdAt
+         FROM email_message_tags ORDER BY created_at ASC, message_id ASC, tag_id ASC`,
+    )
   }
 
   getTag(id: string): TagRow | null {

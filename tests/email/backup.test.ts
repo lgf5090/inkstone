@@ -17,10 +17,18 @@ import {
   parseEmailBackupBundle,
   type EmailBackupBundle,
 } from '../../src/shared/email/backup'
-import { mergeSettingsPatch } from '../../src/shared/constants'
+import { LIMITS, mergeSettingsPatch } from '../../src/shared/constants'
 import type { ImportResult } from '../../src/shared/types'
 import { SCHEMA_STATEMENTS } from '../../src/worker/db/schema'
-import { createEmailAccount } from '../../src/worker/email/account-store'
+import {
+  createEmailAccount,
+  updateEmailAccount,
+} from '../../src/worker/email/account-store'
+import {
+  addEmailGroupMember,
+  createEmailContact,
+  createEmailGroup,
+} from '../../src/worker/email/contacts'
 import { applyBackupEmail, readBackupEmail } from '../../src/worker/email/backup'
 import { buildSnapshot, materializeSnapshot } from '../../src/worker/backup/snapshot'
 import { applyMailboxMigrations } from '../../src/worker/email/mailbox-schema'
@@ -231,6 +239,7 @@ beforeEach(() => {
   env = testBindings(db, {
     FILES: bucket,
     EMAIL_MAILBOX: fakeEmailMailboxNamespace(store),
+    EMAIL_DOMAINS: 'example.com',
   })
 })
 
@@ -278,6 +287,193 @@ describe('email backup format and reads', () => {
     expect(message.attachments[0]).toMatchObject({
       id: attachment.id,
       objectKey: attachment.objectKey,
+    })
+  })
+
+  it('round-trips every v2 mailbox and address-book field', async () => {
+    await setupAccount()
+    await updateEmailAccount(db, userId, accountId, {
+      settings: {
+        signatures: [
+          { id: 'work', name: 'Work', text: 'Work signature', enabled: true },
+          { id: 'personal', name: 'Personal', text: 'Personal signature', enabled: false },
+        ],
+        defaultSignatureId: 'work',
+        agentSystemPrompt: 'Summarize briefly',
+        autoDraft: false,
+        focusedInbox: false,
+        replyTo: 'reply@example.com',
+        vacation: { enabled: true, start: NOW, end: NOW + 86_400_000, subject: 'Away', body: 'Back soon' },
+      },
+      now: NOW,
+    })
+    const parent = store.createFolder('Projects', null, '#2563eb')!
+    store.updateFolder(parent.id, { sortOrder: 7 })
+    const child = store.createFolder('Client', parent.id, '#059669')!
+    store.updateFolder(child.id, { sortOrder: 3 })
+    const tag = store.createTag('work/client', '#ca8a04')!
+    const messageId = newId()
+    expect(store.createEmail(child.id, {
+      id: messageId,
+      subject: 'Complete backup',
+      sender: 'Sender <sender@example.com>',
+      recipient: 'owner@example.com',
+      cc: 'cc@example.com',
+      bcc: 'bcc@example.com',
+      date: NOW - 1_000,
+      body: '<p>Complete body</p>',
+      bodySource: 'Complete body',
+      read: true,
+      starred: true,
+      important: true,
+      muted: true,
+      focused: false,
+      followUpAt: NOW + 3_600_000,
+      inReplyTo: '<parent@example.com>',
+      emailReferences: JSON.stringify(['<root@example.com>']),
+      threadId: 'thread-complete',
+      messageId: '<complete@example.com>',
+      rawHeaders: JSON.stringify([{ key: 'X-Test', value: 'yes' }]),
+      deliveryStatus: 'failed',
+      deliveryError: 'Provider refused',
+      providerMessageId: 'provider-complete',
+      attachmentsSkipped: true,
+      hasAttachment: true,
+      size: 123,
+    })).toBe(true)
+    sqlite.prepare(`UPDATE email_messages SET snoozed_until = ? WHERE id = ?`).run(NOW + 7_200_000, messageId)
+    expect(store.attachTag(messageId, tag.id)).toBe(true)
+    const attachment = seedAttachment({ emailId: messageId, filename: 'complete.pdf', lock: true })
+    sqlite.prepare(
+      `UPDATE email_attachments SET folder_id = 'inbox', is_starred = 1, is_pinned = 1, tags = ? WHERE id = ?`,
+    ).run(JSON.stringify(['important', 'client']), attachment.id)
+    const filter = store.createFilter({
+      name: 'Client mail',
+      enabled: true,
+      conditions: [{ field: 'fromContains', value: '@client.example' }],
+      actions: [
+        { type: 'moveTo', folder: child.id },
+        { type: 'addTag', tag: 'work/client' },
+        { type: 'markRead' },
+      ],
+    })!
+    store.addBlockedSender('blocked@example.com')
+    store.createTemplate({ name: 'Follow up', subject: 'Following up', body: 'Hello again' })
+    store.createSavedSearch({ name: 'Unread client', query: 'from:client is:unread' })
+    const contact = await createEmailContact(db, userId, {
+      email: 'client@example.com',
+      name: 'Client',
+      company: 'Example',
+      notes: 'Important',
+      starred: true,
+      pinned: true,
+      avatar: '',
+    }, NOW)
+    sqlite.prepare(`UPDATE email_contacts SET usage_count = 4, last_used_at = ? WHERE id = ?`)
+      .run(NOW + 1_000, contact.id)
+    const group = await createEmailGroup(db, userId, {
+      name: 'Clients',
+      description: 'Customer group',
+      starred: true,
+      pinned: true,
+      avatar: '',
+    }, NOW)
+    await addEmailGroupMember(db, userId, group.id, contact.id, NOW + 2_000)
+
+    const exported = await readBackupEmail(env, userId, { includeAttachments: true, snapshot: STAMP })
+    const bundle = await readEmailBundle(exported)
+    expect(bundle.version).toBe(2)
+    expect(bundle.accounts[0]?.settings).toMatchObject({
+      defaultSignatureId: 'work',
+      autoDraft: false,
+      focusedInbox: false,
+      replyTo: 'reply@example.com',
+    })
+    expect(bundle.accounts[0]?.folders.find((folder) => folder.id === child.id)).toMatchObject({
+      parentId: parent.id,
+      color: '#059669',
+      sortOrder: 3,
+    })
+    expect(bundle.accounts[0]?.messages[0]).toMatchObject({
+      id: messageId,
+      snoozedUntil: NOW + 7_200_000,
+      followUpAt: NOW + 3_600_000,
+      deliveryError: 'Provider refused',
+    })
+    expect(bundle.accounts[0]?.messages[0]?.attachments[0]).toMatchObject({
+      id: attachment.id,
+      folderId: 'inbox',
+      starred: true,
+      pinned: true,
+      tags: ['important', 'client'],
+      sha256: sha(attachment.bytes),
+    })
+    expect(bundle.accounts[0]?.messageTags).toEqual([{
+      messageId,
+      tagId: tag.id,
+      createdAt: expect.any(Number),
+    }])
+    expect(bundle.accounts[0]?.filters[0]?.id).toBe(filter.id)
+    expect(bundle.contacts[0]?.usageCount).toBe(4)
+    expect(bundle.groupMembers[0]).toMatchObject({ groupId: group.id, contactId: contact.id })
+    const attachmentBytes = await readFile(exported.attachments[0]!)
+
+    store.deleteAll()
+    sqlite.prepare('DELETE FROM email_attachments WHERE user_id = ?').run(userId)
+    sqlite.prepare('DELETE FROM email_accounts WHERE user_id = ?').run(userId)
+    sqlite.prepare('DELETE FROM email_group_members WHERE user_id = ?').run(userId)
+    sqlite.prepare('DELETE FROM email_contacts WHERE user_id = ?').run(userId)
+    sqlite.prepare('DELETE FROM email_groups WHERE user_id = ?').run(userId)
+    bucket.objects.delete(attachment.objectKey)
+
+    const restored = await applyBackupEmail(env, userId, {
+      bundle,
+      attachments: new Map([[attachment.path.toLowerCase(), attachmentBytes]]),
+    })
+    expect(restored).toMatchObject({
+      createdAccounts: 1,
+      createdMessages: 1,
+      createdAttachments: 1,
+      missingAttachments: 0,
+      restoredAttachmentBytes: attachment.bytes.byteLength,
+    })
+    const reexported = await readEmailBundle(await readBackupEmail(env, userId, {
+      includeAttachments: true,
+      snapshot: STAMP,
+    }))
+    expect(reexported.accounts).toEqual(bundle.accounts)
+    expect(reexported.contacts).toEqual(bundle.contacts)
+    expect(reexported.groups).toEqual(bundle.groups)
+    expect(reexported.groupMembers).toEqual(bundle.groupMembers)
+    expect(reexported.missingFields).toEqual([])
+  })
+
+  it('allows equal folder names under different parents and restores their hierarchy', async () => {
+    await setupAccount()
+    const first = store.createFolder('First')!
+    const second = store.createFolder('Second')!
+    const firstChild = store.createFolder('Shared', first.id)!
+    const secondChild = store.createFolder('Shared', second.id)!
+    store.updateFolder(firstChild.id, { color: '#2563eb', sortOrder: 2 })
+    store.updateFolder(secondChild.id, { color: '#059669', sortOrder: 4 })
+    const bundle = await readEmailBundle(await readBackupEmail(env, userId, {
+      includeAttachments: false,
+      snapshot: STAMP,
+    }))
+    expect(parseEmailBackupBundle(bundle)).not.toBeNull()
+
+    store.deleteAll()
+    sqlite.prepare('DELETE FROM email_accounts WHERE user_id = ?').run(userId)
+    await applyBackupEmail(env, userId, { bundle, attachments: new Map() })
+    expect(store.getFolders().find((folder) => folder.id === firstChild.id)).toMatchObject({
+      parent_id: first.id,
+      color: '#2563eb',
+      sort_order: 2,
+    })
+    expect(store.getFolders().find((folder) => folder.id === secondChild.id)).toMatchObject({
+      parent_id: second.id,
+      color: '#059669',
+      sort_order: 4,
     })
   })
 
@@ -363,6 +559,95 @@ describe('backup snapshot integration', () => {
 })
 
 describe('email restore', () => {
+  it('reads v1 with explicit missing fields and restores its legacy data', async () => {
+    await setupAccount()
+    const work = store.createFolder('Work')!
+    const messageId = newId()
+    seedMessage(messageId, { folder: work.id })
+    const bundle = await readEmailBundle(await readBackupEmail(env, userId, {
+      includeAttachments: false,
+      snapshot: STAMP,
+    }))
+    const legacy = JSON.parse(JSON.stringify(bundle)) as {
+      version: number
+      contacts?: unknown
+      groups?: unknown
+      groupMembers?: unknown
+      missingFields?: unknown
+      accounts: Array<{
+        settings: Record<string, unknown>
+        folders: Array<Record<string, unknown>>
+        messages: Array<{ snoozedUntil?: number; attachments: Array<Record<string, unknown>> }>
+        tags?: unknown
+        messageTags?: unknown
+        filters?: unknown
+        blockedSenders?: unknown
+        templates?: unknown
+        savedSearches?: unknown
+      }>
+    }
+    legacy.version = 1
+    delete legacy.contacts
+    delete legacy.groups
+    delete legacy.groupMembers
+    delete legacy.missingFields
+    for (const account of legacy.accounts) {
+      delete account.tags
+      delete account.messageTags
+      delete account.filters
+      delete account.blockedSenders
+      delete account.templates
+      delete account.savedSearches
+      delete account.settings.signatures
+      delete account.settings.defaultSignatureId
+      delete account.settings.vacation
+      delete account.settings.replyTo
+      account.settings.signature = { enabled: true, text: 'Legacy signature' }
+      for (const folder of account.folders) {
+        delete folder.parentId
+        delete folder.color
+        delete folder.sortOrder
+      }
+      for (const message of account.messages) {
+        delete message.snoozedUntil
+        for (const attachment of message.attachments) {
+          delete attachment.folderId
+          delete attachment.starred
+          delete attachment.pinned
+          delete attachment.tags
+        }
+      }
+    }
+
+    const parsed = parseEmailBackupBundle(legacy)
+    expect(parsed?.version).toBe(1)
+    expect(parsed?.missingFields).toEqual(expect.arrayContaining([
+      'folders.parentId',
+      'messages.snoozedUntil',
+      'accounts.tags',
+      'contacts',
+      'groups',
+    ]))
+    expect(parsed?.accounts[0]?.folders.find((folder) => folder.id === work.id)).toMatchObject({
+      parentId: null,
+      color: null,
+      sortOrder: 0,
+    })
+    expect(parsed?.accounts[0]?.messages[0]?.snoozedUntil).toBeNull()
+
+    store.deleteAll()
+    sqlite.prepare('DELETE FROM email_accounts WHERE user_id = ?').run(userId)
+    const restored = await applyBackupEmail(env, userId, { bundle: parsed!, attachments: new Map() })
+    expect(restored.createdMessages).toBe(1)
+    expect(restored.warnings[0]).toContain('v1 email backup does not contain')
+    expect(store.getEmail(messageId)?.folder_id).toBe(work.id)
+    const settings = sqlite.prepare('SELECT settings FROM email_accounts WHERE id = ?').get(accountId) as { settings: string }
+    expect(JSON.parse(settings.settings)).toMatchObject({
+      signatures: [{ id: 'legacy', name: '', text: 'Legacy signature', enabled: true }],
+      defaultSignatureId: 'legacy',
+    })
+  })
+
   it('restores metadata and messages, then skips everything on a second run', async () => {
     await setupAccount()
     const work = store.createFolder('Work')!
@@ -452,6 +737,233 @@ describe('email restore', () => {
     expect(restored.restoredAttachmentBytes).toBe(attachment.bytes.byteLength)
   })
 
+  it.each([
+    {
+      name: 'unsupported version',
+      mutate: (bundle: EmailBackupBundle) => { (bundle as unknown as { version: number }).version = 3 },
+    },
+    {
+      name: 'invalid account address',
+      mutate: (bundle: EmailBackupBundle) => { bundle.accounts[0]!.address = 'not-an-address' },
+    },
+    {
+      name: 'duplicate sibling folder name',
+      mutate: (bundle: EmailBackupBundle) => {
+        const work = bundle.accounts[0]!.folders.find((folder) => folder.name === 'Work')!
+        bundle.accounts[0]!.folders.push({ ...work, id: newId() })
+      },
+    },
+    {
+      name: 'orphan folder parent',
+      mutate: (bundle: EmailBackupBundle) => {
+        bundle.accounts[0]!.folders.find((folder) => folder.name === 'Work')!.parentId = newId()
+      },
+    },
+    {
+      name: 'cyclic folder hierarchy',
+      mutate: (bundle: EmailBackupBundle) => {
+        const folders = bundle.accounts[0]!.folders
+        const parent = store.createFolder('Parent')!
+        const child = store.createFolder('Child', parent.id)!
+        folders.push(
+          { id: parent.id, name: parent.name, isDeletable: true, createdAt: NOW, parentId: child.id, color: null, sortOrder: 0 },
+          { id: child.id, name: child.name, isDeletable: true, createdAt: NOW, parentId: parent.id, color: null, sortOrder: 0 },
+        )
+      },
+    },
+    {
+      name: 'missing default signature',
+      mutate: (bundle: EmailBackupBundle) => {
+        bundle.accounts[0]!.settings = {
+          signatures: [{ id: 'work', name: 'Work', text: 'Signature', enabled: true }],
+          defaultSignatureId: 'missing',
+        }
+      },
+    },
+    {
+      name: 'duplicate tag path',
+      mutate: (bundle: EmailBackupBundle) => {
+        const tag = bundle.accounts[0]!.tags[0]!
+        bundle.accounts[0]!.tags.push({ ...tag, id: newId(), name: tag.name.toUpperCase() })
+      },
+    },
+    {
+      name: 'dangling message tag',
+      mutate: (bundle: EmailBackupBundle) => { bundle.accounts[0]!.messageTags[0]!.tagId = newId() },
+    },
+    {
+      name: 'malformed filter',
+      mutate: (bundle: EmailBackupBundle) => {
+        bundle.accounts[0]!.filters[0]!.conditions = [{ field: 'fromContains', value: '' } as never]
+      },
+    },
+    {
+      name: 'duplicate template name',
+      mutate: (bundle: EmailBackupBundle) => {
+        const template = bundle.accounts[0]!.templates[0]!
+        bundle.accounts[0]!.templates.push({ ...template, id: newId(), name: template.name.toUpperCase() })
+      },
+    },
+    {
+      name: 'invalid contact email',
+      mutate: (bundle: EmailBackupBundle) => { bundle.contacts[0]!.email = 'invalid' },
+    },
+    {
+      name: 'dangling group member',
+      mutate: (bundle: EmailBackupBundle) => { bundle.groupMembers[0]!.contactId = newId() },
+    },
+    {
+      name: 'attachment path traversal',
+      mutate: (bundle: EmailBackupBundle) => { bundle.accounts[0]!.messages[0]!.attachments[0]!.objectKey = 'mail/../forged.pdf' },
+    },
+    {
+      name: 'invalid attachment MIME',
+      mutate: (bundle: EmailBackupBundle) => { bundle.accounts[0]!.messages[0]!.attachments[0]!.mime = 'not a mime' },
+    },
+  ])('rejects a constructed v2 bundle with $name', async ({ mutate }) => {
+    await setupAccount()
+    const work = store.createFolder('Work')!
+    const messageId = newId()
+    seedMessage(messageId, { folder: work.id })
+    const tag = store.createTag('work')!
+    store.attachTag(messageId, tag.id)
+    seedAttachment({ emailId: messageId, missing: true })
+    store.createFilter({
+      name: 'Rule',
+      enabled: true,
+      conditions: [{ field: 'subjectContains', value: 'Hello' }],
+      actions: [{ type: 'markRead' }],
+    })
+    store.createTemplate({ name: 'Template', subject: 'Subject', body: 'Body' })
+    const contact = await createEmailContact(db, userId, {
+      email: 'client@example.com', name: 'Client', company: '', notes: '', starred: false, pinned: false, avatar: '',
+    }, NOW)
+    const group = await createEmailGroup(db, userId, {
+      name: 'Group', description: '', starred: false, pinned: false, avatar: '',
+    }, NOW)
+    await addEmailGroupMember(db, userId, group.id, contact.id, NOW)
+    const bundle = await readEmailBundle(await readBackupEmail(env, userId, {
+      includeAttachments: false,
+      snapshot: STAMP,
+    }))
+    mutate(bundle)
+    expect(parseEmailBackupBundle(bundle)).toBeNull()
+  })
+
+  it('rejects tampered attachment size and checksum before restoring', async () => {
+    await setupAccount()
+    const messageId = newId()
+    seedMessage(messageId)
+    const attachment = seedAttachment({ emailId: messageId })
+    const exported = await readBackupEmail(env, userId, { includeAttachments: true, snapshot: STAMP })
+    const bundle = await readEmailBundle(exported)
+    const bytes = await readFile(exported.attachments[0]!)
+    const files = new Map([[attachment.path.toLowerCase(), bytes]])
+
+    bundle.accounts[0]!.messages[0]!.attachments[0]!.size++
+    await expect(applyBackupEmail(env, userId, { bundle, attachments: files }))
+      .rejects.toMatchObject({ status: 400, code: 'bad_request' })
+    bundle.accounts[0]!.messages[0]!.attachments[0]!.size--
+    const changed = bytes.slice()
+    changed[0] ^= 0xff
+    await expect(applyBackupEmail(env, userId, {
+      bundle,
+      attachments: new Map([[attachment.path.toLowerCase(), changed]]),
+    })).rejects.toMatchObject({ status: 400, code: 'bad_request' })
+  })
+
+  it('sniffs restored attachment bytes through the existing MIME validation', async () => {
+    await setupAccount()
+    const messageId = newId()
+    seedMessage(messageId)
+    const attachment = seedAttachment({ emailId: messageId, filename: 'not-an-image.png' })
+    const exported = await readBackupEmail(env, userId, { includeAttachments: true, snapshot: STAMP })
+    const bundle = await readEmailBundle(exported)
+    const bytes = await readFile(exported.attachments[0]!)
+    bundle.accounts[0]!.messages[0]!.attachments[0]!.mime = 'image/png'
+    bundle.accounts[0]!.messages[0]!.attachments[0]!.sha256 = sha(bytes)
+    store.deleteAll()
+    sqlite.prepare('DELETE FROM email_attachments WHERE user_id = ?').run(userId)
+    sqlite.prepare('DELETE FROM email_accounts WHERE user_id = ?').run(userId)
+    bucket.objects.delete(attachment.objectKey)
+
+    await applyBackupEmail(env, userId, {
+      bundle,
+      attachments: new Map([[attachment.path.toLowerCase(), bytes]]),
+    })
+    const row = sqlite.prepare('SELECT mime, object_key FROM email_attachments WHERE user_id = ? AND email_id = ?')
+      .get(userId, messageId) as { mime: string; object_key: string }
+    expect(row.mime).toBe('application/octet-stream')
+    expect(bucket.types.get(row.object_key)).toBe('application/octet-stream')
+  })
+
+  it('reuses mailbox domain validation when restoring an account', async () => {
+    await setupAccount()
+    seedMessage(newId())
+    const bundle = await readEmailBundle(await readBackupEmail(env, userId, {
+      includeAttachments: false,
+      snapshot: STAMP,
+    }))
+    env = testBindings(db, {
+      FILES: bucket,
+      EMAIL_MAILBOX: fakeEmailMailboxNamespace(store),
+      EMAIL_DOMAINS: 'other.example',
+    })
+    await expect(applyBackupEmail(env, userId, { bundle, attachments: new Map() }))
+      .rejects.toMatchObject({ status: 400, code: 'email_domain_not_allowed' })
+  })
+
+  it('rejects a restore that would exceed the attachment quota', async () => {
+    await setupAccount()
+    const messageId = newId()
+    seedMessage(messageId)
+    seedAttachment({ emailId: messageId, missing: true })
+    const bundle = await readEmailBundle(await readBackupEmail(env, userId, {
+      includeAttachments: false,
+      snapshot: STAMP,
+    }))
+    sqlite.prepare(
+      `INSERT INTO email_attachments (
+         id, user_id, account_id, email_id, filename, mime, size, object_key, storage, locked, created_at
+       ) VALUES (?, ?, NULL, NULL, 'full.bin', 'application/octet-stream', ?, 'mail/other/full.bin', 'r2', 0, ?)`,
+    ).run(newId(), userId, LIMITS.attachmentQuotaBytes, NOW)
+    await expect(applyBackupEmail(env, userId, { bundle, attachments: new Map() }))
+      .rejects.toMatchObject({ status: 413 })
+  })
+
+  it('reallocates a colliding attachment id without overwriting another user object', async () => {
+    await setupAccount()
+    const messageId = newId()
+    seedMessage(messageId)
+    const attachment = seedAttachment({ emailId: messageId })
+    const exported = await readBackupEmail(env, userId, { includeAttachments: true, snapshot: STAMP })
+    const bundle = await readEmailBundle(exported)
+    const originalBytes = attachment.bytes.slice()
+    const archivedBytes = await readFile(exported.attachments[0]!)
+    sqlite.prepare('DELETE FROM email_attachments WHERE user_id = ?').run(userId)
+    sqlite.prepare('DELETE FROM email_accounts WHERE user_id = ?').run(userId)
+    store.deleteAll()
+    sqlite.prepare(
+      `INSERT INTO email_attachments (
+         id, user_id, account_id, email_id, filename, mime, size, object_key, storage, locked, created_at
+       ) VALUES (?, ?, NULL, NULL, 'report.pdf', 'application/pdf', ?, ?, 'r2', 0, ?)`,
+    ).run(attachment.id, OTHER, originalBytes.byteLength, attachment.objectKey, NOW)
+    const foreignBytes = new TextEncoder().encode('another user attachment')
+    await bucket.put(attachment.objectKey, foreignBytes)
+
+    const restored = await applyBackupEmail(env, userId, {
+      bundle,
+      attachments: new Map([[attachment.path.toLowerCase(), archivedBytes]]),
+    })
+    expect(restored.createdAttachments).toBe(1)
+    const row = sqlite.prepare('SELECT id, object_key FROM email_attachments WHERE user_id = ? AND email_id = ?')
+      .get(userId, messageId) as { id: string; object_key: string }
+    expect(row.id).not.toBe(attachment.id)
+    expect(row.object_key).not.toBe(attachment.objectKey)
+    expect(bucket.objects.get(attachment.objectKey)).toEqual(foreignBytes)
+    expect(bucket.objects.get(row.object_key)).toEqual(originalBytes)
+  })
+
   it('rejects an attachment entry that the bundle does not declare', async () => {
     await setupAccount()
     const messageId = newId()
@@ -483,9 +995,22 @@ describe('email restore', () => {
         settings: {},
         createdAt: NOW,
         updatedAt: NOW,
-        folders: [{ id: 'inbox', name: 'Inbox', isDeletable: false, createdAt: NOW }],
+        folders: [{
+          id: 'inbox', name: 'Inbox', isDeletable: false, createdAt: NOW,
+          parentId: null, color: null, sortOrder: 0,
+        }],
         messages: [],
+        tags: [],
+        messageTags: [],
+        filters: [],
+        blockedSenders: [],
+        templates: [],
+        savedSearches: [],
       }],
+      contacts: [],
+      groups: [],
+      groupMembers: [],
+      missingFields: [],
     }
     await expect(applyBackupEmail(env, userId, { bundle, attachments: new Map() }))
       .rejects.toMatchObject({ status: 400, code: 'bad_request' })

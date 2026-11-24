@@ -5,13 +5,19 @@ import {
   MailboxStore,
   type EmailData,
   type EmailRestoreData,
+  type BlockedSenderRestoreData,
+  type FilterRestoreData,
   type FolderPatch,
   type FolderRestoreData,
   type InboundRuleInput,
   type InboundRulePlan,
   type ListOptions,
+  type MessageTagRestoreData,
+  type SavedSearchRestoreData,
   type SearchOptions,
   type TagPatch,
+  type TagRestoreData,
+  type TemplateRestoreData,
 } from './mailbox-store'
 import type { EmailBatchAction } from '@shared/email/model'
 import type { EmailSavedSearchInput, EmailSavedSearchPatch } from '@shared/email/searches'
@@ -35,6 +41,7 @@ export class EmailMailbox extends DurableObject<Env> {
   updateFolder(id: string, patch: FolderPatch) { return this.store.updateFolder(id, patch) }
   deleteFolder(id: string, deleteEmails = false) { return this.store.deleteFolder(id, deleteEmails) }
   listTags() { return this.store.listTags() }
+  listMessageTags() { return this.store.listMessageTags() }
   getTag(id: string) { return this.store.getTag(id) }
   findTagByPath(name: string) { return this.store.findTagByPath(name) }
   createTag(name: string, color: string | null = null) { return this.store.createTag(name, color) }
@@ -71,6 +78,12 @@ export class EmailMailbox extends DurableObject<Env> {
   listAllEmailsPage(afterId?: string, limit?: number) { return this.store.listAllEmailsPage(afterId, limit) }
   importFolder(folder: FolderRestoreData) { return this.store.importFolder(folder) }
   importEmail(email: EmailRestoreData) { return this.store.importEmail(email) }
+  importTag(tag: TagRestoreData) { return this.store.importTag(tag) }
+  importMessageTag(link: MessageTagRestoreData) { return this.store.importMessageTag(link) }
+  importFilter(filter: FilterRestoreData) { return this.store.importFilter(filter) }
+  importBlockedSender(blocked: BlockedSenderRestoreData) { return this.store.importBlockedSender(blocked) }
+  importTemplate(template: TemplateRestoreData) { return this.store.importTemplate(template) }
+  importSavedSearch(search: SavedSearchRestoreData) { return this.store.importSavedSearch(search) }
   getEmails(options: ListOptions = {}) { return this.store.getEmails(options) }
   countEmails(options: ListOptions = {}) { return this.store.countEmails(options) }
   getThreadedEmails(options: ListOptions = {}) { return this.store.getThreadedEmails(options) }

@@ -3,10 +3,16 @@ import type { EmailBatchAction } from '../../src/shared/email/model'
 import type {
   EmailData,
   EmailRestoreData,
+  BlockedSenderRestoreData,
+  FilterRestoreData,
   FolderPatch,
   FolderRestoreData,
   InboundRuleInput,
+  MessageTagRestoreData,
+  SavedSearchRestoreData,
   TagPatch,
+  TagRestoreData,
+  TemplateRestoreData,
 } from '../../src/worker/email/mailbox-store'
 import type { EmailFilterInput, EmailFilterPatch } from '../../src/shared/email/rules'
 import type { EmailTemplateInput, EmailTemplatePatch } from '../../src/shared/email/templates'
@@ -20,6 +26,7 @@ export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNam
     updateFolder: (id: string, patch: FolderPatch) => store.updateFolder(id, patch),
     deleteFolder: (id: string, deleteEmails = false) => store.deleteFolder(id, deleteEmails),
     listTags: () => store.listTags(),
+    listMessageTags: () => store.listMessageTags(),
     getTag: (id: string) => store.getTag(id),
     findTagByPath: (name: string) => store.findTagByPath(name),
     createTag: (name: string, color: string | null = null) => store.createTag(name, color),
@@ -44,6 +51,12 @@ export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNam
     listAllEmailsPage: (afterId?: string, limit?: number) => store.listAllEmailsPage(afterId, limit),
     importFolder: (folder: FolderRestoreData) => store.importFolder(folder),
     importEmail: (email: EmailRestoreData) => store.importEmail(email),
+    importTag: (tag: TagRestoreData) => store.importTag(tag),
+    importMessageTag: (link: MessageTagRestoreData) => store.importMessageTag(link),
+    importFilter: (filter: FilterRestoreData) => store.importFilter(filter),
+    importBlockedSender: (blocked: BlockedSenderRestoreData) => store.importBlockedSender(blocked),
+    importTemplate: (template: TemplateRestoreData) => store.importTemplate(template),
+    importSavedSearch: (search: SavedSearchRestoreData) => store.importSavedSearch(search),
     getEmails: (options = {}) => store.getEmails(options),
     countEmails: (options = {}) => store.countEmails(options),
     getThreadedEmails: (options = {}) => store.getThreadedEmails(options),

@@ -7,23 +7,42 @@ import {
   parseEmailBackupBundle,
   type EmailBackupAccount,
   type EmailBackupAttachment,
+  type EmailBackupBlockedSender,
   type EmailBackupBundle,
+  type EmailBackupContact,
+  type EmailBackupFilter,
+  type EmailBackupFolder,
+  type EmailBackupGroup,
+  type EmailBackupGroupMember,
   type EmailBackupMessage,
+  type EmailBackupMessageTag,
+  type EmailBackupSavedSearch,
+  type EmailBackupTag,
+  type EmailBackupTemplate,
 } from '@shared/email/backup'
-import { EMAIL_EXPORT_MAX_BYTES, EMAIL_EXPORT_MAX_MESSAGES } from '@shared/email/model'
-import { putAttachmentObject } from '../attachments/backend'
+import { EMAIL_EXPORT_MAX_BYTES, EMAIL_EXPORT_MAX_MESSAGES, type EmailAccountSettings } from '@shared/email/model'
+import { emailAttachmentObjectKey } from '../attachments/keys'
 import type { Env } from '../env'
 import { sha256Hex } from '../lib/encoding'
-import { storedObject } from '../lib/json'
 import { ApiError } from '../lib/errors'
+import { newId } from '../lib/id'
+import {
+  hasReasonableImageDimensions,
+  readImageSize,
+  safeAttachmentMime,
+} from '../lib/image'
+import { persistEmailAttachment, sanitizeAttachmentFilename } from '../attachments/storage'
 import {
   findEmailAccountByAddress,
   getEmailAccount,
   listEmailAccounts,
+  readAccountSettings,
   type EmailAccountRow,
 } from './account-store'
+import { validateMailboxAddress } from './address-validation'
+import { effectiveEmailDomains } from './deployment'
 import { emailMailbox } from './mailbox-stub'
-import { emailAttachmentObjectKey } from '../attachments/keys'
+import { settingsFrom } from './settings'
 import { assertEmailOwner } from './tools'
 
 export interface EmailBackupFile {
@@ -86,6 +105,10 @@ interface EmailAttachmentRow {
   disposition: string | null
   object_key: string
   storage: string
+  folder_id: string | null
+  is_starred: number
+  is_pinned: number
+  tags: string
   locked: number
   created_at: number
 }
@@ -120,11 +143,50 @@ interface EmailMessageRow {
   has_attachment: number
   size: number
   deleted_at: number | null
+  snoozed_until: number | null
   created_at: number
   updated_at: number
 }
 
-const HASH_RE = /^[0-9a-f]{64}$/
+interface EmailContactRow {
+  id: string
+  email: string
+  name: string
+  company: string
+  notes: string
+  starred: number
+  pinned: number
+  avatar: string
+  usage_count: number
+  last_used_at: number | null
+  created_at: number
+  updated_at: number
+}
+
+interface EmailGroupRow {
+  id: string
+  name: string
+  description: string
+  starred: number
+  pinned: number
+  avatar: string
+  created_at: number
+  updated_at: number
+}
+
+interface EmailGroupMemberRow {
+  group_id: string
+  contact_id: string
+  created_at: number
+}
+
+interface PreparedAccount {
+  backup: EmailBackupAccount
+  address: string
+  settings: EmailAccountSettings
+  existing: EmailAccountRow | null
+}
+
 const encoder = new TextEncoder()
 
 export async function readBackupEmail(
@@ -147,6 +209,7 @@ export async function readBackupEmail(
     throw new ApiError(503, 'storage_unavailable', 'Email attachments require R2 storage')
   }
 
+  const { contacts, groups, groupMembers } = await loadAddressBook(env.DB, userId)
   const attachmentFiles: EmailBackupFile[] = []
   const backupAccounts: EmailBackupAccount[] = []
   let messageCount = 0
@@ -157,11 +220,40 @@ export async function readBackupEmail(
     const mailbox = emailMailbox(env, account.id)
     const folderRows = await mailbox.getFolders()
     const attachmentsByMessage = await loadAccountAttachments(env.DB, userId, account.id)
-    const folders = folderRows.map((folder) => ({
+    const folders: EmailBackupFolder[] = folderRows.map((folder) => ({
       id: folder.id,
       name: folder.name,
       isDeletable: folder.is_deletable === 1,
       createdAt: folder.created_at,
+      parentId: folder.parent_id ?? null,
+      color: folder.color ?? null,
+      sortOrder: Number(folder.sort_order ?? 0),
+    }))
+    const tags: EmailBackupTag[] = (await mailbox.listTags()).map((tag) => ({
+      id: tag.id,
+      name: tag.name,
+      color: tag.color ?? null,
+      createdAt: tag.created_at,
+    }))
+    const messageTags: EmailBackupMessageTag[] = await mailbox.listMessageTags()
+    const filters: EmailBackupFilter[] = await mailbox.listFilters()
+    const blockedSenders: EmailBackupBlockedSender[] = (await mailbox.listBlockedSenders()).map((entry) => ({
+      address: entry.email_normalized,
+      createdAt: entry.created_at,
+    }))
+    const templates: EmailBackupTemplate[] = (await mailbox.listTemplates()).map((template) => ({
+      id: template.id,
+      name: template.name,
+      subject: template.subject,
+      body: template.body,
+      createdAt: template.created_at,
+      updatedAt: template.updated_at,
+    }))
+    const savedSearches: EmailBackupSavedSearch[] = (await mailbox.listSavedSearches()).map((search) => ({
+      id: search.id,
+      name: search.name,
+      query: search.query,
+      createdAt: search.created_at,
     }))
 
     const messages: EmailBackupMessage[] = []
@@ -171,67 +263,71 @@ export async function readBackupEmail(
       const messageRows = await mailbox.listAllEmailsPage(afterId, 100)
       if (!messageRows.length) break
       for (const row of messageRows) {
-      const rows = attachmentsByMessage.get(row.id) ?? []
-      const attachments: EmailBackupAttachment[] = []
-      for (const attachment of rows) {
-        attachmentCount++
-        const path = backupEmailAttachmentPath(
-          options.snapshot,
-          account.id,
-          row.id,
-          attachment.id,
-          attachment.filename,
-        )
-        const meta: EmailBackupAttachment = {
-          id: attachment.id,
-          filename: attachment.filename,
-          mime: attachment.mime,
-          size: attachment.size,
-          width: attachment.width,
-          height: attachment.height,
-          contentId: attachment.content_id,
-          disposition: attachment.disposition,
-          objectKey: attachment.object_key,
-          storage: attachment.storage,
-          locked: attachment.locked === 1,
-          createdAt: attachment.created_at,
-        }
-        if (options.includeAttachments) {
-          attachmentBytes += attachment.size
-          if (attachmentBytes > LIMITS.attachmentQuotaBytes) {
-            throw new ApiError(
-              413,
-              'email_export_too_large',
-              `Email attachments exceed the ${LIMITS.attachmentQuotaBytes}-byte account budget`,
-            )
+        const rows = attachmentsByMessage.get(row.id) ?? []
+        const attachments: EmailBackupAttachment[] = []
+        for (const attachment of rows) {
+          attachmentCount++
+          const path = backupEmailAttachmentPath(
+            options.snapshot,
+            account.id,
+            row.id,
+            attachment.id,
+            attachment.filename,
+          )
+          const meta: EmailBackupAttachment = {
+            id: attachment.id,
+            filename: attachment.filename,
+            mime: attachment.mime,
+            size: attachment.size,
+            width: attachment.width,
+            height: attachment.height,
+            contentId: attachment.content_id,
+            disposition: attachment.disposition,
+            objectKey: attachment.object_key,
+            storage: attachment.storage,
+            locked: attachment.locked === 1,
+            createdAt: attachment.created_at,
+            folderId: attachment.folder_id,
+            starred: attachment.is_starred === 1,
+            pinned: attachment.is_pinned === 1,
+            tags: attachmentTags(attachment.tags, attachment.id),
           }
-          const object = await env.FILES!.head(attachment.object_key)
-          if (!object) {
-            meta.missing = true
-          } else {
-            if (object.size !== attachment.size) {
-              throw new Error(`Email attachment size changed while the backup was running: ${attachment.filename}`)
+          if (options.includeAttachments) {
+            attachmentBytes += attachment.size
+            if (attachmentBytes > LIMITS.attachmentQuotaBytes) {
+              throw new ApiError(
+                413,
+                'email_export_too_large',
+                `Email attachments exceed the ${LIMITS.attachmentQuotaBytes}-byte account budget`,
+              )
             }
-            const sha256 = await attachmentSha256(env, attachment, object.customMetadata?.sha256)
-            meta.sha256 = sha256
-            attachmentFiles.push({
-              path,
-              byteLength: attachment.size,
-              sha256,
-              contentType: attachment.mime,
-              kind: 'email-attachment',
-              open: () => openEmailAttachment(env, attachment),
-            })
+            const object = await env.FILES!.head(attachment.object_key)
+            if (!object) {
+              meta.missing = true
+            } else {
+              if (object.size !== attachment.size) {
+                throw new Error(`Email attachment size changed while the backup was running: ${attachment.filename}`)
+              }
+              const sha256 = await attachmentSha256(env, attachment)
+              meta.sha256 = sha256
+              attachmentFiles.push({
+                path,
+                byteLength: attachment.size,
+                sha256,
+                contentType: attachment.mime,
+                kind: 'email-attachment',
+                open: () => openEmailAttachment(env, attachment),
+              })
+            }
           }
+          attachments.push(meta)
         }
-        attachments.push(meta)
-      }
-      const message = toBackupMessage(row, attachments)
-      exportBytes += encoder.encode(JSON.stringify(message)).byteLength
-      if (messageCount + messages.length >= EMAIL_EXPORT_MAX_MESSAGES || exportBytes > EMAIL_EXPORT_MAX_BYTES) {
-        throw ApiError.tooLarge('The email export exceeds the safe mailbox export budget')
-      }
-      messages.push(message)
+        const message = toBackupMessage(row, attachments)
+        exportBytes += encoder.encode(JSON.stringify(message)).byteLength
+        if (messageCount + messages.length >= EMAIL_EXPORT_MAX_MESSAGES || exportBytes > EMAIL_EXPORT_MAX_BYTES) {
+          throw ApiError.tooLarge('The email export exceeds the safe mailbox export budget')
+        }
+        messages.push(message)
       }
       afterId = messageRows[messageRows.length - 1]!.id
     }
@@ -240,11 +336,17 @@ export async function readBackupEmail(
       id: account.id,
       address: account.address,
       displayName: account.display_name,
-      settings: parseStoredSettings(account.settings),
+      settings: settingsFrom(readAccountSettings(account.settings)),
       createdAt: account.created_at,
       updatedAt: account.updated_at,
       folders,
       messages,
+      tags,
+      messageTags,
+      filters,
+      blockedSenders,
+      templates,
+      savedSearches,
     })
     messageCount += messages.length
   }
@@ -256,8 +358,15 @@ export async function readBackupEmail(
     snapshot: options.snapshot,
     includesAttachments: options.includeAttachments,
     accounts: backupAccounts,
+    contacts,
+    groups,
+    groupMembers,
+    missingFields: [],
   }
   const bytes = encoder.encode(JSON.stringify(bundle))
+  if (bytes.byteLength > EMAIL_EXPORT_MAX_BYTES) {
+    throw ApiError.tooLarge('The email export exceeds the safe mailbox export budget')
+  }
   const file: EmailBackupFile = {
     path: backupEmailPath(options.snapshot),
     byteLength: bytes.byteLength,
@@ -285,32 +394,82 @@ export async function applyBackupEmail(
   const bundle = parseEmailBackupBundle(archive.bundle)
   if (!bundle) throw ApiError.badRequest('The email backup is not valid')
   const summary = emptySummary()
+  summary.accounts = bundle.accounts.length
+  if (bundle.version === 1) {
+    addWarning(summary, `This v1 email backup does not contain: ${bundle.missingFields.join(', ')}`)
+  }
+
   const declared = bundle.includesAttachments ? declaredAttachmentPaths(bundle) : new Map<string, true>()
   for (const path of archive.attachments.keys()) {
     if (!declared.has(path.toLowerCase())) {
       throw ApiError.badRequest(`The email attachment is not listed in the backup: ${path}`)
     }
   }
-  const existingAttachmentIds = await loadExistingAttachmentIds(env.DB, userId)
-
   for (const account of bundle.accounts) {
-    summary.accounts++
-    const owner = await env.DB.prepare(
-      `SELECT user_id FROM email_accounts WHERE id = ?1`,
-    ).bind(account.id).first<{ user_id: string }>()
+    for (const message of account.messages) {
+      for (const attachment of message.attachments) {
+        const path = backupEmailAttachmentPath(
+          bundle.snapshot,
+          account.id,
+          message.id,
+          attachment.id,
+          attachment.filename,
+        ).toLowerCase()
+        const bytes = archive.attachments.get(path)
+        if (!bytes) continue
+        if (attachment.missing === true) throw ApiError.badRequest('A missing attachment cannot include file bytes')
+        if (bytes.byteLength !== attachment.size) {
+          throw ApiError.badRequest(`The email attachment size does not match: ${attachment.filename}`)
+        }
+        if (attachment.sha256 && await sha256Hex(bytes) !== attachment.sha256) {
+          throw ApiError.badRequest(`The email attachment checksum does not match: ${attachment.filename}`)
+        }
+      }
+    }
+  }
+
+  const domains = await effectiveEmailDomains(env, env.DB)
+  const prepared: PreparedAccount[] = []
+  for (const account of bundle.accounts) {
+    const owner = await env.DB.prepare(`SELECT user_id FROM email_accounts WHERE id = ?1`)
+      .bind(account.id).first<{ user_id: string }>()
     if (owner && owner.user_id !== userId) {
       throw ApiError.badRequest('The email backup contains an account owned by another user')
     }
+    const address = validateMailboxAddress(account.address, domains, env)
+    const settings = settingsFrom(account.settings)
     const existing = await getEmailAccount(env.DB, userId, account.id)
+    const addressOwner = await findEmailAccountByAddress(env.DB, address)
+    if (addressOwner && addressOwner.id !== account.id) {
+      summary.skippedAccounts++
+      addWarning(summary, `The mailbox ${account.address} is already in use`)
+      continue
+    }
+    prepared.push({ backup: account, address, settings, existing })
+  }
+
+  const existingAttachmentIds = await loadExistingAttachmentIds(env.DB)
+  const ownedAttachmentIds = await loadOwnedAttachmentIds(env.DB, userId)
+  const usage = await env.DB.prepare(
+    `SELECT COALESCE(SUM(size), 0) AS bytes FROM email_attachments WHERE user_id = ?1`,
+  ).bind(userId).first<{ bytes: number }>()
+  let plannedBytes = Number(usage?.bytes ?? 0)
+  for (const { backup } of prepared) {
+    for (const message of backup.messages) {
+      for (const attachment of message.attachments) {
+        if (!ownedAttachmentIds.has(attachment.id)) plannedBytes += attachment.size
+      }
+    }
+  }
+  if (plannedBytes > LIMITS.attachmentQuotaBytes) {
+    throw ApiError.tooLarge('The account email attachment quota has been reached')
+  }
+
+  await restoreAddressBook(env.DB, userId, bundle)
+  for (const { backup: account, address, settings, existing } of prepared) {
     if (existing) {
       summary.skippedAccounts++
     } else {
-      const addressOwner = await findEmailAccountByAddress(env.DB, account.address.trim().toLowerCase())
-      if (addressOwner) {
-        summary.skippedAccounts++
-        addWarning(summary, `The mailbox ${account.address} is already in use`)
-        continue
-      }
       await env.DB.prepare(
         `INSERT INTO email_accounts (
            id, user_id, address, address_normalized, display_name, settings, created_at, updated_at
@@ -318,10 +477,10 @@ export async function applyBackupEmail(
       ).bind(
         account.id,
         userId,
-        account.address,
-        account.address.trim().toLowerCase(),
+        address,
+        address,
         account.displayName,
-        JSON.stringify(account.settings),
+        JSON.stringify(settings),
         account.createdAt,
         account.updatedAt,
       ).run()
@@ -330,9 +489,21 @@ export async function applyBackupEmail(
 
     const mailbox = emailMailbox(env, account.id)
     const folderMap = await restoreFolders(mailbox, account, summary)
+    const tagMap = await restoreTags(mailbox, account)
+    for (const filter of account.filters) {
+      const actions = filter.actions.map((action) => action.type === 'moveTo'
+        ? { ...action, folder: folderMap.get(action.folder) ?? action.folder }
+        : action)
+      await mailbox.importFilter({ ...filter, actions })
+    }
+    for (const blocked of account.blockedSenders) await mailbox.importBlockedSender(blocked)
+    for (const template of account.templates) await mailbox.importTemplate(template)
+    for (const search of account.savedSearches) await mailbox.importSavedSearch(search)
+
     for (const message of account.messages) {
       summary.messages++
-      const folderId = folderMap.get(message.folderId) ?? message.folderId
+      const folderId = folderMap.get(message.folderId)
+      if (!folderId) throw ApiError.badRequest(`The email folder could not be restored: ${message.folderId}`)
       const inserted = await mailbox.importEmail({
         id: message.id,
         folderId,
@@ -349,6 +520,7 @@ export async function applyBackupEmail(
         muted: message.muted,
         focused: message.focused,
         followUpAt: message.followUpAt,
+        snoozedUntil: message.snoozedUntil,
         body: message.body,
         bodySource: message.bodySource,
         inReplyTo: message.inReplyTo,
@@ -371,7 +543,7 @@ export async function applyBackupEmail(
 
       for (const attachment of message.attachments) {
         summary.attachments++
-        if (existingAttachmentIds.has(attachment.id)) {
+        if (ownedAttachmentIds.has(attachment.id)) {
           summary.skippedAttachments++
           continue
         }
@@ -381,52 +553,56 @@ export async function applyBackupEmail(
           message.id,
           attachment.id,
           attachment.filename,
-        )
-        const bytes = archive.attachments.get(path.toLowerCase())
-        const objectKey = emailAttachmentObjectKey({
-          user_id: userId,
-          id: attachment.id,
-          mime: attachment.mime,
-          filename: attachment.filename,
-        })
+        ).toLowerCase()
+        const bytes = archive.attachments.get(path)
+        const id = await allocateAttachmentId(env, userId, attachment, bytes, existingAttachmentIds)
         if (attachment.missing === true) summary.missingAttachments++
         else if (bundle.includesAttachments && !bytes) summary.missingAttachments++
+
         if (bytes) {
-          const digest = await sha256Hex(bytes)
-          if (bytes.byteLength !== attachment.size) {
-            throw ApiError.badRequest(`The email attachment size does not match: ${attachment.filename}`)
-          }
-          if (attachment.sha256 && digest !== attachment.sha256) {
-            throw ApiError.badRequest(`The email attachment checksum does not match: ${attachment.filename}`)
-          }
-          if (!env.FILES) {
-            throw new ApiError(503, 'storage_unavailable', 'Email attachments require R2 storage')
-          }
-          await putAttachmentObject(env, 'r2', objectKey, bytes, {
+          const persisted = await persistEmailAttachment(env, {
+            id,
             userId,
-            objectId: attachment.id,
-            kind: 'attachment',
+            accountId: account.id,
+            emailId: message.id,
             filename: attachment.filename,
-            mime: attachment.mime,
-            sha256: digest,
+            reportedMime: attachment.mime,
+            bytes,
+            contentId: attachment.contentId,
+            disposition: attachment.disposition,
+            locked: attachment.locked,
+            createdAt: attachment.createdAt,
           })
-          summary.restoredAttachmentBytes += bytes.byteLength
-        }
-        const insertedAttachment = await insertAttachment(
-          env,
-          userId,
-          account.id,
-          message.id,
-          attachment,
-          objectKey,
-        )
-        if (insertedAttachment) {
-          summary.createdAttachments++
-          existingAttachmentIds.add(attachment.id)
+          await env.DB.prepare(
+            `UPDATE email_attachments SET folder_id = ?1, is_starred = ?2, is_pinned = ?3, tags = ?4
+              WHERE user_id = ?5 AND id = ?6`,
+          ).bind(
+            attachment.folderId,
+            attachment.starred ? 1 : 0,
+            attachment.pinned ? 1 : 0,
+            JSON.stringify(attachment.tags),
+            userId,
+            persisted.id,
+          ).run()
+          summary.restoredAttachmentBytes += persisted.size
         } else {
-          summary.skippedAttachments++
+          const objectKey = emailAttachmentObjectKey({
+            user_id: userId,
+            id,
+            mime: attachment.mime,
+            filename: attachment.filename,
+          })
+          await insertAttachment(env, userId, account.id, message.id, { ...attachment, id }, objectKey)
         }
+        summary.createdAttachments++
+        ownedAttachmentIds.add(id)
+        existingAttachmentIds.add(id)
       }
+    }
+
+    for (const link of account.messageTags) {
+      const tagId = tagMap.get(link.tagId)
+      if (tagId) await mailbox.importMessageTag({ ...link, tagId })
     }
   }
 
@@ -451,7 +627,7 @@ async function loadAccountAttachments(
 ): Promise<Map<string, EmailAttachmentRow[]>> {
   const { results } = await db.prepare(
     `SELECT id, email_id, account_id, filename, mime, size, width, height, content_id,
-            disposition, object_key, storage, locked, created_at
+            disposition, object_key, storage, folder_id, is_starred, is_pinned, tags, locked, created_at
        FROM email_attachments
       WHERE user_id = ?1 AND account_id = ?2 AND email_id IS NOT NULL
       ORDER BY created_at ASC, id ASC`,
@@ -466,12 +642,7 @@ async function loadAccountAttachments(
   return byMessage
 }
 
-async function attachmentSha256(
-  env: Env,
-  attachment: EmailAttachmentRow,
-  declared: string | undefined,
-): Promise<string> {
-  if (declared && HASH_RE.test(declared)) return declared
+async function attachmentSha256(env: Env, attachment: EmailAttachmentRow): Promise<string> {
   const object = await env.FILES!.get(attachment.object_key)
   if (!object) throw new Error(`Email attachment data is missing: ${attachment.filename}`)
   const bytes = new Uint8Array(await object.arrayBuffer())
@@ -497,10 +668,19 @@ async function openEmailAttachment(
   return object.body
 }
 
-function toBackupMessage(
-  row: EmailMessageRow,
-  attachments: EmailBackupAttachment[],
-): EmailBackupMessage {
+function attachmentTags(raw: string, attachmentId: string): string[] {
+  try {
+    const value: unknown = JSON.parse(raw)
+    if (!Array.isArray(value) || value.some((tag) => typeof tag !== 'string')) {
+      throw new Error('attachment tags are not a string array')
+    }
+    return value
+  } catch (error) {
+    throw new Error(`Email attachment tags could not be read (${attachmentId}): ${(error as Error).message}`)
+  }
+}
+
+function toBackupMessage(row: EmailMessageRow, attachments: EmailBackupAttachment[]): EmailBackupMessage {
   return {
     id: row.id,
     folderId: row.folder_id,
@@ -517,6 +697,7 @@ function toBackupMessage(
     muted: row.muted === 1,
     focused: row.focused === 1,
     followUpAt: row.follow_up_at,
+    snoozedUntil: row.snoozed_until,
     body: row.body,
     bodySource: row.body_source,
     inReplyTo: row.in_reply_to,
@@ -537,8 +718,54 @@ function toBackupMessage(
   }
 }
 
-function parseStoredSettings(raw: string): EmailBackupAccount['settings'] {
-  return storedObject(raw) as EmailBackupAccount['settings']
+async function loadAddressBook(db: D1Database, userId: string): Promise<{
+  contacts: EmailBackupContact[]
+  groups: EmailBackupGroup[]
+  groupMembers: EmailBackupGroupMember[]
+}> {
+  const { results: contactRows } = await db.prepare(
+    `SELECT id, email, name, company, notes, starred, pinned, avatar, usage_count, last_used_at, created_at, updated_at
+       FROM email_contacts WHERE user_id = ?1 ORDER BY created_at ASC, id ASC`,
+  ).bind(userId).all<EmailContactRow>()
+  const { results: groupRows } = await db.prepare(
+    `SELECT id, name, description, starred, pinned, avatar, created_at, updated_at
+       FROM email_groups WHERE user_id = ?1 ORDER BY created_at ASC, id ASC`,
+  ).bind(userId).all<EmailGroupRow>()
+  const { results: memberRows } = await db.prepare(
+    `SELECT group_id, contact_id, created_at FROM email_group_members
+      WHERE user_id = ?1 ORDER BY created_at ASC, group_id ASC, contact_id ASC`,
+  ).bind(userId).all<EmailGroupMemberRow>()
+  return {
+    contacts: contactRows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      name: row.name,
+      company: row.company,
+      notes: row.notes,
+      starred: row.starred === 1,
+      pinned: row.pinned === 1,
+      avatar: row.avatar,
+      usageCount: Number(row.usage_count),
+      lastUsedAt: row.last_used_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    })),
+    groups: groupRows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      starred: row.starred === 1,
+      pinned: row.pinned === 1,
+      avatar: row.avatar,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    })),
+    groupMembers: memberRows.map((row) => ({
+      groupId: row.group_id,
+      contactId: row.contact_id,
+      createdAt: row.created_at,
+    })),
+  }
 }
 
 function emptySummary(): EmailRestoreSummary {
@@ -568,13 +795,22 @@ async function restoreFolders(
 ): Promise<Map<string, string>> {
   const existing = await mailbox.getFolders()
   const byId = new Map(existing.map((folder) => [folder.id, folder.id]))
-  const byName = new Map(
-    existing
-      .filter((folder) => folder.parent_id === null)
-      .map((folder) => [folder.name.toLowerCase(), folder.id]),
-  )
+  const byName = new Map(existing.map((folder) => [
+    `${folder.parent_id ?? ''}\u0000${folder.name.toLowerCase()}`,
+    folder.id,
+  ]))
   const mapping = new Map<string, string>()
-  for (const folder of account.folders) {
+  const depth = (folder: EmailBackupFolder): number => {
+    let value = 0
+    let current: EmailBackupFolder | undefined = folder
+    while (current) {
+      value++
+      current = current.parentId ? account.folders.find((entry) => entry.id === current!.parentId) : undefined
+    }
+    return value
+  }
+  const folders = [...account.folders].sort((a, b) => depth(a) - depth(b) || a.sortOrder - b.sortOrder)
+  for (const folder of folders) {
     summary.folders++
     const exact = byId.get(folder.id)
     if (exact) {
@@ -582,9 +818,13 @@ async function restoreFolders(
       summary.skippedFolders++
       continue
     }
-    const named = byName.get(folder.name.toLowerCase())
+    const parentId = folder.parentId ? mapping.get(folder.parentId) : null
+    if (folder.parentId && !parentId) throw ApiError.badRequest('The email backup has an unresolved parent folder')
+    const key = `${parentId ?? ''}\u0000${folder.name.toLowerCase()}`
+    const named = byName.get(key)
     if (named) {
       mapping.set(folder.id, named)
+      byId.set(folder.id, named)
       summary.skippedFolders++
       continue
     }
@@ -593,21 +833,161 @@ async function restoreFolders(
       name: folder.name,
       isDeletable: folder.isDeletable,
       createdAt: folder.createdAt,
+      parentId: parentId ?? null,
+      color: folder.color,
+      sortOrder: folder.sortOrder,
     })
     if (created) {
       mapping.set(folder.id, folder.id)
       byId.set(folder.id, folder.id)
-      byName.set(folder.name.toLowerCase(), folder.id)
+      byName.set(key, folder.id)
       summary.createdFolders++
     } else {
       const refreshed = await mailbox.getFolders()
       const match = refreshed.find((row) => row.id === folder.id) ??
-        refreshed.find((row) => row.parent_id === null && row.name.toLowerCase() === folder.name.toLowerCase())
-      if (match) mapping.set(folder.id, match.id)
+        refreshed.find((row) => (row.parent_id ?? null) === parentId && row.name.toLowerCase() === folder.name.toLowerCase())
+      if (!match) throw ApiError.badRequest(`The email folder could not be restored: ${folder.name}`)
+      mapping.set(folder.id, match.id)
+      byId.set(folder.id, match.id)
+      byName.set(`${match.parent_id ?? ''}\u0000${match.name.toLowerCase()}`, match.id)
       summary.skippedFolders++
     }
   }
   return mapping
+}
+
+async function restoreTags(
+  mailbox: ReturnType<typeof emailMailbox>,
+  account: EmailBackupAccount,
+): Promise<Map<string, string>> {
+  const existing = await mailbox.listTags()
+  const byId = new Map(existing.map((tag) => [tag.id, tag.id]))
+  const byName = new Map(existing.map((tag) => [tag.name.toLowerCase(), tag.id]))
+  const mapping = new Map<string, string>()
+  for (const tag of account.tags) {
+    const id = byId.get(tag.id) ?? byName.get(tag.name.toLowerCase())
+    if (id) {
+      mapping.set(tag.id, id)
+      continue
+    }
+    if (await mailbox.importTag(tag)) {
+      mapping.set(tag.id, tag.id)
+      byId.set(tag.id, tag.id)
+      byName.set(tag.name.toLowerCase(), tag.id)
+      continue
+    }
+    const refreshed = await mailbox.listTags()
+    const match = refreshed.find((entry) => entry.id === tag.id) ??
+      refreshed.find((entry) => entry.name.toLowerCase() === tag.name.toLowerCase())
+    if (!match) throw ApiError.badRequest(`The email tag could not be restored: ${tag.name}`)
+    mapping.set(tag.id, match.id)
+  }
+  return mapping
+}
+
+async function restoreAddressBook(db: D1Database, userId: string, bundle: EmailBackupBundle): Promise<void> {
+  const { results: contactRows } = await db.prepare(
+    `SELECT id, user_id, email_normalized FROM email_contacts`,
+  ).all<{ id: string; user_id: string; email_normalized: string }>()
+  const { results: groupRows } = await db.prepare(
+    `SELECT id, user_id, name FROM email_groups`,
+  ).all<{ id: string; user_id: string; name: string }>()
+  const contactIds = new Set(contactRows.map((row) => row.id))
+  const groupIds = new Set(groupRows.map((row) => row.id))
+  const ownedContacts = new Map(contactRows.filter((row) => row.user_id === userId).map((row) => [row.email_normalized, row.id]))
+  const ownedContactIds = new Map(contactRows.filter((row) => row.user_id === userId).map((row) => [row.id, row.id]))
+  const ownedGroups = new Map(groupRows.filter((row) => row.user_id === userId).map((row) => [row.name.toLowerCase(), row.id]))
+  const ownedGroupIds = new Map(groupRows.filter((row) => row.user_id === userId).map((row) => [row.id, row.id]))
+  const contactMap = new Map<string, string>()
+  const groupMap = new Map<string, string>()
+
+  for (const contact of bundle.contacts) {
+    const email = contact.email.toLowerCase()
+    const existingId = ownedContactIds.get(contact.id) ?? ownedContacts.get(email)
+    if (existingId) {
+      contactMap.set(contact.id, existingId)
+      continue
+    }
+    let id = contact.id
+    while (contactIds.has(id)) id = newId()
+    const result = await db.prepare(
+      `INSERT OR IGNORE INTO email_contacts (
+         id, user_id, email, email_normalized, name, company, notes, starred, pinned, avatar,
+         usage_count, last_used_at, created_at, updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
+    ).bind(
+      id,
+      userId,
+      contact.email,
+      email,
+      contact.name,
+      contact.company,
+      contact.notes,
+      contact.starred ? 1 : 0,
+      contact.pinned ? 1 : 0,
+      contact.avatar,
+      contact.usageCount,
+      contact.lastUsedAt,
+      contact.createdAt,
+      contact.updatedAt,
+    ).run()
+    if (!result.meta.changes) {
+      const existing = await db.prepare(
+        `SELECT id FROM email_contacts WHERE user_id = ?1 AND email_normalized = ?2`,
+      ).bind(userId, email).first<{ id: string }>()
+      if (!existing) throw new Error(`The email contact could not be restored: ${contact.email}`)
+      contactMap.set(contact.id, existing.id)
+      continue
+    }
+    contactIds.add(id)
+    contactMap.set(contact.id, id)
+  }
+
+  for (const group of bundle.groups) {
+    const name = group.name.toLowerCase()
+    const existingId = ownedGroupIds.get(group.id) ?? ownedGroups.get(name)
+    if (existingId) {
+      groupMap.set(group.id, existingId)
+      continue
+    }
+    let id = group.id
+    while (groupIds.has(id)) id = newId()
+    const result = await db.prepare(
+      `INSERT OR IGNORE INTO email_groups (
+         id, user_id, name, description, starred, pinned, avatar, created_at, updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    ).bind(
+      id,
+      userId,
+      group.name,
+      group.description,
+      group.starred ? 1 : 0,
+      group.pinned ? 1 : 0,
+      group.avatar,
+      group.createdAt,
+      group.updatedAt,
+    ).run()
+    if (!result.meta.changes) {
+      const existing = await db.prepare(
+        `SELECT id FROM email_groups WHERE user_id = ?1 AND name = ?2 COLLATE NOCASE`,
+      ).bind(userId, group.name).first<{ id: string }>()
+      if (!existing) throw new Error(`The email group could not be restored: ${group.name}`)
+      groupMap.set(group.id, existing.id)
+      continue
+    }
+    groupIds.add(id)
+    groupMap.set(group.id, id)
+  }
+
+  for (const member of bundle.groupMembers) {
+    const groupId = groupMap.get(member.groupId)
+    const contactId = contactMap.get(member.contactId)
+    if (!groupId || !contactId) throw ApiError.badRequest('The email backup has an unresolved group member')
+    await db.prepare(
+      `INSERT OR IGNORE INTO email_group_members (user_id, group_id, contact_id, created_at)
+       VALUES (?1, ?2, ?3, ?4)`,
+    ).bind(userId, groupId, contactId, member.createdAt).run()
+  }
 }
 
 function declaredAttachmentPaths(bundle: EmailBackupBundle): Map<string, true> {
@@ -632,11 +1012,36 @@ function declaredAttachmentPaths(bundle: EmailBackupBundle): Map<string, true> {
   return paths
 }
 
-async function loadExistingAttachmentIds(db: D1Database, userId: string): Promise<Set<string>> {
-  const { results } = await db.prepare(
-    `SELECT id FROM email_attachments WHERE user_id = ?1`,
-  ).bind(userId).all<{ id: string }>()
+async function loadExistingAttachmentIds(db: D1Database): Promise<Set<string>> {
+  const { results } = await db.prepare(`SELECT id FROM email_attachments`).all<{ id: string }>()
   return new Set(results.map((row) => row.id))
+}
+
+async function loadOwnedAttachmentIds(db: D1Database, userId: string): Promise<Set<string>> {
+  const { results } = await db.prepare(`SELECT id FROM email_attachments WHERE user_id = ?1`)
+    .bind(userId).all<{ id: string }>()
+  return new Set(results.map((row) => row.id))
+}
+
+async function allocateAttachmentId(
+  env: Env,
+  userId: string,
+  attachment: EmailBackupAttachment,
+  bytes: Uint8Array | undefined,
+  existingIds: Set<string>,
+): Promise<string> {
+  const filename = sanitizeAttachmentFilename(attachment.filename)
+  let mime = attachment.mime
+  if (bytes) {
+    mime = safeAttachmentMime(bytes, mime)
+    if (!hasReasonableImageDimensions(readImageSize(bytes, mime))) mime = 'application/octet-stream'
+  }
+  let id = attachment.id
+  for (;;) {
+    const key = emailAttachmentObjectKey({ user_id: userId, id, mime, filename })
+    if (!existingIds.has(id) && (!env.FILES || !await env.FILES.head(key))) return id
+    id = newId()
+  }
 }
 
 async function insertAttachment(
@@ -646,13 +1051,13 @@ async function insertAttachment(
   messageId: string,
   attachment: EmailBackupAttachment,
   objectKey: string,
-): Promise<boolean> {
-  const result = await env.DB.prepare(
-    `INSERT OR IGNORE INTO email_attachments (
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO email_attachments (
        id, user_id, account_id, email_id, filename, mime, size, width, height,
        content_id, disposition, object_key, storage, folder_id, is_starred,
        is_pinned, tags, locked, created_at
-     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'r2', NULL, 0, 0, '[]', ?13, ?14)`,
+     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'r2', ?13, ?14, ?15, ?16, ?17, ?18)`,
   ).bind(
     attachment.id,
     userId,
@@ -666,10 +1071,13 @@ async function insertAttachment(
     attachment.contentId,
     attachment.disposition,
     objectKey,
+    attachment.folderId,
+    attachment.starred ? 1 : 0,
+    attachment.pinned ? 1 : 0,
+    JSON.stringify(attachment.tags),
     attachment.locked ? 1 : 0,
     attachment.createdAt,
   ).run()
-  return Number(result.meta.changes ?? 0) > 0
 }
 
 function addWarning(summary: EmailRestoreSummary, message: string): void {
