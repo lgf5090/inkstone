@@ -20,6 +20,7 @@ const account: EmailAccount = {
 const folders: EmailFolder[] = [
   { id: 'inbox', name: 'Inbox', isDeletable: false, unreadCount: 1, totalCount: 1, parentId: null, color: null, sortOrder: 0 },
   { id: 'draft', name: 'Drafts', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
+  { id: 'archive', name: 'Archive', isDeletable: false, unreadCount: 0, totalCount: 0, parentId: null, color: null, sortOrder: 0 },
 ]
 
 function message(patch: Partial<EmailMessage>): EmailMessage {
@@ -54,6 +55,7 @@ const refresh = vi.fn(async () => undefined)
 let view: RenderedElement | null = null
 
 beforeEach(() => {
+  refresh.mockClear()
   useEmailStore.setState(original, true)
   useEmailStore.setState({ refresh })
 })
@@ -72,6 +74,43 @@ function button(label: string): HTMLButtonElement {
   if (!found) throw new Error(`no button named ${label}`)
   return found
 }
+
+describe('thread operations', () => {
+  it('moves every message in the open thread through the batch API', async () => {
+    const batch = vi.spyOn(api.email, 'batchEmails').mockResolvedValue({ updated: 2 })
+    const onClosed = vi.fn()
+    const first = message({ id: 'm1', threadId: 't1' })
+    const second = message({ id: 'm2', threadId: 't1', body: '<p>Second</p>' })
+    view = renderElement(createElement(MessagePane, {
+      account,
+      folderId: 'inbox',
+      summary: first,
+      thread: [first, second],
+      threadStatus: 'ready',
+      threadError: null,
+      selectedStatus: 'ready',
+      selectedError: null,
+      folders,
+      compose: null,
+      draftId: null,
+      onCompose: vi.fn(),
+      onEditDraft: vi.fn(),
+      onCancelCompose: vi.fn(),
+      onClosed,
+      onReload: vi.fn(),
+      onSnooze: vi.fn(),
+    }))
+
+    const move = document.querySelector<HTMLButtonElement>(`button[aria-label="${t('email.detail.move')}"]`)!
+    act(() => { move.click() })
+    const archive = [...document.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]')]
+      .find((node) => node.textContent?.trim() === t('email.folder.archive'))!
+    await act(async () => { archive.click() })
+
+    expect(batch).toHaveBeenCalledWith('a1', { action: 'move', folderId: 'archive', ids: ['m1', 'm2'] })
+    expect(onClosed).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('sending a draft inside a thread', () => {
   it('sends the inline draft and refreshes the thread', async () => {

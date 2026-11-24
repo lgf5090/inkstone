@@ -12,6 +12,7 @@ import {
   FolderInput,
   Forward,
   Mail,
+  MailCheck,
   MailOpen,
   Printer,
   Reply,
@@ -37,7 +38,7 @@ import { emailMarkdownSource, looksLikeMarkdown } from './markdown-reading'
 import { SourceDialog } from './SourceDialog'
 import { ThreadMessage } from './ThreadMessage'
 import { ComposePanel } from './ComposePanel'
-import { canSnoozeMessage, blockSenderMessage, followUpMenuItems, requestEmailFollowUp, requestImportantToggle, requestThreadMute, snoozeMenuItems } from './MessageRow'
+import { canSnoozeMessage, blockSenderMessage, followUpMenuItems, requestEmailFollowUp, requestFocusedToggle, requestImportantToggle, requestThreadMute, snoozeMenuItems } from './MessageRow'
 
 const TOOLBAR_BUTTON = 'size-11 md:size-7'
 const PRINT_HTML_TAG = /<[a-z][\s\S]*>/i
@@ -180,8 +181,8 @@ export function MessagePane({
 }) {
   const toggleStar = useEmailStore((state) => state.toggleStar)
   const setRead = useEmailStore((state) => state.setRead)
-  const moveMessage = useEmailStore((state) => state.moveMessage)
   const deleteMessage = useEmailStore((state) => state.deleteMessage)
+  const batchEmails = useEmailStore((state) => state.batchEmails)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [markdownOverride, setMarkdownOverride] = useState<boolean | null>(null)
   const [sourceOpen, setSourceOpen] = useState(false)
@@ -280,7 +281,10 @@ export function MessagePane({
     })
     if (!ok) return
     setBusy(true)
-    const removed = await deleteMessage(account.id, summary.id, permanent)
+    const ids = messages.map((message) => message.id)
+    const removed = permanent
+      ? (await Promise.all(ids.map((id) => deleteMessage(account.id, id, true)))).every(Boolean)
+      : await batchEmails(account.id, 'trash', undefined, ids)
     setBusy(false)
     if (removed) onClosed()
   }
@@ -288,7 +292,7 @@ export function MessagePane({
   const moveTo = async (target: string): Promise<void> => {
     setMoveOpen(false)
     setBusy(true)
-    const moved = await moveMessage(account.id, summary.id, target)
+    const moved = await batchEmails(account.id, 'move', target, messages.map((message) => message.id))
     setBusy(false)
     if (moved) onClosed()
   }
@@ -317,6 +321,12 @@ export function MessagePane({
   const toggleImportant = async (): Promise<void> => {
     setBusy(true)
     await requestImportantToggle(summary)
+    setBusy(false)
+  }
+
+  const toggleFocused = async (): Promise<void> => {
+    setBusy(true)
+    await requestFocusedToggle(summary)
     setBusy(false)
   }
 
@@ -462,6 +472,18 @@ export function MessagePane({
                 onClick={() => { void toggleImportant() }}
               >
                 <Flag size={15} fill={summary.important ? 'currentColor' : 'none'} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip label={summary.focused ? t('email.focused.unmark') : t('email.focused.mark')}>
+              <IconButton
+                label={summary.focused ? t('email.focused.unmark') : t('email.focused.mark')}
+                size="sm"
+                className={TOOLBAR_BUTTON}
+                active={summary.focused}
+                disabled={busy}
+                onClick={() => { void toggleFocused() }}
+              >
+                <MailCheck size={15} />
               </IconButton>
             </Tooltip>
             <Tooltip label={summary.muted ? t('email.mute.unmute') : t('email.mute.thread')}>

@@ -202,6 +202,7 @@ interface EmailState {
   setRead: (accountId: string, messageId: string, read: boolean) => Promise<boolean>
   toggleStar: (accountId: string, messageId: string) => Promise<boolean>
   toggleImportant: (accountId: string, messageId: string) => Promise<boolean>
+  setFocused: (accountId: string, messageId: string, focused: boolean) => Promise<boolean>
   muteThread: (accountId: string, threadId: string, muted: boolean) => Promise<boolean>
   setFollowUp: (accountId: string, messageId: string, at: string | null) => Promise<boolean>
   moveMessage: (accountId: string, messageId: string, folderId: string) => Promise<boolean>
@@ -1018,6 +1019,46 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           thread: updateThread(current.thread, messageId, { important: summary.important }),
           selectedMessage: current.selectedMessage?.id === messageId
             ? { ...current.selectedMessage, important: summary.important }
+            : current.selectedMessage,
+          actionError: emailErrorText(reason),
+        }))
+      }
+      return false
+    }
+  },
+
+  setFocused: async (accountId, messageId, focused) => {
+    const state = get()
+    const summary = findSummary(state, messageId)
+    if (!summary || summary.focused === focused) return true
+    const version = beginMutation(accountId, messageId)
+    set({
+      messages: updateSummary(state.messages, messageId, { focused }),
+      trash: updateSummary(state.trash, messageId, { focused }),
+      thread: updateThread(state.thread, messageId, { focused }),
+      selectedMessage: state.selectedMessage?.id === messageId
+        ? { ...state.selectedMessage, focused }
+        : state.selectedMessage,
+    })
+    try {
+      const updated = await api.email.updateEmail(accountId, messageId, { focused })
+      if (!isCurrentMutation(accountId, messageId, version)) return true
+      set({
+        messages: updateSummary(get().messages, messageId, { focused: updated.focused }),
+        trash: updateSummary(get().trash, messageId, { focused: updated.focused }),
+        thread: updateThread(get().thread, messageId, { focused: updated.focused }),
+        actionError: null,
+      })
+      await get().refresh()
+      return true
+    } catch (reason) {
+      if (isCurrentMutation(accountId, messageId, version)) {
+        set((current) => ({
+          messages: updateSummary(current.messages, messageId, { focused: summary.focused }),
+          trash: updateSummary(current.trash, messageId, { focused: summary.focused }),
+          thread: updateThread(current.thread, messageId, { focused: summary.focused }),
+          selectedMessage: current.selectedMessage?.id === messageId
+            ? { ...current.selectedMessage, focused: summary.focused }
             : current.selectedMessage,
           actionError: emailErrorText(reason),
         }))

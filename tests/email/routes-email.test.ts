@@ -880,6 +880,18 @@ describe('email updates, trash and moves', () => {
     expect((await call('GET', `/accounts/${accountId}/search?is_focused=maybe`)).status).toBe(400)
   })
 
+  it('moves a message between Focused and Other', async () => {
+    const id = newId()
+    seedMessage(id, { focused: false })
+    const focused = await call('PATCH', `/accounts/${accountId}/emails/${id}`, { focused: true })
+    expect(focused.status).toBe(200)
+    expect(await json<EmailMessage>(focused)).toMatchObject({ id, focused: true })
+    const other = await call('PATCH', `/accounts/${accountId}/emails/${id}`, { focused: false })
+    expect(other.status).toBe(200)
+    expect(await json<EmailMessage>(other)).toMatchObject({ id, focused: false })
+    expect((await call('PATCH', `/accounts/${accountId}/emails/${id}`, { focused: 'yes' })).status).toBe(400)
+  })
+
   it('soft-deletes, restores and permanently deletes a message with attachments', async () => {
     const messageId = newId()
     seedMessage(messageId)

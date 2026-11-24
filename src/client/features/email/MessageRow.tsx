@@ -3,7 +3,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
-import { AlarmClock, Archive, Bell, BellOff, Check, Clock, Flag, FolderInput, Mail, MailOpen, Minus, Paperclip, RefreshCw, ShieldBan, Star, Tag, Trash2 } from 'lucide-react'
+import { AlarmClock, Archive, Bell, BellOff, Check, Clock, Flag, FolderInput, Mail, MailCheck, MailOpen, Minus, Paperclip, RefreshCw, ShieldBan, Star, Tag, Trash2 } from 'lucide-react'
 import type { EmailFolder, EmailSummary, EmailTag } from '@shared/email/model'
 import { isEmailSystemFolder } from '@shared/email/model'
 import { cn } from '../../lib/cn'
@@ -94,6 +94,18 @@ export async function requestImportantToggle(message: EmailSummary): Promise<boo
   }
   const ok = await state.toggleImportant(state.accountId, message.id)
   if (ok) useUi.getState().toast({ title: t(message.important ? 'email.important.unmarked' : 'email.important.marked'), tone: 'success' })
+  return ok
+}
+
+export async function requestFocusedToggle(message: EmailSummary): Promise<boolean> {
+  const state = useEmailStore.getState()
+  if (!state.accountId) {
+    useUi.getState().toast({ title: t('email.toast.failed'), tone: 'danger' })
+    return false
+  }
+  const focused = !message.focused
+  const ok = await state.setFocused(state.accountId, message.id, focused)
+  if (ok) useUi.getState().toast({ title: t(focused ? 'email.focused.marked' : 'email.focused.unmarked'), tone: 'success' })
   return ok
 }
 
@@ -280,6 +292,14 @@ export function MessageRow({
           label: t(message.important ? 'email.important.unmark' : 'email.important.mark'),
           icon: <Flag size={13} fill={message.important ? 'currentColor' : 'none'} />,
           onSelect: () => { void requestImportantToggle(message) },
+        }]
+      : []),
+    ...(canSnoozeMessage(message.folderId)
+      ? [{
+          id: 'focused',
+          label: t(message.focused ? 'email.focused.unmark' : 'email.focused.mark'),
+          icon: <MailCheck size={13} />,
+          onSelect: () => { void requestFocusedToggle(message) },
         }]
       : []),
     ...(canSnoozeMessage(message.folderId) && message.threadId

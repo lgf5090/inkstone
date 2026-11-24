@@ -29,6 +29,7 @@ function summary(patch: Partial<EmailSummary> = {}): EmailSummary {
     starred: false,
     important: false,
     muted: false,
+    focused: false,
     followUpAt: null,
     threadId: 't1',
     threadCount: 1,
@@ -122,6 +123,20 @@ describe('message flag menus', () => {
     view.unmount()
   })
 
+  it('moves a message into Focused from its menu', async () => {
+    const row = summary({ focused: false })
+    useEmailStore.setState({ messages: [row], total: 1, listStatus: 'ready' })
+    const update = vi.spyOn(api.email, 'updateEmail').mockResolvedValue(message({ ...row, focused: true }))
+    const view = renderRow(row)
+
+    openContextMenu()
+    act(() => { menuItem(t('email.focused.mark'))!.click() })
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1))
+    expect(update).toHaveBeenCalledWith('a1', row.id, { focused: true })
+    expect(useEmailStore.getState().messages[0]?.focused).toBe(true)
+    view.unmount()
+  })
+
   it('mutes and unmutes the thread from its menu', async () => {
     const row = summary({ muted: true })
     const mute = vi.spyOn(api.email, 'muteThread').mockResolvedValue(undefined)
@@ -171,6 +186,7 @@ describe('message flag menus', () => {
       const view = renderRow(summary({ folderId }))
       openContextMenu()
       expect(menuItem(t('email.important.mark'))).toBeNull()
+      expect(menuItem(t('email.focused.mark'))).toBeNull()
       expect(menuItem(t('email.mute.thread'))).toBeNull()
       expect(menuItem(t('email.followup.menu'))).toBeNull()
       view.unmount()

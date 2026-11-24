@@ -1014,11 +1014,11 @@ emailRoutes.get('/accounts/:id/emails/:messageId/raw', async (c) => {
 emailRoutes.patch('/accounts/:id/emails/:messageId', async (c) => {
   const row = await requireAccount(c, c.req.param('id') ?? '')
   const id = messageIdParam(c.req.param('messageId') ?? '')
-  const body = await readJson<{ read?: unknown; starred?: unknown; important?: unknown; muted?: unknown }>(
+  const body = await readJson<{ read?: unknown; starred?: unknown; important?: unknown; muted?: unknown; focused?: unknown }>(
     c,
     JSON_BODY_LIMITS.small,
   )
-  const patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean } = {}
+  const patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean; focused?: boolean } = {}
   if (body.read !== undefined) {
     if (typeof body.read !== 'boolean') throw ApiError.badRequest('The read flag must be a boolean')
     patch.read = body.read
@@ -1035,8 +1035,12 @@ emailRoutes.patch('/accounts/:id/emails/:messageId', async (c) => {
     if (typeof body.muted !== 'boolean') throw ApiError.badRequest('The muted flag must be a boolean')
     patch.muted = body.muted
   }
+  if (body.focused !== undefined) {
+    if (typeof body.focused !== 'boolean') throw ApiError.badRequest('The focused flag must be a boolean')
+    patch.focused = body.focused
+  }
   if (Object.keys(patch).length === 0) {
-    throw ApiError.badRequest('A read, starred, important or muted flag is required')
+    throw ApiError.badRequest('A read, starred, important, muted or focused flag is required')
   }
   const message = await emailMailbox(c.env, row.id).updateEmail(id, patch)
   if (!message) throw messageNotFound()

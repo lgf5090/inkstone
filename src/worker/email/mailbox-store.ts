@@ -1016,7 +1016,7 @@ export class MailboxStore {
     ))
   }
 
-  updateEmail(id: string, patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean }): EmailRow | null {
+  updateEmail(id: string, patch: { read?: boolean; starred?: boolean; important?: boolean; muted?: boolean; focused?: boolean }): EmailRow | null {
     const sets: string[] = []
     const bindings: unknown[] = []
     if (patch.read !== undefined) {
@@ -1034,6 +1034,10 @@ export class MailboxStore {
     if (patch.muted !== undefined) {
       sets.push('muted = ?')
       bindings.push(patch.muted ? 1 : 0)
+    }
+    if (patch.focused !== undefined) {
+      sets.push('focused = ?')
+      bindings.push(patch.focused ? 1 : 0)
     }
     if (!sets.length) return this.getEmail(id)
     sets.push('updated_at = ?')

@@ -1612,7 +1612,7 @@ export const api = {
       request<EmailListResponse>(`/api/email/accounts/${id}/emails${toQuery(params)}`),
     getEmail: (id: string, messageId: string) =>
       request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`),
-    updateEmail: (id: string, messageId: string, body: { read?: boolean, starred?: boolean, important?: boolean, muted?: boolean }) =>
+    updateEmail: (id: string, messageId: string, body: { read?: boolean, starred?: boolean, important?: boolean, muted?: boolean, focused?: boolean }) =>
       request<EmailMessage>(`/api/email/accounts/${id}/emails/${messageId}`, { method: 'PATCH', body }),
     snoozeEmail: (id: string, messageId: string, until: string | number) =>
       request<EmailSnoozeResult>(`/api/email/accounts/${id}/emails/${messageId}/snooze`, {
