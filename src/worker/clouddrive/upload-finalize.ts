@@ -513,7 +513,7 @@ export async function completeUploadSession(
   }
 }
 
-async function pruneVersions(
+export async function pruneVersions(
   db: D1Database,
   bucket: Env['FILES'],
   userId: string,

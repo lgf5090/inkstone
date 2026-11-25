@@ -17,9 +17,9 @@
 - [x] SEC-07 分享预算、Cookie 与路径隐私收口
 - [x] SEC-08 公开请求上传流式限长与额度预留
 - [x] SEC-09 离线缓存按用户隔离
-- [ ] SEC-10 WebDAV 覆盖写与分布式 COPY 修复
+- [x] SEC-10 WebDAV 覆盖写与分布式 COPY 修复
 - [ ] SEC-11 文件夹上传父失败时跳过整个子树
-- [ ] SEC-12 API Key 增加只读 scope
+- [x] SEC-12 API Key 增加只读 scope
 - [x] SEC-13 驱动统一出站 SSRF 护栏
 - [x] SEC-14 ACL 用户名枚举与通用错误响应
 - [ ] LOG-01 客户端正确处理 207 部分成功
@@ -82,7 +82,6 @@
 | FEAT-13 | IN PROGRESS | 16cd1663 | 音视频续播与账号隔离已实现；HEIC/转码仍待评估 |
 | FEAT-06 | IN PROGRESS | 75215bf8 | 增量 SHA-256 工具与测试通过；上传去重协议待接 |
 | FEAT-14 | IN PROGRESS | 8b35bf97 | 列表/网格/相册启用 content-visibility；大列表性能实测待做 |
-| SEC-12 | IN PROGRESS | 97b6acc0 | scope 模型与迁移兼容测试通过；DAV 方法级检查待接 |
 | UX-01～06 | DONE | 本次提交 | 7 文件 16 项 UX 测试、i18n、ESLint、Stylelint 通过；构建通过 |
 | UX-09 | IN PROGRESS | 84248129 | 新增 gates:full；全量类型、测试与构建待跑 |
 | QA-02 | IN PROGRESS | - | 有头 Chrome 已进入 CloudDrive；配置导出 200；直传 FixedLengthStream 回归待修 |
@@ -90,6 +89,8 @@
 | SEC-14 | DONE | 本次提交 | ACL 用户名探测 5 次后 429 |
 | SEC-08 | DONE | 本次提交 | 公开请求 5 项通过；未知长度有界缓冲、已知长度 FixedLengthStream、额度预留与原子退款 |
 | SEC-09 | DONE | 本次提交 | 离线 store 8 项通过；同入口 ID 在不同账号数据库间隔离 |
+| SEC-10 | DONE | 本次提交 | WebDAV 覆盖保持 ID/标签/收藏/ACL/分享并生成版本；分布式 COPY 501 |
+| SEC-12 | DONE | 97b6acc0 + 本次提交 | 只读 Key PROPFIND 200、PUT 401；写 Key PUT 201 |
 
 ## 验证命令
 

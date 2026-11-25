@@ -305,6 +305,8 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.keys.name': '密钥名称',
   'clouddrive.keys.scopes': '作用域',
   'clouddrive.keys.webdav': 'WebDAV',
+  'clouddrive.keys.webdav_read': 'WebDAV 只读',
+  'clouddrive.keys.webdav_write': 'WebDAV 读写',
   'clouddrive.keys.webdav_hint': '密钥以用户名 “apikey” 登录 WebDAV 端点。',
   'clouddrive.keys.path_prefix': '目录范围',
   'clouddrive.keys.path_prefix_hint': '该密钥只能访问此目录及其内部内容。',

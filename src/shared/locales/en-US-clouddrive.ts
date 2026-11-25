@@ -305,6 +305,8 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.keys.name': 'Key name',
   'clouddrive.keys.scopes': 'Scopes',
   'clouddrive.keys.webdav': 'WebDAV',
+  'clouddrive.keys.webdav_read': 'WebDAV read only',
+  'clouddrive.keys.webdav_write': 'WebDAV read and write',
   'clouddrive.keys.webdav_hint': 'Keys sign in to the WebDAV endpoint as the username "apikey".',
   'clouddrive.keys.path_prefix': 'Folder limit',
   'clouddrive.keys.path_prefix_hint': 'The key can only reach this folder and what is inside it.',

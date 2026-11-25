@@ -26,7 +26,7 @@ export function ApiKeysPage() {
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
-  const [scopes, setScopes] = useState<string[]>([...CLOUDDRIVE_KEY_SCOPES])
+  const [scopes, setScopes] = useState<string[]>(['webdav:read'])
   const [pathPrefix, setPathPrefix] = useState('/')
   const [days, setDays] = useState('365')
   const [token, setToken] = useState<string | null>(null)
@@ -69,7 +69,7 @@ export function ApiKeysPage() {
               <code className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{key.prefix}…</code>
               <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{key.scopes.join(', ')}</span>
               <code className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{key.pathPrefix}</code>
-              <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleDateString() : '—'}</span>
+              <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]" title={t('clouddrive.keys.last_used')} aria-label={t('clouddrive.keys.last_used')}>{key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleDateString() : '—'}</span>
               <IconButton label={t('clouddrive.keys.revoke')} onClick={async () => { if (!(await confirm({ title: t('clouddrive.keys.revoke'), description: key.name, tone: 'danger' }))) return; try { await clouddriveApi.revokeKey(key.id); await load() } catch (error) { toast({ title: t('clouddrive.toast.failed'), description: String(error), tone: 'danger' }) } }}><Trash2 size={13} /></IconButton>
             </li>
           ))}
@@ -80,14 +80,18 @@ export function ApiKeysPage() {
           <Field label={t('clouddrive.keys.name')}><Input value={name} onChange={(event) => setName(event.target.value)} /></Field>
           <Field label={t('clouddrive.keys.scopes')}>
             <div className="flex flex-wrap gap-3 text-[length:var(--text-12)]">
-              {CLOUDDRIVE_KEY_SCOPES.map((scope: CloudDriveKeyScope) => (
+              {CLOUDDRIVE_KEY_SCOPES.filter((scope) => scope !== 'webdav').map((scope: CloudDriveKeyScope) => (
                 <label key={scope} className="flex items-center gap-1.5">
                   <input
                     type="checkbox"
                     checked={scopes.includes(scope)}
                     onChange={() => setScopes(scopes.includes(scope) ? scopes.filter((item) => item !== scope) : [...scopes, scope])}
                   />
-                  {t(`clouddrive.keys.${scope}` as Parameters<typeof t>[0])}
+                  {t(scope === 'webdav:read'
+                    ? 'clouddrive.keys.webdav_read'
+                    : scope === 'webdav:write'
+                      ? 'clouddrive.keys.webdav_write'
+                      : 'clouddrive.keys.webdav')}
                 </label>
               ))}
             </div>
