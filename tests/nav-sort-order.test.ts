@@ -32,7 +32,11 @@ describe('nav reorder requests', () => {
     useSession.setState({ user: USER })
     const order = vi.spyOn(navApi, 'orderLinks').mockResolvedValue({ ok: true })
     vi.spyOn(navApi, 'bootstrap').mockResolvedValue(BOOTSTRAP)
-    useNavStore.setState({ status: 'ready', unlocks: { 'cat-a': at('token-a'), 'cat-b': at('token-b') } })
+    const expiresAt = Date.now() + 60_000
+    useNavStore.setState({ status: 'ready', unlocks: {
+      'cat-a': { token: 'token-a', expiresAt },
+      'cat-b': { token: 'token-b', expiresAt },
+    } })
     const ids = ['a'.repeat(26), 'b'.repeat(26)]
 
     await useNavStore.getState().reorderLinks('pinned', ids)

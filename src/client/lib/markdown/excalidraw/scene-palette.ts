@@ -1,7 +1,7 @@
 /**
  * Literal colours written into Excalidraw scenes and handed to the canvas engine.
  *
- * Scene JSON is rendered outside this page's CSS cascade, so `var(--pele-*)` is not a colour the engine
+ * Scene JSON is rendered outside this page's CSS cascade, so Pele CSS custom properties are not colours
  * can use. Keep the serialized values here, matching the colours they replaced, rather than growing
  * another set of inline literals in each converter or starter.
  */

@@ -174,6 +174,8 @@ describe('the task delta', () => {
   it('rides the main sync response when todosSince names the cursor', async () => {
     const past = Date.now() - 10_000
     insertTask('t1', 'In the note response', { updatedAt: past + 1_000 })
+    sqlite.prepare(`INSERT INTO changes (seq, user_id, entity, entity_id, op, at) VALUES (1, ?, 'note', 'n1', 'upsert', ?)`)
+      .run(USER, past)
     const body = await get(`/api/sync?since=1&todosSince=${past}`) as SyncResponse
     expect(body.full).toBe(false)
     expect(body.todos?.map((task) => task.id)).toEqual(['t1'])

@@ -27,9 +27,12 @@ const AS_NEVER_CAP = 30
 /** The files that build their `Env` with `testBindings`, so their own casts must stay gone. */
 const BOUND_BY_THE_FACTORY = [
   'tests/assistant-routes.test.ts',
+  'tests/backup-automation-roundtrip.test.ts',
+  'tests/backup-quickadd-export.test.ts',
   'tests/backup-snapshot-templates.test.ts',
   'tests/do-auth-guard.test.ts',
   'tests/excalidraw-official-catalog-route.test.ts',
+  'tests/notes-lock-route.test.ts',
   'tests/notes-pinned-view.test.ts',
 ]
 

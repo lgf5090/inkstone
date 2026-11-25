@@ -15,15 +15,16 @@ import {
   sealNote,
 } from '../src/shared/crypto'
 import { errorResponse } from '../src/worker/lib/errors'
-import type { AppBindings } from '../src/worker/env'
+import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 
 const USER = 'user-a'
 const FAST = { iterations: NOTE_LOCK_KDF_MIN_ITERATIONS }
 
 let sqlite: DatabaseSync
 let app: Hono<AppBindings>
-let env: { DB: D1Database }
+let env: Env
 const ctx: ExecutionContext = { waitUntil: () => {}, passThroughOnException: () => {}, props: {} }
 
 function seedNote(): void {
@@ -66,14 +67,14 @@ async function patch(body: Record<string, unknown>): Promise<Response> {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  }), env as never, ctx)
+  }), env, ctx)
 }
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   sqlite.exec('CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(note_id, user_id, title, body, tokenize = "unicode61 remove_diacritics 2")')
-  env = { DB: makeD1(sqlite) }
+  env = testBindings(makeD1(sqlite))
   app = new Hono<AppBindings>()
   app.onError((err, c) => errorResponse(c, err))
   app.use('*', async (c, next) => {
@@ -206,7 +207,7 @@ describe('a sealed note writes only ciphertext', () => {
     const session = await NoteLockSession.create('pw', FAST)
     const sealed = await sealNote(session, 'n1', { title: 'Secret title', content: 'visible body' })
     expect((await patch({ rev: 1, title: sealed.title, content: sealed.content, isEncrypted: true })).status).toBe(200)
-    const response = await app.fetch(new Request('http://localhost/api/notes/n1/duplicate', { method: 'POST' }), env as never, ctx)
+    const response = await app.fetch(new Request('http://localhost/api/notes/n1/duplicate', { method: 'POST' }), env, ctx)
     expect(response.status).toBe(409)
   })
 })

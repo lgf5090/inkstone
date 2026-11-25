@@ -973,7 +973,6 @@ describe('converged z-index keeps using the token scale', () => {
  */
 const WORKER_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>([
   ['src/worker/assistant/upstream.ts', { sites: 1, reason: 'Line 200 cancels a streaming reader and ignores a failed cancel — nothing to report when the stream is already being discarded.' }],
-  ['src/worker/attachments/storage.ts', { sites: 1, reason: 'Line 145 discards a best-effort delete failure in the attachment storage path.' }],
   ['src/worker/avatars/storage.ts', { sites: 1, reason: 'Line 82 discards a best-effort avatar delete failure.' }],
   ['src/worker/backup/archive.ts', { sites: 2, reason: 'Lines 88 and 144 drain pending stream promises so an unobserved rejection does not surface as an unhandled error during archiving.' }],
   ['src/worker/backup/common.ts', { sites: 1, reason: 'Line 50 is the shared body-discard helper itself; the swallow is the helper\'s whole purpose.' }],
@@ -987,7 +986,7 @@ const WORKER_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/worker/routes/mcp-settings.ts', { sites: 2, reason: 'Lines 121 and 134 hand `waitUntil` a drain whose failure must not fail the already-sent response.' }],
   ['src/worker/routes/reader-library.ts', { sites: 1, reason: 'Line 600 deletes a replaced cover object and ignores the failure; the new cover is already stored.' }],
   ['src/worker/routes/tools-password.ts', { sites: 1, reason: 'Line 319 deletes a backup object from R2 after its record is already gone from D1; a failed delete leaves one unreachable blob, and the response has no surface left to report it on — the same disposition the reader library\'s replaced cover carries.' }],
-  ['src/worker/routes/transfer.ts', { sites: 1, reason: 'Line 580 rolls attachments back after a failed mapping write; the mapping SQL now lives in transfer/store.ts, but this swallow is the route\'s and a failed rollback has nowhere to report.' }],
+  ['src/worker/routes/transfer.ts', { sites: 2, reason: 'Both roll ordinary and encrypted attachments back after a failed mapping write; the original import failure is returned, and a failed best-effort rollback has no second response surface.' }],
   ['src/worker/imgbed/dav.ts', { sites: 2, reason: 'Both discard a response body after a WebDAV method whose status has already decided the answer; a failed cancel cannot change it.' }],
   ['src/worker/imgbed/manage.ts', { sites: 1, reason: 'A malformed restored settings group is rejected by parseSettingsGroup and counted as failed; the catch only keeps the other groups restoring.' }],
   ['src/worker/imgbed/serve.ts', { sites: 3, reason: 'Each cancels a body that has already been answered by a 304 or HEAD (including a chunked stream), where a failed cancel has no surface left to report on.' }],

@@ -1101,7 +1101,7 @@ const DATA_ATTRIBUTE_PREFIXES = [
 const DATA_ATTRIBUTE_NAMES = new Set([
   'data-accent', 'data-active', 'data-align', 'data-attr', 'data-background', 'data-blog-publish-row',
   'data-chat-anchor', 'data-col', 'data-cols', 'data-completed', 'data-cover-position', 'data-crossref', 'data-datetime',
-  'data-day', 'data-dragging', 'data-drop-hint', 'data-font', 'data-heading-level', 'data-hover-card',
+  'data-day', 'data-dragging', 'data-drop-hint', 'data-font', 'data-heading-level', 'data-hl', 'data-hover-card',
   'data-item-id', 'data-jm', 'data-jm-path', 'data-js-run', 'data-js-switch', 'data-kind', 'data-mdlink', 'data-media',
   'data-mermaid-retry', 'data-note-properties', 'data-owns-escape', 'data-path', 'data-preview-content',
   'data-preview-scroller', 'data-render-group', 'data-slug', 'data-status', 'data-table-bubble', 'data-theme',

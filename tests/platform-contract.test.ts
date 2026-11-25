@@ -66,6 +66,9 @@ it('keeps lockfile sources on the pinned registries with content hashes', () => 
     'node_modules/esbuild',
     'node_modules/fsevents',
     'node_modules/workerd',
+    // tesseract.js only prints an Open Collective donation notice here; it downloads nothing and
+    // changes no build output. Its OCR engine and language assets load at runtime instead.
+    'node_modules/tesseract.js',
     // Wrangler now pins its own workerd beside itself; it is the same runtime package as the
     // top-level entry, whose postinstall resolves the platform binary.
     'node_modules/wrangler/node_modules/workerd',

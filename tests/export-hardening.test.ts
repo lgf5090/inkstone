@@ -5,8 +5,7 @@ import { exportNoteAsHtml, exportNoteAsPdf } from '../src/client/lib/export-note
 
 const MERMAID_SVG = [
   '<svg xmlns="http://www.w3.org/2000/svg" class="mermaid" viewBox="0 0 120 40">',
-  '<style>.node{fill:red}</style>',
-  '<g class="root"><text x="4" y="20">DIAGRAM-OK</text></g>',
+  '<g class="root" fill="red"><text x="4" y="20">DIAGRAM-OK</text></g>',
   '</svg>',
 ].join('')
 
@@ -152,7 +151,7 @@ it('draws the note’s diagram into the printed document instead of a spinner', 
   expect(html).toContain('DIAGRAM-OK')
   expect(html).toContain('<svg')
   // the SVG keeps its own styles, which is all the printed page needs to paint it
-  expect(html).toContain('.node{fill:red}')
+  expect(html).toContain('fill="red"')
   expect(html).not.toContain('aria-busy="true"')
   expect(html).not.toContain('mermaid-block loading')
 })

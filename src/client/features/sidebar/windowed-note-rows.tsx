@@ -127,6 +127,14 @@ export function WindowedNoteRows({ notes, resetKey, renderNote }: {
     event.stopPropagation()
     pendingFocus.current = { index: next, id: notes[next]!.id }
     virtual.ensureVisible(next)
+    // Scrolling only updates the window when the range changes. If the next row is already
+    // mounted, no render follows this event, so focus it now instead of waiting for an effect.
+    const wrapper = virtual.containerRef.current?.querySelector<HTMLElement>(`[data-sidebar-note-index="${next}"]`)
+    const nextRow = wrapper?.querySelector<HTMLElement>('[data-tree-row]')
+    if (nextRow) {
+      nextRow.focus({ preventScroll: true })
+      pendingFocus.current = null
+    }
   }
   useLayoutEffect(() => {
     const pending = pendingFocus.current

@@ -11,13 +11,15 @@ import {
   parseQuickAddText,
 } from '../src/shared/quickadd'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 import { newId } from '../src/worker/lib/id'
+import type { Env } from '../src/worker/env'
 
 const USER = 'user-1'
 const NOTE_ID = newId()
 
 let sqlite: DatabaseSync
-let env: { DB: D1Database }
+let env: Env
 
 /** The envelope `PUT /api/quickadd/library` writes: the transport payload, normalized, then wrapped. */
 function storedEnvelope(): string {
@@ -41,7 +43,7 @@ function seedColumn(value: string | null) {
 }
 
 async function exported(): Promise<Record<string, any>> {
-  const bytes = await buildJsonExport(env as never, USER)
+  const bytes = await buildJsonExport(env, USER)
   return JSON.parse(new TextDecoder().decode(bytes))
 }
 
@@ -56,7 +58,7 @@ beforeEach(() => {
     `INSERT INTO notes (id, user_id, title, title_key, content, excerpt, rev, word_count, char_count, content_hash, created_at, updated_at)
      VALUES (?1, ?2, 'Hello', 'hello', '# Hello', 'Hello', 1, 1, 7, 'h', 1, 1)`,
   ).run(NOTE_ID, USER)
-  env = { DB: makeD1(sqlite) }
+  env = testBindings(makeD1(sqlite))
 })
 
 describe('the automation library inside a JSON export', () => {

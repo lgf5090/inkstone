@@ -31,7 +31,7 @@ vi.mock('../../lib/db', () => ({
   },
 }))
 
-const { isCacheRecord, readCache, writeCache } = await import('./cache')
+const { isCacheRecord, OMNISEARCH_CACHE_VERSION, readCache, writeCache } = await import('./cache')
 const { clearHistory, initialQueryOf, loadHistory, OMNISEARCH_HISTORY_MAX, pushHistory } = await import('./history')
 
 beforeEach(() => {
@@ -83,7 +83,7 @@ describe('search history', () => {
 
 describe('index cache record', () => {
   const record = () => ({
-    version: 1,
+    version: OMNISEARCH_CACHE_VERSION,
     fingerprint: 'fp',
     savedAt: 1,
     bodyBytes: 10,
@@ -97,6 +97,7 @@ describe('index cache record', () => {
   it('rejects every shape it cannot trust', () => {
     expect(isCacheRecord(null)).toBe(false)
     expect(isCacheRecord([])).toBe(false)
+    expect(isCacheRecord({ ...record(), version: OMNISEARCH_CACHE_VERSION - 1 })).toBe(false)
     expect(isCacheRecord({ ...record(), version: 999 })).toBe(false)
     expect(isCacheRecord({ ...record(), fingerprint: 7 })).toBe(false)
     expect(isCacheRecord({ ...record(), bodyBytes: -1 })).toBe(false)
@@ -107,7 +108,9 @@ describe('index cache record', () => {
     expect(isCacheRecord({ ...record(), payload: { ...record().payload, embeds: [['n:a', 'n:b']] } })).toBe(false)
   })
 
-  it('only hands the index back when the fingerprint still matches', async () => {
+  it('only hands the index back when its schema and fingerprint still match', async () => {
+    store.set('cache', { ...record(), version: OMNISEARCH_CACHE_VERSION - 1 })
+    expect(await readCache('fp')).toBeNull()
     await writeCache(record())
     expect(await readCache('fp')).not.toBeNull()
     expect(await readCache('changed')).toBeNull()

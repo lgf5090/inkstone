@@ -18,7 +18,9 @@ import {
   QUICKADD_VERSION,
 } from '../src/shared/quickadd'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 import { newId } from '../src/worker/lib/id'
+import type { Env } from '../src/worker/env'
 import type { ImportResult } from '../src/shared/types'
 
 const STAMP = '20261008-090000-000'
@@ -196,7 +198,7 @@ describe('the manifest contract around the automation entry', () => {
 
 describe('the backup snapshot of the automation library', () => {
   let sqlite: DatabaseSync
-  let env: { DB: D1Database }
+  let env: Env
   const NOTE_ID = newId()
 
   function seedColumn(value: string | null) {
@@ -214,12 +216,12 @@ describe('the backup snapshot of the automation library', () => {
       `INSERT INTO notes (id, user_id, title, title_key, content, excerpt, rev, word_count, char_count, content_hash, created_at, updated_at)
        VALUES (?1, ?2, 'Hello', 'hello', '# Hello', 'Hello', 1, 1, 7, 'h', 1, 1)`,
     ).run(NOTE_ID, USER)
-    env = { DB: makeD1(sqlite) }
+    env = testBindings(makeD1(sqlite))
   })
 
   async function automationFile(body: Uint8Array | null) {
     seedColumn(body === null ? null : new TextDecoder().decode(body))
-    const snapshot = await buildSnapshot(env as never, USER)
+    const snapshot = await buildSnapshot(env, USER)
     const file = snapshot.payloadFiles.find((entry) => entry.path === BACKUP_AUTOMATION_NAME)
     if (!file) return null
     const [materialized] = (await materializeSnapshot(snapshot)).filter((entry) => entry.path === BACKUP_AUTOMATION_NAME)
