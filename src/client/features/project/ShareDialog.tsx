@@ -4,6 +4,8 @@ import type { ProjectShare } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Checkbox, Input } from '../../components/form'
+import { DatePicker } from '../../components/date-picker'
+import { projectInputToStamp, projectStampToInput } from '@shared/project/date'
 import { confirm, Modal } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { useUi } from '../../store/ui'
@@ -18,13 +20,18 @@ export function ShareDialog({ boardId, onClose }: { boardId: string, onClose: ()
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
   const [password, setPassword] = useState('')
+  const [expiresAt, setExpiresAt] = useState('')
   const toast = useUi((state) => state.toast)
 
   const load = useCallback(() => {
     setLoaded(false)
     setFailed(false)
     getProjectShare(boardId)
-      .then((result) => { setShare(result); setLoaded(true) })
+      .then((result) => {
+        setShare(result)
+        setExpiresAt(result?.expiresAt ? projectStampToInput(result.expiresAt) : '')
+        setLoaded(true)
+      })
       .catch((reason: unknown) => {
         setFailed(true)
         setLoaded(true)
@@ -74,6 +81,17 @@ export function ShareDialog({ boardId, onClose }: { boardId: string, onClose: ()
                   </Button>
                 </div>
                 <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.share.views', { count: share.views })}</p>
+                <DatePicker
+                  label={t('project.share.expires')}
+                  value={expiresAt}
+                  onChange={(raw) => {
+                    setExpiresAt(raw)
+                    void guard(async () => {
+                      const next = raw ? projectInputToStamp(raw) : null
+                      setShare(await putProjectShare(boardId, { expiresAt: next }))
+                    })
+                  }}
+                />
                 <Checkbox
                   label={t('project.share.show_comments')}
                   checked={share.showComments}
@@ -98,12 +116,36 @@ export function ShareDialog({ boardId, onClose }: { boardId: string, onClose: ()
                   className="flex items-center gap-2"
                   onSubmit={(event) => {
                     event.preventDefault()
-                    void guard(async () => { setShare(await putProjectShare(boardId, { password: password || null })); setPassword('') })
+                    if (!password.trim()) return
+                    void guard(async () => { setShare(await putProjectShare(boardId, { password })); setPassword('') })
                   }}
                 >
                   <Input className="min-w-0 flex-1" type="password" value={password} placeholder={t('project.share.password')} aria-label={t('project.share.password')} onChange={(event) => setPassword(event.target.value)} />
-                  <Button type="submit" size="sm">{t('common.save')}</Button>
+                  <Button type="submit" size="sm" disabled={!password.trim()}>{t('common.save')}</Button>
                 </form>
+                <p className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                  {share.hasPassword ? t('project.share.password_protected') : t('project.share.password_set_hint')}
+                </p>
+                {share.hasPassword && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => {
+                      void guard(async () => {
+                        const ok = await confirm({
+                          title: t('project.share.remove_password_confirm'),
+                          description: t('project.share.password_hint'),
+                          tone: 'danger',
+                          confirmLabel: t('project.share.remove_password'),
+                        })
+                        if (!ok) return
+                        setShare(await putProjectShare(boardId, { password: null }))
+                      })
+                    }}
+                  >
+                    {t('project.share.remove_password')}
+                  </Button>
+                )}
                 <Button
                   variant="danger"
                   size="sm"
