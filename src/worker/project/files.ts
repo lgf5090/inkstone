@@ -99,8 +99,21 @@ export async function uploadProjectAttachment(
 }
 
 export async function deleteProjectAttachment(db: D1Database, r2: R2Bucket | undefined, attachment: ProjectAttachment): Promise<void> {
-  if (r2) await r2.delete(attachment.objectKey)
-  await db.prepare('DELETE FROM project_attachments WHERE id = ?1').bind(attachment.id).run()
+  const cleanupKey = `${attachment.storage}:${attachment.objectKey}`
+  await db.batch([
+    db.prepare('INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at) VALUES (?1, ?2, ?3)')
+      .bind(cleanupKey, attachment.userId, Date.now()),
+    db.prepare('DELETE FROM project_attachments WHERE id = ?1').bind(attachment.id),
+  ])
+  try {
+    if (attachment.storage === 'r2') {
+      if (!r2) throw new Error('File storage is not configured')
+      await r2.delete(attachment.objectKey)
+      await db.prepare('DELETE FROM attachment_cleanup WHERE object_key = ?1').bind(cleanupKey).run()
+    }
+  } catch (error) {
+    console.warn('[inkstone] project attachment object cleanup will retry later:', error instanceof Error ? error.message : error)
+  }
 }
 
 export const PROJECT_UPLOAD_LIMIT = MAX_UPLOAD_BYTES

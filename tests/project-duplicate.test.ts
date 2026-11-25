@@ -19,7 +19,7 @@ let env: Env
 
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
-  env = testBindings(makeD1(sqlite))
+  env = testBindings(makeD1(sqlite, { maxBatchStatements: 1000 }))
   await app.fetch(new Request('http://localhost/api/health'), env)
   const now = Date.now()
   for (const account of ACCOUNTS) {
@@ -126,6 +126,22 @@ describe('duplicating a board', () => {
     expect(copiedChild.recurrence).toEqual({ freq: 'daily', interval: 1 })
     const links = sqlite.prepare('SELECT from_card_id, to_card_id, kind FROM project_card_links WHERE board_id = ?').all(copy.id) as { from_card_id: string, to_card_id: string, kind: string }[]
     expect(links).toEqual([{ from_card_id: copiedChild.id, to_card_id: copiedParent.id, kind: 'blocks' }])
+  })
+
+  it('rejects an oversized copy before creating a partial board', async () => {
+    const board = await createBoard('alice', { title: 'Large', cardProperties: [{ id: pid(1), name: 'Value', type: 'text', options: [] }] })
+    const insert = sqlite.prepare(`INSERT INTO project_cards
+      (id, board_id, title, created_by, modified_by, create_at, update_at, delete_at)
+      VALUES (?, ?, 'Card', 'alice', 'alice', 1, 1, 0)`)
+    const value = sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)')
+    for (let index = 0; index < 500; index += 1) {
+      const cardId = `c${String(index).padStart(26, '0')}`
+      insert.run(cardId, board.id)
+      value.run(cardId, pid(1), 'x')
+    }
+    const response = await req('alice', 'POST', `/boards/${board.id}/duplicate`)
+    expect(response.status).toBe(413)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM project_boards').get()).toMatchObject({ count: 1 })
   })
 
   it('hides a private board from a stranger', async () => {

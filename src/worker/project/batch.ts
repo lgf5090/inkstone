@@ -18,18 +18,14 @@ import { cardOrderStatement, contentPatchStatements, getProjectContent, readCard
 import { applyCardValueEffects } from './enhance'
 import { assertProjectRelationValues, projectRelationTargets } from './relations'
 import { getProjectView, viewPatchStatements } from './views'
-import { projectIdChunks, projectPlaceholders } from './d1'
+import { assertProjectBatchStatementLimit, projectIdChunks, projectPlaceholders } from './d1'
 import { projectParentMapHasCycle } from '@shared/project/hierarchy'
 
 type ProjectBatchInput = z.infer<typeof ProjectBatchSchema>
 type ProjectBatchDeleteInput = z.infer<typeof ProjectBatchDeleteSchema>
 
-// D1's per-batch statement ceiling; a batch that would exceed it is rejected rather than split, since
-// splitting would surrender the atomicity this endpoint exists to provide.
-const BATCH_STATEMENT_LIMIT = 1000
-
 async function commit(db: D1Database, statements: D1PreparedStatement[]): Promise<void> {
-  if (statements.length > BATCH_STATEMENT_LIMIT) throw ApiError.tooLarge('batch has too many operations')
+  assertProjectBatchStatementLimit(statements.length)
   if (statements.length) await db.batch(statements)
 }
 
@@ -84,7 +80,7 @@ export async function batchPatchProjectBoard(
   const views = input.views ?? []
   const statementCount = cards.reduce((total, { patch }) => total + 1 + Object.keys(patch.values ?? {}).length, 0)
     + contents.length + views.length
-  if (statementCount > BATCH_STATEMENT_LIMIT) throw ApiError.tooLarge('batch has too many operations')
+  assertProjectBatchStatementLimit(statementCount)
   const properties = await readBoardProperties(db, board.id)
   const relationTargets = projectRelationTargets(properties)
   for (const { patch } of cards) {

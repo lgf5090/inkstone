@@ -43160,7 +43160,6 @@ const allowed = new Map([
   ]],
   ["src/worker/project/archive.ts", [
     "// Not a ZIP: the reference's v1 export is a single JSON object with a blocks array.",
-    "// D1 caps a batch at 1000 statements; a large board can exceed that, so the import runs in chunks.",
     "/** Whole-account export: one v2 ZIP carrying every readable board's JSONL side by side. */",
     "/** Whole-account import: every board.jsonl in the ZIP becomes a fresh board (ids remapped). */",
     "/**\n * The archive transport: a v3 ZIP out, a v3 ZIP or a v1 JSON in. The JSONL mapping itself lives in\n * the shared module so the browser converters and this server agree byte for byte; this file only\n * zips, unzips, and writes the imported rows. Import preserves the archive's ids (so a round trip is\n * field-equal) but the new board belongs to whoever imports it. Member rows are deliberately not\n * restored: an archive is data, not an invitation, and no local account may join a board because an\n * uploaded file said so.\n */",
@@ -43175,8 +43174,6 @@ const allowed = new Map([
   ]],
   ["src/worker/project/batch.ts", [
     "/**\n * Atomic multi-entity writes (§6.3). A drag that moves three cards across a column, or a multi-select\n * delete, must land as one transaction so a half-applied gesture cannot survive. Every target is read\n * and checked for board membership before any statement runs, then all statements commit in a single\n * D1 batch; the statement count is bounded because D1 caps a batch.\n */",
-    "// D1's per-batch statement ceiling; a batch that would exceed it is rejected rather than split, since",
-    "// splitting would surrender the atomicity this endpoint exists to provide.",
     "// Contents of one card share a reading order, so scrub them together rather than re-reading per block.",
   ]],
   ["src/worker/project/boards.ts", [

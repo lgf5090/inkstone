@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../src/worker/app'
 import { createSession } from '../src/worker/lib/session-store'
 import { CLIENT_HEADER, LEGACY_SESSION_COOKIE } from '../src/shared/constants'
@@ -31,8 +31,10 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  sqlite.exec(`DELETE FROM project_attachments; DELETE FROM project_subscriptions; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_properties`)
+  sqlite.exec(`DELETE FROM attachment_cleanup; DELETE FROM project_attachments; DELETE FROM project_subscriptions; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_properties`)
 })
+
+afterEach(() => { vi.restoreAllMocks() })
 
 async function req(method: string, path: string, body?: unknown): Promise<Response> {
   const headers: Record<string, string> = { Cookie: `${LEGACY_SESSION_COOKIE}=${token}` }
@@ -63,6 +65,21 @@ describe('project attachments', () => {
     expect(served.headers.get('Content-Type')).toBe('image/png')
     expect((await req('DELETE', `/files/${file.id}`)).status).toBe(200)
     expect(((await (await req('GET', `/boards/${board.id}/files`)).json()) as { files: unknown[] }).files).toEqual([])
+  })
+
+  it('keeps a cleanup row when R2 deletion fails after the database row is gone', async () => {
+    const board = await makeBoard()
+    const form = new FormData()
+    form.append('file', new File([PNG], 'pic.png', { type: 'image/png' }))
+    const upload = await app.fetch(new Request(`http://localhost/api/project/boards/${board.id}/files`, {
+      method: 'POST', headers: { Cookie: `${LEGACY_SESSION_COOKIE}=${token}`, [CLIENT_HEADER]: '1' }, body: form,
+    }), env)
+    expect(upload.status).toBe(201)
+    const file = ((await upload.json()) as { file: ProjectAttachment }).file
+    vi.spyOn(env.FILES!, 'delete').mockRejectedValueOnce(new Error('R2 unavailable'))
+    expect((await req('DELETE', `/files/${file.id}`)).status).toBe(200)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM project_attachments WHERE id = ?').get(file.id)).toMatchObject({ count: 0 })
+    expect(sqlite.prepare('SELECT object_key FROM attachment_cleanup WHERE object_key = ?').get(`r2:${file.objectKey}`)).toMatchObject({ object_key: `r2:${file.objectKey}` })
   })
 
   it('downgrades a declared image whose bytes do not match its signature', async () => {

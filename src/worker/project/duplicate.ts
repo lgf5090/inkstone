@@ -13,9 +13,8 @@ import { serializeProjectRecurrence } from '@shared/project/recurrence'
 import { serializeProjectPropertyConfig } from '@shared/project/property-config'
 import { remapProjectRelationValue } from '@shared/project/relation'
 import { rowToContent, type ContentRow } from './bundle'
-import { rebuildBoardRelations } from './relations'
-
-const COPY_BATCH_SIZE = 500
+import { relationEdgeStatements } from './relations'
+import { assertProjectBatchStatementLimit } from './d1'
 
 type AttachmentSource = Pick<ProjectAttachment, 'cardId' | 'filename' | 'mime' | 'storage' | 'width' | 'height'>
 
@@ -44,6 +43,7 @@ export async function duplicateProjectBoard(
     includeComments?: boolean
     attachments?: readonly { attachment: AttachmentSource, bytes: Uint8Array }[]
     onAttachment?: (input: { id: string, cardId: string | null, attachment: AttachmentSource, bytes: Uint8Array }) => Promise<string | null>
+    onAttachmentError?: (objectKey: string) => Promise<void>
   } = {},
 ): Promise<ProjectBoardSummary> {
   const source = bundle.board
@@ -129,6 +129,20 @@ export async function duplicateProjectBoard(
       'INSERT INTO project_card_links (from_card_id, to_card_id, kind, board_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5)',
     ).bind(from, to, link.kind, boardId, now))
   }
+  const relationTargets = new Map(bundle.properties
+    .filter((property) => property.type === 'relation' && property.config?.targetBoardId)
+    .map((property) => [property.id, property.config!.targetBoardId === source.id ? boardId : property.config!.targetBoardId!]))
+  for (const card of bundle.cards) {
+    for (const [propertyId, value] of Object.entries(card.values)) {
+      const targetBoardId = relationTargets.get(propertyId)
+      if (!targetBoardId) continue
+      const copiedValue = targetBoardId === boardId ? remapProjectRelationValue(value, cardMap) : value
+      statements.push(...relationEdgeStatements(db, boardId, cardMap.get(card.id)!, propertyId, targetBoardId, copiedValue, now))
+    }
+  }
+  assertProjectBatchStatementLimit(statements.length + (options.attachments?.length ?? 0)
+    + (options.includeComments === false ? 0 : bundle.comments.length))
+  const writtenAttachmentKeys: string[] = []
   for (const item of options.attachments ?? []) {
     if (!options.onAttachment) continue
     const cardId = item.attachment.cardId ? cardMap.get(item.attachment.cardId) ?? null : null
@@ -136,6 +150,7 @@ export async function duplicateProjectBoard(
     const attachmentId = newProjectId('attachment')
     const objectKey = await options.onAttachment({ id: attachmentId, cardId, attachment: item.attachment, bytes: item.bytes })
     if (!objectKey) continue
+    writtenAttachmentKeys.push(objectKey)
     statements.push(db.prepare(
       `INSERT INTO project_attachments
          (id, user_id, board_id, card_id, filename, mime, size, storage, object_key, width, height, created_at, updated_at)
@@ -153,10 +168,15 @@ export async function duplicateProjectBoard(
       ).bind(commentMap.get(comment.id)!, remapId(cardMap, comment.cardId), boardId, comment.authorId, comment.body, now))
     }
   }
-  for (let index = 0; index < statements.length; index += COPY_BATCH_SIZE) {
-    await db.batch(statements.slice(index, index + COPY_BATCH_SIZE))
+  assertProjectBatchStatementLimit(statements.length)
+  try {
+    await db.batch(statements)
+  } catch (error) {
+    for (const objectKey of writtenAttachmentKeys) await options.onAttachmentError?.(objectKey).catch((cause: unknown) => {
+      console.warn('[inkstone] duplicate attachment cleanup failed:', cause instanceof Error ? cause.message : cause)
+    })
+    throw error
   }
-  await rebuildBoardRelations(db, boardId, bundle.properties, now)
   return {
     id: boardId, ownerId: userId, type: source.type, minimumRole: source.minimumRole, title: source.title,
     description: source.description, icon: source.icon, showDescription: source.showDescription,
@@ -211,6 +231,7 @@ export async function duplicateProjectCard(
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9, ?9, 0)`,
     ).bind(contentMap.get(content.id)!, cardId, card.boardId, content.type, content.title, JSON.stringify(content.fields), index, userId, now))
   })
+  assertProjectBatchStatementLimit(statements.length)
   await db.batch(statements)
   return {
     id: cardId, boardId: card.boardId, parentId: card.parentId, title: card.title, icon: card.icon, isTemplate: false,

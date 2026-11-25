@@ -21,7 +21,7 @@ const id = (prefix: string): string => prefix + 'a'.repeat(26)
 
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
-  env = testBindings(makeD1(sqlite, { maxBoundParameters: 100 }))
+  env = testBindings(makeD1(sqlite, { maxBoundParameters: 100, maxBatchStatements: 1000 }))
   await app.fetch(new Request('http://localhost/api/health'), env)
   const now = Date.now()
   for (const account of ACCOUNTS) {
@@ -166,6 +166,21 @@ describe('moving a card to another board', () => {
     expect(response.status, await response.clone().text()).toBe(200)
     const count = sqlite.prepare('SELECT COUNT(*) AS count FROM project_cards WHERE board_id = ?').get(target.id) as { count: number }
     expect(count.count).toBe(2)
+  })
+
+  it('rejects an oversized move before any card changes board', async () => {
+    const source = await createBoard('alice', 'Source', [{ id: id('p'), name: 'Value', type: 'text', options: [] }])
+    const target = await createBoard('alice', 'Target')
+    seedCard(source.id, id('c'))
+    for (let index = 1; index < 400; index += 1) {
+      const cardId = `c${String(index).padStart(26, '0')}`
+      seedCard(source.id, cardId, { parent_id: id('c') })
+      seedValue(cardId, id('p'), 'x')
+    }
+    const response = await req('alice', 'POST', `/cards/${id('c')}/move`, { targetBoardId: target.id })
+    expect(response.status).toBe(413)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM project_cards WHERE board_id = ?').get(source.id)).toMatchObject({ count: 400 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM project_cards WHERE board_id = ?').get(target.id)).toMatchObject({ count: 0 })
   })
 
   it('refuses a target the reader cannot edit, and a move onto the same board', async () => {

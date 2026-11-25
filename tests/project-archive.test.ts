@@ -23,7 +23,7 @@ let files: TestR2Bucket
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
   files = testR2Bucket()
-  env = testBindings(makeD1(sqlite), { FILES: files })
+  env = testBindings(makeD1(sqlite, { maxBatchStatements: 1000 }), { FILES: files })
   await app.fetch(new Request('http://localhost/api/health'), env)
   const now = Date.now()
   for (const account of ACCOUNTS) {
@@ -280,6 +280,34 @@ describe('archive import trust boundary', () => {
     const response = await reqRaw('alice', '/boards/import', bytes)
     expect(response.status).toBe(400)
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM project_boards WHERE id = ?').get(boardId)).toMatchObject({ count: 0 })
+  })
+
+  it('rejects an oversized import before creating a partial board', async () => {
+    const boardId = 'b-large-import'
+    const lines: unknown[] = [{ type: 'board', data: { id: boardId, title: 'Large', cardProperties: [{ id: pid(1), name: 'Value', type: 'text', options: [] }] } }]
+    for (let index = 0; index < 500; index += 1) {
+      lines.push({ type: 'block', data: {
+        id: `c${String(index).padStart(26, '0')}`, type: 'card', parentId: boardId, boardId, title: 'Card',
+        fields: { properties: { [pid(1)]: 'x' } }, createAt: 1, updateAt: 1,
+      } })
+    }
+    const response = await reqRaw('alice', '/boards/import', archiveWithLines(boardId, lines))
+    expect(response.status).toBe(413)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM project_boards WHERE id = ?').get(boardId)).toMatchObject({ count: 0 })
+  })
+
+  it('rolls back earlier boards when a later account-import board is invalid', async () => {
+    const files = {
+      'version.json': strToU8(JSON.stringify({ version: 2, date: 1 })),
+      'b-account-a/board.jsonl': strToU8(`${JSON.stringify(boardLine('b-account-a'))}\n`),
+      'b-account-b/board.jsonl': strToU8([
+        JSON.stringify(boardLine('b-account-b')),
+        JSON.stringify({ type: 'block', data: { id: 'c-account-b', type: 'card', parentId: 'b-account-b', boardId: 'b-account-b', title: 'Bad', fields: { parentId: 'missing' }, createAt: 1, updateAt: 1 } }),
+      ].join('\n') + '\n'),
+    }
+    const response = await reqRaw('alice', '/boards/import-account', zipSync(files))
+    expect(response.status).toBe(400)
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM project_boards WHERE id IN ('b-account-a','b-account-b')").get()).toMatchObject({ count: 0 })
   })
 
   it('never restores member rows from an uploaded archive', async () => {

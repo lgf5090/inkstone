@@ -1,5 +1,12 @@
+import { ApiError } from '../lib/errors'
+
 export const PROJECT_D1_PARAMETER_LIMIT = 100
+export const PROJECT_D1_BATCH_STATEMENT_LIMIT = 1000
 export const PROJECT_D1_ID_CHUNK_SIZE = 90
+
+export function assertProjectBatchStatementLimit(count: number): void {
+  if (count > PROJECT_D1_BATCH_STATEMENT_LIMIT) throw ApiError.tooLarge('project write has too many statements')
+}
 
 export function projectIdChunks(ids: readonly string[]): string[][] {
   const chunks: string[][] = []
