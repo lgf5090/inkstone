@@ -2,7 +2,6 @@ import { Hono } from 'hono'
 import {
   backupCompletePath,
   backupManifestPath,
-  backupSnapshotDir,
   completeManifestHash,
   isSafeBackupPath,
   MARKDOWN_BACKUP_FORMAT,
@@ -12,6 +11,7 @@ import {
   type MarkdownBackupNoteEntry,
 } from '@shared/backup-format'
 import { LIMITS } from '@shared/constants'
+import { parseNoteLockNote } from '@shared/crypto'
 import { formatBytes } from '@shared/byte-format'
 import { countText, deriveExcerpt, deriveTitle, splitFrontMatter } from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
@@ -457,6 +457,11 @@ interface SelectedImportFile {
   path: string
 }
 
+interface PlannedBackupFile extends SelectedImportFile {
+  note?: MarkdownBackupNoteEntry
+  attachment?: MarkdownBackupAttachmentEntry
+}
+
 function parsePostedBackupManifest(value: string | File | null): MarkdownBackupManifest | null {
   if (value === null) return null
   if (typeof value !== 'string' || value.length > LIMITS.importBundleMaxBytes) {
@@ -578,6 +583,7 @@ async function importBackupFileBatch(
   })
 
   const cachedBytes = new Map<string, Uint8Array>()
+  const noteTextByPath = new Map<string, string>()
   for (const item of planned) {
     if (item.email) {
       await verifyBackupEntry(
@@ -643,30 +649,45 @@ async function importBackupFileBatch(
       entry.sha256,
       entry.path,
     )
-    if (item.note || item.templates || item.automation || item.subscriptions || item.todos || item.music || item.calendar || item.inknote) {
+    if (item.attachment?.encryption === 'note-lock-v1' && ![73, 75, 65, 49].every((byte, index) => bytes[index] === byte)) {
+      throw new Error(`The encrypted attachment envelope is invalid: ${entry.path}`)
+    }
+    if (item.note) {
+      const text = decodeBackupText(bytes, entry.path)
+      if (item.note.isEncrypted) {
+        try {
+          parseNoteLockNote({ title: item.note.title, content: text })
+        } catch {
+          throw new Error(`The locked note does not contain matching valid envelopes: ${entry.path}`)
+        }
+      }
+      noteTextByPath.set(item.path.toLowerCase(), text)
+    } else if (item.templates || item.automation || item.subscriptions || item.todos || item.music || item.calendar || item.inknote) {
       decodeBackupText(bytes, entry.path)
     }
   }
 
-  for (const item of planned.filter((entry) => entry.attachment)) {
-    const entry = item.attachment!
-    const bytes = new Uint8Array(await item.file.arrayBuffer())
-    await importBackupAttachment(c.env, userId, entry, bytes, ctx)
-  }
   const plannedNoteIds = planned
     .map((item) => item.note?.id)
     .filter(Boolean) as string[]
   await prefetchExistingNoteIndexes(plannedNoteIds, ctx)
+  await assertLockedBackupCanRestore(planned, noteTextByPath, ctx)
+
+  for (const item of planned.filter((entry) => entry.attachment && entry.attachment.encryption !== 'note-lock-v1')) {
+    const entry = item.attachment!
+    const bytes = new Uint8Array(await item.file.arrayBuffer())
+    await importBackupAttachment(c.env, userId, entry, bytes, ctx)
+  }
   for (const item of planned.filter((entry) => entry.note)) {
     const entry = item.note!
+    const text = noteTextByPath.get(item.path.toLowerCase())!
+    await importBackupMarkdown(c, userId, entry, text, ctx)
+  }
+  await assertEncryptedAttachmentNotesMatch(manifest, planned, noteTextByPath, ctx)
+  for (const item of planned.filter((entry) => entry.attachment?.encryption === 'note-lock-v1')) {
+    const entry = item.attachment!
     const bytes = new Uint8Array(await item.file.arrayBuffer())
-    let text: string
-    try {
-      text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)
-    } catch {
-      throw new Error(`The Markdown file is not valid UTF-8: ${entry.path}`)
-    }
-    await importBackupMarkdown(c, userId, entry, text, manifest, ctx)
+    await importEncryptedBackupAttachment(c.env, userId, entry, bytes, ctx)
   }
   const templatesItem = planned.find((item) => item.templates)
   if (templatesItem) {
@@ -763,6 +784,123 @@ function decodeBackupText(bytes: Uint8Array, path: string): string {
   }
 }
 
+/** Validate every id and conflict that cannot be solved by remapping before writing any rows. */
+async function assertLockedBackupCanRestore(
+  planned: readonly PlannedBackupFile[],
+  noteTextByPath: ReadonlyMap<string, string>,
+  ctx: ImportContext,
+): Promise<void> {
+  const lockedNotes = planned.flatMap((item) => item.note?.isEncrypted ? [item.note] : [])
+  const encryptedAttachments = planned.flatMap((item) =>
+    item.attachment?.encryption === 'note-lock-v1' ? [item.attachment] : [])
+  if (!lockedNotes.length && !encryptedAttachments.length) return
+
+  const requiredNoteIds = [...new Set([
+    ...lockedNotes.map((note) => note.id),
+    ...encryptedAttachments.map((attachment) => attachment.noteId!),
+  ])]
+  await prefetchExistingNoteIndexes(requiredNoteIds, ctx)
+  const [noteOwners, noteRows, attachmentRows, attachmentOwners] = await Promise.all([
+    ctx.store.noteOwnersByIds(requiredNoteIds),
+    ctx.store.notesForImportByIds(requiredNoteIds),
+    ctx.store.attachmentsByIds(encryptedAttachments.map((attachment) => attachment.id!)),
+    ctx.store.attachmentOwnersByIds(encryptedAttachments.map((attachment) => attachment.id!)),
+  ])
+  const selectedNoteIds = new Set(lockedNotes.map((note) => note.id))
+  for (const noteId of requiredNoteIds) {
+    const owner = noteOwners.get(noteId)
+    if (owner && owner !== ctx.store.userId) {
+      throw new Error(`A locked note id belongs to another account: ${noteId}`)
+    }
+    const existing = await loadExistingNoteIndex(noteId, ctx)
+    if (existing && existing.id !== noteId) {
+      throw new Error(`A locked note cannot be restored under a remapped id: ${noteId}`)
+    }
+    const current = noteRows.get(noteId)
+    if (!selectedNoteIds.has(noteId) && (!current || current.is_encrypted !== 1)) {
+      throw new Error(`Restore the locked note before its encrypted attachment: ${noteId}`)
+    }
+  }
+
+  for (const note of lockedNotes) {
+    const current = noteRows.get(note.id)
+    if (!current) continue
+    if (current.is_encrypted !== 1) throw new Error(`The note encryption state conflicts with the backup: ${note.id}`)
+    if (ctx.conflict === 'duplicate') throw new Error(`A locked note cannot be duplicated during restore: ${note.id}`)
+    const text = noteTextByPath.get(note.path.toLowerCase())!
+    const matches = current.title === note.title && current.content === text
+    if (!matches && (ctx.conflict === 'skip' || current.updated_at >= importedNoteUpdatedAt(note))) {
+      throw new Error(`The current locked note does not match the backup: ${note.id}`)
+    }
+  }
+
+  const pendingCleanupIds = new Set(await ctx.store.pendingCleanupObjectKeys(
+    encryptedAttachments.map((attachment) => attachment.id!),
+  ))
+  for (const attachment of encryptedAttachments) {
+    const owner = attachmentOwners.get(attachment.id!)
+    if (owner && owner !== ctx.store.userId) {
+      throw new Error(`An encrypted attachment id belongs to another account: ${attachment.id}`)
+    }
+    const existing = attachmentRows.get(attachment.id!)
+    if (existing) {
+      if (existing.user_id !== ctx.store.userId || existing.id !== attachment.id || !encryptedAttachmentMetadataMatches(existing, attachment)) {
+        throw new Error(`An encrypted attachment id has conflicting metadata: ${attachment.id}`)
+      }
+    } else if (pendingCleanupIds.has(attachment.id!)) {
+      throw new Error(`An encrypted attachment id is still awaiting cleanup: ${attachment.id}`)
+    }
+  }
+}
+
+/** A skipped or concurrently changed note must never receive bytes sealed for another body. */
+async function assertEncryptedAttachmentNotesMatch(
+  manifest: MarkdownBackupManifest,
+  planned: readonly PlannedBackupFile[],
+  noteTextByPath: ReadonlyMap<string, string>,
+  ctx: ImportContext,
+): Promise<void> {
+  const encryptedAttachments = planned.flatMap((item) =>
+    item.attachment?.encryption === 'note-lock-v1' ? [item.attachment] : [])
+  if (!encryptedAttachments.length) return
+  const noteById = new Map(manifest.notes.map((note) => [note.id, note]))
+  const noteIds = [...new Set(encryptedAttachments.map((attachment) => attachment.noteId!))]
+  const noteRows = await ctx.store.notesForImportByIds(noteIds)
+  for (const attachment of encryptedAttachments) {
+    const note = noteById.get(attachment.noteId!)
+    const current = noteRows.get(attachment.noteId!)
+    if (!note || !current || current.is_encrypted !== 1) {
+      throw new Error(`The locked note is unavailable for encrypted attachment: ${attachment.id}`)
+    }
+    const expectedText = noteTextByPath.get(note.path.toLowerCase())
+    if (expectedText !== undefined && (current.title !== note.title || current.content !== expectedText)) {
+      throw new Error(`The locked note no longer matches its encrypted attachment: ${attachment.id}`)
+    }
+  }
+}
+
+function importedNoteUpdatedAt(entry: MarkdownBackupNoteEntry): number {
+  const importedUpdatedAt = validTimestamp(entry.updatedAt)
+  const importedCreatedAt = validTimestamp(entry.createdAt)
+  const deletedAt = entry.state === 'trash'
+    ? validTimestamp(entry.deletedAt) || importedUpdatedAt || Date.now()
+    : 0
+  return Math.max(importedUpdatedAt || importedCreatedAt, deletedAt)
+}
+
+function encryptedAttachmentMetadataMatches(
+  row: ExistingAttachmentRow,
+  entry: MarkdownBackupAttachmentEntry,
+): boolean {
+  return row.note_id === entry.noteId &&
+    row.encryption === 'note-lock-v1' &&
+    row.plaintext_size === entry.plaintextSize &&
+    row.filename === entry.filename &&
+    row.mime === entry.mime &&
+    row.size === entry.size &&
+    row.sha256 === entry.sha256
+}
+
 async function verifyBackupEntry(
   bytes: Uint8Array,
   expectedBytes: number,
@@ -833,6 +971,62 @@ async function importBackupAttachment(
   ctx.result.createdAttachments++
 }
 
+/** Encrypted bytes keep both AAD ids, so they are never hash-deduplicated or re-parented. */
+async function importEncryptedBackupAttachment(
+  env: AppBindings['Bindings'],
+  userId: string,
+  entry: MarkdownBackupAttachmentEntry,
+  bytes: Uint8Array,
+  ctx: ImportContext,
+): Promise<void> {
+  if (!selectAttachmentStorage(env)) {
+    throw new Error('This instance has no R2 or Workers KV attachment binding and cannot restore attachments')
+  }
+  const id = entry.id!
+  const noteId = entry.noteId!
+  const existing = (await ctx.store.attachmentsByIds([id])).get(id)
+  if (existing) {
+    if (
+      existing.user_id !== userId ||
+      existing.id !== id ||
+      !encryptedAttachmentMetadataMatches(existing, entry) ||
+      !await existingAttachmentMatches(env, existing, {
+        sourceId: id,
+        sourceNoteId: noteId,
+        filename: entry.filename,
+        reportedMime: entry.mime,
+        bytes,
+        sha256: entry.sha256,
+        createdAt: validTimestamp(entry.createdAt) || Date.now(),
+      })
+    ) {
+      throw new Error(`The encrypted attachment id has conflicting content: ${id}`)
+    }
+    ctx.result.skippedAttachments++
+    return
+  }
+
+  const persisted = await persistAttachmentWithinQuota(env, {
+    id,
+    userId,
+    scope: 'notes',
+    noteId,
+    filename: entry.filename,
+    reportedMime: entry.mime,
+    bytes,
+    createdAt: validTimestamp(entry.createdAt) || Date.now(),
+    encryption: 'note-lock-v1',
+    plaintextSize: entry.plaintextSize,
+  })
+  try {
+    await ctx.store.upsertImportMappings('attachment', [{ sourceId: id, targetId: persisted.id }])
+  } catch (error) {
+    await rollbackPersistedAttachments(env, [persisted]).catch(() => {})
+    throw error
+  }
+  ctx.result.createdAttachments++
+}
+
 const BACKUP_ATTACHMENT_URL_RE =
   /(?:\.\.\/)+attachments\/([0-9a-f]{64})--[^\s<>"')\]?#]+/g
 
@@ -841,27 +1035,33 @@ async function importBackupMarkdown(
   userId: string,
   entry: MarkdownBackupNoteEntry,
   backupContent: string,
-  manifest: MarkdownBackupManifest,
   ctx: ImportContext,
 ): Promise<void> {
-  const hashes = entry.attachmentHashes
-  const expectedHashes = new Set(hashes)
-  const attachmentIds = await ctx.store.attachmentTargetsByHash(hashes)
-  for (const hash of hashes) {
-    if (!attachmentIds.has(hash)) throw new Error(`Restore the referenced attachment before this note: ${entry.path}`)
+  const isEncrypted = entry.isEncrypted === true
+  let content: string
+  if (isEncrypted) {
+    try {
+      parseNoteLockNote({ title: entry.title, content: backupContent })
+    } catch {
+      throw new Error(`The locked note does not contain matching valid envelopes: ${entry.path}`)
+    }
+    content = backupContent
+  } else {
+    const hashes = entry.attachmentHashes
+    const expectedHashes = new Set(hashes)
+    const attachmentIds = await ctx.store.attachmentTargetsByHash(hashes)
+    for (const hash of hashes) {
+      if (!attachmentIds.has(hash)) throw new Error(`Restore the referenced attachment before this note: ${entry.path}`)
+    }
+    content = backupContent.replace(
+      BACKUP_ATTACHMENT_URL_RE,
+      (match, hash: string) => expectedHashes.has(hash)
+        ? `/api/files/${attachmentIds.get(hash)}`
+        : match,
+    )
   }
-  const content = backupContent.replace(
-    BACKUP_ATTACHMENT_URL_RE,
-    (match, hash: string) => expectedHashes.has(hash)
-      ? `/api/files/${attachmentIds.get(hash)}`
-      : match,
-  )
   assertContentSize(content)
 
-  const statePrefix = manifest.version === 2
-    ? `${backupSnapshotDir(manifest.snapshot)}/${entry.state}/`
-    : `${entry.state}/`
-  if (!entry.path.startsWith(statePrefix)) throw new Error(`Invalid backup note path: ${entry.path}`)
   const folderId = entry.folder.length
     ? await ensureFolderPath(entry.folder.join('/'), ctx)
     : null
@@ -881,6 +1081,7 @@ async function importBackupMarkdown(
     createdAt: importedCreatedAt,
     updatedAt: effectiveUpdatedAt,
     deletedAt,
+    isEncrypted,
   }
   const existing = await loadExistingNoteIndex(sourceId, ctx)
   if (existing) {
@@ -889,6 +1090,7 @@ async function importBackupMarkdown(
       return
     }
     if (ctx.conflict === 'duplicate') {
+      if (isEncrypted) throw new Error(`A locked note cannot be duplicated during restore: ${entry.id}`)
       await insertNote(c, userId, { ...input, id: undefined, title: `${entry.title} (imported)` }, ctx)
       ctx.result.createdNotes++
       return
@@ -1473,6 +1675,7 @@ interface InsertInput {
   isStarred?: boolean
   isPinned?: boolean
   isArchived?: boolean
+  isEncrypted?: boolean
   position?: number
   createdAt?: number
   updatedAt?: number
@@ -1495,10 +1698,14 @@ async function updateImportedNote(
 ): Promise<'updated' | 'skipped' | 'conflict' | 'missing'> {
   const current = await ctx.store.noteForImport(existing.id)
   if (!current) return 'missing'
+  const isEncrypted = input.isEncrypted === true
+  if ((current.is_encrypted === 1) !== isEncrypted) {
+    throw new Error(`The note encryption state conflicts with the backup: ${current.id}`)
+  }
   if (!importedUpdatedAt || current.updated_at >= importedUpdatedAt) return 'skipped'
 
-  const title = truncateText(input.title.trim(), LIMITS.titleMaxLength)
-  const { words, chars } = countText(input.content)
+  const title = isEncrypted ? input.title : truncateText(input.title.trim(), LIMITS.titleMaxLength)
+  const { words, chars } = isEncrypted ? { words: 0, chars: 0 } : countText(input.content)
   const hash = await sha256Hex(input.content)
   const nextRev = current.rev + 1
   const updatedAt = validTimestamp(input.updatedAt) || importedUpdatedAt
@@ -1514,7 +1721,7 @@ async function updateImportedNote(
     previousContent: current.content,
     title,
     content: input.content,
-    excerpt: deriveExcerpt(input.content),
+    excerpt: isEncrypted ? '' : deriveExcerpt(input.content),
     words,
     chars,
     contentHash: hash,
@@ -1522,11 +1729,12 @@ async function updateImportedNote(
     isPinned: input.isPinned === undefined ? current.is_pinned : input.isPinned ? 1 : 0,
     isStarred: input.isStarred === undefined ? current.is_starred : input.isStarred ? 1 : 0,
     isArchived: input.isArchived === undefined ? current.is_archived : input.isArchived ? 1 : 0,
+    isEncrypted,
     position,
     createdAt,
     updatedAt,
     deletedAt,
-    keepsRevision: current.content !== input.content || current.title !== title,
+    keepsRevision: !isEncrypted && (current.content !== input.content || current.title !== title),
   })
   if (!applied) return 'conflict'
   existing.title = title
@@ -1559,8 +1767,9 @@ async function insertNote(
   const updated = Math.max(validTimestamp(input.updatedAt) || created, created)
   const deleted = validTimestamp(input.deletedAt) || null
   const position = finiteNumber(input.position) ?? created
-  const { words, chars } = countText(input.content)
-  const title = truncateText(input.title.trim(), LIMITS.titleMaxLength)
+  const isEncrypted = input.isEncrypted === true
+  const { words, chars } = isEncrypted ? { words: 0, chars: 0 } : countText(input.content)
+  const title = isEncrypted ? input.title : truncateText(input.title.trim(), LIMITS.titleMaxLength)
 
   const hash = await sha256Hex(input.content)
   let inserted = false
@@ -1571,19 +1780,21 @@ async function insertNote(
       folderId: input.folderId,
       title,
       content: input.content,
-      excerpt: deriveExcerpt(input.content),
+      excerpt: isEncrypted ? '' : deriveExcerpt(input.content),
       words,
       chars,
       contentHash: hash,
       isPinned: input.isPinned === true ? 1 : 0,
       isStarred: input.isStarred === true ? 1 : 0,
       isArchived: input.isArchived === true ? 1 : 0,
+      isEncrypted,
       position,
       createdAt: created,
       updatedAt: updated,
       deletedAt: deleted,
     })
     if (inserted) break
+    if (isEncrypted) throw new Error(`The locked note id is no longer available: ${input.id}`)
     id = newId()
   }
   if (!inserted) throw new Error('Could not generate a unique note ID')

@@ -107,6 +107,66 @@ async function restore(files: File[] = backupFiles()) {
   })
 }
 
+describe('restoring a locked note with encrypted attachments', () => {
+  it('restores the locked note before sending ciphertext bytes', async () => {
+    const title = 'memoenc:v1:MDEyMzQ1Njc4OWFiY2RlZg:AAECAwQFBgcICQoL:FMTWLJk0wmu0Cy1AXOh8hiCoNyjz2nFQrxkhwQ'
+    const content = 'memoenc:v1:MDEyMzQ1Njc4OWFiY2RlZg:EBESExQVFhcYGRob:A2Za-kthB_yqNn99GgvTCLWWQ7IaSy89GcHy'
+    const body = new TextEncoder().encode(content)
+    const ciphertext = new Uint8Array(40)
+    ciphertext.set([73, 75, 65, 49])
+    const hash = sha(ciphertext)
+    const noteId = '00000000000000000000000001'
+    const lockedManifest: MarkdownBackupManifest = {
+      format: MARKDOWN_BACKUP_FORMAT,
+      version: 3,
+      appVersion: '0.8.0',
+      createdAt: new Date(1).toISOString(),
+      snapshot: STAMP,
+      notes: [{
+        id: noteId,
+        path: 'notes/locked.md',
+        title,
+        folder: [],
+        attachmentHashes: [hash],
+        state: 'notes',
+        archived: false,
+        isEncrypted: true,
+        bytes: body.byteLength,
+        sha256: sha(body),
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: null,
+      }],
+      attachments: [{
+        path: `attachments/${hash}--secret.bin`,
+        filename: 'secret.bin',
+        mime: 'application/octet-stream',
+        size: ciphertext.byteLength,
+        sha256: hash,
+        createdAt: 1,
+        id: '00000000000000000000000002',
+        noteId,
+        encryption: 'note-lock-v1',
+        plaintextSize: 8,
+      }],
+    }
+    const manifestData = new TextEncoder().encode(JSON.stringify(lockedManifest))
+    const complete = new TextEncoder().encode(`${MARKDOWN_BACKUP_FORMAT} v3\nmanifest-sha256 ${sha(manifestData)}\n`)
+    await restore([
+      fileOf('manifest.json', manifestData),
+      fileOf('COMPLETE', complete),
+      fileOf('notes/locked.md', body),
+      fileOf(`attachments/${hash}--secret.bin`, ciphertext),
+    ])
+    expect(sends.map((sent) => sent.paths)).toEqual([
+      ['notes/locked.md'],
+      [`attachments/${hash}--secret.bin`],
+    ])
+    expect(sends[1]?.manifest.notes[0]?.id).toBe(noteId)
+    expect(sends[1]?.manifest.attachments[0]?.encryption).toBe('note-lock-v1')
+  })
+})
+
 describe('restoring a backup folder that carries a template library', () => {
   it('sends the library file in its own batch, named by its manifest path', async () => {
     await restore()

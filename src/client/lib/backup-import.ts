@@ -103,6 +103,8 @@ export async function restoreMarkdownBackupFolder(
     }
   }
 
+  const ordinaryAttachments = selection.attachments.filter((selected) => selected.entry.encryption !== 'note-lock-v1')
+  const encryptedAttachments = selection.attachments.filter((selected) => selected.entry.encryption === 'note-lock-v1')
   let attachmentBatch: SelectedBackupFile<MarkdownBackupAttachmentEntry>[] = []
   let attachmentBatchBytes = 0
   const flushAttachments = async () => {
@@ -122,7 +124,7 @@ export async function restoreMarkdownBackupFolder(
     attachmentBatch = []
     attachmentBatchBytes = 0
   }
-  for (const selected of selection.attachments) {
+  for (const selected of ordinaryAttachments) {
     if (
       attachmentBatch.length &&
       (
@@ -167,6 +169,42 @@ export async function restoreMarkdownBackupFolder(
     batchBytes += selected.file.size
   }
   await flush()
+
+  let encryptedBatch: SelectedBackupFile<MarkdownBackupAttachmentEntry>[] = []
+  let encryptedBatchBytes = 0
+  const flushEncrypted = async () => {
+    if (!encryptedBatch.length) return
+    const noteIds = new Set(encryptedBatch.map((selected) => selected.entry.noteId!))
+    mergeResult(
+      result,
+      await send(
+        encryptedBatch.map((selected) => selected.file),
+        manifestSlice(
+          selection.manifest,
+          selection.manifest.notes.filter((note) => noteIds.has(note.id)),
+          encryptedBatch.map((selected) => selected.entry),
+        ),
+        encryptedBatch.map((selected) => selected.path),
+      ),
+    )
+    encryptedBatch = []
+    encryptedBatchBytes = 0
+  }
+  for (const selected of encryptedAttachments) {
+    if (
+      encryptedBatch.length &&
+      (
+        encryptedBatch.length >= ATTACHMENT_BATCH_FILES ||
+        encryptedBatchBytes + selected.file.size > LIMITS.attachmentMaxBytes
+      )
+    ) {
+      await flushEncrypted()
+    }
+    encryptedBatch.push(selected)
+    encryptedBatchBytes += selected.file.size
+  }
+  await flushEncrypted()
+
   if (selection.templates) {
     mergeResult(
       result,

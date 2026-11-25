@@ -1,5 +1,6 @@
 import { LIMITS } from './constants'
 import { backupEmailPath } from './email/backup'
+import { isNoteLockEnvelope } from './crypto'
 
 export { backupEmailAttachmentPath, backupEmailPath, EMAIL_BACKUP_FORMAT, EMAIL_BACKUP_VERSION } from './email/backup'
 
@@ -54,6 +55,8 @@ export interface MarkdownBackupNoteEntry {
   createdAt: number
   updatedAt: number
   deletedAt: number | null
+  /** Missing on backups written before locked notes existed; treated as false. */
+  isEncrypted?: boolean
 }
 
 export interface MarkdownBackupAttachmentEntry {
@@ -63,6 +66,11 @@ export interface MarkdownBackupAttachmentEntry {
   size: number
   sha256: string
   createdAt: number
+  /** Present together only for a note-lock-v1 envelope; ordinary attachments leave all four absent. */
+  id?: string
+  noteId?: string
+  encryption?: 'note-lock-v1'
+  plaintextSize?: number
 }
 
 export interface MarkdownBackupTemplatesEntry {
@@ -137,6 +145,7 @@ export interface MarkdownBackupManifest {
 const HASH_RE = /^[0-9a-f]{64}$/
 const NOTE_ID_RE = /^[0-9a-hjkmnp-tv-z]{26}$/
 const STAMP_RE = /^\d{8}-\d{6}-\d{3}$/
+const ENCRYPTED_TITLE_MAX_LENGTH = LIMITS.noteLockTitleMaxBytes * 2 + 512
 
 export function backupSnapshotDir(stamp: string): string {
   if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
@@ -262,6 +271,8 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     if (!isSafeBackupPath(raw.path) || paths.has(raw.path.toLowerCase())) return null
     if (raw.state !== 'notes' && raw.state !== 'archived' && raw.state !== 'trash') return null
     if (typeof raw.archived !== 'boolean') return null
+    if (raw.isEncrypted !== undefined && typeof raw.isEncrypted !== 'boolean') return null
+    const isEncrypted = raw.isEncrypted === true
     if (
       !Array.isArray(raw.folder) ||
       raw.folder.length > LIMITS.folderDepthMax ||
@@ -278,7 +289,11 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
       ? `${backupSnapshotDir(value.snapshot)}/${raw.state}/`
       : `${raw.state}/`
     if (!raw.path.startsWith(notePrefix)) return null
-    if (typeof raw.title !== 'string' || raw.title.length > 512) return null
+    if (
+      typeof raw.title !== 'string' ||
+      raw.title.length > (isEncrypted ? ENCRYPTED_TITLE_MAX_LENGTH : LIMITS.titleMaxLength) ||
+      (isEncrypted && !isNoteLockEnvelope(raw.title))
+    ) return null
     if (
       !isSafeSize(raw.bytes) ||
       raw.bytes > LIMITS.importUploadMaxBytes ||
@@ -305,37 +320,69 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
       createdAt: raw.createdAt,
       updatedAt: raw.updatedAt,
       deletedAt: raw.deletedAt,
+      isEncrypted,
     })
   }
 
+  const noteById = new Map(notes.map((note) => [note.id, note]))
   const attachments: MarkdownBackupAttachmentEntry[] = []
-  const hashes = new Set<string>()
+  const attachmentsByHash = new Map<string, MarkdownBackupAttachmentEntry>()
+  const attachmentIds = new Set<string>()
   for (const raw of value.attachments) {
     if (!isRecord(raw)) return null
-    if (typeof raw.sha256 !== 'string' || !HASH_RE.test(raw.sha256) || hashes.has(raw.sha256)) return null
+    if (typeof raw.sha256 !== 'string' || !HASH_RE.test(raw.sha256) || attachmentsByHash.has(raw.sha256)) return null
     if (!isSafeBackupPath(raw.path) || paths.has(raw.path.toLowerCase())) return null
     const attachmentPrefix = `attachments/${raw.sha256}--`
     if (!raw.path.startsWith(attachmentPrefix) || raw.path.length === attachmentPrefix.length) return null
     if (typeof raw.filename !== 'string' || !raw.filename || raw.filename.length > 180) return null
     if (typeof raw.mime !== 'string' || !raw.mime || raw.mime.length > 255) return null
-    if (
-      !isSafeSize(raw.size) ||
-      raw.size > LIMITS.attachmentMaxBytes ||
-      !isTimestamp(raw.createdAt)
-    ) return null
+    if (!isSafeSize(raw.size) || !isTimestamp(raw.createdAt)) return null
 
-    hashes.add(raw.sha256)
-    paths.add(raw.path.toLowerCase())
-    attachments.push({
+    const declaresEncryption = raw.encryption !== undefined
+    const declaresIdentity = raw.id !== undefined || raw.noteId !== undefined || raw.plaintextSize !== undefined
+    if (declaresEncryption !== declaresIdentity) return null
+    if (declaresEncryption && raw.encryption !== 'note-lock-v1') return null
+    const encrypted = raw.encryption === 'note-lock-v1'
+    if (raw.size > LIMITS.attachmentMaxBytes + (encrypted ? LIMITS.noteAttachmentEnvelopeOverheadBytes : 0)) return null
+
+    let id: string | undefined
+    let noteId: string | undefined
+    let plaintextSize: number | undefined
+    if (encrypted) {
+      if (typeof raw.id !== 'string' || !NOTE_ID_RE.test(raw.id) || attachmentIds.has(raw.id)) return null
+      if (typeof raw.noteId !== 'string' || !NOTE_ID_RE.test(raw.noteId)) return null
+      if (!isSafeSize(raw.plaintextSize) || raw.plaintextSize > LIMITS.attachmentMaxBytes) return null
+      if (raw.size !== raw.plaintextSize + LIMITS.noteAttachmentEnvelopeOverheadBytes) return null
+      const note = noteById.get(raw.noteId)
+      if (!note?.isEncrypted || !note.attachmentHashes.includes(raw.sha256)) return null
+      id = raw.id
+      noteId = raw.noteId
+      plaintextSize = raw.plaintextSize
+      attachmentIds.add(id)
+    }
+
+    const attachment: MarkdownBackupAttachmentEntry = {
       path: raw.path,
       filename: raw.filename,
       mime: raw.mime,
       size: raw.size,
       sha256: raw.sha256,
       createdAt: raw.createdAt,
-    })
+      ...(encrypted ? { id: id!, noteId: noteId!, encryption: 'note-lock-v1' as const, plaintextSize: plaintextSize! } : {}),
+    }
+    attachments.push(attachment)
+    attachmentsByHash.set(attachment.sha256, attachment)
+    paths.add(raw.path.toLowerCase())
   }
-  if (notes.some((note) => note.attachmentHashes.some((hash) => !hashes.has(hash)))) return null
+  for (const note of notes) {
+    for (const hash of note.attachmentHashes) {
+      const attachment = attachmentsByHash.get(hash)
+      if (!attachment) return null
+      const encrypted = attachment.encryption === 'note-lock-v1'
+      if (note.isEncrypted !== encrypted) return null
+      if (encrypted && attachment.noteId !== note.id) return null
+    }
+  }
 
   let templates: MarkdownBackupTemplatesEntry | undefined
   if (value.templates !== undefined) {

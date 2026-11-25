@@ -86,12 +86,15 @@ export interface SnapshotOptions {
 interface AttachmentSnapshotRow {
   id: string
   user_id: string
+  note_id: string | null
   filename: string
   mime: string
   size: number
   sha256: string
   object_key: string | null
   storage: string
+  encryption: 'none' | 'note-lock-v1'
+  plaintext_size: number | null
   created_at: number
 }
 
@@ -115,6 +118,8 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
   const attachmentPathByHash = new Map<string, string>()
   const attachmentPathById = new Map<string, string>()
   const selectedAttachmentsByHash = new Map<string, AttachmentSnapshotRow>()
+  const selectedEncryptedAttachmentsById = new Map<string, AttachmentSnapshotRow>()
+  const usedAttachmentPaths = new Set<string>()
 
   const now = new Date()
   const stamp = options.snapshot ?? formatStamp(now)
@@ -129,7 +134,7 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
 
   notePages: while (true) {
     const page = await env.DB.prepare(
-      `SELECT ${NOTE_CONTENT_COLUMNS} FROM notes n
+      `SELECT ${NOTE_CONTENT_COLUMNS}, n.is_encrypted FROM notes n
         WHERE n.user_id = ?1 AND n.id > ?2 ORDER BY n.id ASC LIMIT ?3`,
     ).bind(userId, afterId, NOTE_PAGE_SIZE + 1).all<NoteRow>()
     const pageRows = page.results.slice(0, NOTE_PAGE_SIZE)
@@ -137,22 +142,39 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
     hasMore = page.results.length > NOTE_PAGE_SIZE
 
     const missingAttachmentIds = new Set<string>()
+    const lockedNoteIds: string[] = []
     for (const row of pageRows) {
+      if (row.is_encrypted === 1) {
+        lockedNoteIds.push(row.id)
+        continue
+      }
       for (const id of extractAttachmentIds(row.content)) {
         if (!attachmentsById.has(id)) missingAttachmentIds.add(id)
       }
     }
     await loadReferencedAttachments(env.DB, userId, missingAttachmentIds, attachmentsById)
+    const lockedAttachmentIdsByNote = await loadLockedNoteAttachments(
+      env.DB,
+      userId,
+      lockedNoteIds,
+      attachmentsById,
+    )
 
     for (const row of pageRows) {
       const note = toNote(row)
-      const noteAttachmentIds = new Set(extractAttachmentIds(note.content))
-      const addedHashes = new Set<string>()
+      const isEncrypted = row.is_encrypted === 1
+      const noteAttachmentIds = isEncrypted
+        ? lockedAttachmentIdsByNote.get(row.id) ?? new Set<string>()
+        : new Set(extractAttachmentIds(note.content))
+      const addedAttachments = new Set<string>()
       let addedAttachmentBytes = 0
       for (const id of noteAttachmentIds) {
         const attachment = attachmentsById.get(id)
-        if (!attachment || selectedAttachmentsByHash.has(attachment.sha256) || addedHashes.has(attachment.sha256)) continue
-        addedHashes.add(attachment.sha256)
+        if (!attachment) continue
+        const key = isEncrypted ? `id:${id}` : `hash:${attachment.sha256}`
+        if (addedAttachments.has(key)) continue
+        if (!isEncrypted && selectedAttachmentsByHash.has(attachment.sha256)) continue
+        addedAttachments.add(key)
         addedAttachmentBytes += attachment.size
       }
       const estimatedNoteBytes = encoder.encode(note.content).byteLength + addedAttachmentBytes + 2048
@@ -171,14 +193,27 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
           throw new Error(`A referenced attachment is missing from the database: ${id}`)
         }
         validateAttachmentRow(attachment)
+        if (isEncrypted) {
+          if (attachment.encryption !== 'note-lock-v1' || attachment.note_id !== row.id) {
+            throw new Error(`A locked note contains an invalid attachment: ${id}`)
+          }
+          if (!selectedEncryptedAttachmentsById.has(id)) {
+            selectedEncryptedAttachmentsById.set(id, attachment)
+            attachmentPathById.set(id, planAttachmentPath(attachment, usedAttachmentPaths))
+          }
+          continue
+        }
+        if (attachment.encryption !== 'none') {
+          throw new Error(`An ordinary note references an encrypted attachment: ${id}`)
+        }
         if (!selectedAttachmentsByHash.has(attachment.sha256)) {
           selectedAttachmentsByHash.set(attachment.sha256, attachment)
-          attachmentPathByHash.set(
-            attachment.sha256,
-            backupAttachmentPath(attachment.sha256, safeSegment(attachment.filename)),
-          )
+          const path = planAttachmentPath(attachment, usedAttachmentPaths)
+          attachmentPathByHash.set(attachment.sha256, path)
+          attachmentPathById.set(id, path)
+        } else {
+          attachmentPathById.set(id, attachmentPathByHash.get(attachment.sha256)!)
         }
-        attachmentPathById.set(id, attachmentPathByHash.get(attachment.sha256)!)
       }
 
       const state: MarkdownBackupNoteState = note.deletedAt
@@ -194,7 +229,9 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
       }
       usedPaths.add(path.toLowerCase())
 
-      const rendered = renderNoteBody(note.content, path, attachmentPathById, noteAttachmentIds)
+      const rendered = isEncrypted
+        ? note.content
+        : renderNoteBody(note.content, path, attachmentPathById, noteAttachmentIds)
       const bytes = encoder.encode(rendered)
       const sha256 = await sha256Hex(bytes)
       const attachmentHashes = [...new Set(
@@ -213,6 +250,7 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,
         deletedAt: note.deletedAt,
+        ...(isEncrypted ? { isEncrypted: true } : {}),
       }
       noteEntries.push(entry)
       noteFiles.push({
@@ -230,6 +268,7 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
           sha256,
           attachmentPathById,
           noteAttachmentIds,
+          isEncrypted,
         ),
       })
     }
@@ -238,22 +277,32 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
     if (!hasMore) break
   }
 
-  const selectedAttachmentRows = [...selectedAttachmentsByHash.values()]
-    .sort((a, b) => a.sha256.localeCompare(b.sha256))
+  const selectedAttachmentRows = [
+    ...selectedAttachmentsByHash.values(),
+    ...selectedEncryptedAttachmentsById.values(),
+  ].sort((a, b) => a.sha256.localeCompare(b.sha256) || a.id.localeCompare(b.id))
 
   const attachmentEntries: MarkdownBackupAttachmentEntry[] = selectedAttachmentRows.map((row) => ({
-    path: attachmentPathByHash.get(row.sha256)!,
+    path: attachmentPathById.get(row.id)!,
     filename: row.filename,
     mime: row.mime,
     size: row.size,
     sha256: row.sha256,
     createdAt: row.created_at,
+    ...(row.encryption === 'note-lock-v1'
+      ? {
+        id: row.id,
+        noteId: row.note_id!,
+        encryption: 'note-lock-v1' as const,
+        plaintextSize: row.plaintext_size!,
+      }
+      : {}),
   }))
   const attachmentFiles: BackupFile[] = selectedAttachmentRows.map((row) => ({
-    path: attachmentPathByHash.get(row.sha256)!,
+    path: attachmentPathById.get(row.id)!,
     byteLength: row.size,
     sha256: row.sha256,
-    contentType: row.mime,
+    contentType: row.encryption === 'note-lock-v1' ? 'application/octet-stream' : row.mime,
     kind: 'attachment',
     open: () => openVerifiedAttachment(env, row),
   }))
@@ -435,12 +484,52 @@ async function loadReferencedAttachments(
   for (let offset = 0; offset < values.length; offset += ATTACHMENT_LOOKUP_BATCH) {
     const chunk = values.slice(offset, offset + ATTACHMENT_LOOKUP_BATCH)
     const { results } = await db.prepare(
-      `SELECT id, user_id, filename, mime, size, sha256, object_key, storage, created_at
+      `SELECT id, user_id, note_id, filename, mime, size, sha256, object_key, storage,
+              encryption, plaintext_size, created_at
          FROM attachments
         WHERE user_id = ?1 AND id IN (SELECT value FROM json_each(?2))`,
     ).bind(userId, JSON.stringify(chunk)).all<AttachmentSnapshotRow>()
     for (const row of results) target.set(row.id, row)
   }
+}
+
+/** Locked bodies carry no readable file ids, so their attachment rows are collected by ownership. */
+async function loadLockedNoteAttachments(
+  db: D1Database,
+  userId: string,
+  noteIds: readonly string[],
+  target: Map<string, AttachmentSnapshotRow>,
+): Promise<Map<string, Set<string>>> {
+  const byNote = new Map<string, Set<string>>()
+  for (let offset = 0; offset < noteIds.length; offset += ATTACHMENT_LOOKUP_BATCH) {
+    const chunk = noteIds.slice(offset, offset + ATTACHMENT_LOOKUP_BATCH)
+    const { results } = await db.prepare(
+      `SELECT id, user_id, note_id, filename, mime, size, sha256, object_key, storage,
+              encryption, plaintext_size, created_at
+         FROM attachments
+        WHERE user_id = ?1 AND scope = 'notes'
+          AND note_id IN (SELECT value FROM json_each(?2))`,
+    ).bind(userId, JSON.stringify(chunk)).all<AttachmentSnapshotRow>()
+    for (const row of results) {
+      target.set(row.id, row)
+      if (!row.note_id) continue
+      const ids = byNote.get(row.note_id) ?? new Set<string>()
+      ids.add(row.id)
+      byNote.set(row.note_id, ids)
+    }
+  }
+  return byNote
+}
+
+function planAttachmentPath(row: AttachmentSnapshotRow, usedPaths: Set<string>): string {
+  const filename = safeSegment(row.filename)
+  let path = backupAttachmentPath(row.sha256, filename)
+  if (usedPaths.has(path.toLowerCase())) {
+    path = backupAttachmentPath(row.sha256, `${filename}--${row.id}`)
+  }
+  if (usedPaths.has(path.toLowerCase())) throw new Error(`Duplicate attachment backup path: ${path}`)
+  usedPaths.add(path.toLowerCase())
+  return path
 }
 
 export async function buildEmailExportSnapshot(
@@ -653,13 +742,16 @@ async function openPlannedNote(
   expectedSha256: string,
   attachmentPaths: ReadonlyMap<string, string>,
   referencedIds: ReadonlySet<string>,
+  isEncrypted: boolean,
 ): Promise<ReadableStream<Uint8Array>> {
   const row = await env.DB.prepare(
     `SELECT n.title, n.content FROM notes n
       WHERE n.user_id = ?1 AND n.id = ?2 AND n.rev = ?3`,
   ).bind(userId, noteId, expectedRev).first<{ title: string; content: string }>()
   if (!row) throw new Error(`A note changed while the backup was running: ${noteId}`)
-  const bytes = encoder.encode(renderNoteBody(row.content, notePath, attachmentPaths, referencedIds))
+  const bytes = encoder.encode(isEncrypted
+    ? row.content
+    : renderNoteBody(row.content, notePath, attachmentPaths, referencedIds))
   if ((await sha256Hex(bytes)) !== expectedSha256) {
     throw new Error(`A note changed while the backup was running: ${row.title}`)
   }
@@ -683,7 +775,8 @@ async function openVerifiedAttachment(
     await object.body.cancel().catch(() => {})
     throw new Error(`Attachment checksum metadata does not match: ${row.filename}`)
   }
-  if (object.metadata?.mime && object.metadata.mime !== row.mime) {
+  const expectedMime = row.encryption === 'note-lock-v1' ? 'application/octet-stream' : row.mime
+  if (object.metadata?.mime && object.metadata.mime !== expectedMime) {
     await object.body.cancel().catch(() => {})
     throw new Error(`Attachment type metadata does not match: ${row.filename}`)
   }
@@ -721,7 +814,11 @@ function verifyAttachmentStream(
     },
     async flush() {
       if (bytes !== row.size) await fail(`Attachment size does not match: ${row.filename}`)
-      if (safeAttachmentMime(prefix, row.mime) !== row.mime) {
+      if (row.encryption === 'note-lock-v1') {
+        if (![73, 75, 65, 49].every((byte, index) => prefix[index] === byte)) {
+          await fail(`Attachment encryption envelope is invalid: ${row.filename}`)
+        }
+      } else if (safeAttachmentMime(prefix, row.mime) !== row.mime) {
         await fail(`Attachment type metadata does not match: ${row.filename}`)
       }
       await digestWriter.close()
@@ -749,8 +846,21 @@ function bytesToHex(bytes: Uint8Array): string {
 function validateAttachmentRow(row: AttachmentSnapshotRow): void {
   if (!/^[0-9a-hjkmnp-tv-z]{26}$/.test(row.id)) throw new Error('Attachment metadata contains an invalid ID')
   if (!row.filename || row.filename.length > 180) throw new Error(`Invalid attachment filename: ${row.id}`)
-  if (!Number.isSafeInteger(row.size) || row.size < 0 || row.size > LIMITS.attachmentMaxBytes) {
+  if (!Number.isSafeInteger(row.size) || row.size < 0) {
     throw new Error(`Invalid attachment size: ${row.filename}`)
+  }
+  if (row.encryption === 'note-lock-v1') {
+    if (
+      !Number.isSafeInteger(row.plaintext_size) ||
+      row.plaintext_size! < 0 ||
+      row.plaintext_size! > LIMITS.attachmentMaxBytes ||
+      row.size !== row.plaintext_size! + LIMITS.noteAttachmentEnvelopeOverheadBytes ||
+      row.size > LIMITS.attachmentMaxBytes + LIMITS.noteAttachmentEnvelopeOverheadBytes
+    ) {
+      throw new Error(`Invalid encrypted attachment size: ${row.filename}`)
+    }
+  } else if (row.encryption !== 'none' || row.plaintext_size !== null || row.size > LIMITS.attachmentMaxBytes) {
+    throw new Error(`Invalid attachment metadata: ${row.filename}`)
   }
   if (!/^[0-9a-f]{64}$/.test(row.sha256)) throw new Error(`Invalid attachment checksum: ${row.filename}`)
   if (!isAttachmentObjectStorage(row.storage)) throw new Error(`Invalid attachment storage type: ${row.filename}`)

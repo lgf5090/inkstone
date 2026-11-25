@@ -18,6 +18,7 @@
  */
 
 import { utf8ByteLength } from '@shared/text-utils'
+import type { NoteAttachmentEncryption } from '@shared/types'
 import { attachmentIdFromCleanupTarget, type AttachmentObjectStorage } from '../attachments/keys'
 import {
   buildNoteDerivedStatements,
@@ -37,6 +38,9 @@ export interface ExistingAttachmentRow {
   size: number
   sha256: string
   storage: AttachmentObjectStorage
+  note_id?: string | null
+  encryption?: NoteAttachmentEncryption
+  plaintext_size?: number | null
 }
 
 /** One restore decision the route has made: which source id now answers to which stored row. */
@@ -95,6 +99,7 @@ export interface ImportedNoteState {
   is_pinned: number
   is_starred: number
   is_archived: number
+  is_encrypted: number
   created_at: number
   updated_at: number
   deleted_at: number | null
@@ -123,6 +128,7 @@ export interface ImportedNoteWrite {
   isPinned: number
   isStarred: number
   isArchived: number
+  isEncrypted?: boolean
   position: number
   createdAt: number
   updatedAt: number
@@ -147,6 +153,7 @@ export interface NoteInsertWrite {
   isPinned: number
   isStarred: number
   isArchived: number
+  isEncrypted?: boolean
   position: number
   createdAt: number
   updatedAt: number
@@ -181,13 +188,15 @@ export class TransferStore {
   async restoredAttachment(sha256: string): Promise<{ mapped?: ExistingAttachmentRow, byHash?: ExistingAttachmentRow }> {
     const [mapping, hash] = await this.db.batch([
       this.db.prepare(
-        `SELECT a.id, a.user_id, a.filename, a.mime, a.size, a.sha256, a.storage
+        `SELECT a.id, a.user_id, a.note_id, a.filename, a.mime, a.size, a.sha256, a.storage,
+                a.encryption, a.plaintext_size
            FROM import_mappings m
            JOIN attachments a ON a.id = m.target_id AND a.user_id = m.user_id
           WHERE m.user_id = ?1 AND m.entity = 'attachment' AND m.source_id = ?2`,
       ).bind(this.userId, sha256),
       this.db.prepare(
-        `SELECT id, user_id, filename, mime, size, sha256, storage
+        `SELECT id, user_id, note_id, filename, mime, size, sha256, storage,
+                encryption, plaintext_size
            FROM attachments
           WHERE user_id = ?1 AND sha256 = ?2
           ORDER BY created_at ASC, id ASC LIMIT 1`,
@@ -236,7 +245,8 @@ export class TransferStore {
       const chunk = ids.slice(offset, offset + LOOKUP_CHUNK)
       const placeholders = chunk.map((_, index) => `?${index + 2}`).join(', ')
       const { results: mappedRows } = await this.db.prepare(
-        `SELECT m.source_id, a.id, a.user_id, a.filename, a.mime, a.size, a.sha256, a.storage
+        `SELECT m.source_id, a.id, a.user_id, a.note_id, a.filename, a.mime, a.size, a.sha256, a.storage,
+                a.encryption, a.plaintext_size
            FROM import_mappings m
            JOIN attachments a ON a.id = m.target_id AND a.user_id = m.user_id
           WHERE m.user_id = ?1 AND m.entity = 'attachment'
@@ -248,7 +258,8 @@ export class TransferStore {
 
       const directPlaceholders = chunk.map((_, index) => `?${index + 1}`).join(', ')
       const { results: directRows } = await this.db.prepare(
-        `SELECT id, user_id, filename, mime, size, sha256, storage
+        `SELECT id, user_id, note_id, filename, mime, size, sha256, storage,
+                encryption, plaintext_size
            FROM attachments WHERE id IN (${directPlaceholders})`,
       )
         .bind(...chunk)
@@ -261,6 +272,50 @@ export class TransferStore {
       }
     }
     return attachments
+  }
+
+  /** Direct note ownership, including ids another account holds, for encrypted-id collision checks. */
+  async noteOwnersByIds(ids: readonly string[]): Promise<Map<string, string>> {
+    const owners = new Map<string, string>()
+    for (let offset = 0; offset < ids.length; offset += LOOKUP_CHUNK) {
+      const chunk = ids.slice(offset, offset + LOOKUP_CHUNK)
+      const placeholders = chunk.map((_, index) => `?${index + 1}`).join(', ')
+      const { results } = await this.db.prepare(
+        `SELECT id, user_id FROM notes WHERE id IN (${placeholders})`,
+      ).bind(...chunk).all<{ id: string; user_id: string }>()
+      for (const row of results) owners.set(row.id, row.user_id)
+    }
+    return owners
+  }
+
+  /** Direct attachment ownership, without letting an import mapping hide a global id collision. */
+  async attachmentOwnersByIds(ids: readonly string[]): Promise<Map<string, string>> {
+    const owners = new Map<string, string>()
+    for (let offset = 0; offset < ids.length; offset += LOOKUP_CHUNK) {
+      const chunk = ids.slice(offset, offset + LOOKUP_CHUNK)
+      const placeholders = chunk.map((_, index) => `?${index + 1}`).join(', ')
+      const { results } = await this.db.prepare(
+        `SELECT id, user_id FROM attachments WHERE id IN (${placeholders})`,
+      ).bind(...chunk).all<{ id: string; user_id: string }>()
+      for (const row of results) owners.set(row.id, row.user_id)
+    }
+    return owners
+  }
+
+  /** The account's note rows behind locked-note conflict and attachment-context checks. */
+  async notesForImportByIds(ids: readonly string[]): Promise<Map<string, ImportedNoteState>> {
+    const notes = new Map<string, ImportedNoteState>()
+    for (let offset = 0; offset < ids.length; offset += LOOKUP_CHUNK) {
+      const chunk = ids.slice(offset, offset + LOOKUP_CHUNK)
+      const placeholders = chunk.map((_, index) => `?${index + 2}`).join(', ')
+      const { results } = await this.db.prepare(
+        `SELECT id, title, content, rev, position, is_pinned, is_starred, is_archived,
+                is_encrypted, created_at, updated_at, deleted_at
+           FROM notes WHERE user_id = ?1 AND id IN (${placeholders})`,
+      ).bind(this.userId, ...chunk).all<ImportedNoteState>()
+      for (const row of results) notes.set(row.id, row)
+    }
+    return notes
   }
 
   /**
@@ -413,7 +468,7 @@ export class TransferStore {
   async noteForImport(noteId: string): Promise<ImportedNoteState | null> {
     const current = await this.db.prepare(
       `SELECT id, title, content, rev, position, is_pinned, is_starred, is_archived,
-              created_at, updated_at, deleted_at
+              is_encrypted, created_at, updated_at, deleted_at
          FROM notes WHERE id = ?1 AND user_id = ?2`,
     ).bind(noteId, this.userId).first<ImportedNoteState>()
     return current ?? null
@@ -429,6 +484,7 @@ export class TransferStore {
    * `db/writes.buildNoteDerivedStatements`, which is written against the same guard.
    */
   async updateImportedNote(input: ImportedNoteWrite): Promise<boolean> {
+    const isEncrypted = input.isEncrypted === true
     const mutationGuard = `EXISTS (SELECT 1 FROM notes
       WHERE id = ?1 AND user_id = ?2 AND rev = ?3
         AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
@@ -436,8 +492,9 @@ export class TransferStore {
     const update = this.db.prepare(
       `UPDATE notes SET title = ?1, content = ?2, excerpt = ?3, word_count = ?4, char_count = ?5,
          content_hash = ?6, folder_id = ?7, is_pinned = ?8, is_starred = ?9, is_archived = ?10,
-         position = ?11, created_at = ?12, updated_at = ?13, rev = ?14, deleted_at = ?15
-        WHERE id = ?16 AND user_id = ?17 AND rev = ?18`,
+         position = ?11, created_at = ?12, updated_at = ?13, rev = ?14, deleted_at = ?15,
+         is_encrypted = ?16
+        WHERE id = ?17 AND user_id = ?18 AND rev = ?19`,
     ).bind(
       input.title,
       input.content,
@@ -454,6 +511,7 @@ export class TransferStore {
       input.updatedAt,
       input.nextRev,
       input.deletedAt,
+      isEncrypted ? 1 : 0,
       input.noteId,
       this.userId,
       input.previousRev,
@@ -485,7 +543,7 @@ export class TransferStore {
         ).bind(input.noteId, ...mutationValues),
       )
     }
-    const derived = buildNoteDerivedStatements({
+    const derived = isEncrypted ? [] : buildNoteDerivedStatements({
       db: this.db,
       userId: this.userId,
       noteId: input.noteId,
@@ -506,7 +564,7 @@ export class TransferStore {
          SELECT ?1, 'note', ?2, 'upsert', ?3
           WHERE ${shiftSqlPlaceholders(mutationGuard, 3)}`,
       ).bind(this.userId, input.noteId, Date.now(), ...mutationValues),
-      noteIndexQueueStatement(this.db, this.userId, input.noteId, 'embed', Date.now()),
+      ...(isEncrypted ? [] : [noteIndexQueueStatement(this.db, this.userId, input.noteId, 'embed', Date.now())]),
     )
 
     const [result] = await this.db.batch(statements)
@@ -523,10 +581,11 @@ export class TransferStore {
    * cannot see from the row alone. Whether to offer another id is the caller's decision.
    */
   async insertNote(input: NoteInsertWrite): Promise<boolean> {
+    const isEncrypted = input.isEncrypted === true
     const insert = this.db.prepare(
       `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
-         is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at, deleted_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+         is_pinned, is_starred, is_archived, is_encrypted, position, content_hash, created_at, updated_at, deleted_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
        ON CONFLICT(id) DO NOTHING`,
     )
       .bind(
@@ -541,13 +600,14 @@ export class TransferStore {
         input.isPinned,
         input.isStarred,
         input.isArchived,
+        isEncrypted ? 1 : 0,
         input.position,
         input.contentHash,
         input.createdAt,
         input.updatedAt,
         input.deletedAt,
       )
-    const derived = buildNoteDerivedStatements({
+    const derived = isEncrypted ? [] : buildNoteDerivedStatements({
       db: this.db,
       userId: this.userId,
       noteId: input.id,
@@ -583,7 +643,7 @@ export class TransferStore {
       ...derived,
       change,
       ...(mapping ? [mapping] : []),
-      ...(input.deletedAt ? [] : [noteIndexQueueStatement(this.db, this.userId, input.id, 'embed', Date.now())]),
+      ...(input.deletedAt || isEncrypted ? [] : [noteIndexQueueStatement(this.db, this.userId, input.id, 'embed', Date.now())]),
     ])
     return Boolean(result?.meta.changes)
   }
