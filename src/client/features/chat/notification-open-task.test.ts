@@ -107,6 +107,18 @@ describe('pressing a notification', () => {
     expect(document.body.textContent).toContain(t('assistant.notifications.open_task'))
   })
 
+  it('opens the note named by a note-task reminder', () => {
+    mount([notice({ link: `note:${TASK_ID}` })])
+
+    const button = rowButton()
+    act(() => { button!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+
+    expect(harness.paths).toEqual([`/n/${TASK_ID}`])
+    expect(onClose).toHaveBeenCalled()
+    expect(button!.hasAttribute('aria-expanded')).toBe(false)
+    expect(document.body.textContent).toContain(t('assistant.notifications.open_note'))
+  })
+
   it('opens the mailbox message named by an email notification', () => {
     const accountId = '0123456789abcdefghjkmnpqrs'
     const messageId = 'abcdefghjkmnpqrst0123456789'

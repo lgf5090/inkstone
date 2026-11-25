@@ -1,6 +1,7 @@
 /** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */
 import { countText, deriveExcerpt, extractTags, extractWikiLinks, normalizeLinkKey } from '@shared/markdown-utils'
 import { indexNoteProperties, notePropertyRowsJson } from '@shared/note-properties'
+import { noteTaskReminderRows } from './note-task-reminders'
 import { newId } from '../lib/id'
 
 
@@ -157,6 +158,7 @@ export function buildNoteDerivedStatements(
   const tagRows = JSON.stringify(tagNames.map((name) => ({ id: newId(), name })))
   const linkRows = JSON.stringify(links.map((link) => ({ key: link.key, target: link.target })))
   const propertyRows = notePropertyRowsJson(opts.deleted ? [] : indexNoteProperties(content))
+  const reminderRows = JSON.stringify(noteTaskReminderRows(content, noteId, opts.deleted))
   const statements: D1PreparedStatement[] = []
   const guarded = opts.expectedRev !== undefined ||
     opts.expectedContentHash !== undefined ||
@@ -259,6 +261,38 @@ export function buildNoteDerivedStatements(
           WHERE ${shiftSqlPlaceholders(guard, 3)}`,
       )
       .bind(userId, noteId, propertyRows, ...guardValues),
+  )
+
+  statements.push(
+    db
+      .prepare(
+        `DELETE FROM note_task_reminders WHERE user_id = ?1 AND note_id = ?2
+          AND id NOT IN (SELECT json_extract(value, '$.id') FROM json_each(?3))
+          AND ${shiftSqlPlaceholders(guard, 3)}`,
+      )
+      .bind(userId, noteId, reminderRows, ...guardValues),
+    db
+      .prepare(
+        `INSERT INTO note_task_reminders
+          (user_id, id, note_id, line_number, title, due_day, completed, updated_at)
+         SELECT ?1, json_extract(value, '$.id'), json_extract(value, '$.noteId'),
+                json_extract(value, '$.lineNumber'), json_extract(value, '$.title'),
+                json_extract(value, '$.dueDay'), json_extract(value, '$.completed'), ?3
+           FROM json_each(?2)
+          WHERE ${shiftSqlPlaceholders(guard, 3)}
+          ON CONFLICT(user_id, id) DO UPDATE SET
+            line_number = excluded.line_number,
+            title = excluded.title,
+            due_day = excluded.due_day,
+            completed = excluded.completed,
+            fired_at = CASE
+              WHEN excluded.due_day <> note_task_reminders.due_day
+                OR excluded.completed <> note_task_reminders.completed THEN NULL
+              ELSE note_task_reminders.fired_at
+            END,
+            updated_at = excluded.updated_at`,
+      )
+      .bind(userId, reminderRows, now, ...guardValues),
   )
 
   statements.push(

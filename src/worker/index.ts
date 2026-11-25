@@ -2,6 +2,7 @@ import { runAttachmentCleanup } from './attachments/cleanup'
 import { runScheduledBackups } from './backup/scheduler'
 import { runDueAssistantAutomations } from './assistant/scheduler'
 import { sweepTaskReminders } from './assistant/tasks'
+import { sweepNoteTaskReminders } from './notes/task-reminders'
 import { pruneProjectActivity, sweepProjectReminders } from './project/scheduler'
 import { drainProjectWebhookDeliveries } from './project/webhooks'
 import { drainNoteWebhookDeliveries } from './notes/webhooks'
@@ -118,6 +119,10 @@ export default {
       // Task reminders ride the same every-fire cadence, for the same reason: the claim on the row is
       // what deduplicates them, so a second fire in the same minute finds nothing left to deliver.
       const reminderTick = sweepTaskReminders(env, event.scheduledTime, (task) => { ctx.waitUntil(task) })
+      const noteTaskReminderTick = sweepNoteTaskReminders(env, event.scheduledTime, (task) => { ctx.waitUntil(task) }).catch((error) => {
+        console.warn('[inkstone] note task reminder sweep failed:', (error as Error).message)
+        return null
+      })
       // One certificate order that throws must not take the whole scheduled round with it: the other
       // ticks, and every order behind this one, still have work to do in the same fire.
       const certhubTick = runCerthubTick(env, event.scheduledTime).catch((error) => {
@@ -184,7 +189,7 @@ export default {
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectWebhookTick, noteWebhookTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
+        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, noteTaskReminderTick, projectReminderTick, projectWebhookTick, noteWebhookTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -236,7 +241,7 @@ export default {
             })(),
           ]
         : []
-      await Promise.all([...drains, ...heavy, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectWebhookTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, clouddriveTick])
+      await Promise.all([...drains, ...heavy, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, noteTaskReminderTick, projectReminderTick, projectWebhookTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, clouddriveTick])
     })())
   },
 

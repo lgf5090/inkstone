@@ -155,6 +155,7 @@ function NotificationRow({
   // of it here. A pointer this app cannot read — another app's prefix, a tail that is not one id — is the
   // second case, which is the honest answer rather than a press that goes nowhere.
   const taskId = taskIdFromNotificationLink(notification.link)
+  const noteLink = /^note:([0-9a-hjkmnp-tv-z]{26})$/.exec(notification.link ?? '')?.[1]
   const calendarDate = /^calendar:(\d{4}-\d{2}-\d{2})$/.exec(notification.link ?? '')?.[1]
   const projectCard = projectCardFromNotificationLink(notification.link)
   const emailLink = /^email:([^:]+):([^:]+)$/.exec(notification.link ?? '')
@@ -183,6 +184,11 @@ function NotificationRow({
             onClick={() => {
               if (unread) onRead()
               if (taskId) { onOpenTask(taskId); return }
+              if (noteLink) {
+                onClose()
+                navigateToPath(`/n/${noteLink}`)
+                return
+              }
               if (calendarDate) {
                 window.location.assign(`/calendar?view=day&date=${calendarDate}`)
                 return
@@ -203,7 +209,7 @@ function NotificationRow({
               }
               setExpanded((value) => !value)
             }}
-            aria-expanded={taskId || calendarDate || projectCard || emailLink || emailFollowUps ? undefined : expanded}
+            aria-expanded={taskId || noteLink || calendarDate || projectCard || emailLink || emailFollowUps ? undefined : expanded}
             className="min-w-0 flex-1 text-left"
           >
             <p className={cn(
@@ -218,6 +224,9 @@ function NotificationRow({
                 that navigates and a row that expands are different gestures and must not look the same. */}
             {taskId && (
               <p className="mt-0.5 text-[length:var(--text-10-5)] font-medium text-[var(--accent)]">{t('assistant.notifications.open_task')}</p>
+            )}
+            {noteLink && (
+              <p className="mt-0.5 text-[length:var(--text-10-5)] font-medium text-[var(--accent)]">{t('assistant.notifications.open_note')}</p>
             )}
             {projectCard && (
               <p className="mt-0.5 text-[length:var(--text-10-5)] font-medium text-[var(--accent)]">{t('project.card.open')}</p>

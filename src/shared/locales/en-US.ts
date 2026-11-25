@@ -9125,6 +9125,7 @@ const CORE_MESSAGES_TAIL = {
     "assistant.notifications.mark_all": "Mark all read",
     "assistant.notifications.delete": "Delete notification",
     "assistant.notifications.open_task": "Open this task",
+    "assistant.notifications.open_note": "Open this note",
     "assistant.notifications.open_email": "Open this email",
     "assistant.notifications.open_email_followups": "Open email follow-ups",
     "assistant.notifications.empty": "Nothing yet",

@@ -251,6 +251,7 @@ import {
   PROJECT_REQUIRED_TABLES,
 } from '../project/schema'
 import { backfillNoteProperties } from './note-properties'
+import { backfillNoteTaskReminders } from './note-task-reminders'
 const BACKUP_ARCHIVES_TABLE = `CREATE TABLE IF NOT EXISTS backup_archives (
   user_id TEXT NOT NULL,
   target_id TEXT NOT NULL,
@@ -536,6 +537,22 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_note_webhook_deliveries_due
      ON note_webhook_deliveries(status, next_attempt_at)`,
+
+  `CREATE TABLE IF NOT EXISTS note_task_reminders (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    line_number INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    due_day TEXT NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0,
+    fired_at INTEGER,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id),
+    UNIQUE(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_note_task_reminders_due
+     ON note_task_reminders(user_id, fired_at, due_day)`,
 
   `CREATE TRIGGER IF NOT EXISTS trg_note_webhook_insert AFTER INSERT ON notes
    WHEN NEW.deleted_at IS NULL
@@ -4780,6 +4797,26 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
        END`,
     ],
   },
+  {
+    version: 425,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS note_task_reminders (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        note_id TEXT NOT NULL,
+        line_number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        due_day TEXT NOT NULL,
+        completed INTEGER NOT NULL DEFAULT 0,
+        fired_at INTEGER,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id),
+        UNIQUE(id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_note_task_reminders_due
+         ON note_task_reminders(user_id, fired_at, due_day)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -4812,6 +4849,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   note_versions: ['id', 'note_id', 'user_id', 'title', 'content', 'size', 'created_at'],
   note_webhooks: ['id', 'user_id', 'title', 'url', 'secret_ciphertext', 'events', 'enabled', 'created_at', 'updated_at'],
   note_webhook_deliveries: ['id', 'webhook_id', 'user_id', 'event', 'payload', 'attempts', 'next_attempt_at', 'status', 'last_error', 'created_at'],
+  note_task_reminders: ['id', 'user_id', 'note_id', 'line_number', 'title', 'due_day', 'completed', 'fired_at', 'updated_at'],
   attachments: ['id', 'user_id', 'scope', 'note_id', 'folder_id', 'filename', 'mime', 'size', 'sha256', 'object_key', 'width', 'height', 'is_starred', 'is_pinned', 'tags', 'storage', 'created_at'],
   attachment_folders: ['user_id', 'id', 'scope', 'parent_id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
   attachment_tags: ['user_id', 'id', 'scope', 'name', 'color', 'is_pinned', 'created_at'],
@@ -4889,6 +4927,7 @@ export const REQUIRED_TABLES = [
   'note_versions',
   'note_webhooks',
   'note_webhook_deliveries',
+  'note_task_reminders',
   'attachments',
   'attachment_folders',
   'attachment_tags',
@@ -4986,6 +5025,7 @@ export const REQUIRED_INDEXES = [
   'idx_versions_user',
   'idx_note_webhooks_user',
   'idx_note_webhook_deliveries_due',
+  'idx_note_task_reminders_due',
   'idx_attachments_user',
   'idx_attachments_user_sha',
   'idx_attachments_note',
@@ -5124,6 +5164,7 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
   await migrateTaskReminders(db)
   await applyMigrations(db)
   await backfillNoteProperties(db)
+  await backfillNoteTaskReminders(db)
   await repairReaderBookTenantKey(db)
   await migrateTaskTable(db)
   await migrateTodoDayColumns(db)
