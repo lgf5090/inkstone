@@ -61,7 +61,7 @@
 - [ ] FEAT-09 自动备份与后台同步
 - [ ] FEAT-10 整盘快照与时间点恢复
 - [ ] FEAT-11 私密保险箱
-- [ ] FEAT-12 文件评论与 @提及
+- [x] FEAT-12 文件评论与 @提及
 - [ ] FEAT-13 媒体增强：HEIC、续播、转码评估
 - [ ] FEAT-14 大列表虚拟滚动
 - [ ] QA-01 单元、类型、静态门禁与构建
@@ -98,6 +98,7 @@
 | LOG-01 | DONE | 本次提交 | 207 仅移除成功项，部分失败可见 |
 | LOG-02 | DONE | 本次提交 | 实时内容 no-store，匹配 modifiedAt 的版本 URL 使用 immutable |
 | LOG-08 | DONE | 本次提交 | 外部 rename/skip/overwrite 与 S3 复制失败回滚测试通过 |
+| FEAT-12 | DONE | 本次提交 | 评论 5 项通过；owner/ACL/目录锁隔离、@提及与通知记录可用 |
 
 ## 验证命令
 

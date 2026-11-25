@@ -120,6 +120,19 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_clouddrive_file_tags_file
      ON CloudDrive_file_tags(user_id, file_id)`,
 
+  `CREATE TABLE IF NOT EXISTS CloudDrive_file_comments (
+    id TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    author_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    mentions TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (owner_id, file_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_file_comments_file
+     ON CloudDrive_file_comments(owner_id, file_id, created_at, id)`,
+
   `CREATE TABLE IF NOT EXISTS CloudDrive_shares (
     slug TEXT NOT NULL UNIQUE,
     user_id TEXT NOT NULL,
@@ -474,6 +487,7 @@ export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_mounts',
   'CloudDrive_files',
   'CloudDrive_file_tags',
+  'CloudDrive_file_comments',
   'CloudDrive_shares',
   'CloudDrive_share_sessions',
   'CloudDrive_share_visits',
@@ -515,6 +529,7 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
     'created_at', 'updated_at', 'uploaded_at', 'modified_at',
   ],
   CloudDrive_file_tags: ['user_id', 'file_id', 'tag', 'tag_folded', 'color', 'created_at'],
+  CloudDrive_file_comments: ['id', 'owner_id', 'file_id', 'author_id', 'body', 'mentions', 'created_at'],
   CloudDrive_shares: [
     'slug', 'user_id', 'target_kind', 'file_id', 'mount_id', 'path', 'name', 'size', 'mime',
     'password_hash', 'expires_at', 'max_views', 'views', 'max_downloads', 'downloads',
@@ -592,6 +607,7 @@ export const CLOUDDRIVE_REQUIRED_INDEXES = [
   'idx_clouddrive_files_storage_key',
   'idx_clouddrive_file_tags_tag',
   'idx_clouddrive_file_tags_file',
+  'idx_clouddrive_file_comments_file',
   'idx_clouddrive_shares_user',
   'idx_clouddrive_shares_target',
   'idx_clouddrive_share_sessions_slug',

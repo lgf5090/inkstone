@@ -9,7 +9,10 @@ import { Button, IconButton } from '../../../components/primitives'
 import { Input, Textarea } from '../../../components/form'
 import { Drawer } from '../../../components/overlay'
 import { useMediaQuery } from '../../../lib/hooks'
+import { useSession } from '../../../store/session'
 import { useUi } from '../../../store/ui'
+import { useCloudDriveStore } from '../store'
+import { CommentsPanel } from './CommentsPanel'
 import { FileIcon } from './FileIcon'
 import { FolderColorMenu, TagEditorMenu } from './ColorTagMenus'
 import { entryKindLabel, formatEntryDate, formatEntrySize, totalEntryBytes } from './format'
@@ -238,6 +241,9 @@ export function Inspector({
   const [sharedIds, setSharedIds] = useState<Set<string> | null>(null)
   const sharesRequested = useRef(false)
   const mobile = useMediaQuery('(max-width: 767px)')
+  const sessionUserId = useSession((state) => state.user?.id)
+  const bootstrapUserId = useCloudDriveStore((state) => state.bootstrap?.user.id)
+  const currentUserId = sessionUserId ?? bootstrapUserId ?? ''
 
   useEffect(() => {
     if (!open || sharesRequested.current) return
@@ -313,6 +319,9 @@ export function Inspector({
               </DetailRow>
               )}
             </dl>
+            {single.storageKind !== 'external' && currentUserId && (
+              <CommentsPanel key={single.id} entry={single} ownerId={currentUserId} currentUserId={currentUserId} />
+            )}
             {single.storageKind === 'distributed' && <DistributedParts entry={single} />}
             {single.storageKind !== 'external' && !readOnly && !single.readOnly && <AclEditor entry={single} />}
             {single.kind === 'folder' && folderSummary && <FolderSizeTool entry={single} />}
