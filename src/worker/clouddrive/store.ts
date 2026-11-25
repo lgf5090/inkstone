@@ -15,6 +15,10 @@ interface MountRow {
 }
 
 export async function ensurePrimaryMount(db: D1Database, userId: string): Promise<void> {
+  const existing = await db.prepare(
+    'SELECT 1 AS found FROM CloudDrive_mounts WHERE user_id = ?1 AND id = ?2',
+  ).bind(userId, PRIMARY_MOUNT_ID).first<{ found: number }>()
+  if (existing) return
   const now = Date.now()
   await db.prepare(
     `INSERT OR IGNORE INTO CloudDrive_mounts

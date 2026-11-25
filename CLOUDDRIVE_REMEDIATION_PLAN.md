@@ -38,7 +38,7 @@
 - [ ] PERF-03 服务端分片流式写入
 - [ ] PERF-04 单文件分片并发与自动重试
 - [ ] PERF-05 WebDAV 短期认证会话缓存
-- [ ] PERF-06 移除每请求主挂载初始化写
+- [x] PERF-06 移除每请求主挂载初始化写
 - [ ] PERF-07 配额计数表与定时校准
 - [ ] PERF-08 URL 上传超时、限流与流式限长
 - [ ] UX-01 公开页接入统一 API 服务层
@@ -74,6 +74,7 @@
 |---|---|---|---|
 | PLAN-00 | DONE | 本次提交 | worktree 已创建；`npm ci` 成功；计划文档纳入版本控制 |
 | PERF-02 | DONE | 本次提交 | `tests/clouddrive-upload.test.ts` ZIP 用例通过；最多 8 个对象预取 |
+| PERF-06 | DONE | 本次提交 | `clouddrive-files` + `clouddrive-mounts` 47 项通过；主挂载仅缺失时写 |
 
 ## 验证命令
 
