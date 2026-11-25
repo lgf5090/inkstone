@@ -82,7 +82,8 @@
 | FEAT-13 | IN PROGRESS | 16cd1663 | 音视频续播与账号隔离已实现；HEIC/转码仍待评估 |
 | FEAT-06 | IN PROGRESS | 75215bf8 | 增量 SHA-256 工具与测试通过；上传去重协议待接 |
 | FEAT-14 | IN PROGRESS | 8b35bf97 | 列表/网格/相册启用 content-visibility；大列表性能实测待做 |
-| SEC-12 | IN PROGRESS | 本次提交 | scope 模型与迁移兼容测试通过；DAV 方法级检查待接 |
+| SEC-12 | IN PROGRESS | 97b6acc0 | scope 模型与迁移兼容测试通过；DAV 方法级检查待接 |
+| UX-09 | IN PROGRESS | 本次提交 | 新增 gates:full；全量类型、测试与构建待跑 |
 
 ## 验证命令
 
