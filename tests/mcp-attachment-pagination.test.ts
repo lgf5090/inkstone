@@ -77,6 +77,36 @@ describe('MCP attachment keyset pagination', () => {
     expect(new Set(seen).size).toBe(65)
   })
 
+  it('walks 3,000 attachments once with bounded keyset pages', async () => {
+    const sqlite = database()
+    migrate(sqlite)
+    sqlite.prepare('INSERT INTO notes (id, user_id) VALUES (?1, ?2)').run(NOTE_A, USER)
+    const insert = sqlite.prepare(`INSERT INTO attachments
+      (id, user_id, note_id, filename, mime, size, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`)
+    sqlite.exec('BEGIN')
+    for (let index = 0; index < 3000; index++) {
+      insert.run(id(index), USER, index % 2 ? NOTE_A : null, `file-${index}.bin`,
+        'application/octet-stream', index + 1, Math.floor(index / 10))
+    }
+    sqlite.exec('COMMIT')
+    const db = makeD1(sqlite)
+    const seen: string[] = []
+    let cursor: string | undefined
+    let pages = 0
+    const started = performance.now()
+    do {
+      const page = await listMcpAttachments(db, USER, { limit: 100, cursor })
+      seen.push(...page.attachments.map((entry) => entry.id))
+      cursor = page.next_cursor ?? undefined
+      pages += 1
+    } while (cursor)
+    const elapsedMs = performance.now() - started
+    expect(pages).toBe(60)
+    expect(seen).toHaveLength(3000)
+    expect(new Set(seen).size).toBe(3000)
+    console.info(`MCP attachment benchmark: 3000 rows, ${pages} pages, ${elapsedMs.toFixed(1)}ms`)
+  })
+
   it('accepts the original numeric and numeric-string offset cursors', async () => {
     const sqlite = database()
     migrate(sqlite)
