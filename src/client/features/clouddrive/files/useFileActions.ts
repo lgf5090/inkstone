@@ -3,6 +3,7 @@ import { childPath, parentPathOf, type CloudDriveEntry } from '@shared/clouddriv
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
+import { useSession } from '../../../store/session'
 import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
 import { useTransferStore } from '../transfers/useTransferStore'
 import { useCloudDriveStore } from '../store'
@@ -242,7 +243,9 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
   const offline = useCallback(async (entry: CloudDriveEntry): Promise<boolean> => {
     setPending((count) => count + 1)
     try {
-      await fetchAndSaveOffline(entry)
+      const userId = useSession.getState().user?.id
+      if (!userId) throw new Error('offline_user_required')
+      await fetchAndSaveOffline(userId, entry)
       showSuccess(t('clouddrive.offline.saved', { name: entry.name }))
       return true
     } catch (error) {
