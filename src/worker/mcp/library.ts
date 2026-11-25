@@ -30,6 +30,7 @@ interface LibraryContext extends McpWriteContext {
 /** Matches parseFrontMatter's own 64 KiB safety limit, so scanning never truncates. */
 const FRONT_MATTER_SCAN_CHARS = 65_536
 const FRONT_MATTER_SCAN_NOTES = 500
+const INDEXED_PROPERTY_KEY_CHARS_MAX = 128
 
 interface FolderRow {
   id: string
@@ -194,14 +195,33 @@ export async function queryMcpNoteProperties(
     limit?: number
   },
 ) {
+  const propertyKeys = input.conditions.map((condition) =>
+    condition.key.trim().slice(0, INDEXED_PROPERTY_KEY_CHARS_MAX).toLocaleLowerCase(),
+  )
+  // The key-leading lookup index is intentional: note_id equality otherwise makes the primary key
+  // look cheaper, which turns a rare-key lookup into one seek per candidate.
+  const propertyPrefilters = propertyKeys.map((_, index) => `EXISTS (
+    SELECT 1 FROM note_properties AS property INDEXED BY idx_note_properties_lookup
+    WHERE property.user_id = ?1
+      AND property.note_id = candidates.id
+      AND property.key_key = ?${index + 2}
+  )`)
   const { results } = await db.prepare(
-    // parseFrontMatter can only match a document starting with an optional BOM and '---',
-    // so every other body can be skipped storage-side instead of shipping 500 full texts.
-    `SELECT id, title, substr(content, 1, ${FRONT_MATTER_SCAN_CHARS}) AS content, rev, updated_at FROM notes
+    // Materialize the original newest-500 Front Matter window before filtering so an older matching
+    // note can never enter it. Only keys are checked here; propertyMatches remains authoritative.
+    `WITH candidates AS MATERIALIZED (
+      SELECT id, title, rev, updated_at FROM notes
       WHERE user_id = ?1 AND deleted_at IS NULL
         AND (substr(content, 1, 3) = '---' OR substr(content, 1, 4) = char(65279) || '---')
-      ORDER BY updated_at DESC LIMIT ${FRONT_MATTER_SCAN_NOTES}`,
-  ).bind(userId).all<{ id: string; title: string; content: string; rev: number; updated_at: number }>()
+      ORDER BY updated_at DESC LIMIT ${FRONT_MATTER_SCAN_NOTES}
+    )
+    SELECT candidates.id, candidates.title, substr(note.content, 1, ${FRONT_MATTER_SCAN_CHARS}) AS content,
+           candidates.rev, candidates.updated_at
+    FROM candidates
+    JOIN notes AS note ON note.id = candidates.id
+    ${propertyPrefilters.length ? `WHERE ${propertyPrefilters.join('\n      AND ')}` : ''}
+    ORDER BY candidates.updated_at DESC`,
+  ).bind(userId, ...propertyKeys).all<{ id: string; title: string; content: string; rev: number; updated_at: number }>()
   const limit = Math.max(1, Math.min(50, input.limit ?? 20))
   const matches = []
   for (const note of results) {

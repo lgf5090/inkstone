@@ -42288,14 +42288,16 @@ const allowed = new Map([
   ]],
   ["src/worker/mcp/library.ts", [
     "/** Matches parseFrontMatter's own 64 KiB safety limit, so scanning never truncates. */",
-    "// parseFrontMatter can only match a document starting with an optional BOM and '---',",
-    "// so every other body can be skipped storage-side instead of shipping 500 full texts.",
     "// Results stay in request order, but the items are no longer strictly serial: each one is",
     "// an idempotent, revision-guarded write, so a 20-item call used to pay 120–140 sequential",
     "// D1 round trips (≈1.2–3.5 s) to flip twenty flags.",
     "/** Chunk bounds for read_attachment, kept pure so the arithmetic is testable. */",
     "/** KV has no ranged get, so only that backend still pays for a full object read. */",
     "/** Numeric offsets remain accepted for callers of the original MCP tool; new pages use a sort key. */",
+    "// The key-leading lookup index is intentional: note_id equality otherwise makes the primary key",
+    "// look cheaper, which turns a rare-key lookup into one seek per candidate.",
+    "// Materialize the original newest-500 Front Matter window before filtering so an older matching",
+    "// note can never enter it. Only keys are checked here; propertyMatches remains authoritative.",
   ]],
   ["src/worker/mcp/oauth.ts", [
     "// Static API keys let small or generic MCP clients authenticate with a",
