@@ -87,6 +87,15 @@ describe('cloud drive preferences', () => {
     expect(prefs.sortDir).toBe('desc')
     expect(prefs.uploadConcurrency).toBe(3)
     expect(prefs.uploadConflict).toBe('rename')
+    expect(prefs.listColumns).toEqual(['size', 'modified', 'type', 'tags', 'status'])
     expect(parseCloudDrivePrefs({ uploadConflict: 'overwrite' }).uploadConflict).toBe('overwrite')
+  })
+
+  it('keeps only known list columns, removes duplicates and allows hiding them all', () => {
+    expect(parseCloudDrivePrefs({ listColumns: ['status', 'size', 'size', 'unknown'] }).listColumns)
+      .toEqual(['size', 'status'])
+    expect(parseCloudDrivePrefs({ listColumns: [] }).listColumns).toEqual([])
+    expect(parseCloudDrivePrefs({ listColumns: 'size' }).listColumns)
+      .toEqual(['size', 'modified', 'type', 'tags', 'status'])
   })
 })

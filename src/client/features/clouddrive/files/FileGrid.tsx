@@ -3,6 +3,7 @@ import { Star } from 'lucide-react'
 import { t } from '../../../lib/i18n'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import { FileIcon } from './FileIcon'
+import { EntryBadges } from './EntryBadges'
 import { TagDots } from './ColorTagMenus'
 import { splitExtension } from './format'
 import { selectModeFor, type FileViewProps } from './types'
@@ -13,6 +14,8 @@ export function FileGrid({
   selected,
   focusedId,
   showCheckboxes,
+  showBadges = true,
+  indicators,
   readOnly,
   onFocusEntry,
   onSelect,
@@ -106,6 +109,7 @@ export function FileGrid({
             >
               <FileIcon entry={entry} fluid />
               <span className="cd-grid-name">{nameBase}{nameExtension && <span className="cd-name-ext">{nameExtension}</span>}</span>
+              {showBadges && <EntryBadges entry={entry} indicators={indicators} className="cd-grid-badges" />}
               {entry.starredAt && <Star size={13} role="img" aria-label={t('clouddrive.action.starred')} className="absolute right-1 top-1 fill-current text-[var(--accent)]" />}
               {entry.tags.length > 0 && <TagDots tags={entry.tags} max={4} />}
             </button>

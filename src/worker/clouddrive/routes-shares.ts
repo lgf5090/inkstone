@@ -133,10 +133,11 @@ clouddriveShareRoutes.post('/shares', async (c) => {
        (slug, user_id, target_kind, file_id, mount_id, path, name, size, mime, password_hash,
         expires_at, max_views, views, max_downloads, downloads, allow_download, allow_list,
         is_enabled, created_at)
-     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,0,?13,0,?14,1,1,?15)`,
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,0,?13,0,?14,?15,1,?16)`,
   ).bind(
     slug, userId, targetKind, file.id, mountId, file.path, file.name, file.size, file.mime,
-    passwordHash, expiresAt, maxViews, maxDownloads, body.allowDownload === false ? 0 : 1, now,
+    passwordHash, expiresAt, maxViews, maxDownloads, body.allowDownload === false ? 0 : 1,
+    body.allowList === false ? 0 : 1, now,
   ).run()
   const row = await shareBySlug(c, slug)
   if (!row) throw new ApiError(500, 'internal', 'The share could not be read back')
@@ -165,6 +166,7 @@ clouddriveShareRoutes.patch('/shares/:slug', async (c) => {
   if (body.maxViews !== undefined) bind('max_views = ?', positiveIntOrNull(body.maxViews))
   if (body.maxDownloads !== undefined) bind('max_downloads = ?', positiveIntOrNull(body.maxDownloads))
   if (body.allowDownload !== undefined) bind('allow_download = ?', body.allowDownload ? 1 : 0)
+  if (body.allowList !== undefined) bind('allow_list = ?', body.allowList ? 1 : 0)
   if (body.isEnabled !== undefined) bind('is_enabled = ?', body.isEnabled ? 1 : 0)
   if (!sets.length) return c.json({ share: toShareView(row) })
   values.push(userId, row.slug)
@@ -636,6 +638,7 @@ function toShareView(row: ShareRow) {
     downloads: row.downloads,
     maxDownloads: row.max_downloads,
     allowDownload: row.allow_download === 1,
+    allowList: row.allow_list === 1,
     isEnabled: row.is_enabled === 1,
     createdAt: row.created_at,
     lastAccessedAt: row.last_accessed_at,

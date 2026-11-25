@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { ArrowDown, ArrowUp, Star } from 'lucide-react'
-import type { CloudDriveEntry, CloudDriveSortDirection, CloudDriveSortKey } from '@shared/clouddrive/model'
+import type { CloudDriveEntry, CloudDriveListColumn, CloudDriveSortDirection, CloudDriveSortKey } from '@shared/clouddrive/model'
 import { parentPathOf } from '@shared/clouddrive/model'
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
 import { FileIcon } from './FileIcon'
+import { EntryBadges } from './EntryBadges'
 import { TagList } from './ColorTagMenus'
 import { entryKindLabel, formatEntryDate, formatEntrySize } from './format'
 import { selectModeFor, type FileViewProps } from './types'
@@ -18,6 +19,8 @@ export interface FileListProps extends FileViewProps {
   onSort?: (key: CloudDriveSortKey) => void
   /** Drive-wide search results live in different folders, so the folder has to be visible. */
   showPath?: boolean
+  /** Optional columns in their fixed display order; name is always present. */
+  columns: readonly CloudDriveListColumn[]
 }
 
 export function FileList({
@@ -25,6 +28,7 @@ export function FileList({
   selected,
   focusedId,
   showCheckboxes,
+  indicators,
   readOnly,
   onFocusEntry,
   onSelect,
@@ -42,6 +46,7 @@ export function FileList({
   sortDir,
   onSort,
   showPath = false,
+  columns,
 }: FileListProps) {
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
   const [dropId, setDropId] = useState<string | null>(null)
@@ -116,11 +121,12 @@ export function FileList({
             )}
           </th>
           {header('name')}
-          {header('size', 'w-[88px]')}
-          {header('modified', 'cd-col-modified w-[148px]')}
+          {columns.includes('size') && header('size', 'w-[88px]')}
+          {columns.includes('modified') && header('modified', 'cd-col-modified w-[148px]')}
           {showPath && <th scope="col" className="cd-col-location w-[200px]">{t('clouddrive.search.location')}</th>}
-          {header('type', 'cd-col-kind w-[110px]')}
-          <th scope="col" className="cd-col-tags w-[160px]">{t('clouddrive.action.tags')}</th>
+          {columns.includes('type') && header('type', 'cd-col-kind w-[110px]')}
+          {columns.includes('tags') && <th scope="col" className="cd-col-tags w-[160px]">{t('clouddrive.action.tags')}</th>}
+          {columns.includes('status') && <th scope="col" className="cd-col-status w-[190px]">{t('clouddrive.column.status')}</th>}
         </tr>
       </thead>
       <tbody>
@@ -184,15 +190,22 @@ export function FileList({
                   <span className="truncate text-[var(--text-primary)]">{entry.name}</span>
                 </span>
               </td>
-              <td className="tabular-nums">{formatEntrySize(entry)}</td>
-              <td className="cd-col-modified tabular-nums">{formatEntryDate(entry.modifiedAt)}</td>
+              {columns.includes('size') && <td className="tabular-nums">{formatEntrySize(entry)}</td>}
+              {columns.includes('modified') && <td className="cd-col-modified tabular-nums">{formatEntryDate(entry.modifiedAt)}</td>}
               {showPath && (
                 <td className="cd-col-location" title={parentPathOf(entry.path)}>{parentPathOf(entry.path)}</td>
               )}
-              <td className="cd-col-kind">{entryKindLabel(entry)}</td>
-              <td className="cd-col-tags">
-                <TagList tags={entry.tags} max={2} />
-              </td>
+              {columns.includes('type') && <td className="cd-col-kind">{entryKindLabel(entry)}</td>}
+              {columns.includes('tags') && (
+                <td className="cd-col-tags">
+                  <TagList tags={entry.tags} max={2} />
+                </td>
+              )}
+              {columns.includes('status') && (
+                <td className="cd-col-status">
+                  <EntryBadges entry={entry} indicators={indicators} />
+                </td>
+              )}
             </tr>
           )
         })}

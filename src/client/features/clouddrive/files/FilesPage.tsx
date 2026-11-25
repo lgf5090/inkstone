@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useId,
   type ChangeEvent,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
@@ -19,6 +20,7 @@ import {
   ArrowLeft,
   ArrowUpDown,
   ChevronRight,
+  Columns3,
   FolderOpen,
   FolderPlus,
   FolderSearch,
@@ -40,10 +42,12 @@ import { formatBytes } from '@shared/byte-format'
 import type { AssistantPageContext } from '@shared/assistant'
 import {
   CLOUDDRIVE_SORT_KEYS,
+  CLOUDDRIVE_LIST_COLUMNS,
   CLOUDDRIVE_UPLOAD_CONFLICTS,
   parentPathOf,
   type CloudDriveEntry,
   type CloudDriveListing,
+  type CloudDriveListColumn,
   type CloudDriveSortDirection,
   type CloudDriveSortKey,
   type CloudDriveUploadConflict,
@@ -73,6 +77,7 @@ import { RemoteUploadDialog } from './RemoteUploadDialog'
 import { ShareDialog } from './ShareDialog'
 import { VersionsDialog } from './VersionsDialog'
 import { useFileActions, type FileListChange, type ShareOptions } from './useFileActions'
+import { useEntryIndicators } from './useEntryIndicators'
 import { useTouchDrag } from './useTouchDrag'
 import type { FileClipboard, SelectMode } from './types'
 import { totalEntryBytes } from './format'
@@ -156,6 +161,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   const [menuTarget, setMenuTarget] = useState<ContextMenuTarget | null>(null)
   const [dialog, setDialog] = useState<DialogState>(null)
   const [sortOpen, setSortOpen] = useState(false)
+  const [columnsOpen, setColumnsOpen] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
   const [crumbDrop, setCrumbDrop] = useState<string | null>(null)
 
@@ -165,8 +171,10 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const sortButtonRef = useRef<HTMLButtonElement>(null)
+  const columnsButtonRef = useRef<HTMLButtonElement>(null)
   const conflictButtonRef = useRef<HTMLButtonElement>(null)
   const dragRef = useRef<{ ids: string[]; paths: string[] } | null>(null)
+  const searchSummaryId = useId()
 
   const writable = !readOnly
   const viewMode: ViewMode = prefs.viewMode === 'column' ? 'icon' : prefs.viewMode
@@ -335,6 +343,13 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       : []),
     [listing, prefs.foldersFirst],
   )
+  const entryIndicators = useEntryIndicators(entries, external, refreshKey)
+  const { reload: reloadIndicators, refreshVersions } = entryIndicators
+  const searchSummary = query.length > 0
+    ? (driveSearch
+      ? t('clouddrive.search.results_drive', { count: listing?.total ?? entries.length })
+      : t('clouddrive.search.results_folder', { path, count: listing?.total ?? entries.length }))
+    : ''
 
   useEffect(() => {
     if (!listing) return
@@ -529,8 +544,10 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
 
   const shareTargets = useCallback(async (options: ShareOptions): Promise<boolean> => {
     if (dialog?.kind !== 'share') return false
-    return await actions.share(dialog.entries, options)
-  }, [actions, dialog])
+    const ok = await actions.share(dialog.entries, options)
+    if (ok) reloadIndicators()
+    return ok
+  }, [actions, dialog, reloadIndicators])
 
   const handleContextMenu = useCallback((entry: CloudDriveEntry, event: ReactMouseEvent<HTMLElement>) => {
     event.preventDefault()
@@ -687,6 +704,13 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       : { sortKey: key, sortDir: 'asc' })
   }, [prefs.sortKey, prefs.sortDir, setPrefs])
 
+  const toggleColumn = useCallback((column: CloudDriveListColumn) => {
+    const visible = prefs.listColumns.includes(column)
+    setPrefs({
+      listColumns: CLOUDDRIVE_LIST_COLUMNS.filter((key) => (key === column ? !visible : prefs.listColumns.includes(key))),
+    })
+  }, [prefs.listColumns, setPrefs])
+
   /**
    * What an upload does when the folder already holds that name. The server has honoured all three
    * since the first day; the queue used to ask for `rename` and nothing else.
@@ -721,6 +745,24 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     },
   ]
 
+  const columnItems: MenuItem[] = CLOUDDRIVE_LIST_COLUMNS.map((column): MenuItem => {
+    const label: MessageKey = column === 'size'
+      ? 'clouddrive.sort.size'
+      : column === 'modified'
+        ? 'clouddrive.sort.modified'
+        : column === 'type'
+          ? 'clouddrive.sort.type'
+          : column === 'tags'
+            ? 'clouddrive.action.tags'
+            : 'clouddrive.column.status'
+    return {
+      id: `column-${column}`,
+      label: t(label),
+      checked: prefs.listColumns.includes(column),
+      onSelect: () => toggleColumn(column),
+    }
+  })
+
   const menuEntry = menuTarget ? entries.find((entry) => entry.id === menuTarget.entry.id) ?? menuTarget.entry : null
   const menuTargets = menuEntry
     ? (selected.has(menuEntry.id) ? entries.filter((entry) => selected.has(entry.id)) : [menuEntry])
@@ -743,43 +785,55 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       onKeyDown={handleRootKeyDown}
     >
       <header className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--border-subtle)] px-2 py-1.5">
-        <IconButton
-          label={t('clouddrive.toolbar.back')}
-          onClick={() => onNavigate(parentPathOf(path))}
-          disabled={path === '/'}
+        <div
+          role="group"
+          aria-label={t('clouddrive.toolbar.group_navigation')}
+          className="flex min-w-[240px] flex-1 items-center gap-1.5 sm:max-w-[440px]"
         >
-          <ArrowLeft size={15} />
-        </IconButton>
-        <div className="min-w-[140px] flex-1 sm:max-w-[320px]">
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={t('clouddrive.toolbar.search')}
-            aria-label={t('clouddrive.toolbar.search')}
-            leading={<Search size={13} />}
-            trailing={search
-              ? (
-                <IconButton label={t('clouddrive.search.clear')} size="xs" onClick={() => { setSearch(''); setQuery('') }}>
-                  <X size={12} />
-                </IconButton>
-              )
-              : undefined}
-            className="h-8"
-          />
+          <IconButton
+            label={t('clouddrive.toolbar.back')}
+            onClick={() => onNavigate(parentPathOf(path))}
+            disabled={path === '/'}
+          >
+            <ArrowLeft size={15} />
+          </IconButton>
+          <div className="min-w-0 flex-1">
+            <Input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t('clouddrive.toolbar.search')}
+              aria-label={t(query.length > 0 ? 'clouddrive.search.filter' : 'clouddrive.toolbar.search')}
+              aria-describedby={query.length > 0 ? searchSummaryId : undefined}
+              leading={<Search size={13} />}
+              trailing={search
+                ? (
+                  <IconButton label={t('clouddrive.search.clear')} size="xs" onClick={() => { setSearch(''); setQuery('') }}>
+                    <X size={12} />
+                  </IconButton>
+                )
+                : undefined}
+              className="h-8"
+            />
+          </div>
+          {query.length > 0 && !external && (
+            <Segmented<'drive' | 'folder'>
+              value={searchScope}
+              size="sm"
+              label={t('clouddrive.search.scope')}
+              options={[
+                { value: 'folder', label: <FolderSearch size={14} />, title: t('clouddrive.search.scope_folder') },
+                { value: 'drive', label: <Globe size={14} />, title: t('clouddrive.search.scope_drive') },
+              ]}
+              onChange={(scope) => setSearchScope(scope)}
+            />
+          )}
         </div>
-        {query.length > 0 && !external && (
-          <Segmented<'drive' | 'folder'>
-            value={searchScope}
-            size="sm"
-            label={t('clouddrive.search.scope')}
-            options={[
-              { value: 'folder', label: <FolderSearch size={14} />, title: t('clouddrive.search.scope_folder') },
-              { value: 'drive', label: <Globe size={14} />, title: t('clouddrive.search.scope_drive') },
-            ]}
-            onChange={(scope) => setSearchScope(scope)}
-          />
-        )}
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <div
+          role="group"
+          aria-label={t('clouddrive.toolbar.group_display')}
+          className="cd-toolbar-group cd-toolbar-group--bounded"
+        >
           <Segmented<ViewMode>
             value={viewMode}
             size="sm"
@@ -803,6 +857,24 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           >
             <span className="hidden sm:inline">{t('clouddrive.toolbar.sort')}</span>
           </Button>
+          <Button
+            ref={columnsButtonRef}
+            size="sm"
+            variant="secondary"
+            icon={<Columns3 size={13} />}
+            aria-label={t('clouddrive.toolbar.columns')}
+            aria-haspopup="menu"
+            aria-expanded={columnsOpen}
+            onClick={() => setColumnsOpen((open) => !open)}
+          >
+            <span className="hidden lg:inline">{t('clouddrive.toolbar.columns')}</span>
+          </Button>
+        </div>
+        <div
+          role="group"
+          aria-label={t('clouddrive.toolbar.group_actions')}
+          className="cd-toolbar-group cd-toolbar-group--bounded"
+        >
           <Button
             size="sm"
             variant="secondary"
@@ -855,6 +927,24 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           >
             <span className="hidden sm:inline">{t('clouddrive.toolbar.new_file')}</span>
           </Button>
+          {!external && (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<FolderUp size={13} />}
+              aria-label={t('clouddrive.toolbar.upload_folder')}
+              disabled={!writable || actions.busy}
+              onClick={() => folderInputRef.current?.click()}
+            >
+              <span className="hidden sm:inline">{t('clouddrive.toolbar.upload_folder')}</span>
+            </Button>
+          )}
+        </div>
+        <div
+          role="group"
+          aria-label={t('clouddrive.toolbar.group_utilities')}
+          className="cd-toolbar-group cd-toolbar-group--bounded ml-auto"
+        >
           <IconButton
             label={t('clouddrive.toolbar.inspector')}
             active={prefs.inspectorVisible}
@@ -869,31 +959,32 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           >
             <Sparkles size={15} />
           </IconButton>
-          <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => void handleUploadPicked(event)} />
-          {!external && (
-            <>
-              <input
-                ref={folderInputRef}
-                type="file"
-                hidden
-                // The directory attribute is non-standard but universal; TS does not name it.
-                {...{ webkitdirectory: '', directory: '' }}
-                onChange={(event) => void handleFolderPicked(event)}
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={<FolderUp size={13} />}
-                aria-label={t('clouddrive.toolbar.upload_folder')}
-                disabled={!writable || actions.busy}
-                onClick={() => folderInputRef.current?.click()}
-              >
-                <span className="hidden sm:inline">{t('clouddrive.toolbar.upload_folder')}</span>
-              </Button>
-            </>
-          )}
         </div>
+        <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => void handleUploadPicked(event)} />
+        {!external && (
+          <input
+            ref={folderInputRef}
+            type="file"
+            hidden
+            // The directory attribute is non-standard but universal; TS does not name it.
+            {...{ webkitdirectory: '', directory: '' }}
+            onChange={(event) => void handleFolderPicked(event)}
+          />
+        )}
       </header>
+
+      {query.length > 0 && (
+        <div className="cd-search-strip">
+          <span className="cd-search-chip">
+            <span className="cd-search-chip-icon"><Search size={12} aria-hidden="true" /></span>
+            <span>{query}</span>
+            <IconButton label={t('clouddrive.search.clear')} size="xs" onClick={() => { setSearch(''); setQuery('') }}>
+              <X size={12} />
+            </IconButton>
+          </span>
+          <span id={searchSummaryId} role="status" aria-live="polite">{searchSummary}</span>
+        </div>
+      )}
 
       <nav
         aria-label={t('clouddrive.path.label')}
@@ -964,6 +1055,16 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         width={224}
       />
 
+      <Menu
+        anchor={columnsButtonRef}
+        open={columnsOpen}
+        onClose={() => setColumnsOpen(false)}
+        items={columnItems}
+        align="end"
+        width={224}
+        label={t('clouddrive.toolbar.columns')}
+      />
+
       <div className="flex min-h-0 min-w-0 flex-1">
         <div
           role="region"
@@ -1008,11 +1109,13 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                   selected={selected}
                   focusedId={focusedId}
                   showCheckboxes={prefs.showCheckboxes}
+                  indicators={entryIndicators}
                   readOnly={readOnly}
                   sortKey={driveSearch ? null : prefs.sortKey}
                   sortDir={prefs.sortDir}
                   onSort={driveSearch ? undefined : sortBy}
                   showPath={driveSearch}
+                  columns={prefs.listColumns}
                   onFocusEntry={setFocusedId}
                   onSelect={selectEntry}
                   onOpen={openEntry}
@@ -1033,6 +1136,8 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                   selected={selected}
                   focusedId={focusedId}
                   showCheckboxes={prefs.showCheckboxes}
+                  showBadges={prefs.listColumns.includes('status')}
+                  indicators={entryIndicators}
                   readOnly={readOnly}
                   onFocusEntry={setFocusedId}
                   onSelect={selectEntry}
@@ -1054,6 +1159,8 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                   selected={selected}
                   focusedId={focusedId}
                   showCheckboxes={prefs.showCheckboxes}
+                  showBadges={prefs.listColumns.includes('status')}
+                  indicators={entryIndicators}
                   readOnly={readOnly}
                   onFocusEntry={setFocusedId}
                   onSelect={selectEntry}
@@ -1210,7 +1317,10 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       <VersionsDialog
         open={dialog?.kind === 'versions'}
         entry={dialog?.kind === 'versions' ? dialog.entry : null}
-        onClose={() => setDialog(null)}
+        onClose={() => {
+          if (dialog?.kind === 'versions') refreshVersions([dialog.entry.id])
+          setDialog(null)
+        }}
         onRestored={(entry) => applyLocalChange({ type: 'replace', entry })}
       />
       <RemoteUploadDialog

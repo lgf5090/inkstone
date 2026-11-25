@@ -27,7 +27,7 @@
 - [x] LOG-03 上传 skip 与分布式续传修复
 - [ ] LOG-04 分享下载按访客/文件/窗口去重
 - [ ] LOG-05 分享、ACL、最近列表游标分页
-- [ ] LOG-06 清理或接通 allow_list 等死配置
+- [x] LOG-06 清理或接通 allow_list 等死配置
 - [x] LOG-07 Jobs 前后端权限契约统一
 - [x] LOG-08 外部写入冲突策略与 S3 MOVE 可恢复化
 - [ ] LOG-09 父子同选移动保持树结构
@@ -48,7 +48,7 @@
 - [x] UX-05 表单错误 ARIA 关联与键盘路径
 - [x] UX-06 设计令牌、i18n 与死代码清理
 - [ ] UX-07 拆分 FilesPage 与 store-files 职责
-- [ ] UX-08 文件列表工具栏、列与搜索体验
+- [x] UX-08 文件列表工具栏、列与搜索体验
 - [ ] UX-09 补齐 lint、测试、build、a11y 门禁
 - [ ] FEAT-01 跨挂载复制/移动/迁移
 - [ ] FEAT-02 跨盘全局搜索与 FTS5
@@ -99,6 +99,8 @@
 | LOG-02 | DONE | 本次提交 | 实时内容 no-store，匹配 modifiedAt 的版本 URL 使用 immutable |
 | LOG-08 | DONE | 本次提交 | 外部 rename/skip/overwrite 与 S3 复制失败回滚测试通过 |
 | FEAT-12 | DONE | 本次提交 | 评论 5 项通过；owner/ACL/目录锁隔离、@提及与通知记录可用 |
+| LOG-06 | DONE | 本次提交 | allowList 创建/PATCH/返回/公开列表拒绝已接通 |
+| UX-08 | DONE | 本次提交 | 工具栏分组、列显隐、搜索范围说明与条目状态徽标已接入 |
 
 ## 验证命令
 

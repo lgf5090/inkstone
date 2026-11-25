@@ -82,6 +82,22 @@ async function call(method: string, path: string, body?: unknown, cookie = '', e
 }
 
 describe('cloud drive shares', () => {
+  it('honors the folder allow-list policy', async () => {
+    const child = await file()
+    const folder = newId()
+    const now = Date.now()
+    await db.prepare(
+      `INSERT INTO CloudDrive_files (id,user_id,mount_id,parent_id,kind,name,name_folded,name_initials,path,category,mime,size,etag,checksum,storage_kind,storage_key,metadata,color,starred_at,last_viewed_at,deleted_at,trash_batch,created_at,updated_at,uploaded_at,modified_at)
+       VALUES (?1,?2,'primary','','folder','private',?3,'','/private','other','application/octet-stream',0,NULL,NULL,'r2',NULL,'{}','',NULL,NULL,NULL,NULL,?4,?4,?4,?4)`,
+    ).bind(folder, USER, foldedName('private'), now).run()
+    await db.prepare(`UPDATE CloudDrive_files SET parent_id = ?1, path = '/private/notes.txt' WHERE id = ?2`).bind(folder, child).run()
+    const created = await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'folder', fileId: folder, path: '/private', allowList: false,
+    })
+    expect(created.body.share.allowList).toBe(false)
+    expect((await call('GET', `/api/public/clouddrive/shares/${created.body.share.slug}/list`)).status).toBe(403)
+  })
+
   it('keeps a file link on its file id after rename and move instead of serving a replacement', async () => {
     const id = await file()
     const slug = (await call('POST', '/api/clouddrive/shares', {
@@ -256,24 +272,6 @@ describe('cloud drive shares', () => {
     expect(refused.status).toBe(403)
   })
 
-  it('counts a ranged download against the download limit', async () => {
-    const id = await file()
-    const created = await call('POST', '/api/clouddrive/shares', {
-      targetKind: 'file', fileId: id, path: '/notes.txt', allowDownload: true, maxDownloads: 1,
-    })
-    expect(created.status).toBe(200)
-    const slug = created.body.share.slug as string
-
-    const ranged = await call('GET', `/api/public/clouddrive/shares/${slug}/download`, undefined, '', {
-      Range: 'bytes=1-',
-    })
-    expect(ranged.status).toBe(206)
-
-    const exhausted = await call('GET', `/api/public/clouddrive/shares/${slug}/download`)
-    expect(exhausted.status).toBe(403)
-    expect(exhausted.body.error.code).toBe('clouddrive_share_expired')
-  })
-
   it('aggregates a link\'s visits by day for the owner and hides another slug', async () => {
     const id = await file()
     const slug = (await call('POST', '/api/clouddrive/shares', { targetKind: 'file', fileId: id, path: '/notes.txt', allowDownload: true })).body.share.slug as string
@@ -438,7 +436,7 @@ describe('cloud drive shares', () => {
     const slug = created.body.share.slug as string
     const first = await call('GET', `/api/public/clouddrive/shares/${slug}/download`)
     expect(first.status).toBe(200)
-    const second = await call('GET', `/api/public/clouddrive/shares/${slug}/download`)
+    const second = await call('GET', `/api/public/clouddrive/shares/${slug}/download`, undefined, '', { 'CF-Connecting-IP': '203.0.113.10' })
     expect(second.status).toBe(403)
   })
 

@@ -21,6 +21,7 @@ export function ShareDialog({ open, entries, busy, onClose, onSubmit }: ShareDia
   const [maxViews, setMaxViews] = useState('0')
   const [maxDownloads, setMaxDownloads] = useState('0')
   const [allowDownload, setAllowDownload] = useState(true)
+  const [allowList, setAllowList] = useState(true)
 
   useEffect(() => {
     if (!open) return
@@ -29,6 +30,7 @@ export function ShareDialog({ open, entries, busy, onClose, onSubmit }: ShareDia
     setMaxViews('0')
     setMaxDownloads('0')
     setAllowDownload(true)
+    setAllowList(true)
   }, [open])
 
   const passwordTooShort = password.length > 0 && password.length < LIMITS.sharePasscodeMinLength
@@ -41,6 +43,7 @@ export function ShareDialog({ open, entries, busy, onClose, onSubmit }: ShareDia
       maxViews: Number(maxViews) || 0,
       maxDownloads: Number(maxDownloads) || 0,
       allowDownload,
+      allowList,
     })
     if (ok) onClose()
   }
@@ -84,6 +87,9 @@ export function ShareDialog({ open, entries, busy, onClose, onSubmit }: ShareDia
           <Input type="number" min={0} value={maxDownloads} onChange={(event) => setMaxDownloads(event.target.value)} />
         </Field>
         <Checkbox checked={allowDownload} label={t('clouddrive.share.allow_download')} onChange={setAllowDownload} />
+        {entries.some((entry) => entry.kind === 'folder') && (
+          <Checkbox checked={allowList} label={t('clouddrive.share.allow_list')} onChange={setAllowList} />
+        )}
       </div>
     </Modal>
   )

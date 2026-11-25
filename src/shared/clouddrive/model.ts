@@ -170,6 +170,10 @@ export type CloudDriveSortDirection = 'asc' | 'desc'
 export const CLOUDDRIVE_VIEW_MODES = ['icon', 'list', 'gallery', 'column'] as const
 export type CloudDriveViewMode = (typeof CLOUDDRIVE_VIEW_MODES)[number]
 
+/** Optional list columns; name and the selection control are always present. */
+export const CLOUDDRIVE_LIST_COLUMNS = ['size', 'modified', 'type', 'tags', 'status'] as const
+export type CloudDriveListColumn = (typeof CLOUDDRIVE_LIST_COLUMNS)[number]
+
 /** What an upload does when the destination already holds that name. */
 export const CLOUDDRIVE_UPLOAD_CONFLICTS = ['rename', 'overwrite', 'skip'] as const
 export type CloudDriveUploadConflict = (typeof CLOUDDRIVE_UPLOAD_CONFLICTS)[number]
@@ -180,6 +184,7 @@ export interface CloudDrivePrefs {
   density: number
   gap: number
   showCheckboxes: boolean
+  listColumns: CloudDriveListColumn[]
   sortKey: CloudDriveSortKey
   sortDir: CloudDriveSortDirection
   foldersFirst: boolean
@@ -204,12 +209,16 @@ export function parseCloudDrivePrefs(value: unknown): CloudDrivePrefs {
     ? record.sortKey as CloudDriveSortKey
     : 'name'
   const sortDir = record.sortDir === 'desc' ? 'desc' : 'asc'
+  const listColumns = CLOUDDRIVE_LIST_COLUMNS.filter((column) => (
+    Array.isArray(record.listColumns) && record.listColumns.includes(column)
+  ))
   return {
     viewMode,
     iconSize: clampNumber(record.iconSize, 32, 128, 72),
     density: clampNumber(record.density, 0, 100, 50),
     gap: clampNumber(record.gap, 0, 24, 8),
     showCheckboxes: record.showCheckboxes !== false,
+    listColumns: Array.isArray(record.listColumns) ? listColumns : [...CLOUDDRIVE_LIST_COLUMNS],
     sortKey,
     sortDir,
     foldersFirst: record.foldersFirst !== false,

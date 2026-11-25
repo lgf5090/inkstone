@@ -2,6 +2,7 @@ import { useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import { clouddriveApi } from '../api'
 import { FileIcon } from './FileIcon'
+import { EntryBadges } from './EntryBadges'
 import { selectModeFor, type FileViewProps } from './types'
 import './render-budget.css'
 
@@ -14,6 +15,8 @@ export function FileGallery({
   selected,
   focusedId,
   showCheckboxes,
+  showBadges = true,
+  indicators,
   onFocusEntry,
   onSelect,
   onOpen,
@@ -68,6 +71,7 @@ export function FileGallery({
             ? <img className="cd-gallery-image" src={clouddriveApi.thumbnailUrl(active.id, 1280)} alt={active.name} />
             : <FileIcon entry={active} size={96} />}
           <span className="max-w-full truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{active.name}</span>
+          {showBadges && <EntryBadges entry={active} indicators={indicators} className="cd-gallery-badges" />}
         </button>
       </div>
       <ul role="list" className="cd-gallery-strip m-0 list-none">
