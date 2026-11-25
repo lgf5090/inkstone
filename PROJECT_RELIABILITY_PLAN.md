@@ -15,7 +15,7 @@
 | P0-03 | done | F3 enforce board token scope on body targets; narrow account-wide token scopes | board token cannot move/link across boards; high-risk routes session-only | 59e9c3c2 |
 | P0-04 | done | F4 chunk every dynamic IN query to D1's 100-binding limit | 101/200/500 id requests paginate or reject cleanly, never 500 | ddc509d0 |
 | P0-05 | done | F8 fail incomplete archive exports; support complete or explicit multipart export | truncated contents/comments/files produce explicit error or complete archive | 16079bfd |
-| P0-06 | done | F9 reject parent cycles in archive import and hierarchy writes | cyclic archive/batch returns 400; no unbounded traversal | pending hash |
+| P0-06 | done | F9 reject parent cycles in archive import and hierarchy writes | cyclic archive/batch returns 400; no unbounded traversal | 84a2c46f |
 | P0-07 | pending | F13 scope property relation deletion by board; version property patches; enforce property cap | deleting a copied property never affects source board; stale patch conflicts | - |
 | P0-08 | pending | F20 distinguish unchanged/set/remove share password; show protection state | empty save keeps password; explicit remove clears it; expiry UI works | - |
 
@@ -86,4 +86,4 @@
 - 2026-11-25: P0-03 completed in `59e9c3c2`; board-token cross-board move/relation and account-token high-risk routes covered by 25 passing tests.
 - 2026-11-25: P0-04 completed in `ddc509d0`; 101-id batch, 101-task date lookup and 101-card subtree move pass under a D1 double enforcing 100 bindings.
 - 2026-11-25: P0-05 completed in `16079bfd`; truncated bundles, missing attachment bytes and ZIP/file-size budget overruns now fail explicitly.
-- 2026-11-25: P0-06 completed; archive and same-batch parent cycles are rejected, and legacy cyclic subtrees cannot loop during move.
+- 2026-11-25: P0-06 completed in `84a2c46f`; archive and same-batch parent cycles are rejected, and legacy cyclic subtrees cannot loop during move.
