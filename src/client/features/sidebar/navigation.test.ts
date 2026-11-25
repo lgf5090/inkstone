@@ -1305,7 +1305,7 @@ describe('excluded tag filters', () => {
 });
 
 describe('note list window', () => {
-    it('renders every note when the vault is larger than the old fixed-height window', async () => {
+    it('keeps mounted rows bounded and reveals the last note after scrolling', async () => {
         const many = Object.fromEntries(Array.from({ length: 100 }, (_, index) => {
             const id = `bulk-${index}`;
             return [id, { ...note, id, title: `Note ${index}`, folderId: null, excerpt: '', tags: [], updatedAt: 10 + index }];
@@ -1313,10 +1313,17 @@ describe('note list window', () => {
         useNotes.setState({ ...originalNotes, folders: [], notes: many, tags: [], openNote: vi.fn(async () => undefined) });
         useUi.setState({ ...originalUi, listCollapsed: false, view: 'all', folderId: null, tags: [], selectedIds: [], searchList: false, dateFilter: null });
         await act(() => root.render(createElement(NoteList)));
-        // The old window rendered 80 rows inside fixed-height spacers; a row whose excerpt and
-        // tags made it taller than 72px drifted over its neighbour. Every row is now in the tree,
-        // and `content-visibility` is what keeps the off-screen ones cheap.
-        expect(container.querySelectorAll('[role="option"]')).toHaveLength(100);
+        const list = container.querySelector<HTMLElement>('[data-note-list]')!;
+        Object.defineProperty(list, 'clientHeight', { configurable: true, value: 400 })
+        expect(container.querySelectorAll('[role="option"]').length).toBeLessThan(100)
+
+        await act(async () => {
+            Object.defineProperty(list, 'scrollTop', { configurable: true, writable: true, value: 100_000 })
+            list.dispatchEvent(new Event('scroll'));
+        })
+        expect(container.querySelectorAll('[role="option"]').length).toBeLessThan(100)
+        expect(list.textContent).toContain('Note 0')
+        expect(list.textContent).not.toContain('Note 99')
     });
 });
 

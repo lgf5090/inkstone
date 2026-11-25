@@ -42,6 +42,7 @@ import { removeTagFromNote } from '../tags/tagMutations';
 import { addTagToNoteContent } from '../tags/bulk-tag';
 import { blogStatusKey, useBlogNoteStatus } from '../blog/status';
 import { pinyinIsLoaded, usePinyinVersion, warmPinyinKeys } from '../../lib/pinyin'
+import { useVirtualList } from './virtual-list'
 
 const searchKeyCache = new Map<string, { rev: number; title: string; body: string; tags: string; text: string }>();
 /** The concatenated key is the only copied string; bound it by characters, not entries. */
@@ -225,25 +226,53 @@ export function NoteList() {
     const filteredIds = useMemo(() => filtered.map((item) => item.note.id), [filtered]);
     const filteredIdsRef = useRef(filteredIds);
     filteredIdsRef.current = filteredIds;
-    const renderedIds = useMemo(() => new Set(filteredIds), [filteredIds]);
-    // Every row is in the tree; `content-visibility: auto` on each row is what keeps a large
-    // vault cheap to scroll. The window used to be cut by a fixed row height, but a note row
-    // is 40–101px depending on its excerpt, tags and group header, so the fixed-height
-    // spacers drifted far enough to overlap rows in a vault over 80 notes.
     const filteredPositions = useMemo(
         () => new Map(filtered.map((item, index) => [item.note.id, index + 1])),
         [filtered]);
     const groups = useMemo(() => groupNotes(filtered, sort, view === 'trash', nowMinute, filtered.some((i) => i.note.isPinned)), [filtered, sort, view, locale, nowMinute]);
+    const virtualItems = useMemo<VirtualItem[]>(() => groups.flatMap((group) => [
+        ...(group.label ? [{ kind: 'header' as const, key: `group:${group.key}`, label: group.label }] : []),
+        ...group.items.map(({ note, ranges }) => ({
+            kind: 'row' as const,
+            key: `note:${note.id}`,
+            groupKey: `group:${group.key}`,
+            groupLabel: group.label ?? title,
+            note,
+            ranges,
+        })),
+    ]).map((item, index) => ({ ...item, index })), [groups, title]);
+    const virtualNotePositions = useMemo(() => new Map(virtualItems.flatMap((item, index) =>
+        item.kind === 'row' ? [[item.note.id, index] as const] : [])), [virtualItems]);
+    const virtualNotePositionsRef = useRef(virtualNotePositions);
+    virtualNotePositionsRef.current = virtualNotePositions;
+    const listKey = useMemo(() => filteredIds.join('|'), [filteredIds]);
+    const virtual = useVirtualList(virtualItems.length, 64, `${view}:${folderId ?? ''}:${tagFilters.join('+')}:${sort}:${order}:${density}:${deferredFilter}:${listKey}`);
+    const virtualScrollRef = useRef(virtual.scrollToIndex);
+    virtualScrollRef.current = virtual.scrollToIndex;
+    const visibleSegments = useMemo(() => {
+        const segments: Array<{ key: string; label: string | null; headerIndex: number | null; rows: Array<Extract<VirtualItem, { kind: 'row' }>> }> = [];
+        for (const item of virtualItems.slice(virtual.start, virtual.end)) {
+            if (item.kind === 'header') {
+                segments.push({ key: item.key, label: item.label, headerIndex: item.index, rows: [] });
+                continue;
+            }
+            let segment = segments[segments.length - 1];
+            if (!segment || segment.key !== item.groupKey) {
+                segment = { key: item.groupKey, label: item.groupLabel, headerIndex: null, rows: [] };
+                segments.push(segment);
+            }
+            segment.rows.push(item);
+        }
+        return segments;
+    }, [virtual.end, virtual.start, virtualItems]);
     useEffect(() => {
         listRef.current?.scrollTo?.({ top: 0 });
     }, [view, folderId, tagFilters, deferredFilter, sort, order, density]);
     useEffect(() => {
-        if (!activeNoteId)
-            return;
-        listRef.current
-            ?.querySelector<HTMLElement>(`[data-note-id="${activeNoteId}"]`)
-            ?.scrollIntoView({ block: 'nearest' });
-    }, [activeNoteId, view, folderId, tagFilters]);
+        if (!activeNoteId) return;
+        const index = virtualNotePositionsRef.current.get(activeNoteId);
+        if (index !== undefined) virtualScrollRef.current(index);
+    }, [activeNoteId, view, folderId, tagFilters, listKey]);
     const onKeyDown = (event: React.KeyboardEvent) => {
         if (event.target !== event.currentTarget || event.nativeEvent.isComposing)
             return;
@@ -279,9 +308,13 @@ export function NoteList() {
                 : event.key === 'ArrowDown'
                     ? index + 1
                     : index - 1;
-        const target = filteredIds[Math.max(0, Math.min(filteredIds.length - 1, next))];
-        if (target)
+        const targetIndex = Math.max(0, Math.min(filteredIds.length - 1, next));
+        const target = filteredIds[targetIndex];
+        if (target) {
+            const virtualIndex = virtualNotePositionsRef.current.get(target);
+            if (virtualIndex !== undefined) virtual.scrollToIndex(virtualIndex);
             void openNote(target);
+        }
     };
     const selectRange = useCallback((targetId: string) => {
         const ids = filteredIdsRef.current;
@@ -325,6 +358,10 @@ export function NoteList() {
             onSelect: () => useUi.getState().setDensity(density === 'comfortable' ? 'compact' : 'comfortable'),
         },
     ];
+    const activeVirtualIndex = activeNoteId ? virtualNotePositions.get(activeNoteId) : undefined;
+    const activeDescendant = activeVirtualIndex !== undefined && activeVirtualIndex >= virtual.start && activeVirtualIndex < virtual.end
+        ? `note-option-${activeNoteId}`
+        : undefined;
     return (<section className={cn('relative flex h-full min-h-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)]', breakpoint === 'mobile' && 'mobile-note-list')}>
       <header className="shrink-0 px-3 pt-3 pb-2">
         {breakpoint === 'mobile' && <div className="mobile-library-brand"><Logo size={22}/><span>{t('common.product_name')}</span></div>}
@@ -419,18 +456,24 @@ export function NoteList() {
         {view === 'trash' && notes.length > 0 && (<button type="button" disabled={emptyingTrash} aria-busy={emptyingTrash} onClick={() => void emptyTrash()} className="mt-2 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] py-1.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--danger)] hover:text-[var(--danger)] disabled:pointer-events-none disabled:opacity-50">{t("notes.empty_trash")}{notes.length}{t("notes.notes_93aeb9")}</button>)}
       </header>
 
-      <div key={`${view}:${folderId ?? ''}:${tagFilters.join('+')}`} ref={listRef} data-note-list role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeNoteId && renderedIds.has(activeNoteId) ? `note-option-${activeNoteId}` : undefined} tabIndex={0} onKeyDown={onKeyDown} className="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
+      <div key={`${view}:${folderId ?? ''}:${tagFilters.join('+')}`} ref={(node) => { listRef.current = node; virtual.containerRef.current = node; }} data-note-list role="listbox" aria-label={title} aria-multiselectable="true" aria-activedescendant={activeDescendant} tabIndex={0} onKeyDown={onKeyDown} onScroll={virtual.onScroll} className="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--accent)]">
         {loadError ? (<div role="alert" className="m-2 rounded-[var(--r-md)] border border-[var(--danger)] p-3 text-[length:var(--text-12)] text-[var(--text-secondary)]">
           <p>{loadError}</p>
           <Button size="sm" variant="ghost" className="mt-2" onClick={() => void retryLoad()}>{t('common.retry')}</Button>
-        </div>) : !hydrated && loading ? (<NoteListSkeleton />) : filtered.length === 0 ? (<ListEmpty view={view} filtering={Boolean(filter)} dayFiltering={Boolean(dateFilter)}/>) : (groups.map((group) => (<div key={group.key} role="group" aria-label={group.label ?? title}>
-              {group.label && (<div className="px-2 pt-3 pb-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
-                  {group.label}
+        </div>) : !hydrated && loading ? (<NoteListSkeleton />) : filtered.length === 0 ? (<ListEmpty view={view} filtering={Boolean(filter)} dayFiltering={Boolean(dateFilter)}/>) : (<>
+          {virtual.offset > 0 && <div aria-hidden="true" style={{ height: virtual.offset }}/>}
+          {visibleSegments.map((segment) => (<div key={segment.key} role="group" aria-label={segment.label ?? title}>
+              {segment.headerIndex !== null && (<div data-virtual-index={segment.headerIndex} className="px-2 pt-3 pb-1 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+                  {segment.label}
                 </div>)}
-              <div role="presentation" className="space-y-px">
-                {group.items.map(({ note, ranges }) => (<NoteRow key={note.id} note={note} highlight={ranges} density={density} tagColors={tagColors} position={filteredPositions.get(note.id) ?? 1} total={filtered.length} onRangeSelect={selectRange}/>))}
+              <div role="presentation">
+                {segment.rows.map((item) => (<div key={item.key} data-virtual-index={item.index} className="pb-px">
+                  <NoteRow note={item.note} highlight={item.ranges} density={density} tagColors={tagColors} position={filteredPositions.get(item.note.id) ?? 1} total={filtered.length} onRangeSelect={selectRange}/>
+                </div>))}
               </div>
-            </div>)))}
+            </div>))}
+          {virtual.bottom > 0 && <div aria-hidden="true" style={{ height: virtual.bottom }}/>}
+        </>)}
       </div>
 
       <BulkBar />
@@ -979,6 +1022,9 @@ interface Group {
         ][];
     }[];
 }
+type VirtualItem =
+    | { kind: 'header'; key: string; label: string; index: number }
+    | { kind: 'row'; key: string; groupKey: string; groupLabel: string; note: NoteSummary; ranges: [number, number][]; index: number }
 function groupNotes(items: {
     note: NoteSummary;
     ranges: [
