@@ -22,14 +22,14 @@
 - [x] SEC-12 API Key 增加只读 scope
 - [x] SEC-13 驱动统一出站 SSRF 护栏
 - [x] SEC-14 ACL 用户名枚举与通用错误响应
-- [ ] LOG-01 客户端正确处理 207 部分成功
-- [ ] LOG-02 可变内容缓存版本化
+- [x] LOG-01 客户端正确处理 207 部分成功
+- [x] LOG-02 可变内容缓存版本化
 - [x] LOG-03 上传 skip 与分布式续传修复
 - [ ] LOG-04 分享下载按访客/文件/窗口去重
 - [ ] LOG-05 分享、ACL、最近列表游标分页
 - [ ] LOG-06 清理或接通 allow_list 等死配置
 - [x] LOG-07 Jobs 前后端权限契约统一
-- [ ] LOG-08 外部写入冲突策略与 S3 MOVE 可恢复化
+- [x] LOG-08 外部写入冲突策略与 S3 MOVE 可恢复化
 - [ ] LOG-09 父子同选移动保持树结构
 - [ ] LOG-10 隐藏项 total 修正
 - [x] LOG-11 凭证解密错误带上下文
@@ -95,6 +95,9 @@
 | LOG-03 | DONE | e308019e | skip 不访问 session；分布式续传读取 part_objects |
 | PERF-03 | DONE | e308019e | R2 direct/multipart/驱动/远程任务使用已知长度流 |
 | PERF-04 | DONE | e308019e | 分片并发受全局信号量限制并支持指数退避重试 |
+| LOG-01 | DONE | 本次提交 | 207 仅移除成功项，部分失败可见 |
+| LOG-02 | DONE | 本次提交 | 实时内容 no-store，匹配 modifiedAt 的版本 URL 使用 immutable |
+| LOG-08 | DONE | 本次提交 | 外部 rename/skip/overwrite 与 S3 复制失败回滚测试通过 |
 
 ## 验证命令
 

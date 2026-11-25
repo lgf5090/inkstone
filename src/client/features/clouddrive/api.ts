@@ -60,6 +60,46 @@ export interface CloudDriveAclGrant {
   createdAt: number
 }
 
+export interface CloudDriveCommentAuthor {
+  id: string
+  username: string
+  name: string
+  avatarUrl: string
+}
+
+export interface CloudDriveCommentMention {
+  userId: string
+  username: string
+  name: string
+}
+
+export interface CloudDriveComment {
+  id: string
+  fileId: string
+  body: string
+  author: CloudDriveCommentAuthor
+  mentions: CloudDriveCommentMention[]
+  createdAt: number
+  canDelete: boolean
+}
+
+export interface CloudDriveCommentNotification {
+  id: string
+  type: 'clouddrive_comment_mention'
+  recipientId: string
+  commentId: string
+  ownerId: string
+  fileId: string
+  createdAt: number
+}
+
+export interface CloudDriveCommentPerson {
+  id: string
+  username: string
+  name: string
+  avatarUrl: string
+}
+
 export interface CloudDriveSharedItem {
   ownerId: string
   ownerUsername: string
@@ -119,6 +159,24 @@ export interface CloudDriveSyncTarget {
   updatedAt: number
 }
 
+export interface CloudDriveTransferResult {
+  id: string
+  ok: boolean
+  error?: string
+  toPath?: string
+  entry?: CloudDriveEntry
+}
+
+export interface CloudDriveTransferResponse {
+  results: CloudDriveTransferResult[]
+  taskId?: string
+}
+
+export interface CloudDriveExternalWriteResult {
+  path: string
+  skipped: boolean
+}
+
 export interface CloudDriveListParams {
   mountId?: string
   path?: string
@@ -158,11 +216,11 @@ export const clouddriveApi = {
   createFile: (body: { mountId: string; parentPath: string; name: string }) => request<{ entry: CloudDriveEntry }>('/api/clouddrive/files', json(body)),
   patch: (id: string, body: { name?: string; starred?: boolean; color?: string | null; note?: string; hidePatterns?: string[] }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   view: (id: string) => request<{ ok: true }>(`/api/clouddrive/files/${encodeURIComponent(id)}/view`, { method: 'POST', body: '{}' }),
-  move: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/move', json(body)),
-  copy: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/copy', json(body)),
+  move: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<CloudDriveTransferResponse>('/api/clouddrive/files/move', json(body)),
+  copy: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<CloudDriveTransferResponse>('/api/clouddrive/files/copy', json(body)),
   remove: (ids: string[]) => request<{ deleted: number; taskId?: string }>('/api/clouddrive/files', { method: 'DELETE', body: JSON.stringify({ ids }) }),
   trash: (mountId: string, cursor?: string | null) => request<CloudDriveListing>(`/api/clouddrive/trash?${new URLSearchParams({ mount: mountId, ...(cursor ? { cursor } : {}) }).toString()}`),
-  restore: (ids: string[], mountId: string) => request<{ results: unknown[] }>('/api/clouddrive/files/restore', json({ ids, mountId })),
+  restore: (ids: string[], mountId: string) => request<CloudDriveTransferResponse>('/api/clouddrive/files/restore', json({ ids, mountId })),
   purge: (body: { ids?: string[]; all?: boolean; mountId?: string }) => request<{ deleted: number; failed: number; taskId?: string }>('/api/clouddrive/files/purge', { method: 'DELETE', body: JSON.stringify(body) }),
   search: (params: { q: string; mountId?: string; type?: string; starred?: boolean; cursor?: string | null; limit?: number }) => {
     const search = new URLSearchParams({ q: params.q })
@@ -173,7 +231,7 @@ export const clouddriveApi = {
     if (params.limit) search.set('limit', String(params.limit))
     return request<{ files: CloudDriveEntry[]; cursor: string | null; total: number | null }>(`/api/clouddrive/search?${search.toString()}`)
   },
-  recent: (kind: 'viewed' | 'uploaded' | 'starred') => request<{ files: CloudDriveEntry[]; cursor: string | null }>(`/api/clouddrive/recent?kind=${kind}`),
+  recent: (kind: 'viewed' | 'uploaded' | 'starred', cursor?: string | null) => request<{ files: CloudDriveEntry[]; cursor: string | null }>(`/api/clouddrive/recent?${new URLSearchParams({ kind, ...(cursor ? { cursor } : {}) }).toString()}`),
   album: (params: { cursor?: string | null; kind?: 'images' | 'videos' | 'all' } = {}) => request<{ groups: { month: string; files: CloudDriveEntry[] }[]; cursor: string | null }>(`/api/clouddrive/album?${new URLSearchParams({
     ...(params.cursor ? { cursor: params.cursor } : {}),
     ...(params.kind && params.kind !== 'images' ? { kind: params.kind } : {}),
@@ -225,23 +283,24 @@ export const clouddriveApi = {
   completeUpload: (id: string) => request<{ entry?: CloudDriveEntry; skipped?: boolean; existing?: CloudDriveEntry; entryPath?: string }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}/complete`, json({})),
   abortUpload: (id: string) => request<{ ok: true }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}/abort`, json({})),
 
-  contentUrl: (id: string, download = false) => `/api/clouddrive/files/${encodeURIComponent(id)}/content${download ? '?download=1' : ''}`,
+  contentUrl: (id: string, download = false, version?: number | string) => `/api/clouddrive/files/${encodeURIComponent(id)}/content?${new URLSearchParams({ ...(download ? { download: '1' } : {}), ...(version !== undefined ? { v: String(version) } : {}) }).toString()}`,
   versionContentUrl: (id: string, version: number, download = false) => `/api/clouddrive/files/${encodeURIComponent(id)}/versions/${version}/content${download ? '?download=1' : ''}`,
   folderSize: (id: string) => request<{ bytes: number; truncated: boolean }>(`/api/clouddrive/files/${encodeURIComponent(id)}/folder-size`),
-  externalUpload: async (mountId: string, path: string, file: File): Promise<void> => {
+  externalUpload: async (mountId: string, path: string, file: File, conflict: 'rename' | 'overwrite' | 'skip' = 'rename'): Promise<CloudDriveExternalWriteResult> => {
     const headers = new Headers({ [CLIENT_HEADER]: '1', 'Content-Type': file.type || 'application/octet-stream' })
-    const response = await fetch(`/api/clouddrive/external/${encodeURIComponent(mountId)}/upload?path=${encodeURIComponent(path)}`, {
+    const response = await fetch(`/api/clouddrive/external/${encodeURIComponent(mountId)}/upload?${new URLSearchParams({ path, conflict }).toString()}`, {
       method: 'POST', headers, body: file, credentials: 'same-origin',
     })
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } | null
       throw new CloudDriveApiError(body?.error?.code ?? 'internal', body?.error?.message ?? response.statusText, response.status)
     }
+    return await response.json() as CloudDriveExternalWriteResult
   },
   externalMkdir: (mountId: string, path: string) => request<{ ok: true }>(`/api/clouddrive/external/${encodeURIComponent(mountId)}/folders`, json({ path })),
-  externalMove: (mountId: string, from: string, to: string) => request<{ ok: true }>(`/api/clouddrive/external/${encodeURIComponent(mountId)}/move`, json({ from, to })),
+  externalMove: (mountId: string, from: string, to: string, conflict: 'rename' | 'overwrite' | 'skip' = 'rename') => request<CloudDriveExternalWriteResult & { from: string; to: string }>(`/api/clouddrive/external/${encodeURIComponent(mountId)}/move`, json({ from, to, conflict })),
   externalDelete: (mountId: string, paths: string[]) => request<{ deleted: number; failed: number }>(`/api/clouddrive/external/${encodeURIComponent(mountId)}/files`, { method: 'DELETE', body: JSON.stringify({ paths }) }),
-  thumbnailUrl: (id: string, width = 320) => `/api/clouddrive/files/${encodeURIComponent(id)}/thumbnail?w=${width}`,
+  thumbnailUrl: (id: string, width = 320, version?: number | string) => `/api/clouddrive/files/${encodeURIComponent(id)}/thumbnail?${new URLSearchParams({ w: String(width), ...(version !== undefined ? { v: String(version) } : {}) }).toString()}`,
   zipUrl: (params: { mountId: string; path: string }) => `/api/clouddrive/download/zip?${new URLSearchParams({ mount: params.mountId, path: params.path }).toString()}`,
 
   tasks: () => request<{ tasks: { id: string; type: string; status: string; payload: Record<string, unknown>; progress: Record<string, unknown>; error: string | null; createdAt: number; startedAt: number | null; finishedAt: number | null }[] }>('/api/clouddrive/tasks'),
@@ -252,13 +311,17 @@ export const clouddriveApi = {
   clearClipboard: () => request<{ ok: true }>('/api/clouddrive/clipboard', { method: 'DELETE' }),
 
   requests: () => request<{ requests: CloudDriveFileRequest[] }>('/api/clouddrive/requests'),
-  aclGrants: (fileId: string) => request<{ grants: CloudDriveAclGrant[] }>(`/api/clouddrive/acl/grants?${new URLSearchParams({ fileId }).toString()}`),
+  aclGrants: (fileId: string, cursor?: string | null) => request<{ grants: CloudDriveAclGrant[]; cursor: string | null }>(`/api/clouddrive/acl/grants?${new URLSearchParams({ fileId, ...(cursor ? { cursor } : {}) }).toString()}`),
   addAclGrant: (fileId: string, username: string) => request<{ grant: CloudDriveAclGrant }>('/api/clouddrive/acl/grants', json({ fileId, username })),
   removeAclGrant: (fileId: string, granteeId: string) => request<{ ok: true }>('/api/clouddrive/acl/grants', { method: 'DELETE', body: JSON.stringify({ fileId, granteeId }) }),
-  sharedWithMe: () => request<{ shared: CloudDriveSharedItem[] }>('/api/clouddrive/acl/shared'),
-  sharedList: (ownerId: string, fileId: string, path: string) => request<{ ownerId: string; path: string; entries: CloudDriveSharedEntry[] }>(`/api/clouddrive/acl/shared/${encodeURIComponent(ownerId)}/${encodeURIComponent(fileId)}/list?${new URLSearchParams({ path }).toString()}`),
+  comments: (ownerId: string, fileId: string) => request<{ comments: CloudDriveComment[] }>(`/api/clouddrive/files/${encodeURIComponent(fileId)}/comments?${new URLSearchParams({ ownerId }).toString()}`),
+  createComment: (ownerId: string, fileId: string, body: string) => request<{ comment: CloudDriveComment; notifications: CloudDriveCommentNotification[] }>(`/api/clouddrive/files/${encodeURIComponent(fileId)}/comments?${new URLSearchParams({ ownerId }).toString()}`, { method: 'POST', body: JSON.stringify({ body }) }),
+  deleteComment: (ownerId: string, fileId: string, commentId: string) => request<{ ok: true }>(`/api/clouddrive/files/${encodeURIComponent(fileId)}/comments/${encodeURIComponent(commentId)}?${new URLSearchParams({ ownerId }).toString()}`, { method: 'DELETE' }),
+  commentPeople: (ownerId: string, fileId: string, q = '') => request<{ users: CloudDriveCommentPerson[] }>(`/api/clouddrive/files/${encodeURIComponent(fileId)}/comments/people?${new URLSearchParams({ ownerId, q }).toString()}`),
+  sharedWithMe: (cursor?: string | null) => request<{ shared: CloudDriveSharedItem[]; cursor: string | null }>(`/api/clouddrive/acl/shared?${new URLSearchParams(cursor ? { cursor } : {}).toString()}`),
+  sharedList: (ownerId: string, fileId: string, path: string, cursor?: string | null) => request<{ ownerId: string; path: string; entries: CloudDriveSharedEntry[]; cursor: string | null }>(`/api/clouddrive/acl/shared/${encodeURIComponent(ownerId)}/${encodeURIComponent(fileId)}/list?${new URLSearchParams({ path, ...(cursor ? { cursor } : {}) }).toString()}`),
   saveShared: (body: { ownerId: string; fileId: string; toPath?: string }) => request<{ saved: number; entry: CloudDriveEntry }>('/api/clouddrive/acl/save', json(body)),
-  sharedContentUrl: (ownerId: string, fileId: string, download = false) => `/api/clouddrive/acl/shared/${encodeURIComponent(ownerId)}/${encodeURIComponent(fileId)}/content${download ? '?download=1' : ''}`,
+  sharedContentUrl: (ownerId: string, fileId: string, download = false, version?: number | string) => `/api/clouddrive/acl/shared/${encodeURIComponent(ownerId)}/${encodeURIComponent(fileId)}/content?${new URLSearchParams({ ...(download ? { download: '1' } : {}), ...(version !== undefined ? { v: String(version) } : {}) }).toString()}`,
   createRequest: (body: { name: string; targetPath: string; password?: string; expiresAt?: number | null; maxFiles?: number; maxBytes?: number; maxFileBytes?: number }) => request<{ request: CloudDriveFileRequest }>('/api/clouddrive/requests', json(body)),
   patchRequest: (slug: string, body: { password?: string; expiresAt?: number | null; isEnabled?: boolean }) => request<{ request: CloudDriveFileRequest }>(`/api/clouddrive/requests/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   revokeRequest: (slug: string) => request<{ ok: true }>(`/api/clouddrive/requests/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
@@ -304,7 +367,7 @@ export const clouddriveApi = {
   createKey: (body: { name: string; scopes: string[]; pathPrefix?: string; expiresAt?: number | null }) => request<{ key: unknown; token: string }>('/api/clouddrive/api-keys', json(body)),
   revokeKey: (id: string) => request<{ ok: true }>(`/api/clouddrive/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
-  shares: () => request<{ shares: unknown[] }>('/api/clouddrive/shares'),
+  shares: (cursor?: string | null) => request<{ shares: unknown[]; cursor: string | null }>(`/api/clouddrive/shares?${new URLSearchParams(cursor ? { cursor } : {}).toString()}`),
   createShare: (body: unknown) => request<{ share: { slug: string; url: string } }>('/api/clouddrive/shares', json(body)),
   patchShare: (slug: string, body: unknown) => request<{ share: unknown }>(`/api/clouddrive/shares/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   revokeShare: (slug: string) => request<{ ok: true }>(`/api/clouddrive/shares/${encodeURIComponent(slug)}`, { method: 'DELETE' }),

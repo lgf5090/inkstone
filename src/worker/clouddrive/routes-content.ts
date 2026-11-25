@@ -24,7 +24,8 @@ import { buildFolderZip, zipDisposition } from './zip'
 
 export const clouddriveContentRoutes = new Hono<AppBindings>()
 
-const AUTHENTICATED_CACHE = 'private, max-age=31536000, immutable'
+const AUTHENTICATED_CACHE = 'private, no-store'
+const VERSIONED_CACHE = 'private, max-age=31536000, immutable'
 const THUMBNAIL_CACHE = 'private, max-age=86400'
 const THUMBNAIL_WIDTHS = new Set([160, 320, 640, 1280])
 const THUMBNAIL_MAX_BYTES = 10 * 1024 * 1024
@@ -152,12 +153,16 @@ clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {
   const file = await findLiveFile(c, userId, c.req.param('id'))
   await assertMetaAccess(c, userId, file.mount_id, parentPathOf(file.path))
   const download = c.req.query('download') === '1'
+  const version = Number(c.req.query('v'))
+  const cacheControl = Number.isSafeInteger(version) && (version === file.uploaded_at || version === file.modified_at)
+    ? VERSIONED_CACHE
+    : AUTHENTICATED_CACHE
   const planned = planContentResponse({
     method: c.req.method,
     rangeHeader: c.req.header('range'),
     ifNoneMatch: c.req.header('if-none-match'),
     download,
-    cacheControl: AUTHENTICATED_CACHE,
+    cacheControl,
     file: {
       id: file.id, size: file.size, mime: file.mime, name: file.name, etag: file.etag, lastModified: file.uploaded_at,
     },

@@ -106,6 +106,7 @@ interface CompleteResponse {
     name: string
     size: number
     mime: string
+    modifiedAt: number
   }
   skipped?: boolean
   entryPath?: string
@@ -678,6 +679,10 @@ describe('clouddrive file versions', () => {
 
     const live = await request(h, 'GET', `/api/clouddrive/files/${second.entry.id}/content`)
     expect(await live.text()).toBe('version two')
+    expect(live.headers.get('cache-control')).toBe('private, no-store')
+    const versioned = await request(h, 'GET', `/api/clouddrive/files/${second.entry.id}/content?v=${second.entry.modifiedAt}`)
+    expect(versioned.headers.get('cache-control')).toContain('immutable')
+    expect(await versioned.text()).toBe('version two')
 
     const restored = await request(h, 'POST', `/api/clouddrive/files/${second.entry.id}/versions/1/restore`, {
       headers: { 'Content-Type': 'application/json' },
