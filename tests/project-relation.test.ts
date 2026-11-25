@@ -67,6 +67,12 @@ async function bundle(account: string, boardId: string): Promise<ProjectBoardBun
   return (await response.json()) as ProjectBoardBundle
 }
 
+async function propertyRevision(boardId: string): Promise<number> {
+  const response = await req('alice', 'GET', `/boards/${boardId}`)
+  expect(response.status).toBe(200)
+  return ((await response.json()) as { propertyRevision: number }).propertyRevision
+}
+
 async function setup(): Promise<{ boardA: ProjectBoard, boardB: ProjectBoard, relationId: string, target: ProjectCard }> {
   const boardB = await createBoard('alice', { title: 'Targets' })
   const target = await createCard('alice', boardB.id, {})
@@ -74,6 +80,7 @@ async function setup(): Promise<{ boardA: ProjectBoard, boardB: ProjectBoard, re
   const relationId = pid(1)
   const patched = await req('alice', 'PATCH', `/boards/${boardA.id}`, {
     updatedCardProperties: [{ id: relationId, name: 'Link', type: 'relation', options: [], config: { targetBoardId: boardB.id } }],
+    propertyRevision: await propertyRevision(boardA.id),
   })
   expect(patched.status, await patched.clone().text()).toBe(200)
   sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
@@ -135,7 +142,7 @@ describe('the relation property', () => {
   it('clears relation edges when the property is deleted', async () => {
     const { boardA, relationId, target } = await setup()
     await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
-    const response = await req('alice', 'PATCH', `/boards/${boardA.id}`, { deletedCardProperties: [relationId] })
+    const response = await req('alice', 'PATCH', `/boards/${boardA.id}`, { deletedCardProperties: [relationId], propertyRevision: await propertyRevision(boardA.id) })
     expect(response.status, await response.clone().text()).toBe(200)
     expect(relationRows()).toHaveLength(0)
   })
@@ -145,6 +152,7 @@ describe('the relation property', () => {
     const relationId = pid(1)
     const patched = await req('alice', 'PATCH', `/boards/${board.id}`, {
       updatedCardProperties: [{ id: relationId, name: 'Peer', type: 'relation', options: [], config: { targetBoardId: board.id } }],
+      propertyRevision: await propertyRevision(board.id),
     })
     expect(patched.status, await patched.clone().text()).toBe(200)
     const first = await createCard('alice', board.id, {})

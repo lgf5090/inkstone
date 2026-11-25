@@ -32,7 +32,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  sqlite.exec(`DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
+  sqlite.exec(`DELETE FROM project_property_configs; DELETE FROM project_card_relations; DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
     DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_views;
     DELETE FROM project_card_contents; DELETE FROM project_comments; DELETE FROM project_card_links`)
 })
@@ -178,6 +178,23 @@ describe('duplicating a card', () => {
     expect(copy.recurrence).toEqual({ freq: 'weekly', interval: 2 })
     const result = await bundle('alice', board.id)
     expect(result.cards.find((card) => card.id === copy.id)!.parentId).toBe(parent.id)
+  })
+
+  it('copies relation edges with the duplicated card', async () => {
+    const target = await createBoard('alice', { title: 'Target' })
+    const targetCard = ((await (await req('alice', 'POST', `/boards/${target.id}/cards`, { title: 'Target card' })).json()) as { card: { id: string } }).card
+    const relationId = pid(9)
+    const source = await createBoard('alice', { title: 'Source', cardProperties: [{ id: relationId, name: 'Related', type: 'relation', options: [] }] })
+    sqlite.prepare('INSERT OR REPLACE INTO project_property_configs (board_id, property_id, config, updated_at) VALUES (?, ?, ?, 1)')
+      .run(source.id, relationId, JSON.stringify({ targetBoardId: target.id, multiple: true }))
+    const card = ((await (await req('alice', 'POST', `/boards/${source.id}/cards`, {
+      title: 'Source card', values: { [relationId]: JSON.stringify([targetCard.id]) },
+    })).json()) as { card: ProjectCard }).card
+    const response = await req('alice', 'POST', `/cards/${card.id}/duplicate`)
+    expect(response.status).toBe(201)
+    const copy = ((await response.json()) as { card: ProjectCard }).card
+    expect(sqlite.prepare('SELECT to_card_id FROM project_card_relations WHERE from_card_id = ? AND property_id = ?').get(copy.id, relationId))
+      .toMatchObject({ to_card_id: targetCard.id })
   })
 
   it('refuses a viewer', async () => {

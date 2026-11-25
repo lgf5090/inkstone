@@ -34,7 +34,8 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  sqlite.exec(`DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
+  sqlite.exec(`DELETE FROM project_property_configs; DELETE FROM project_card_relations; DELETE FROM project_time_entries;
+    DELETE FROM project_sprint_cards; DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
     DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_views;
     DELETE FROM project_card_contents; DELETE FROM project_comments;
     DELETE FROM project_attachments; DELETE FROM project_card_links`)
@@ -189,6 +190,67 @@ describe('moving a card to another board', () => {
     seedCard(source.id, id('c'))
     expect((await req('alice', 'POST', `/cards/${id('c')}/move`, { targetBoardId: target.id })).status).toBe(404)
     expect((await req('alice', 'POST', `/cards/${id('c')}/move`, { targetBoardId: source.id })).status).toBe(400)
+  })
+
+  it('remaps formula, relation, rollup and field permissions when creating target properties', async () => {
+    const hours = id('p')
+    const formula = id('f')
+    const relation = id('r')
+    const rollup = id('u')
+    const source = await createBoard('alice', 'Source', [
+      { id: hours, name: 'Hours', type: 'number', options: [], config: { viewRoles: ['admin'], editRoles: ['admin'] } },
+      { id: formula, name: 'Double', type: 'formula', options: [], config: { expression: `{${hours}}*2` } },
+      { id: relation, name: 'Related', type: 'relation', options: [] },
+      { id: rollup, name: 'Total', type: 'rollup', options: [], config: { rollup: { relationPropertyId: relation, targetPropertyId: hours, aggregation: 'sum' } } },
+    ])
+    sqlite.prepare('UPDATE project_property_configs SET config = ? WHERE board_id = ? AND property_id = ?')
+      .run(JSON.stringify({ targetBoardId: source.id, multiple: true }), source.id, relation)
+    const target = await createBoard('alice', 'Target')
+    seedCard(source.id, id('c'))
+    seedCard(source.id, id('d'), { parent_id: id('c') })
+    seedValue(id('c'), hours, '10')
+    seedValue(id('d'), relation, JSON.stringify([id('c')]))
+    const response = await req('alice', 'POST', `/cards/${id('c')}/move`, { targetBoardId: target.id })
+    expect(response.status, await response.clone().text()).toBe(200)
+    const rows = sqlite.prepare('SELECT id, name, config FROM project_properties p LEFT JOIN project_property_configs c ON c.board_id = p.board_id AND c.property_id = p.id WHERE p.board_id = ?').all(target.id) as { id: string, name: string, config: string | null }[]
+    const byName = new Map(rows.map((row) => [row.name, row]))
+    const targetHours = byName.get('Hours')!
+    const targetFormula = byName.get('Double')!
+    const targetRelation = byName.get('Related')!
+    const targetRollup = byName.get('Total')!
+    expect(JSON.parse(targetHours.config!)).toMatchObject({ viewRoles: ['admin'], editRoles: ['admin'] })
+    expect(JSON.parse(targetFormula.config!).expression).toBe(`{${targetHours.id}}*2`)
+    expect(JSON.parse(targetRelation.config!)).toMatchObject({ targetBoardId: target.id, multiple: true })
+    expect(JSON.parse(targetRollup.config!).rollup).toMatchObject({ relationPropertyId: targetRelation.id, targetPropertyId: targetHours.id })
+    expect(valuesOf(id('d'))[targetRelation.id]).toBe(JSON.stringify([id('c')]))
+  })
+
+  it('moves time entries, clears source sprint membership and advances the source cursor', async () => {
+    const source = await createBoard('alice', 'Source')
+    const target = await createBoard('alice', 'Target')
+    seedCard(source.id, id('c'))
+    sqlite.prepare(`INSERT INTO project_sprints (id, board_id, name, goal, start_at, end_at, status, created_by, created_at, updated_at, delete_at)
+      VALUES (?, ?, 'Sprint', '', 1, 2, 'active', 'alice', 1, 1, 0)`).run(id('r'), source.id)
+    sqlite.prepare('INSERT INTO project_sprint_cards (card_id, sprint_id, board_id, added_at) VALUES (?, ?, ?, 1)').run(id('c'), id('r'), source.id)
+    sqlite.prepare(`INSERT INTO project_time_entries (id, board_id, card_id, user_id, note, started_at, ended_at, created_at)
+      VALUES (?, ?, ?, 'alice', '', 1, 2, 1)`).run(id('d'), source.id, id('c'))
+    const before = ((await (await req('alice', 'GET', `/boards/${source.id}/cursor`)).json()) as { cursor: number }).cursor
+    expect((await req('alice', 'POST', `/cards/${id('c')}/move`, { targetBoardId: target.id })).status).toBe(200)
+    expect(sqlite.prepare('SELECT board_id FROM project_time_entries WHERE id = ?').get(id('d'))).toMatchObject({ board_id: target.id })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM project_sprint_cards WHERE card_id = ?').get(id('c'))).toMatchObject({ count: 0 })
+    expect(((await (await req('alice', 'GET', `/boards/${source.id}/cursor`)).json()) as { cursor: number }).cursor).toBeGreaterThan(before)
+  })
+
+  it('enforces the target attachment quota before moving', async () => {
+    const source = await createBoard('alice', 'Source')
+    const target = await createBoard('alice', 'Target')
+    seedCard(source.id, id('c'))
+    sqlite.prepare(`INSERT INTO project_attachments (id, user_id, board_id, card_id, filename, mime, size, storage, object_key, created_at, updated_at)
+      VALUES (?, 'alice', ?, NULL, 'large.bin', 'application/octet-stream', 209715200, 'r2', 'large', 1, 1)`).run(id('i'), target.id)
+    sqlite.prepare(`INSERT INTO project_attachments (id, user_id, board_id, card_id, filename, mime, size, storage, object_key, created_at, updated_at)
+      VALUES (?, 'alice', ?, ?, 'small.bin', 'application/octet-stream', 1, 'r2', 'small', 1, 1)`).run(id('j'), source.id, id('c'))
+    expect((await req('alice', 'POST', `/cards/${id('c')}/move`, { targetBoardId: target.id })).status).toBe(413)
+    expect(sqlite.prepare('SELECT board_id FROM project_cards WHERE id = ?').get(id('c'))).toMatchObject({ board_id: source.id })
   })
 
   it('does not reuse a same-named property of a different type', async () => {

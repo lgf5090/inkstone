@@ -8,12 +8,14 @@
  */
 import type { ProjectAttachment, ProjectBoardBundle, ProjectBoardSummary, ProjectCard, ProjectCardLink, ProjectViewFields } from '@shared/project/model'
 import type { ProjectContentOrder } from '@shared/project/content-order'
-import { newProjectId } from '@shared/project/limits'
+import { newProjectId, PROJECT_LIMITS } from '@shared/project/limits'
 import { serializeProjectRecurrence } from '@shared/project/recurrence'
 import { serializeProjectPropertyConfig } from '@shared/project/property-config'
 import { remapProjectRelationValue } from '@shared/project/relation'
 import { rowToContent, type ContentRow } from './bundle'
 import { relationEdgeStatements } from './relations'
+import { readBoardProperties } from './boards'
+import { ApiError } from '../lib/errors'
 import { assertProjectBatchStatementLimit } from './d1'
 
 type AttachmentSource = Pick<ProjectAttachment, 'cardId' | 'filename' | 'mime' | 'storage' | 'width' | 'height'>
@@ -195,6 +197,13 @@ export async function duplicateProjectCard(
   userId: string,
   now: number,
 ): Promise<ProjectCard> {
+  const count = await db.prepare('SELECT COUNT(*) AS count FROM project_cards WHERE board_id = ?1 AND delete_at = 0')
+    .bind(card.boardId).first<{ count: number }>()
+  if ((count?.count ?? 0) >= PROJECT_LIMITS.cardsPerBoard) throw ApiError.conflict('PROJECT_MAX_CARDS_PER_BOARD')
+  const properties = await readBoardProperties(db, card.boardId)
+  const relationTargets = new Map(properties
+    .filter((property) => property.type === 'relation' && property.config?.targetBoardId)
+    .map((property) => [property.id, property.config!.targetBoardId!]))
   const { results } = await db
     .prepare('SELECT * FROM project_card_contents WHERE card_id = ?1 AND delete_at = 0 ORDER BY position, id')
     .bind(card.id)
@@ -223,6 +232,8 @@ export async function duplicateProjectCard(
     statements.push(db.prepare(
       'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4)',
     ).bind(cardId, propertyId, value, now))
+    const targetBoardId = relationTargets.get(propertyId)
+    if (targetBoardId) statements.push(...relationEdgeStatements(db, card.boardId, cardId, propertyId, targetBoardId, value, now))
   }
   contents.forEach((content, index) => {
     statements.push(db.prepare(

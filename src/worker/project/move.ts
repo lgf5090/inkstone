@@ -7,14 +7,15 @@
  * options over. Contents and comments travel with the card; the moved root detaches from any parent
  * left behind, and subtasks keep their place under it.
  */
-import type { ProjectCard, ProjectProperty, ProjectPropertyType, ProjectRole } from '@shared/project/model'
+import type { ProjectCard, ProjectProperty, ProjectPropertyConfig, ProjectPropertyType, ProjectRole } from '@shared/project/model'
 import { projectMultiValueIds } from '@shared/project/model'
 import { PROJECT_LIMITS, newProjectId } from '@shared/project/limits'
 import { projectPropertyVisibleTo, serializeProjectPropertyConfig } from '@shared/project/property-config'
 import { ApiError } from '../lib/errors'
 import { readBoardProperties } from './boards'
 import { getProjectCard } from './cards'
-import { rebuildBoardRelations } from './relations'
+import { relationEdgeStatements } from './relations'
+import { touchProjectBoard } from './bundle'
 import { assertProjectBatchStatementLimit, projectIdChunks, projectPlaceholders } from './d1'
 
 const OPTION_TYPES = new Set<ProjectPropertyType>(['select', 'multiSelect'])
@@ -23,6 +24,7 @@ interface MovePlan {
   propertyIds: Map<string, string>
   optionIds: Map<string, Map<string, string>>
   newProperties: ProjectProperty[]
+  newPropertySources: { source: ProjectProperty, target: ProjectProperty }[]
   optionUpdates: { id: string, options: ProjectProperty['options'] }[]
 }
 
@@ -31,13 +33,14 @@ function propertyKey(property: ProjectProperty): string {
 }
 
 function planProperties(used: ProjectProperty[], target: ProjectProperty[]): MovePlan {
-  const plan: MovePlan = { propertyIds: new Map(), optionIds: new Map(), newProperties: [], optionUpdates: [] }
+  const plan: MovePlan = { propertyIds: new Map(), optionIds: new Map(), newProperties: [], newPropertySources: [], optionUpdates: [] }
   const targetByKey = new Map(target.map((property) => [propertyKey(property), property]))
   for (const source of used) {
     const match = targetByKey.get(propertyKey(source))
     if (!match) {
       const created: ProjectProperty = { id: newProjectId('property'), name: source.name, type: source.type, options: source.options.map((option) => ({ ...option })) }
       plan.newProperties.push(created)
+      plan.newPropertySources.push({ source, target: created })
       plan.propertyIds.set(source.id, created.id)
       continue
     }
@@ -66,7 +69,30 @@ function planProperties(used: ProjectProperty[], target: ProjectProperty[]): Mov
   return plan
 }
 
-function remapValue(source: ProjectProperty, value: string, plan: MovePlan): string {
+function remapConfig(config: ProjectPropertyConfig | undefined, plan: MovePlan, sourceBoardId: string, targetBoardId: string): ProjectPropertyConfig | undefined {
+  if (!config) return undefined
+  const next: ProjectPropertyConfig = { ...config }
+  if (next.expression) {
+    next.expression = next.expression.replace(/\{([^}]+)\}/g, (whole, name: string) => {
+      const mapped = plan.propertyIds.get(name) ?? plan.propertyIds.get(name.toLowerCase())
+      return mapped ? `{${mapped}}` : whole
+    })
+  }
+  if (next.targetBoardId === sourceBoardId) next.targetBoardId = targetBoardId
+  if (next.rollup) {
+    next.rollup = {
+      ...next.rollup,
+      relationPropertyId: plan.propertyIds.get(next.rollup.relationPropertyId) ?? next.rollup.relationPropertyId,
+      targetPropertyId: plan.propertyIds.get(next.rollup.targetPropertyId) ?? next.rollup.targetPropertyId,
+    }
+  }
+  return next
+}
+
+function remapValue(source: ProjectProperty, value: string, plan: MovePlan, sourceBoardId: string, movedIds: ReadonlySet<string>): string {
+  if (source.type === 'relation' && source.config?.targetBoardId === sourceBoardId) {
+    return JSON.stringify(projectMultiValueIds(value).filter((id) => movedIds.has(id)))
+  }
   const mapping = plan.optionIds.get(source.id)
   if (!mapping) return value
   if (source.type === 'select') return mapping.get(value) ?? value
@@ -104,6 +130,27 @@ export async function moveProjectCard(
     }
   }
 
+  const targetCardCount = await db.prepare('SELECT COUNT(*) AS count FROM project_cards WHERE board_id = ?1 AND delete_at = 0')
+    .bind(targetBoardId).first<{ count: number }>()
+  if ((targetCardCount?.count ?? 0) + movedIds.length > PROJECT_LIMITS.cardsPerBoard) {
+    throw ApiError.conflict('PROJECT_MAX_CARDS_PER_BOARD')
+  }
+  const targetAttachmentTotals = await db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes FROM project_attachments WHERE board_id = ?1')
+    .bind(targetBoardId).first<{ count: number, bytes: number }>()
+  let movingAttachmentCount = 0
+  let movingAttachmentBytes = 0
+  for (const chunk of projectIdChunks(movedIds)) {
+    const row = await db.prepare(
+      `SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes FROM project_attachments WHERE card_id IN (${projectPlaceholders(chunk.length)})`,
+    ).bind(...chunk).first<{ count: number, bytes: number }>()
+    movingAttachmentCount += row?.count ?? 0
+    movingAttachmentBytes += row?.bytes ?? 0
+  }
+  if ((targetAttachmentTotals?.count ?? 0) + movingAttachmentCount > PROJECT_LIMITS.attachmentsPerBoard
+    || (targetAttachmentTotals?.bytes ?? 0) + movingAttachmentBytes > PROJECT_LIMITS.attachmentBytesPerBoard) {
+    throw ApiError.tooLarge('Board attachment quota exceeded')
+  }
+
   const valueRows: { card_id: string, property_id: string, value: string }[] = []
   for (const chunk of projectIdChunks(movedIds)) {
     const { results } = await db.prepare(
@@ -124,22 +171,34 @@ export async function moveProjectCard(
   if (sourceProperties.some((property) => usedIds.has(property.id) && !projectPropertyVisibleTo(property, role))) {
     throw ApiError.forbidden('Cannot move a card with fields this role cannot read')
   }
-  const used = sourceProperties.filter((property) => usedIds.has(property.id))
+  const dependencyIds = new Set<string>()
+  for (const property of sourceProperties) {
+    if (property.type !== 'rollup' || !property.config?.rollup) continue
+    dependencyIds.add(property.config.rollup.relationPropertyId)
+    dependencyIds.add(property.config.rollup.targetPropertyId)
+  }
+  const used = sourceProperties.filter((property) => usedIds.has(property.id)
+    || (projectPropertyVisibleTo(property, role) && (property.type === 'formula' || property.type === 'rollup' || dependencyIds.has(property.id))))
   const plan = planProperties(used, targetProperties)
   const sourceById = new Map(sourceProperties.map((property) => [property.id, property]))
+  const createdProperties = plan.newPropertySources.map(({ source, target }) => ({
+    ...target,
+    config: remapConfig(source.config, plan, card.boardId, targetBoardId),
+  }))
+  const effectiveTargetProperties = [...targetProperties, ...createdProperties]
+  const targetById = new Map(effectiveTargetProperties.map((property) => [property.id, property]))
 
   const statements: D1PreparedStatement[] = []
-  plan.newProperties.forEach((property, index) => {
+  createdProperties.forEach((property, index) => {
     statements.push(db.prepare(
       `INSERT INTO project_properties (board_id, id, name, type, options, position, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`,
     ).bind(targetBoardId, property.id, property.name, property.type, JSON.stringify(property.options), targetProperties.length + index, now))
-    const config = sourceById.get(property.id)?.config
-    if (config) {
+    if (property.config) {
       statements.push(db.prepare(
         `INSERT OR REPLACE INTO project_property_configs (board_id, property_id, config, updated_at)
          VALUES (?1, ?2, ?3, ?4)`,
-      ).bind(targetBoardId, property.id, serializeProjectPropertyConfig(config), now))
+      ).bind(targetBoardId, property.id, serializeProjectPropertyConfig(property.config), now))
     }
   })
   for (const update of plan.optionUpdates) {
@@ -154,12 +213,17 @@ export async function moveProjectCard(
         : 'UPDATE project_cards SET board_id = ?1, modified_by = ?2, update_at = ?3 WHERE id = ?4',
     ).bind(targetBoardId, userId, now, id))
     statements.push(db.prepare('DELETE FROM project_card_values WHERE card_id = ?1').bind(id))
+    statements.push(db.prepare('DELETE FROM project_card_relations WHERE from_card_id = ?1 OR to_card_id = ?1').bind(id))
+    statements.push(db.prepare('DELETE FROM project_sprint_cards WHERE card_id = ?1').bind(id))
     for (const [propertyId, value] of Object.entries(valuesByCard.get(id) ?? {})) {
       const source = sourceById.get(propertyId)
       const targetId = plan.propertyIds.get(propertyId)
       if (!source || !targetId) continue
+      const targetValue = remapValue(source, value, plan, card.boardId, movedSet)
       statements.push(db.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4)')
-        .bind(id, targetId, remapValue(source, value, plan), now))
+        .bind(id, targetId, targetValue, now))
+      const targetBoard = targetById.get(targetId)?.config?.targetBoardId
+      if (targetBoard) statements.push(...relationEdgeStatements(db, targetBoardId, id, targetId, targetBoard, targetValue, now))
     }
   }
 
@@ -168,6 +232,7 @@ export async function moveProjectCard(
     statements.push(db.prepare(`UPDATE project_card_contents SET board_id = ?1, update_at = ?2 WHERE card_id IN (${marks}) AND delete_at = 0`).bind(targetBoardId, now, ...chunk))
     statements.push(db.prepare(`UPDATE project_comments SET board_id = ?1, update_at = ?2 WHERE card_id IN (${marks}) AND delete_at = 0`).bind(targetBoardId, now, ...chunk))
     statements.push(db.prepare(`UPDATE project_attachments SET board_id = ?1 WHERE card_id IN (${projectPlaceholders(chunk.length, 2)})`).bind(targetBoardId, ...chunk))
+    statements.push(db.prepare(`UPDATE project_time_entries SET board_id = ?1 WHERE card_id IN (${projectPlaceholders(chunk.length, 2)})`).bind(targetBoardId, ...chunk))
   }
 
   const links = new Map<string, { from_card_id: string, to_card_id: string, kind: string }>()
@@ -198,7 +263,6 @@ export async function moveProjectCard(
 
   assertProjectBatchStatementLimit(statements.length)
   await db.batch(statements)
-  await rebuildBoardRelations(db, card.boardId, sourceProperties, now)
-  await rebuildBoardRelations(db, targetBoardId, await readBoardProperties(db, targetBoardId), now)
+  await touchProjectBoard(db, card.boardId, now)
   return (await getProjectCard(db, card.id))!
 }
