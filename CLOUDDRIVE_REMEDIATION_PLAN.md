@@ -8,20 +8,20 @@
 ## 当前批次
 
 - [x] PLAN-00 建立独立 worktree、实时计划文档与验证环境
-- [ ] SEC-01 分享根按 file_id 解析并处理改名/移动
-- [ ] SEC-02 重命名/移动迁移 Meta、unlock、请求、同步和 Key 路径
-- [ ] SEC-03 ACL 查询绑定 mount_id
-- [ ] SEC-04 ACL 保存遵守目录锁和隐藏规则
-- [ ] SEC-05 外部缩略图统一授权、MIME、大小与安全头
-- [ ] SEC-06 普通分享执行默认/最大有效期策略
-- [ ] SEC-07 分享预算、Cookie 与路径隐私收口
+- [x] SEC-01 分享根按 file_id 解析并处理改名/移动
+- [x] SEC-02 重命名/移动迁移 Meta、unlock、请求与同步路径（Key 前缀保持显式）
+- [x] SEC-03 ACL 查询绑定 mount_id
+- [x] SEC-04 ACL 保存遵守目录锁和隐藏规则
+- [x] SEC-05 外部缩略图统一授权、MIME、大小与安全头
+- [x] SEC-06 普通分享执行默认/最大有效期策略
+- [x] SEC-07 分享预算、Cookie 与路径隐私收口
 - [ ] SEC-08 公开请求上传流式限长与额度预留
 - [ ] SEC-09 离线缓存按用户隔离
 - [ ] SEC-10 WebDAV 覆盖写与分布式 COPY 修复
 - [ ] SEC-11 文件夹上传父失败时跳过整个子树
 - [ ] SEC-12 API Key 增加只读 scope
 - [x] SEC-13 驱动统一出站 SSRF 护栏
-- [ ] SEC-14 ACL 用户名枚举与通用错误响应
+- [x] SEC-14 ACL 用户名枚举与通用错误响应
 - [ ] LOG-01 客户端正确处理 207 部分成功
 - [ ] LOG-02 可变内容缓存版本化
 - [ ] LOG-03 上传 skip 与分布式续传修复
@@ -86,6 +86,8 @@
 | UX-01～06 | DONE | 本次提交 | 7 文件 16 项 UX 测试、i18n、ESLint、Stylelint 通过；构建通过 |
 | UX-09 | IN PROGRESS | 84248129 | 新增 gates:full；全量类型、测试与构建待跑 |
 | QA-02 | IN PROGRESS | - | 有头 Chrome 已进入 CloudDrive；配置导出 200；直传 FixedLengthStream 回归待修 |
+| SEC-01～07 | DONE | 本次提交 | 分享/Meta/ACL/缩略图 87 项回归通过；Key 前缀不随挂载路径漂移 |
+| SEC-14 | DONE | 本次提交 | ACL 用户名探测 5 次后 429 |
 
 ## 验证命令
 

@@ -172,6 +172,93 @@ describe('CloudDrive account ACL', () => {
     expect(escape.status).toBe(403)
   })
 
+  it('does not let a folder grant cross mount boundaries in prefix checks or child listings', async () => {
+    const folder = (await (await request(h, OWNER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'shared' })).json()) as { entry: { id: string } }
+    const child = await upload(h, '/shared', 'child.txt', 'inside')
+    const otherMount = await request(h, OWNER, 'POST', '/api/clouddrive/mounts', {
+      name: 'Other', storageId: 'primary', mountPath: '/other',
+    })
+    expect(otherMount.status).toBe(200)
+    const mountId = ((await otherMount.json()) as { mount: { id: string } }).mount.id
+    const now = Date.now()
+    h.sqlite.prepare(
+      `INSERT INTO CloudDrive_files
+         (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path,
+          category, mime, size, etag, checksum, storage_kind, storage_key, metadata, color,
+          starred_at, last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
+       VALUES (?, ?, ?, ?, 'file', 'child.txt', 'child.txt', '', '/shared/child.txt',
+               'txt', 'text/plain', 6, NULL, NULL, 'r2', NULL, '{}', '',
+               NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
+    ).run(`foreign-${child.id}`, OWNER, mountId, folder.entry.id, now, now, now, now)
+    expect((await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', {
+      fileId: folder.entry.id, username: 'member',
+    })).status).toBe(200)
+
+    const escaped = await h.app.fetch(new Request(
+      `http://localhost/api/clouddrive/acl/shared/${OWNER}/foreign-${child.id}/content`,
+      { headers: { Cookie: `inkstone_session=${MEMBER_TOKEN}` } },
+    ), h.env)
+    expect(escaped.status).toBe(404)
+    const listing = await request(h, MEMBER, 'GET', `/api/clouddrive/acl/shared/${OWNER}/${folder.entry.id}/list`)
+    expect(listing.status).toBe(200)
+    expect(((await listing.json()) as { entries: { fileId: string }[] }).entries.map((entry) => entry.fileId)).toEqual([child.id])
+  })
+
+  it('checks source folder locks recursively when saving an ACL tree', async () => {
+    const folder = (await (await request(h, OWNER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'docs' })).json()) as { entry: { id: string } }
+    await request(h, OWNER, 'POST', '/api/clouddrive/folders', { parentPath: '/docs', name: 'vault' })
+    await upload(h, '/docs/vault', 'secret.txt', 'classified')
+    expect((await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', {
+      fileId: folder.entry.id, username: 'member',
+    })).status).toBe(200)
+    expect((await request(h, OWNER, 'PUT', '/api/clouddrive/meta', {
+      mountId: 'primary', path: '/docs/vault', password: 'folder password',
+    })).status).toBe(200)
+
+    const refused = await request(h, MEMBER, 'POST', '/api/clouddrive/acl/save', {
+      ownerId: OWNER, fileId: folder.entry.id, toPath: '/',
+    })
+    expect(refused.status).toBe(403)
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe('clouddrive_meta_locked')
+  })
+
+  it('filters hidden source folders and their descendants when saving an ACL tree', async () => {
+    const folder = (await (await request(h, OWNER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'docs' })).json()) as { entry: { id: string } }
+    await upload(h, '/docs', 'visible.txt', 'visible')
+    await request(h, OWNER, 'POST', '/api/clouddrive/folders', { parentPath: '/docs', name: 'hidden-folder' })
+    await upload(h, '/docs/hidden-folder', 'secret.txt', 'secret')
+    expect((await request(h, OWNER, 'PUT', '/api/clouddrive/meta', {
+      mountId: 'primary', path: '/docs', hidePatterns: ['hidden-*'],
+    })).status).toBe(200)
+    expect((await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', {
+      fileId: folder.entry.id, username: 'member',
+    })).status).toBe(200)
+
+    const saved = await request(h, MEMBER, 'POST', '/api/clouddrive/acl/save', {
+      ownerId: OWNER, fileId: folder.entry.id, toPath: '/',
+    })
+    expect(saved.status).toBe(201)
+    expect(((await saved.json()) as { saved: number }).saved).toBe(2)
+    const inside = await request(h, MEMBER, 'GET', '/api/clouddrive/files?path=/docs')
+    const listing = await inside.json() as { files: { name: string }[]; folders: unknown[] }
+    expect(listing.folders).toEqual([])
+    expect(listing.files.map((entry) => entry.name)).toEqual(['visible.txt'])
+  })
+
+  it('throttles username probing with the shared attempt budget', async () => {
+    const file = await upload(h, '/', 'probe.txt', 'x')
+    for (let attempt = 0; attempt < 5; attempt++) {
+      expect((await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', {
+        fileId: file.id, username: `ghost-${attempt}`,
+      })).status).toBe(404)
+    }
+    const locked = await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', {
+      fileId: file.id, username: 'member',
+    })
+    expect(locked.status).toBe(429)
+    expect(((await locked.json()) as { error: { code: string } }).error.code).toBe('too_many_attempts')
+  })
+
   it('rejects self-grants and unknown usernames', async () => {
     const file = await upload(h, '/', 'self.txt', 'x')
     expect((await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', { fileId: file.id, username: 'owner' })).status).toBe(400)

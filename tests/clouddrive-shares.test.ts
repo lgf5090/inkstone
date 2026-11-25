@@ -82,6 +82,152 @@ async function call(method: string, path: string, body?: unknown, cookie = '', e
 }
 
 describe('cloud drive shares', () => {
+  it('keeps a file link on its file id after rename and move instead of serving a replacement', async () => {
+    const id = await file()
+    const slug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: id, path: '/notes.txt', allowDownload: true,
+    })).body.share.slug as string
+    expect((await call('PATCH', `/api/clouddrive/files/${id}`, { name: 'renamed.txt' })).status).toBe(200)
+    const folder = newId()
+    const now = Date.now()
+    await db.prepare(
+      `INSERT INTO CloudDrive_files (id,user_id,mount_id,parent_id,kind,name,name_folded,name_initials,path,category,mime,size,etag,checksum,storage_kind,storage_key,metadata,color,starred_at,last_viewed_at,deleted_at,trash_batch,created_at,updated_at,uploaded_at,modified_at)
+       VALUES (?1,?2,'primary','','folder','docs',?3,'','/docs','other','application/octet-stream',0,NULL,NULL,'r2',NULL,'{}','',NULL,NULL,NULL,NULL,?4,?4,?4,?4)`,
+    ).bind(folder, USER, foldedName('docs'), now).run()
+    expect((await call('POST', '/api/clouddrive/files/move', { ids: [id], toPath: '/docs' })).status).toBe(200)
+    await file() // A different object now occupies the link's former path.
+
+    const metadata = await call('GET', `/api/public/clouddrive/shares/${slug}`)
+    expect(metadata.status).toBe(200)
+    expect(metadata.body).toMatchObject({ name: 'renamed.txt', path: '/' })
+    const content = await call('GET', `/api/public/clouddrive/shares/${slug}/content`)
+    expect(content.status).toBe(200)
+    expect(content.body.text).toBe('hello cloud drive')
+  })
+
+  it('resolves a moved folder share from its current root and not an old-path replacement', async () => {
+    const folder = newId()
+    const child = await file()
+    const now = Date.now()
+    await db.prepare(
+      `INSERT INTO CloudDrive_files (id,user_id,mount_id,parent_id,kind,name,name_folded,name_initials,path,category,mime,size,etag,checksum,storage_kind,storage_key,metadata,color,starred_at,last_viewed_at,deleted_at,trash_batch,created_at,updated_at,uploaded_at,modified_at)
+       VALUES (?1,?2,'primary','','folder','docs',?3,'','/docs','other','application/octet-stream',0,NULL,NULL,'r2',NULL,'{}','',NULL,NULL,NULL,NULL,?4,?4,?4,?4)`,
+    ).bind(folder, USER, foldedName('docs'), now).run()
+    await db.prepare(`UPDATE CloudDrive_files SET parent_id = ?1, path = '/docs/notes.txt' WHERE id = ?2`).bind(folder, child).run()
+    const slug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'folder', fileId: folder, path: '/docs',
+    })).body.share.slug as string
+    expect((await call('PATCH', `/api/clouddrive/files/${folder}`, { name: 'archive' })).status).toBe(200)
+    const destination = newId()
+    await db.prepare(
+      `INSERT INTO CloudDrive_files (id,user_id,mount_id,parent_id,kind,name,name_folded,name_initials,path,category,mime,size,etag,checksum,storage_kind,storage_key,metadata,color,starred_at,last_viewed_at,deleted_at,trash_batch,created_at,updated_at,uploaded_at,modified_at)
+       VALUES (?1,?2,'primary','','folder','target',?3,'','/target','other','application/octet-stream',0,NULL,NULL,'r2',NULL,'{}','',NULL,NULL,NULL,NULL,?4,?4,?4,?4)`,
+    ).bind(destination, USER, foldedName('target'), now).run()
+    expect((await call('POST', '/api/clouddrive/files/move', { ids: [folder], toPath: '/target' })).status).toBe(200)
+    await call('POST', '/api/clouddrive/folders', { parentPath: '/', name: 'docs' })
+
+    const listed = await call('GET', `/api/public/clouddrive/shares/${slug}/list`)
+    expect(listed.status).toBe(200)
+    expect(listed.body.entries).toMatchObject([{ name: 'notes.txt', path: '/notes.txt' }])
+    const content = await call('GET', `/api/public/clouddrive/shares/${slug}/content?path=%2Fnotes.txt`)
+    expect(content.status).toBe(200)
+    expect(content.body.text).toBe('hello cloud drive')
+  })
+
+  it('applies default and maximum expiry policy on create and patch', async () => {
+    const id = await file()
+    const before = Date.now()
+    const created = await call('POST', '/api/clouddrive/shares', { targetKind: 'file', fileId: id })
+    expect(created.status).toBe(200)
+    expect(created.body.share.expiresAt).toBeGreaterThanOrEqual(before + 7 * 86_400_000 - 1000)
+    expect(created.body.share.expiresAt).toBeLessThanOrEqual(Date.now() + 7 * 86_400_000)
+    const slug = created.body.share.slug as string
+
+    expect((await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: id, expiresAt: Date.now() - 1,
+    })).status).toBe(400)
+    expect((await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: id, expiresAt: Date.now() + 366 * 86_400_000,
+    })).status).toBe(400)
+    expect((await call('PATCH', `/api/clouddrive/shares/${slug}`, { expiresAt: Date.now() - 1 })).status).toBe(400)
+    expect((await call('PATCH', `/api/clouddrive/shares/${slug}`, {
+      expiresAt: Date.now() + 366 * 86_400_000,
+    })).status).toBe(400)
+    const cleared = await call('PATCH', `/api/clouddrive/shares/${slug}`, { expiresAt: null })
+    expect(cleared.status).toBe(200)
+    expect(cleared.body.share.expiresAt).toBeGreaterThan(Date.now())
+  })
+
+  it('counts a folder listing against maxViews and content bytes against maxDownloads', async () => {
+    const folder = newId()
+    const child = await file()
+    const now = Date.now()
+    await db.prepare(
+      `INSERT INTO CloudDrive_files (id,user_id,mount_id,parent_id,kind,name,name_folded,name_initials,path,category,mime,size,etag,checksum,storage_kind,storage_key,metadata,color,starred_at,last_viewed_at,deleted_at,trash_batch,created_at,updated_at,uploaded_at,modified_at)
+       VALUES (?1,?2,'primary','','folder','budget',?3,'','/budget','other','application/octet-stream',0,NULL,NULL,'r2',NULL,'{}','',NULL,NULL,NULL,NULL,?4,?4,?4,?4)`,
+    ).bind(folder, USER, foldedName('budget'), now).run()
+    await db.prepare(`UPDATE CloudDrive_files SET parent_id = ?1, path = '/budget/notes.txt' WHERE id = ?2`).bind(folder, child).run()
+    const folderSlug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'folder', fileId: folder, maxViews: 1,
+    })).body.share.slug as string
+    expect((await call('GET', `/api/public/clouddrive/shares/${folderSlug}/list`)).status).toBe(200)
+    expect((await call('GET', `/api/public/clouddrive/shares/${folderSlug}/list`)).status).toBe(403)
+    expect((await call('GET', `/api/public/clouddrive/shares/${folderSlug}`)).status).toBe(403)
+
+    const fileSlug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: child, maxDownloads: 1, allowDownload: true,
+    })).body.share.slug as string
+    expect((await call('GET', `/api/public/clouddrive/shares/${fileSlug}/content`)).status).toBe(200)
+    expect((await call('GET', `/api/public/clouddrive/shares/${fileSlug}/download`)).status).toBe(403)
+  })
+
+  it('does not spend a download when the stored object is missing', async () => {
+    const id = await file()
+    const slug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: id, maxDownloads: 1, allowDownload: true,
+    })).body.share.slug as string
+    const row = await db.prepare(`SELECT storage_key FROM CloudDrive_files WHERE id = ?1`).bind(id).first<{ storage_key: string }>()
+    await r2.delete(row!.storage_key)
+    expect((await call('GET', `/api/public/clouddrive/shares/${slug}/download`)).status).toBe(404)
+    const share = await db.prepare(`SELECT downloads FROM CloudDrive_shares WHERE slug = ?1`).bind(slug).first<{ downloads: number }>()
+    expect(share?.downloads).toBe(0)
+  })
+
+  it('does not spend a download when a distributed part object is missing', async () => {
+    const id = await file()
+    await db.prepare(`UPDATE CloudDrive_files SET storage_kind = 'distributed', storage_key = NULL WHERE id = ?1`).bind(id).run()
+    await db.prepare(
+      `INSERT INTO CloudDrive_file_parts (user_id,file_id,part_number,mount_id,storage_key,size,created_at)
+       VALUES (?1,?2,1,'primary','missing-part',17,?3)`,
+    ).bind(USER, id, Date.now()).run()
+    const slug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: id, maxDownloads: 1, allowDownload: true,
+    })).body.share.slug as string
+    expect((await call('GET', `/api/public/clouddrive/shares/${slug}/download`)).status).toBe(404)
+    const share = await db.prepare(`SELECT downloads FROM CloudDrive_shares WHERE slug = ?1`).bind(slug).first<{ downloads: number }>()
+    expect(share?.downloads).toBe(0)
+  })
+
+  it('isolates password cookies by share slug', async () => {
+    const first = await file()
+    const second = await mediaFile('second.txt', 'text/plain', 'second')
+    const firstSlug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: first, password: 'password1',
+    })).body.share.slug as string
+    const secondSlug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: second, password: 'password2',
+    })).body.share.slug as string
+    const firstVerified = await call('POST', `/api/public/clouddrive/shares/${firstSlug}/verify`, { password: 'password1' })
+    const secondVerified = await call('POST', `/api/public/clouddrive/shares/${secondSlug}/verify`, { password: 'password2' })
+    const cookie = (value: { headers: Headers }) => (value.headers.get('set-cookie') ?? '').split(';')[0]!
+    expect(cookie(firstVerified)).toMatch(/^clouddrive_share_[0-9a-f]+=/)
+    expect(cookie(secondVerified)).toMatch(/^clouddrive_share_[0-9a-f]+=/)
+    expect(cookie(firstVerified)).not.toBe(cookie(secondVerified))
+    const cookies = `${cookie(firstVerified)}; ${cookie(secondVerified)}`
+    expect((await call('GET', `/api/public/clouddrive/shares/${firstSlug}`, undefined, cookies)).body.locked).toBe(false)
+    expect((await call('GET', `/api/public/clouddrive/shares/${secondSlug}`, undefined, cookies)).body.locked).toBe(false)
+  })
+
   it('counts one view and one visit row per visitor per hour', async () => {
     const id = await file()
     const created = await call('POST', '/api/clouddrive/shares', {
@@ -175,7 +321,7 @@ describe('cloud drive shares', () => {
     const verified = await call('POST', `/api/public/clouddrive/shares/${slug}/verify`, { password: 'password1' })
     expect(verified.status).toBe(200)
     const cookie = (verified.headers.get('set-cookie') ?? '').split(';')[0]!
-    expect(cookie).toContain('clouddrive_share=')
+    expect(cookie).toMatch(/^clouddrive_share_[0-9a-f]+=/)
 
     const unlocked = await call('GET', `/api/public/clouddrive/shares/${slug}`, undefined, cookie)
     expect(unlocked.body.name).toBe('notes.txt')

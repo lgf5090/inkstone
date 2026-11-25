@@ -27,6 +27,8 @@ export const clouddriveContentRoutes = new Hono<AppBindings>()
 const AUTHENTICATED_CACHE = 'private, max-age=31536000, immutable'
 const THUMBNAIL_CACHE = 'private, max-age=86400'
 const THUMBNAIL_WIDTHS = new Set([160, 320, 640, 1280])
+const THUMBNAIL_MAX_BYTES = 10 * 1024 * 1024
+const EXTERNAL_THUMBNAIL_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'])
 
 interface FileRow {
   id: string
@@ -56,6 +58,61 @@ function requireUserId(c: Context<AppBindings>): string {
   const userId = c.get('userId')
   if (!userId) throw ApiError.unauthenticated()
   return userId
+}
+
+async function cancelExternalThumbnail(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel()
+  } catch (error) {
+    console.warn('[inkstone] CloudDrive could not cancel a rejected external thumbnail:', error)
+  }
+}
+
+/** Read at most the thumbnail ceiling so a lying or absent Content-Length cannot allocate unbounded memory. */
+async function externalThumbnailResponse(response: Response): Promise<Response> {
+  const mime = (response.headers.get('content-type') ?? '').split(';', 1)[0]!.trim().toLowerCase()
+  if (!EXTERNAL_THUMBNAIL_TYPES.has(mime)) {
+    await cancelExternalThumbnail(response)
+    throw ApiError.badRequest('The external file is not a supported image')
+  }
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > THUMBNAIL_MAX_BYTES) {
+    await cancelExternalThumbnail(response)
+    throw ApiError.tooLarge('The external image is too large for a thumbnail')
+  }
+  const reader = response.body?.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    while (reader) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > THUMBNAIL_MAX_BYTES) throw ApiError.tooLarge('The external image is too large for a thumbnail')
+      chunks.push(value)
+    }
+  } catch (error) {
+    if (reader) await reader.cancel().catch((cancelError: unknown) => console.warn('[inkstone] CloudDrive could not cancel an oversized thumbnail:', cancelError))
+    throw error
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  // Do not forward upstream cookies, CSP, disposition or other active headers. This endpoint only
+  // returns inert raster bytes under a policy that permits nothing to execute or load.
+  const headers = new Headers({
+    'Content-Type': mime,
+    'Content-Length': String(total),
+    'Content-Disposition': 'inline',
+    'Content-Security-Policy': "default-src 'none'; img-src data:; sandbox",
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': THUMBNAIL_CACHE,
+    'X-CloudDrive-Thumbnail': 'fallback',
+  })
+  return new Response(bytes, { status: 200, headers })
 }
 
 async function findLiveFile(c: Context<AppBindings>, userId: string, id: string): Promise<FileRow> {
@@ -143,12 +200,10 @@ clouddriveContentRoutes.get('/files/:id/thumbnail', async (c) => {
   if (external) {
     const mount = await resolveMount(c.env.DB, userId, external.mountId)
     if (mount.storageId === 'primary') throw ApiError.notFound('File not found')
+    await assertMetaAccess(c, userId, mount.id, parentPathOf(external.path))
     const response = await readExternal(c.env, c.env.DB, mount, external.path, null)
     if (!response) throw ApiError.notFound('File not found')
-    const headers = new Headers(response.headers)
-    headers.set('Cache-Control', THUMBNAIL_CACHE)
-    headers.set('X-CloudDrive-Thumbnail', 'fallback')
-    return new Response(response.body, { status: 200, headers })
+    return await externalThumbnailResponse(response)
   }
   const file = await findLiveFile(c, userId, c.req.param('id'))
   await assertMetaAccess(c, userId, file.mount_id, parentPathOf(file.path))

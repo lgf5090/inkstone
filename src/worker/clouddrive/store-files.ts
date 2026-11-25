@@ -582,6 +582,46 @@ function descendantPathUpdate(
   ).bind(newPath, oldPath, now, userId, mountId, oldPath, oldPath)
 }
 
+/**
+ * Move every path-scoped policy row with the entry that owns the path. These updates must travel in
+ * the same D1 batch as `CloudDrive_files`: a committed file move with stale locks, request targets or
+ * sync roots would silently change what those controls mean.
+ * API key prefixes are global across mounts, so they are intentionally not migrated here.
+ */
+function dependentPathUpdates(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  oldPath: string,
+  newPath: string,
+  now: number,
+  descendants: boolean,
+): D1PreparedStatement[] {
+  const next = (column: string) => `${column} = ?1 || substr(${column}, length(?2) + 1)`
+  const scope = (column: string) => descendants
+    ? `(${column} = ?3 OR substr(${column}, 1, length(?3) + 1) = ?3 || '/')`
+    : `${column} = ?3`
+  const common = [newPath, oldPath, oldPath, userId] as const
+  return [
+    db.prepare(
+      `UPDATE CloudDrive_meta SET ${next('path')}, updated_at = ?6
+        WHERE user_id = ?4 AND mount_id = ?5 AND ${scope('path')}`,
+    ).bind(...common, mountId, now),
+    db.prepare(
+      `UPDATE CloudDrive_meta_unlocks SET ${next('path')}
+        WHERE user_id = ?4 AND mount_id = ?5 AND ${scope('path')}`,
+    ).bind(...common, mountId),
+    db.prepare(
+      `UPDATE CloudDrive_file_requests SET ${next('target_path')}
+        WHERE user_id = ?4 AND target_mount = ?5 AND ${scope('target_path')}`,
+    ).bind(...common, mountId),
+    db.prepare(
+      `UPDATE CloudDrive_sync_targets SET ${next('remote_path')}, updated_at = ?6
+        WHERE user_id = ?4 AND mount_id = ?5 AND ${scope('remote_path')}`,
+    ).bind(...common, mountId, now),
+  ]
+}
+
 export interface RenameResult {
   entry?: CloudDriveFileRow
   conflict?: string
@@ -614,6 +654,7 @@ export async function renameEntry(
         SET name = ?, name_folded = ?, name_initials = ?, path = ?, updated_at = ?
       WHERE user_id = ? AND mount_id = ? AND id = ?`,
   ).bind(name, foldName(name), initialsOf(name), nextPath, now, userId, mountId, row.id))
+  statements.push(...dependentPathUpdates(db, userId, mountId, row.path, nextPath, now, row.kind === 'folder'))
   await db.batch(statements)
   return { entry: await getRowById(db, userId, mountId, row.id) ?? undefined }
 }
@@ -1101,6 +1142,7 @@ export async function moveEntries(
           SET parent_id = ?, name = ?, name_folded = ?, name_initials = ?, path = ?, updated_at = ?
         WHERE user_id = ? AND mount_id = ? AND id = ?`,
     ).bind(targetParent.id, name, foldName(name), initialsOf(name), nextPath, now, userId, mountId, row.id))
+    statements.push(...dependentPathUpdates(db, userId, mountId, row.path, nextPath, now, row.kind === 'folder'))
     await db.batch(statements)
     results.push({ id, ok: true, toPath: nextPath })
   }

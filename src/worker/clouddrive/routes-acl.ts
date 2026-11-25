@@ -5,18 +5,22 @@ import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import {
+  assertPasscodeAttemptsLeft,
   assertWritable,
   buildEntry,
   chunkedBatch,
   initialsOf,
+  notePasscodeFailure,
   parseFolderMeta,
+  passcodeThrottleKey,
   parsePath,
   resolveEntry,
   resolveMount,
   type CloudDriveFileRow,
 } from './lib'
 import { distributedStream, fileParts } from './distributed'
-import { effectiveMeta, hiddenByPatterns } from './meta'
+import { folderHiddenPatterns } from './store-files'
+import { effectiveMeta, effectiveMetas, hiddenByPatterns } from './meta'
 import { cloudDriveUsage } from './store'
 import { planContentResponse, headResponse } from './content-response'
 import { assertMetaAccess } from './routes-meta'
@@ -59,22 +63,49 @@ function userIdOf(c: Context<AppBindings>): string {
  */
 const MAX_SAVE_ROWS = 500
 
+async function sourceParentPatterns(
+  c: Context<AppBindings>,
+  ownerId: string,
+  mountId: string,
+  paths: readonly string[],
+): Promise<Map<string, string[]>> {
+  const [metas, folderRules] = await Promise.all([
+    effectiveMetas(c.env.DB, ownerId, mountId, paths),
+    folderHiddenPatterns(c.env.DB, ownerId, mountId, paths),
+  ])
+  return new Map(paths.map((path) => [path, [...(metas.get(path)?.hidePatterns ?? []), ...(folderRules.get(path) ?? [])]]))
+}
+
+async function assertSaveRootVisible(c: Context<AppBindings>, ownerId: string, root: AclFileRow): Promise<void> {
+  const parent = parentPathOf(root.path)
+  const patterns = await sourceParentPatterns(c, ownerId, root.mount_id, [parent])
+  if (hiddenByPatterns(root.name, patterns.get(parent) ?? [])) throw ApiError.notFound('File not found')
+  await assertMetaAccess(c, ownerId, root.mount_id, root.kind === 'folder' ? root.path : parent)
+}
+
 async function subtreeOf(c: Context<AppBindings>, ownerId: string, root: AclFileRow): Promise<AclFileRow[]> {
   const rows: AclFileRow[] = []
-  let frontier = [root.id]
+  let frontier = [root]
   while (frontier.length > 0) {
+    const patterns = await sourceParentPatterns(c, ownerId, root.mount_id, frontier.map((row) => row.path))
     const { results } = await c.env.DB.prepare(
       `SELECT id, user_id, mount_id, parent_id, path, kind, name, category, mime, size, etag, storage_kind, storage_key, metadata,
               uploaded_at, modified_at
-         FROM CloudDrive_files WHERE user_id = ? AND deleted_at IS NULL AND parent_id IN (${frontier.map(() => '?').join(',')})
+         FROM CloudDrive_files WHERE user_id = ? AND mount_id = ? AND deleted_at IS NULL
+           AND parent_id IN (${frontier.map(() => '?').join(',')})
         ORDER BY kind DESC, name_folded LIMIT ?`,
-    ).bind(ownerId, ...frontier, MAX_SAVE_ROWS + 1).all<AclFileRow>()
-    const children = results ?? []
-    if (rows.length + children.length > MAX_SAVE_ROWS) {
+    ).bind(ownerId, root.mount_id, ...frontier.map((row) => row.id), MAX_SAVE_ROWS + 1).all<AclFileRow>()
+    const visible: AclFileRow[] = []
+    for (const child of results ?? []) {
+      if (hiddenByPatterns(child.name, patterns.get(parentPathOf(child.path)) ?? [])) continue
+      if (child.kind === 'folder') await assertMetaAccess(c, ownerId, child.mount_id, child.path)
+      visible.push(child)
+    }
+    if (rows.length + visible.length > MAX_SAVE_ROWS) {
       throw ApiError.tooLarge(`A saved folder holds at most ${MAX_SAVE_ROWS} items`)
     }
-    rows.push(...children)
-    frontier = children.filter((row) => row.kind === 'folder').map((row) => row.id)
+    rows.push(...visible)
+    frontier = visible.filter((row) => row.kind === 'folder')
   }
   return rows
 }
@@ -87,6 +118,7 @@ clouddriveAclRoutes.post('/acl/save', async (c) => {
   if (!ownerId || !fileId) throw ApiError.badRequest('A saved item names its owner and its file')
   const target = await aclAllows(c, ownerId, fileId, userId)
   if (!target) throw ApiError.notFound('File not found')
+  await assertSaveRootVisible(c, ownerId, target)
 
   const mount = await resolveMount(c.env.DB, userId, 'primary')
   assertWritable(mount)
@@ -185,10 +217,11 @@ async function aclAllows(
     `SELECT 1 AS hit FROM CloudDrive_acl a
        JOIN CloudDrive_files f ON f.user_id = a.owner_id AND f.id = a.file_id
       WHERE a.owner_id = ?1 AND a.grantee_id = ?2 AND a.revoked_at IS NULL
-        AND f.deleted_at IS NULL
-        AND (f.id = ?3 OR (f.kind = 'folder' AND (f.path = ?4 OR substr(?4, 1, length(f.path) + 1) = f.path || '/')))
+        AND f.deleted_at IS NULL AND f.mount_id = ?5
+        AND (f.id = ?3 OR (f.kind = 'folder'
+          AND (f.path = ?4 OR (f.path <> '/' AND substr(?4, 1, length(f.path) + 1) = f.path || '/'))))
       LIMIT 1`,
-  ).bind(ownerId, granteeId, fileId, target.path).first<{ hit: number }>()
+  ).bind(ownerId, granteeId, fileId, target.path, target.mount_id).first<{ hit: number }>()
   return grant ? target : null
 }
 
@@ -219,10 +252,17 @@ clouddriveAclRoutes.post('/acl/grants', async (c) => {
   const file = await ownerFile(c, body.fileId)
   const username = typeof body.username === 'string' ? body.username.trim() : ''
   if (!username) throw ApiError.badRequest('A username is required')
+  // A username lookup is an enumeration oracle. Budget all misses for this owner/client together so
+  // changing the guessed name cannot reset the lock; valid lookups neither spend nor clear it.
+  const throttleKey = passcodeThrottleKey('acl-user', ownerId, c.req.raw)
+  await assertPasscodeAttemptsLeft(c.env.DB, throttleKey)
   const grantee = await c.env.DB.prepare(
     `SELECT id, username, name FROM users WHERE lower(username) = lower(?) LIMIT 1`,
   ).bind(username).first<{ id: string; username: string; name: string }>()
-  if (!grantee) throw ApiError.notFound('No account uses that username')
+  if (!grantee) {
+    await notePasscodeFailure(c.env.DB, throttleKey)
+    throw ApiError.notFound('No account uses that username')
+  }
   if (grantee.id === ownerId) throw ApiError.badRequest('You already own this item')
   const now = Date.now()
   await c.env.DB.prepare(
@@ -295,14 +335,15 @@ clouddriveAclRoutes.get('/acl/shared/:ownerId/:fileId/list', async (c) => {
   if (!target) throw ApiError.notFound('File not found')
   if (target.kind !== 'folder') throw ApiError.badRequest('This item is not a folder')
   const requested = parsePath(c.req.query('path') ?? target.path)
-  if (requested !== target.path && !requested.startsWith(`${target.path}/`)) {
+  if (requested !== target.path && target.path !== '/' && !requested.startsWith(`${target.path}/`)) {
     throw ApiError.forbidden('The path is outside the shared folder')
   }
   const folder = requested === target.path
     ? target
     : await c.env.DB.prepare(
-      `SELECT * FROM CloudDrive_files WHERE user_id = ? AND path = ? AND kind = 'folder' AND deleted_at IS NULL`,
-    ).bind(ownerId, requested).first<CloudDriveFileRow>()
+      `SELECT * FROM CloudDrive_files
+        WHERE user_id = ? AND mount_id = ? AND path = ? AND kind = 'folder' AND deleted_at IS NULL`,
+    ).bind(ownerId, target.mount_id, requested).first<CloudDriveFileRow>()
   if (!folder) throw ApiError.notFound('Folder not found')
   // The drive's folder password is an access boundary here too: a grantee who was handed a folder
   // cannot list what the owner later locked, and the same `hidePatterns` rule the owner's own
@@ -313,9 +354,9 @@ clouddriveAclRoutes.get('/acl/shared/:ownerId/:fileId/list', async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT id, user_id, path, kind, name, mime, size, etag, storage_kind, storage_key, metadata,
             uploaded_at, modified_at
-       FROM CloudDrive_files WHERE user_id = ? AND parent_id = ? AND deleted_at IS NULL
+       FROM CloudDrive_files WHERE user_id = ? AND mount_id = ? AND parent_id = ? AND deleted_at IS NULL
        ORDER BY kind DESC, name_folded LIMIT 500`,
-  ).bind(ownerId, folder.id).all<AclFileRow>()
+  ).bind(ownerId, folder.mount_id, folder.id).all<AclFileRow>()
   return c.json({
     ownerId,
     path: requested,
