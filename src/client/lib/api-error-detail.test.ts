@@ -16,7 +16,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, api } from './api'
-import { initI18n, t } from './i18n'
+import { initI18n, setLocale, t } from './i18n'
 import { installTestGlobals } from './test-render'
 import { SaveFailure } from '../features/chat/assistant-settings-shared'
 import { useAssistant, type WriteFailure } from '../features/chat/assistant-store'
@@ -104,6 +104,25 @@ describe('the reason the route gave stays visible', () => {
     expect(error).toBeInstanceOf(ApiError)
     expect((error as ApiError).serverMessage).toContain('12 notes')
     expect((error as ApiError).serverMessage).toContain('over_limit')
+  })
+})
+
+describe('a note quota refusal has its own localized headline', () => {
+  it.each([
+    ['en-US', 'This account has reached its note limit'],
+    ['zh-CN', '这个账号的笔记数量已达到上限'],
+  ] as const)('answers in %s instead of falling back to server text', async (locale, expected) => {
+    await setLocale(locale, false)
+    try {
+      const error = await captureError({
+        code: 'note_quota_exceeded',
+        message: 'This account already holds 2000 notes; the quota is exhausted',
+      }, 403)
+      expect(error.message).toBe(expected)
+      expect(error.serverMessage).toContain('quota is exhausted')
+    } finally {
+      await setLocale('en-US', false)
+    }
   })
 })
 

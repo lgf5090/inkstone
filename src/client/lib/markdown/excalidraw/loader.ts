@@ -37,6 +37,7 @@ function loadStylesheet(href: string): void {
 
 import { t } from '../../i18n';
 import { convertMermaidToExcalidrawElements } from './mermaid';
+import { EXCALIDRAW_SCENE_PALETTE } from './scene-palette';
 
 let activeActionHandler: ((action: string) => void) | null = null;
 
@@ -129,7 +130,7 @@ export async function loadExcalidrawLib(): Promise<ExcalidrawLib> {
             lib.configureObsidianCommonHost({
                 protocolVersion: 1,
                 getCanvasLimits: () => ({ areaLimit: 16777216, widthHeightLimit: 32767 }),
-                getHighlightColor: () => 'rgba(0,118,255,1)',
+                getHighlightColor: () => EXCALIDRAW_SCENE_PALETTE.highlight,
                 getDeviceInfo: () => null,
                 getDesktopUIMode: () => 'full',
                 getPreferredUIMode: (formFactor: string) => (formFactor === 'phone' ? 'mobile' : 'full'),

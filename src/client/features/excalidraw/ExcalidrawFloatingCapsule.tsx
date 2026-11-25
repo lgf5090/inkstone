@@ -41,7 +41,7 @@ export const ExcalidrawFloatingCapsule: React.FC<ExcalidrawFloatingCapsuleProps>
     onToggleTheme,
 }) => {
     return (
-        <div className="absolute right-3 top-3 z-40 flex flex-col items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1 shadow-md">
+        <div className="absolute right-3 top-3 z-[var(--z-float)] flex flex-col items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1 shadow-md">
             {onToggleTheme && (
                 <Tooltip label={t('preview.excalidraw_toggle_theme')}>
                     <button

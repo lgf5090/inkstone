@@ -18,6 +18,7 @@
   --pele-border: #cecdc3;
   --pele-accent: #205ea6;
   --pele-critical: #af3029;
+  --pele-radius: 4px;
   --pele-series-1: #af3029;
   --pele-series-2: #bc5215;
   --pele-series-3: #ad8301;
@@ -50,4 +51,14 @@
   --pele-series-6: #4385be;
   --pele-series-7: #8b7ec8;
   --pele-series-8: #ce5d97;
+}
+
+/* Pele's SVG references private aliases that the host stylesheet must define. */
+.pele {
+  --_fg: var(--pele-fg);
+  --_l: var(--pele-line);
+  --_bg: var(--pele-bg);
+  --_s: var(--pele-surface);
+  --_b: var(--pele-border);
+  --_r: var(--pele-radius);
 }

@@ -5,6 +5,7 @@ import { CHART_SLICE_KINDS, convertChartBody, detectChartMode, readChartTable } 
 import { parseKanbanBody } from '../lib/markdown/kanban/body'
 import { detectMindmapMode } from '../lib/markdown/mindmap/body'
 import { parseExcalidrawBody } from '../lib/markdown/excalidraw/body'
+import { EXCALIDRAW_SCENE_PALETTE } from '../lib/markdown/excalidraw/scene-palette'
 import { renderMarkdown } from '../lib/markdown/renderer'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 
@@ -97,6 +98,8 @@ describe('the excalidraw templates', () => {
   it.each(EXCALIDRAW_TEMPLATES)('$id parses and renders data-excalidraw block', (template) => {
     const parsed = parseExcalidrawBody(template.body)
     expect(parsed.ok).toBe(true)
+    expect(parsed.data.appState?.viewBackgroundColor).toBe(EXCALIDRAW_SCENE_PALETTE.background)
+    expect(template.body).not.toContain('var(')
     expect(renderMarkdown(`\`\`\`excalidraw\n${template.body}\n\`\`\`\n`).html).toContain('data-excalidraw')
   })
 })

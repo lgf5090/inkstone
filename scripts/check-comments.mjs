@@ -7475,11 +7475,11 @@ const allowed = new Map([
     "// `streamChatCompletion` reports every failure through `onError` — the toast above — before it",
     "// rethrows, and a pressed Stop rethrows its AbortError through the same door, so nothing that",
     "// reaches here is news to the reader; the `finally` still ends the streaming state.",
-    "/**\n * The diagram stage's own surface, which stays dark in both app themes.\n *\n * It is not app chrome: everything drawn on it — the strip's `bg-black/20`, its slate labels, the rose\n * error card — is written in that same dark vocabulary, so following `--bg-*` would put light-theme\n * chrome on a panel built for a dark one, and the diagram is the one thing here that is the reader's\n * own artwork rather than the app's page.\n *\n * The second shade is worth knowing rather than trusting: `dark:` is Tailwind's default\n * `prefers-color-scheme`, while this app's theme is `:root[data-theme]`, so the deeper shade arrives\n * with the reader's operating system and not with the theme they chose. It is kept because it is what\n * the stage renders today; making the stage follow the app's theme is a separate decision.\n */",
     "// A refused clipboard has to be said out loud: this button answers with a \"copied\" toast and a check",
     "// mark, and on the failure path it used to do neither, so the reader had no way to tell a refused",
     "// write from a copy they had not looked at yet. The success toast stays where the write put it.",
     "/**\n * The preview of whatever text is on the editor, drawn for its natural size: the stage owns the\n * zoom, so the diagram is never re-flowed to fit a box here.\n *\n * `links: false, images: false` is the same boundary the previous engine was configured with under\n * its strict level: a diagram pasted into this box is not given anchors to follow or addresses to\n * fetch. The shared SVG pass still runs over the result, so this is the first of two layers.\n */",
+    "/**\n * The diagram stage's own surface, which stays dark in both app themes.\n *\n * `.pele-on-dark` selects the engine's dark ramp for the stage and its controls, so neither the app's\n * light theme nor the operating system's colour scheme can put light chrome on the reader's canvas.\n */",
   ]],
   ["src/client/features/excalidraw/chrome.test.ts", [
     "/* */",
@@ -24497,6 +24497,9 @@ const allowed = new Map([
     "// Holding the element itself here means a chrome-only render hands React the identical",
     "// element and the engine is not entered at all.",
   ]],
+  ["src/client/lib/markdown/excalidraw/scene-palette.ts", [
+    "/**\n * Literal colours written into Excalidraw scenes and handed to the canvas engine.\n *\n * Scene JSON is rendered outside this page's CSS cascade, so `var(--pele-*)` is not a colour the engine\n * can use. Keep the serialized values here, matching the colours they replaced, rather than growing\n * another set of inline literals in each converter or starter.\n */",
+  ]],
   ["src/client/lib/markdown/excalidraw/view.ts", [
     "/** Fallback used wherever a live canvas cannot run: show the scene text, drop the inert controls. */",
   ]],
@@ -31782,6 +31785,7 @@ const allowed = new Map([
   ["src/client/styles/pele.css", [
     "/*\n * The diagram engine paints with these and nothing else: every colour a Mermaid block shows is a\n * `--pele-*` custom property resolved by the page, which is why switching themes never redraws a\n * diagram. Both ramps are copied from the engine's own documentation site rather than derived from\n * our tokens — the eight series colours are chosen to stay apart at any size, and re-picking them\n * from the accent would trade that for a palette the layouts were never measured against.\n *\n * Light is the unconditional default so a document with no `data-theme` at all — an exported note,\n * a printed handout — still gets a complete ramp instead of the engine's built-in fallbacks.\n */",
     "/*\n * `.pele-on-dark` is for a surface that is a dark panel whatever the app's theme is — the\n * text-to-diagram stage is one — so it asks for the ramp directly instead of through `data-theme`.\n */",
+    "/* Pele's SVG references private aliases that the host stylesheet must define. */",
   ]],
   ["src/client/styles/presentation.css", [
     "/* The printed page is the design canvas, and every sheet stamps these with its own numbers on\n   `[data-deck-print]`. They are declared here as well so a page drawn before that style lands — or a\n   reader with the sheet's stylesheet blocked — gets a page of the right shape rather than a zero-wide\n   one, and so the token gate can see a definition for a name the sheet writes from a template. */",

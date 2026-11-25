@@ -1,4 +1,5 @@
 import type { ExcalidrawFenceRef, ExcalidrawSceneData } from './types';
+import { EXCALIDRAW_SCENE_PALETTE } from './scene-palette';
 
 export const EXCALIDRAW_LANGUAGES = ['excalidraw'] as const;
 
@@ -13,7 +14,7 @@ export function createDefaultExcalidrawScene(): ExcalidrawSceneData {
         source: 'https://excalidraw.com',
         elements: [],
         appState: {
-            viewBackgroundColor: '#ffffff',
+            viewBackgroundColor: EXCALIDRAW_SCENE_PALETTE.background,
             gridSize: null,
         },
         files: {},
@@ -194,7 +195,7 @@ export function serializeExcalidrawBody(data: ExcalidrawSceneData): string {
         source: data.source ?? 'https://excalidraw.com',
         elements,
         appState: {
-            viewBackgroundColor: data.appState?.viewBackgroundColor ?? '#ffffff',
+            viewBackgroundColor: data.appState?.viewBackgroundColor ?? EXCALIDRAW_SCENE_PALETTE.background,
             gridSize: data.appState?.gridSize ?? null,
         },
         files: cleanFiles,

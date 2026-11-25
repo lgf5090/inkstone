@@ -263,7 +263,7 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
           tone: 'success',
         })
       } else {
-        throw new Error('Download returned empty data')
+        throw new Error(t('excalidraw.download_empty_data'))
       }
     } catch (err: any) {
       toast({
@@ -362,7 +362,7 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
         setUrlInput('')
         onClose()
       } else {
-        throw new Error('Failed to download library')
+        throw new Error(t('excalidraw.download_failed'))
       }
     } catch (err: any) {
       toast({

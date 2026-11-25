@@ -56,6 +56,7 @@ const apiCodeMessages: Record<string, MessageKey> = {
     reader_book_quota_exceeded: 'api.error.reader_book_quota_exceeded',
     reader_book_too_large: 'api.error.reader_book_too_large',
     reader_fetch_failed: 'api.error.reader_fetch_failed',
+    note_quota_exceeded: 'api.error.note_quota_exceeded',
     realtime_refused: 'api.error.realtime_refused',
     music_provider_unavailable: 'api.error.music_provider_unavailable',
     music_provider_auth_required: 'api.error.music_provider_auth_required',

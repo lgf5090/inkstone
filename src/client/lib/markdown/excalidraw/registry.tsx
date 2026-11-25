@@ -224,7 +224,15 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
                     instance.rawCode.textContent = ref.rawBody;
                 }
                 const parsed = parseExcalidrawBody(ref.rawBody);
-                if (parsed.ok && instance.entry.excalidrawAPI) {
+                if (!parsed.ok) {
+                    showExcalidrawError(instance.entry.container, `${t('preview.excalidraw_render_failed')}: ${parsed.error ?? ''}`);
+                    instance.entry.canvasHost.hidden = true;
+                    continue;
+                }
+                instance.entry.container.querySelector('.excalidraw-error')?.remove();
+                instance.entry.container.classList.remove('has-error');
+                instance.entry.canvasHost.hidden = false;
+                if (instance.entry.excalidrawAPI) {
                     instance.entry.updateScene(parsed.data);
                 }
             }
@@ -238,6 +246,10 @@ export async function mountExcalidrawBlocks(root: ParentNode, options: Excalidra
         }
 
         const parsed = parseExcalidrawBody(ref.rawBody);
+        if (!parsed.ok) {
+            showExcalidrawError(block, `${t('preview.excalidraw_render_failed')}: ${parsed.error ?? ''}`);
+            continue;
+        }
 
         const toolbar = createExcalidrawToolbar(block);
         block.prepend(toolbar);

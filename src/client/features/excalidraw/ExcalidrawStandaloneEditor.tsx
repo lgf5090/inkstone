@@ -73,6 +73,9 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     const closeSecondaryNote = useUi((s) => s.closeSecondaryNote);
     const toast = useUi((s) => s.toast);
 
+    const initialScene = useMemo(() => parseExcalidrawBody(content), [note.id]);
+    const [sceneError, setSceneError] = useState<string | null>(() =>
+        initialScene.ok ? null : initialScene.error ?? t('preview.excalidraw_render_failed'));
     const [lib, setLib] = useState<ExcalidrawLib | null>(null);
     const [libError, setLibError] = useState<string | null>(null);
     const [api, setApi] = useState<any>(null);
@@ -232,7 +235,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
     }, [onChange]);
 
     const initialData = useMemo(() => {
-        const parsed = parseExcalidrawBody(content).data;
+        const parsed = initialScene.data;
         return {
             elements: parsed.elements,
             appState: {
@@ -250,7 +253,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
             },
             files: parsed.files,
         };
-    }, [note.id]);
+    }, [initialScene]);
 
     // The note body is the source of truth, and it can move while this editor is open: a sync arriving
     // from another device, an undo, a version restore. Nothing used to push it back into the canvas, so
@@ -263,7 +266,11 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         // holds an edit it has not written yet would throw that work away, so wait for the save to land.
         if (!isSavedRef.current) return;
         const parsed = parseExcalidrawBody(content);
-        if (!parsed.ok) return;
+        if (!parsed.ok) {
+            setSceneError(parsed.error ?? t('preview.excalidraw_render_failed'));
+            return;
+        }
+        setSceneError(null);
         api.updateScene({
             elements: restoreSceneElements(api, parsed.data.elements),
             appState: parsed.data.appState,
@@ -356,6 +363,12 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
         } else {
             try {
                 const parsed = parseExcalidrawBody(rawCode);
+                if (!parsed.ok) {
+                    setSceneError(parsed.error ?? t('preview.excalidraw_render_failed'));
+                    setViewMode('canvas');
+                    return;
+                }
+                setSceneError(null);
                 if (api) {
                     api.updateScene({
                         elements: restoreSceneElements(api, parsed.data.elements),
@@ -365,7 +378,8 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         api.addFiles(Object.values(parsed.data.files));
                     }
                 }
-            } catch {
+            } catch (err: unknown) {
+                setSceneError(err instanceof Error ? err.message : String(err));
             }
             setViewMode('canvas');
         }
@@ -477,7 +491,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                     ref={canvasHostRef}
                     className={`h-full w-full ${excalidrawSettings.leftHandedMode ? 'excalidraw-left-handed' : ''} ${theme === 'dark' ? 'theme--dark' : ''}`}
                     style={{
-                        display: viewMode === 'canvas' && lib ? 'block' : 'none',
+                        display: viewMode === 'canvas' && lib && !sceneError ? 'block' : 'none',
                         ['--default-link-indicator-opacity' as any]: excalidrawSettings.linkIndicatorOpacity,
                     }}
                 >
@@ -643,7 +657,9 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                         </lib.Excalidraw>
                     )}
                 </div>
-            ), [api, excalidrawSettings, initialData, lib, libraryOpen, locale, theme, viewMode]);
+            ), [api, excalidrawSettings, initialData, lib, libraryOpen, locale, sceneError, theme, viewMode]);
+
+    const renderError = libError ?? sceneError;
 
     return (
         <div
@@ -762,20 +778,20 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
 
                     {engineSurface}
 
-                {!lib && !libError && (
+                {!lib && !libError && !(viewMode === 'canvas' && sceneError) && (
                     <div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">
                         {t('preview.excalidraw_loading')}
                     </div>
                 )}
 
-                {libError && (
+                {(libError || (viewMode === 'canvas' && sceneError)) && (
                     <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
                         <p className="text-sm text-[var(--danger)]">{t('preview.excalidraw_render_failed')}</p>
-                        <p className="text-xs text-[var(--text-tertiary)]">{libError}</p>
+                        <p className="text-xs text-[var(--text-tertiary)]">{renderError}</p>
                     </div>
                 )}
 
-                {viewMode === 'canvas' && lib && (
+                {viewMode === 'canvas' && lib && !sceneError && (
                     <ExcalidrawFloatingCapsule
                         isFullscreen={isFullscreen}
                         onToggleFullscreen={handleToggleFullscreen}
@@ -790,7 +806,7 @@ export const ExcalidrawStandaloneEditor: React.FC<ExcalidrawStandaloneEditorProp
                     />
                 )}
 
-                {viewMode === 'canvas' && lib && (
+                {viewMode === 'canvas' && lib && !sceneError && (
                     <ExcalidrawToolsPanel
                         open={toolsPanelOpen}
                         onClose={() => setToolsPanelOpen(false)}

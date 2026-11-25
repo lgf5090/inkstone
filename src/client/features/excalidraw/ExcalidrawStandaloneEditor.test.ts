@@ -45,6 +45,7 @@ vi.mock('../../lib/markdown/excalidraw', async (importOriginal) => {
 import { ExcalidrawStandaloneEditor } from './ExcalidrawStandaloneEditor';
 import { useExcalidrawSettingsStore } from './excalidraw-settings-store';
 import { serializeExcalidrawBody } from '../../lib/markdown/excalidraw';
+import { initI18n, setLocale, t } from '../../lib/i18n';
 
 function scene(id: string) {
     return serializeExcalidrawBody({
@@ -65,7 +66,9 @@ async function flushReact(): Promise<void> {
 let root: ReactDOM.Root | null = null;
 let host: HTMLElement;
 
-beforeEach(() => {
+beforeEach(async () => {
+    await initI18n()
+    await setLocale('zh-CN', false)
     engineProps = null;
     engineRenders = 0;
     FAKE_API.updateScene.mockClear();
@@ -117,13 +120,55 @@ describe('the whole-page editor follows the note body', () => {
         expect(elementPayloads()).toContainEqual(['from-another-device']);
     });
 
-    it('leaves the canvas alone when a new body no longer parses', async () => {
+    it('shows the localized render failure when a new body no longer parses', async () => {
         await renderEditor({ content: scene('seed') });
         expect(elementPayloads()).toEqual([]);
 
         await renderEditor({ content: '{ this is not a scene' });
 
         expect(elementPayloads()).toEqual([]);
+        expect(host.textContent).toContain(t('preview.excalidraw_render_failed'));
+        expect(host.querySelector('[data-fake-engine]')?.parentElement?.style.display).toBe('none');
+    });
+
+    it('does not mount an invalid initial body as a silently empty canvas', async () => {
+        await renderEditor({ content: '{ this is not a scene' });
+
+        expect(host.textContent).toContain(t('preview.excalidraw_render_failed'));
+        expect(host.querySelector('[data-fake-engine]')?.parentElement?.style.display).toBe('none');
+        expect(elementPayloads()).toEqual([]);
+    });
+
+    it('reports invalid code and recovers when the code view is corrected', async () => {
+        await renderEditor({ content: scene('seed') });
+        const toggleCode = () => Array.from(host.querySelectorAll('button')).find((button) =>
+            button.getAttribute('aria-label') === t('excalidraw.toggle_code') || button.getAttribute('aria-label') === t('excalidraw.toggle_canvas'))!;
+
+        toggleCode().click();
+        await flushReact();
+        const textarea = host.querySelector('textarea')!;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+        setter?.call(textarea, '{ broken');
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        await flushReact();
+        FAKE_API.updateScene.mockClear();
+
+        toggleCode().click();
+        await flushReact();
+        expect(host.textContent).toContain(t('preview.excalidraw_render_failed'));
+        expect(elementPayloads()).toEqual([]);
+
+        toggleCode().click();
+        await flushReact();
+        const corrected = host.querySelector('textarea')!;
+        setter?.call(corrected, scene('fixed'));
+        corrected.dispatchEvent(new Event('input', { bubbles: true }));
+        await flushReact();
+        toggleCode().click();
+        await flushReact();
+
+        expect(host.textContent).not.toContain(t('preview.excalidraw_render_failed'));
+        expect(elementPayloads()).toContainEqual(['fixed']);
     });
 
     it('waits for its own unsaved edit before refilling from the body', async () => {

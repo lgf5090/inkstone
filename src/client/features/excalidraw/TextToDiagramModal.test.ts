@@ -70,6 +70,25 @@ describe('TextToDiagramModal', () => {
     expect(textareas[0].value).toContain('graph TD');
   });
 
+  it('keeps the stage on the dark Pele token ramp instead of raw chrome colours', () => {
+    act(() => {
+      root.render(createElement(TextToDiagramModal, {
+        isOpen: true,
+        onClose: vi.fn(),
+        onInsert: vi.fn(),
+        initialTab: 'mermaid',
+      }));
+    })
+
+    const dialog = container.querySelector('[role="dialog"]')!
+    const stage = dialog.querySelector('.pele-on-dark')
+    expect(stage).not.toBeNull()
+    expect(stage?.className).toContain('bg-[var(--pele-bg)]')
+    expect(dialog.outerHTML).not.toMatch(/\b(?:slate|rose)-/)
+    expect(dialog.outerHTML).not.toMatch(/\b(?:bg|text|border)-(?:black|white)(?:\/|\b)/)
+    expect(dialog.outerHTML).not.toContain('dark:bg-')
+  })
+
   it('switches to mermaid editor tab', async () => {
     act(() => {
       root.render(

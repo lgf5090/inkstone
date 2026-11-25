@@ -20,7 +20,8 @@ import { ExcalidrawOfficialLibraryModal, officialPreviewUrl } from '../src/clien
 import { OFFICIAL_WINDOW } from '../src/client/features/excalidraw/library/official-library-window'
 import { useExcalidrawLibraryStore } from '../src/client/features/excalidraw/library/library-store'
 import type { OfficialLibraryEntry } from '../src/client/features/excalidraw/library/types'
-import { initI18n, t } from '../src/client/lib/i18n'
+import { initI18n, setLocale, t } from '../src/client/lib/i18n'
+import { useUi } from '../src/client/store/ui'
 import { installTestGlobals } from '../src/client/lib/test-render'
 
 const CATALOG_SIZE = 232
@@ -47,6 +48,7 @@ function seedCatalog(count = CATALOG_SIZE, ageMs = 0): void {
 
 let root: Root
 let container: HTMLDivElement
+let restoreToast: (() => void) | undefined
 
 function cards(): HTMLElement[] {
     return [...container.querySelectorAll<HTMLElement>('[data-official-library-card]')]
@@ -86,6 +88,9 @@ beforeEach(async () => {
     vi.clearAllMocks()
     installTestGlobals()
     await initI18n()
+    await setLocale('zh-CN', false)
+    const toastSpy = vi.spyOn(useUi.getState(), 'toast').mockImplementation(() => 'toast')
+    restoreToast = () => toastSpy.mockRestore()
     useExcalidrawLibraryStore.setState({
         officialCatalog: [],
         officialCatalogAt: 0,
@@ -104,6 +109,8 @@ afterEach(async () => {
     })
     container.remove()
     document.body.innerHTML = ''
+    restoreToast?.()
+    restoreToast = undefined
 })
 
 describe('the official library browser keeps its cost in the window, not in the catalog', () => {
@@ -259,5 +266,47 @@ describe('the official library browser keeps its cost in the window, not in the 
         // The failure must not disturb the window either: no extra page, no lost tail.
         expect(cards()).toHaveLength(OFFICIAL_WINDOW)
         expect(tail()).not.toBeNull()
+    })
+
+    it('localizes an empty official-library download', async () => {
+        ;(api.excalidrawLibrary.downloadOfficialLibrary as ReturnType<typeof vi.fn>)
+            .mockResolvedValueOnce({ ok: false })
+        seedCatalog(1)
+        await open()
+
+        await act(async () => {
+            cards()[0].querySelector('button')!.click()
+        })
+
+        expect(useUi.getState().toast).toHaveBeenCalledWith({
+            title: t('excalidraw.import_failed'),
+            description: t('excalidraw.download_empty_data'),
+            tone: 'danger',
+        })
+        expect(t('excalidraw.download_empty_data')).toBe('素材库下载未返回数据')
+    })
+
+    it('localizes a failed web-library download', async () => {
+        ;(api.excalidrawLibrary.downloadOfficialLibrary as ReturnType<typeof vi.fn>)
+            .mockResolvedValueOnce({ ok: false })
+        seedCatalog(0)
+        await open()
+        await act(async () => {
+            Array.from(container.querySelectorAll('button')).find((button) =>
+                button.textContent === t('excalidraw.web_import'))!.click()
+        })
+        const urlInput = container.querySelector<HTMLInputElement>('input[type="text"]')!
+        await type(urlInput, 'https://libraries.excalidraw.com/libraries/example.excalidrawlib')
+        await act(async () => {
+            Array.from(container.querySelectorAll('button')).find((button) =>
+                button.textContent === t('excalidraw.one_click_import'))!.click()
+        })
+
+        expect(useUi.getState().toast).toHaveBeenCalledWith({
+            title: t('excalidraw.import_failed'),
+            description: t('excalidraw.download_failed'),
+            tone: 'danger',
+        })
+        expect(t('excalidraw.download_failed')).toBe('素材库下载失败')
     })
 })

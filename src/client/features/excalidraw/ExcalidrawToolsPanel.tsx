@@ -323,7 +323,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
                 api.updateScene({ elements: [...(api.getSceneElements?.() || []), ...elements] });
                 toast({ title: t('excalidraw.mermaid_to_excalidraw'), tone: 'success' });
             } else {
-                toast({ title: t('excalidraw.mermaid_to_excalidraw'), description: 'No elements parsed', tone: 'warning' });
+                toast({ title: t('excalidraw.mermaid_to_excalidraw'), description: t('excalidraw.no_elements_parsed'), tone: 'warning' });
             }
         } catch (err: unknown) {
             toast({ title: t('excalidraw.mermaid_to_excalidraw'), description: String(err), tone: 'danger' });
@@ -346,7 +346,7 @@ export const ExcalidrawToolsPanel: React.FC<ExcalidrawToolsPanelProps> = ({
     return (
         <aside
             ref={panelRef}
-            className="absolute top-12 right-14 z-50 flex w-64 max-w-[calc(100%-2rem)] max-h-[calc(100%-4rem)] overflow-y-auto flex-col rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 shadow-2xl"
+            className="absolute top-12 right-14 z-[var(--z-popover)] flex w-64 max-w-[calc(100%-2rem)] max-h-[calc(100%-4rem)] overflow-y-auto flex-col rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 shadow-2xl"
             aria-label={t('excalidraw.tools_panel')}
         >
             <div className="flex justify-center pt-0.5 pb-2 cursor-grab select-none">

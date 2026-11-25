@@ -4,6 +4,7 @@ import {
     parseMermaidFlowchart,
     parseSequenceDiagram,
 } from './mermaid';
+import { EXCALIDRAW_SCENE_PALETTE } from './scene-palette';
 
 describe('mermaid flowchart to excalidraw conversion', () => {
     it('parses nodes and edges from mermaid flowchart text', () => {
@@ -43,6 +44,39 @@ flowchart LR
         expect(arrows[0].endArrowhead).toBe('arrow');
         expect(arrows[0].points.length).toBe(2);
     });
+
+    it('keeps the serialized flowchart colours literal and unchanged', () => {
+        expect(EXCALIDRAW_SCENE_PALETTE).toEqual({
+            background: '#ffffff',
+            foreground: '#1e1e1e',
+            nodeFill: '#e0e7ff',
+            nodeStroke: '#4338ca',
+            decisionFill: '#fef3c7',
+            connector: '#4f46e5',
+            connectorLabel: '#6366f1',
+            lifeline: '#94a3b8',
+            sequenceLabel: '#334155',
+            highlight: 'rgba(0,118,255,1)',
+            transparent: 'transparent',
+        })
+        const elements = convertMermaidToExcalidrawElements(
+            'flowchart TD\n  A[Start] --> B{Done?}\n  B -->|Yes| C[End]',
+            100,
+            100,
+        )
+        const byId = (id: string) => elements.find((element) => element.id.startsWith(id))!
+        expect(byId('node_A_')).toMatchObject({
+            strokeColor: '#1e1e1e',
+            backgroundColor: '#e0e7ff',
+        })
+        expect(byId('node_B_')).toMatchObject({
+            strokeColor: '#1e1e1e',
+            backgroundColor: '#fef3c7',
+        })
+        expect(byId('arrow_A_B_').strokeColor).toBe('#4f46e5')
+        expect(byId('arrow_lbl_').strokeColor).toBe('#6366f1')
+        expect(JSON.stringify(elements)).not.toContain('var(')
+    })
 
     it('handles empty or comment-only mermaid code gracefully', () => {
         const code = '%% comment only\n';
@@ -101,5 +135,11 @@ sequenceDiagram
         const arrows = elements.filter((el) => el.type === 'arrow');
         expect(lines.length).toBe(2);
         expect(arrows.length).toBe(2);
+        expect(lines.every((line) => line.strokeColor === '#94a3b8')).toBe(true);
+        expect(arrows.every((arrow) => arrow.strokeColor === '#4f46e5')).toBe(true);
+        const boxes = elements.filter((element) => element.type === 'rectangle');
+        expect(boxes.every((box) => box.strokeColor === '#4338ca' && box.backgroundColor === '#e0e7ff')).toBe(true);
+        expect(elements.filter((element) => element.type === 'text').every((text) =>
+            text.strokeColor === '#1e1e1e' || text.strokeColor === '#334155')).toBe(true);
     });
 });

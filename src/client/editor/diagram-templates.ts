@@ -1,4 +1,5 @@
 import type { BaseMessageKey } from '@shared/locales/en-US';
+import { EXCALIDRAW_SCENE_PALETTE } from '../lib/markdown/excalidraw';
 
 /**
  * The starter bodies behind the editor toolbar's diagram submenus, as data: one row per entry, each
@@ -711,7 +712,7 @@ export const EXCALIDRAW_TEMPLATES: DiagramTemplate[] = [
             version: 2,
             source: 'https://excalidraw.com',
             elements: [],
-            appState: { viewBackgroundColor: '#ffffff', gridSize: null },
+            appState: { viewBackgroundColor: EXCALIDRAW_SCENE_PALETTE.background, gridSize: null },
             files: {},
         }, null, 2),
     },

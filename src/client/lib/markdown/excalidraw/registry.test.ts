@@ -170,6 +170,45 @@ describe('the excalidraw block registry', () => {
         expect(getExcalidrawInstance('probe-scope', 'note-a', 0)?.noteId).toBe('note-a');
     });
 
+    it('shows a visible error instead of mounting an empty scene for invalid JSON', async () => {
+        const host = hostWithFence('not-json');
+        await mountExcalidrawBlocks(host, {
+            scope: 'probe-scope',
+            noteId: 'note-a',
+            dark: false,
+            locale: 'zh-CN',
+            editable: true,
+            writeBack: vi.fn(),
+        });
+        expect(host.querySelector('.excalidraw-error')?.textContent).toContain('not-json');
+        expect(engineRenders).toBe(0);
+        expect(getExcalidrawInstance('probe-scope', 'note-a', 0)).toBeUndefined();
+    });
+
+    it('hides a mounted canvas for an invalid edit and restores it when the JSON is fixed', async () => {
+        const host = hostWithFence(SCENE_A);
+        const mount = () => mountExcalidrawBlocks(host, {
+            scope: 'probe-scope',
+            noteId: 'note-a',
+            dark: false,
+            locale: 'zh-CN',
+            editable: true,
+            writeBack: vi.fn(),
+        });
+        await mount();
+        const entry = getExcalidrawInstance('probe-scope', 'note-a', 0);
+
+        swapFenceBody(host, 'not-json');
+        await mount();
+        expect(host.querySelector('.excalidraw-error')?.textContent).toContain('not-json');
+        expect(entry?.canvasHost.hidden).toBe(true);
+
+        swapFenceBody(host, SCENE_B);
+        await mount();
+        expect(host.querySelector('.excalidraw-error')).toBeNull();
+        expect(entry?.canvasHost.hidden).toBe(false);
+    });
+
     it('does not keep serving a second note from the first note instance', async () => {
         const hostA = hostWithFence(SCENE_A);
         await mountExcalidrawBlocks(hostA, {

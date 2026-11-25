@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
     EXCALIDRAW_BODY_LIMIT_BYTES,
     EXCALIDRAW_MAX_ELEMENTS,
+    createDefaultExcalidrawScene,
     findExcalidrawFences,
     parseExcalidrawBody,
+    serializeExcalidrawBody,
 } from './body';
+import { EXCALIDRAW_SCENE_PALETTE } from './scene-palette';
 
 function sceneWith(elements: unknown[], files: unknown = {}) {
     return JSON.stringify({ type: 'excalidraw', version: 2, elements, appState: { viewBackgroundColor: '#ffffff' }, files });
@@ -13,6 +16,14 @@ function sceneWith(elements: unknown[], files: unknown = {}) {
 const rect = { id: 'r1', type: 'rectangle', x: 0, y: 0, width: 10, height: 10 };
 
 describe('the excalidraw scene sanitizer', () => {
+    it('uses the literal scene background for new and serialized scenes', () => {
+        expect(EXCALIDRAW_SCENE_PALETTE.background).toBe('#ffffff')
+        expect(createDefaultExcalidrawScene().appState?.viewBackgroundColor).toBe('#ffffff')
+        const scene = createDefaultExcalidrawScene()
+        scene.appState = { gridSize: null }
+        expect(JSON.parse(serializeExcalidrawBody(scene)).appState.viewBackgroundColor).toBe('#ffffff')
+    })
+
     it('accepts an ordinary scene untouched', () => {
         const result = parseExcalidrawBody(sceneWith([rect]));
         expect(result.ok).toBe(true);

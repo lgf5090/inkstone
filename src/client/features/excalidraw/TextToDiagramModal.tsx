@@ -51,17 +51,10 @@ const DEFAULT_MERMAID = `graph TD\n    A[Start] --> B(Work)\n    B --> C{Done?}\
 /**
  * The diagram stage's own surface, which stays dark in both app themes.
  *
- * It is not app chrome: everything drawn on it — the strip's `bg-black/20`, its slate labels, the rose
- * error card — is written in that same dark vocabulary, so following `--bg-*` would put light-theme
- * chrome on a panel built for a dark one, and the diagram is the one thing here that is the reader's
- * own artwork rather than the app's page.
- *
- * The second shade is worth knowing rather than trusting: `dark:` is Tailwind's default
- * `prefers-color-scheme`, while this app's theme is `:root[data-theme]`, so the deeper shade arrives
- * with the reader's operating system and not with the theme they chose. It is kept because it is what
- * the stage renders today; making the stage follow the app's theme is a separate decision.
+ * `.pele-on-dark` selects the engine's dark ramp for the stage and its controls, so neither the app's
+ * light theme nor the operating system's colour scheme can put light chrome on the reader's canvas.
  */
-const DIAGRAM_STAGE_CLASS = 'pele-on-dark bg-[#23272e] dark:bg-[#1e2227]';
+const DIAGRAM_STAGE_CLASS = 'pele-on-dark bg-[var(--pele-bg)] text-[var(--pele-fg)]';
 
 let renderSeq = 0;
 
@@ -421,7 +414,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 anim-fade">
+    <div className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-[var(--scrim)] p-4 anim-fade">
       <div
         className="flex h-[92vh] w-full max-w-6xl flex-col rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl overflow-hidden"
         role="dialog"
@@ -436,13 +429,13 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
               className={cn(
                 'flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-medium transition-all',
                 activeTab === 'ai'
-                  ? 'bg-[var(--accent)] text-white shadow-xs font-semibold'
+                  ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs font-semibold'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
               )}
             >
               <Sparkles size={14} />
               <span>{t('excalidraw.text_to_diagram')}</span>
-              <span className="rounded-md bg-white/20 px-1.5 py-0.2 text-[length:var(--text-10)] font-semibold tracking-wide">
+              <span className="rounded-md bg-[var(--accent-contrast)]/20 px-1.5 py-0.2 text-[length:var(--text-10)] font-semibold tracking-wide">
                 {t('excalidraw.ai_beta')}
               </span>
             </button>
@@ -453,7 +446,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
               className={cn(
                 'flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-medium transition-all',
                 activeTab === 'mermaid'
-                  ? 'bg-[var(--accent)] text-white shadow-xs font-semibold'
+                  ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs font-semibold'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
               )}
             >
@@ -466,7 +459,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
             <button
               type="button"
               onClick={handleNewChat}
-              className="flex items-center gap-1.5 rounded-xl bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110 transition-all shadow-xs"
+              className="flex items-center gap-1.5 rounded-xl bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-[var(--accent-contrast)] hover:brightness-110 transition-all shadow-xs"
             >
               <Plus size={13} />
               <span>{t('excalidraw.new_chat')}</span>
@@ -486,7 +479,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
             </button>
 
             {isHistoryOpen && (
-              <div className="absolute right-10 top-10 z-50 w-64 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 shadow-xl anim-pop">
+              <div className="absolute right-10 top-10 z-[var(--z-popover)] w-64 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 shadow-xl anim-pop">
                 <div className="mb-2 px-2 text-[length:var(--text-11)] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                   {t('excalidraw.chat_history')}
                 </div>
@@ -621,8 +614,8 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
             </div>
 
             <div className={cn('flex flex-1 flex-col min-w-0', DIAGRAM_STAGE_CLASS)}>
-              <div className="flex h-10 items-center justify-between border-b border-black/20 px-3 bg-black/20 text-xs shrink-0">
-                <span className="font-medium text-slate-300 flex items-center gap-1.5">
+              <div className="flex h-10 items-center justify-between border-b border-[var(--pele-line)]/20 px-3 bg-[var(--pele-surface)] text-xs shrink-0">
+                <span className="font-medium text-[var(--pele-fg)] flex items-center gap-1.5">
                   <Workflow size={13} className="text-[var(--accent)]" />
                   {t('excalidraw.live_preview')}
                   {isRendering && <RefreshCw size={11} className="animate-spin text-[var(--accent)]" />}
@@ -631,7 +624,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setZoom((z) => Math.min(z + 0.2, 3))}
-                    className="p-1.5 rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                    className="p-1.5 rounded-lg text-[var(--pele-muted)] hover:bg-[var(--pele-fg)]/10 hover:text-[var(--pele-fg)] transition-colors"
                     title={t('excalidraw.zoom_in')}
                   >
                     <ZoomIn size={13} />
@@ -639,7 +632,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setZoom((z) => Math.max(z - 0.2, 0.3))}
-                    className="p-1.5 rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                    className="p-1.5 rounded-lg text-[var(--pele-muted)] hover:bg-[var(--pele-fg)]/10 hover:text-[var(--pele-fg)] transition-colors"
                     title={t('excalidraw.zoom_out')}
                   >
                     <ZoomOut size={13} />
@@ -650,7 +643,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
                       setZoom(1);
                       setPan({ x: 0, y: 0 });
                     }}
-                    className="p-1.5 rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
+                    className="p-1.5 rounded-lg text-[var(--pele-muted)] hover:bg-[var(--pele-fg)]/10 hover:text-[var(--pele-fg)] transition-colors"
                     title={t('excalidraw.zoom_reset')}
                   >
                     <RefreshCw size={13} />
@@ -666,8 +659,8 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
                 onWheel={handleWheel}
               >
                 {previewError ? (
-                  <div className="max-w-md rounded-xl border border-rose-500/30 bg-rose-950/40 p-3 text-xs text-rose-300 shadow-sm">
-                    <div className="flex items-center gap-1.5 font-semibold mb-1 text-rose-400">
+                  <div className="max-w-md rounded-xl border border-[var(--pele-critical)]/30 bg-[var(--pele-critical)]/10 p-3 text-xs text-[var(--pele-critical)] shadow-sm">
+                    <div className="flex items-center gap-1.5 font-semibold mb-1 text-[var(--pele-critical)]">
                       <AlertCircle size={14} />
                       <span>{t('excalidraw.syntax_error')}</span>
                     </div>
@@ -684,7 +677,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
                     dangerouslySetInnerHTML={{ __html: safePreviewSvg }}
                   />
                 ) : (
-                  <div className="flex flex-col items-center justify-center text-center text-slate-500">
+                  <div className="flex flex-col items-center justify-center text-center text-[var(--pele-muted)]">
                     <Workflow size={32} className="mb-2 opacity-50" />
                     <p className="text-xs">{t('excalidraw.no_diagram_preview')}</p>
                   </div>
@@ -743,7 +736,7 @@ export const TextToDiagramModal: React.FC<TextToDiagramModalProps> = ({
               onClick={handleInsertDiagram}
               disabled={!mermaidCode.trim() || Boolean(previewError)}
               className={cn(
-                'flex items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-all',
+                'flex items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-semibold text-[var(--accent-contrast)] shadow-sm transition-all',
                 mermaidCode.trim() && !previewError
                   ? 'bg-[var(--accent)] hover:brightness-110 active:scale-95'
                   : 'bg-[var(--bg-hover)] text-[var(--text-quaternary)] cursor-not-allowed',
