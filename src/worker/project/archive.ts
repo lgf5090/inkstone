@@ -108,6 +108,21 @@ function archiveFiles(bytes: Uint8Array): Unzipped | null {
   try { return unzipSync(bytes) } catch { return null }
 }
 
+function assertCompleteBundle(bundle: ProjectBoardBundle): void {
+  if (bundle.contentsTruncated || bundle.commentsTruncated) {
+    throw ApiError.tooLarge('Archive export is incomplete because the board exceeds the bundle row limit')
+  }
+}
+
+function zipArchive(entries: Record<string, Uint8Array>): Uint8Array {
+  if (Object.keys(entries).length > ARCHIVE_MAX_FILES) throw ApiError.tooLarge('Archive has too many files')
+  const uncompressed = Object.values(entries).reduce((total, bytes) => total + bytes.byteLength, 0)
+  if (uncompressed > ARCHIVE_MAX_UNCOMPRESSED_BYTES) throw ApiError.tooLarge('Archive expands beyond the allowed size')
+  const bytes = zipSync(entries)
+  if (bytes.byteLength > ARCHIVE_MAX_BYTES) throw ApiError.tooLarge('Archive is too large')
+  return bytes
+}
+
 function assertArchiveImport(imported: ReturnType<typeof projectArchiveLinesToImport>): void {
   archiveId(imported.board.id, 'board')
   if (imported.cards.length > PROJECT_LIMITS.cardsPerBoard) throw ApiError.conflict('PROJECT_MAX_CARDS_PER_BOARD')
@@ -161,12 +176,11 @@ async function collectArchiveAttachments(
   files: Record<string, Uint8Array>,
 ): Promise<ProjectArchiveAttachment[]> {
   const out: ProjectArchiveAttachment[] = []
-  for (const attachment of await listBoardAttachments(db, boardId)) {
+  const attachments = await listBoardAttachments(db, boardId, undefined, PROJECT_LIMITS.attachmentsPerBoard + 1)
+  if (attachments.length > PROJECT_LIMITS.attachmentsPerBoard) throw ApiError.tooLarge('Board attachment quota exceeded')
+  for (const attachment of attachments) {
     const bytes = await readProjectFile(storage, attachment)
-    if (!bytes) {
-      console.warn('[inkstone] archive skipped a file whose bytes are unavailable:', attachment.id)
-      continue
-    }
+    if (!bytes) throw ApiError.badRequest(`Archive file bytes are unavailable: ${attachment.id}`)
     const path = attachmentPath(boardId, attachment.id)
     files[path] = bytes
     out.push({
@@ -185,10 +199,11 @@ export async function exportProjectBoardArchive(
   viewerId?: string,
 ): Promise<Uint8Array> {
   const bundle = await readProjectBoardBundle(db, board, role, viewerId)
+  assertCompleteBundle(bundle)
   const files: Record<string, Uint8Array> = {}
   const attachments = await collectArchiveAttachments(db, storage, board.id, files)
   const lines = projectBundleToArchiveLines(bundle, await listBoardLinks(db, board.id), attachments)
-  return zipSync({
+  return zipArchive({
     'version.json': strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() })),
     [`${board.id}/board.jsonl`]: strToU8(serializeProjectArchiveLines(lines)),
     ...files,
@@ -207,11 +222,12 @@ export async function exportProjectAccountArchive(
   }
   for (const board of boards) {
     const bundle = await readProjectBoardBundle(db, board, board.role, userId)
+    assertCompleteBundle(bundle)
     const links = await listBoardLinks(db, board.id)
     const attachments = await collectArchiveAttachments(db, storage, board.id, files)
     files[`${board.id}/board.jsonl`] = strToU8(serializeProjectArchiveLines(projectBundleToArchiveLines(bundle, links, attachments)))
   }
-  return zipSync(files)
+  return zipArchive(files)
 }
 
 /** Whole-account import: every board.jsonl in the ZIP becomes a fresh board (ids remapped). */

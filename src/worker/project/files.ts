@@ -54,10 +54,10 @@ export function attachmentCategory(mime: string): ProjectAttachmentCategory {
   return 'other'
 }
 
-export async function listBoardAttachments(db: D1Database, boardId: string, cardId?: string): Promise<ProjectAttachment[]> {
+export async function listBoardAttachments(db: D1Database, boardId: string, cardId?: string, limit = ATTACHMENT_LIST_LIMIT): Promise<ProjectAttachment[]> {
   const { results } = cardId
-    ? await db.prepare(`SELECT * FROM project_attachments WHERE board_id = ?1 AND card_id = ?2 ORDER BY created_at DESC LIMIT ${ATTACHMENT_LIST_LIMIT}`).bind(boardId, cardId).all<AttachmentRow>()
-    : await db.prepare(`SELECT * FROM project_attachments WHERE board_id = ?1 ORDER BY created_at DESC LIMIT ${ATTACHMENT_LIST_LIMIT}`).bind(boardId).all<AttachmentRow>()
+    ? await db.prepare('SELECT * FROM project_attachments WHERE board_id = ?1 AND card_id = ?2 ORDER BY created_at DESC LIMIT ?3').bind(boardId, cardId, limit).all<AttachmentRow>()
+    : await db.prepare('SELECT * FROM project_attachments WHERE board_id = ?1 ORDER BY created_at DESC LIMIT ?2').bind(boardId, limit).all<AttachmentRow>()
   return results.map(rowToAttachment)
 }
 

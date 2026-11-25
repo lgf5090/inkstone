@@ -9,6 +9,7 @@ import type { Env } from '../src/worker/env'
 import type { ProjectBoard, ProjectBoardBundle } from '../src/shared/project/model'
 import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
+import { listBoardAttachments } from '../src/worker/project/files'
 
 const ACCOUNTS = ['alice', 'bob', 'carol'] as const
 type Account = (typeof ACCOUNTS)[number]
@@ -94,6 +95,17 @@ async function richBoard(): Promise<ProjectBoard> {
   await req('alice', 'POST', `/cards/${card.id}/contents`, { type: 'checkbox', title: 'Step', fields: { checked: true } })
   await req('alice', 'POST', `/cards/${card.id}/comments`, { body: 'Nice' })
   return board
+}
+
+async function seedAttachment(boardId: string, index: number, withBytes: boolean): Promise<string> {
+  const attachmentId = `i${String(index).padStart(26, '0')}`
+  const objectKey = `project/other/alice/${attachmentId}.txt`
+  sqlite.prepare(`INSERT INTO project_attachments
+    (id, user_id, board_id, card_id, filename, mime, size, storage, object_key, created_at, updated_at)
+    VALUES (?, 'alice', ?, NULL, ?, 'text/plain', 1, 'r2', ?, ?, ?)`)
+    .run(attachmentId, boardId, `${index}.txt`, objectKey, index, index)
+  if (withBytes) await files.put(objectKey, new Uint8Array([1]))
+  return attachmentId
 }
 
 describe('archive export and import', () => {
@@ -207,6 +219,33 @@ describe('archive export and import', () => {
 
   it('rejects bytes that are neither a ZIP nor a v1 JSON', async () => {
     expect((await reqRaw('alice', '/boards/import', strToU8('not an archive'))).status).toBe(400)
+  })
+
+  it('refuses an export when bundle contents or comments are truncated', async () => {
+    const board = await createBoard('alice', { title: 'Too many blocks' })
+    const card = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Card' })).json()) as { card: { id: string } }).card
+    const insert = sqlite.prepare(`INSERT INTO project_card_contents
+      (id, card_id, board_id, type, title, fields, position, created_by, modified_by, create_at, update_at, delete_at)
+      VALUES (?, ?, ?, 'text', ?, '{}', ?, 'alice', 'alice', 1, 1, 0)`)
+    for (let index = 0; index < 2001; index += 1) insert.run(`a${String(index).padStart(26, '0')}`, card.id, board.id, `Block ${index}`, index)
+    const response = await req('alice', 'GET', `/boards/${board.id}/archive`)
+    expect(response.status).toBe(413)
+  })
+
+  it('refuses an export when attachment bytes are missing', async () => {
+    const board = await createBoard('alice', { title: 'Missing file' })
+    await seedAttachment(board.id, 1, false)
+    const response = await req('alice', 'GET', `/boards/${board.id}/archive`)
+    expect(response.status).toBe(400)
+  })
+
+  it('reads beyond 200 attachments and refuses archives over the ZIP member budget', async () => {
+    const board = await createBoard('alice', { title: 'Many files' })
+    for (let index = 0; index < 201; index += 1) await seedAttachment(board.id, index, true)
+    expect(await listBoardAttachments(env.DB, board.id)).toHaveLength(200)
+    expect(await listBoardAttachments(env.DB, board.id, undefined, 500)).toHaveLength(201)
+    const response = await req('alice', 'GET', `/boards/${board.id}/archive`)
+    expect(response.status).toBe(413)
   })
 
   it('lets a viewer export but hides the archive from a stranger', async () => {
