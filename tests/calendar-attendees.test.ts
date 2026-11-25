@@ -7,6 +7,7 @@ import type { CalendarDto, CalendarEventDto } from '../src/shared/calendar/model
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { CalendarStore } from '../src/worker/calendar/store'
+import { parseEventInput } from '../src/worker/calendar/validation'
 import { calendarRoutes } from '../src/worker/routes/calendar'
 import type { AppBindings } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -106,19 +107,16 @@ describe('the guest list', () => {
 
   it('keeps a read-only calendar read-only', async () => {
     const readOnly = await store().createCalendar({ name: 'Feed', color: '#112233', readOnly: true })
-    // Only a provider sync may write into a read-only calendar, and it goes through the batch route.
-    const synced = await json<{ events: CalendarEventDto[] }>(await call('POST', '/events/batch', {
-      mode: 'create',
-      events: [{
-        title: 'Kickoff',
-        start: { value: '2026-11-02T09:00:00', type: 'datetime' },
-        end: { value: '2026-11-02T10:00:00', type: 'datetime' },
-        calendarId: readOnly.id,
-        source: 'caldav',
-        externalId: 'ext-1',
-      }],
-    }))
-    const event = synced.events[0]!
+    // Provider identity is accepted only by the internal sync/import path, never the public batch API.
+    const created = await store().createEvents([parseEventInput({
+      title: 'Kickoff',
+      start: { value: '2026-11-02T09:00:00', type: 'datetime' },
+      end: { value: '2026-11-02T10:00:00', type: 'datetime' },
+      calendarIds: [readOnly.id],
+      source: 'caldav',
+      externalId: 'ext-1',
+    }, { defaultTimeZone: 'UTC' })], 'create')
+    const event = created[0]!
 
     await expect(store().setEventAttendees(event.id, [
       { email: 'kim@example.com', name: '', status: 'accepted' },

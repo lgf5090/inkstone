@@ -12,6 +12,8 @@ import {
   toCalendarType,
   toDayFlowEvent,
   toEventInput,
+  toEventUpdates,
+  toPersistedCalendarEvent,
   toSearchEvent,
 } from './model'
 
@@ -135,6 +137,43 @@ describe('calendar DTO mapping', () => {
     const input = toEventInput(event, { fallbackTitle: 'Untitled', timeZone: 'Asia/Shanghai' })
     expect(input.recurrenceRule).toBe('FREQ=DAILY')
     expect(input.meta).toEqual({ exdates: [exdate] })
+  })
+
+  it('keeps a hidden series rule in in-memory updates without sending it as metadata', () => {
+    const exdate = { value: '2026-10-27T09:00:00+08:00[Asia/Shanghai]', type: 'zoned' as const, timeZone: 'Asia/Shanghai' }
+    const event = toDayFlowEvent(eventDto({
+      recurrenceRule: 'FREQ=DAILY;COUNT=8',
+      meta: { exdates: [exdate], location: 'Room 4' },
+    }))
+    const updates = toEventUpdates(event)
+
+    expect(updates.meta).toEqual({ exdates: [exdate], location: 'Room 4', seriesRule: 'FREQ=DAILY;COUNT=8' })
+    expect(toEventInput({ ...event, ...updates }, { fallbackTitle: 'Untitled', timeZone: 'Asia/Shanghai' })).toMatchObject({
+      recurrenceRule: 'FREQ=DAILY;COUNT=8',
+      meta: { exdates: [exdate], location: 'Room 4' },
+    })
+  })
+
+  it('removes conference host controls, passwords and opaque metadata before persistence', () => {
+    const dto = eventDto({
+      conference: {
+        provider: 'zoom',
+        joinUrl: 'https://meet.example.com/join/123',
+        meetingId: '123',
+        hostUrl: 'https://meet.example.com/host/secret',
+        password: 'secret-passcode',
+        meta: { accessToken: 'secret-token' },
+      },
+    })
+    const persisted = toPersistedCalendarEvent(dto)
+
+    expect(persisted.conference).toEqual({
+      provider: 'zoom',
+      joinUrl: 'https://meet.example.com/join/123',
+      meetingId: '123',
+    })
+    expect(JSON.stringify(persisted)).not.toContain('secret')
+    expect(dto.conference?.password).toBe('secret-passcode')
   })
 
   it('falls back to an untitled title and clears incomplete task dates', () => {

@@ -3,7 +3,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { CalendarDto, CalendarEventDto, CalendarMetaDto } from '../src/shared/calendar/model'
+import { MAX_EVENTS_PER_QUERY, type CalendarDto, type CalendarEventDto, type CalendarMetaDto } from '../src/shared/calendar/model'
+import { MAX_RECURRENCE_OCCURRENCES } from '../src/worker/calendar/ics'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { calendarRoutes } from '../src/worker/routes/calendar'
@@ -323,6 +324,35 @@ describe('recurrence exceptions', () => {
   })
 })
 
+const SLOT_MS = 15 * 60_000
+const RECURRING_OCCURRENCES_PER_MASTER = 13
+
+async function bookingLink(calendarId: string): Promise<{ id: string; slug: string; calendarId: string }> {
+  const answer = await json<{ link: { id: string; slug: string; calendarId: string } }>(
+    await call('POST', '/api/calendar/scheduling-links', {
+      calendarId,
+      title: 'Intro call',
+      durationMinutes: 30,
+      days: [0, 1, 2, 3, 4, 5, 6],
+      startHour: 0,
+      endHour: 24,
+    }),
+  )
+  return answer.link
+}
+
+function alignedStart(offsetMs = 3 * 86_400_000): number {
+  return Math.ceil((Date.now() + offsetMs) / SLOT_MS) * SLOT_MS
+}
+
+function timedEvent(calendarId: string, startMs: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return eventBody(calendarId, {
+    start: { value: new Date(startMs).toISOString().replace('Z', '[UTC]'), type: 'zoned' },
+    end: { value: new Date(startMs + 60 * 60_000).toISOString().replace('Z', '[UTC]'), type: 'zoned' },
+    ...overrides,
+  })
+}
+
 describe('resources, booking links and snoozes', () => {
   it('creates a resource calendar and exposes it in meta', async () => {
     const response = await call('POST', '/api/calendar/resources', { name: 'Room 3', capacity: 8 })
@@ -353,6 +383,7 @@ describe('resources, booking links and snoozes', () => {
       email: 'dana@example.com',
     })
     expect(booked.status).toBe(200)
+    expect(await booked.json()).toEqual({ startMs, endMs: startMs + 30 * 60_000 })
 
     user = ALICE
     const from = new Date(startMs - 3_600_000).toISOString()
@@ -360,6 +391,138 @@ describe('resources, booking links and snoozes', () => {
     const events = await range(from, to)
     expect(events.events.some(event => event.title.includes('Dana'))).toBe(true)
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attendees').get()).toEqual({ count: 1 })
+  })
+
+  it('exposes only linked-calendar busy time, excluding private and shared calendars', async () => {
+    const calendar = await defaultCalendar()
+    const link = await bookingLink(calendar.id)
+    const privateCalendar = await json<{ calendar: CalendarDto }>(await call('POST', '/api/calendar/calendars', { name: 'Private' }))
+    const linkedStart = alignedStart(2 * 86_400_000)
+    const bookedStart = alignedStart(3 * 86_400_000)
+    await json(await call('POST', '/api/calendar/events', timedEvent(calendar.id, linkedStart)))
+    await json(await call('POST', '/api/calendar/events', timedEvent(privateCalendar.calendar.id, bookedStart)))
+
+    user = BOB
+    const bobCalendar = await defaultCalendar()
+    await json(await call('POST', '/api/calendar/events', timedEvent(bobCalendar.id, bookedStart)))
+    await invite(bobCalendar.id, 'alice', 'reader')
+    user = ALICE
+    await accept(BOB, bobCalendar.id)
+
+    const publicRead = await json<{ busy: Array<{ startMs: number; endMs: number }> }>(
+      await call('GET', `/api/public/calendar/scheduling/${link.slug}`),
+    )
+    expect(publicRead.busy).toEqual([{ startMs: linkedStart, endMs: linkedStart + 60 * 60_000 }])
+    const booked = await call('POST', `/api/public/calendar/scheduling/${link.slug}/book`, {
+      startMs: bookedStart,
+      name: 'Dana',
+      email: 'dana@example.com',
+    })
+    expect(booked.status).toBe(200)
+  })
+
+  it('allows only one concurrent booking for the same slot', async () => {
+    const link = await bookingLink((await defaultCalendar()).id)
+    const startMs = alignedStart()
+    const answers = await Promise.all([
+      call('POST', `/api/public/calendar/scheduling/${link.slug}/book`, { startMs, name: 'Dana', email: 'dana@example.com' }),
+      call('POST', `/api/public/calendar/scheduling/${link.slug}/book`, { startMs, name: 'Eli', email: 'eli@example.com' }),
+    ])
+    expect(answers.map(answer => answer.status).sort()).toEqual([200, 409])
+    expect(sqlite.prepare(
+      `SELECT COUNT(*) AS count FROM calendar_event_calendars m
+         JOIN calendar_events e ON e.user_id = m.user_id AND e.id = m.event_id
+        WHERE m.calendar_id = ? AND e.start_ms = ?`,
+    ).get(link.calendarId, startMs)).toEqual({ count: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attendees').get()).toEqual({ count: 1 })
+  })
+
+  it('does not expose internal link, calendar or event ids in public responses', async () => {
+    const calendar = await defaultCalendar()
+    const ownerLink = await bookingLink(calendar.id)
+    expect(ownerLink).toHaveProperty('id')
+    expect(ownerLink).toHaveProperty('calendarId', calendar.id)
+    const publicRead = await json<{ link: Record<string, unknown> }>(
+      await call('GET', `/api/public/calendar/scheduling/${ownerLink.slug}`),
+    )
+    expect(publicRead.link).toMatchObject({ slug: ownerLink.slug, title: 'Intro call' })
+    expect(publicRead.link).not.toHaveProperty('id')
+    expect(publicRead.link).not.toHaveProperty('calendarId')
+    expect(publicRead.link).not.toHaveProperty('userId')
+    const booked = await json<Record<string, unknown>>(await call('POST', `/api/public/calendar/scheduling/${ownerLink.slug}/book`, {
+      startMs: alignedStart(),
+      name: 'Dana',
+    }))
+    expect(Object.keys(booked).sort()).toEqual(['endMs', 'startMs'])
+  })
+
+  it.each([
+    ['past start', { startMs: alignedStart(-15 * 60_000) }],
+    ['start beyond fourteen days', { startMs: alignedStart(14 * 86_400_000 + SLOT_MS) }],
+    ['unaligned start', { startMs: alignedStart() + 7 * 60_000 }],
+    ['missing name', { name: '   ' }],
+    ['long name', { name: 'x'.repeat(121) }],
+    ['invalid email', { email: 'not-an-email' }],
+    ['non-string email', { email: 123 }],
+    ['long email', { email: `${'x'.repeat(200)}@example.com` }],
+  ])('rejects a booking with %s', async (_label, patch) => {
+    const link = await bookingLink((await defaultCalendar()).id)
+    const answer = await call('POST', `/api/public/calendar/scheduling/${link.slug}/book`, {
+      startMs: alignedStart(),
+      name: 'Dana',
+      email: 'dana@example.com',
+      ...patch,
+    })
+    expect(answer.status).toBe(400)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events').get()).toEqual({ count: 0 })
+  })
+
+  it('fails closed when the linked-calendar event query is truncated', async () => {
+    const link = await bookingLink((await defaultCalendar()).id)
+    const start = alignedStart()
+    const insert = sqlite.prepare(
+      `INSERT INTO calendar_events
+         (user_id, id, title, start_value, start_type, start_ms, end_value, end_type, end_ms, created_at, updated_at)
+       VALUES (?, ?, 'Busy', ?, 'datetime', ?, ?, 'datetime', ?, 1, 1)`,
+    )
+    const membership = sqlite.prepare('INSERT INTO calendar_event_calendars (user_id, event_id, calendar_id) VALUES (?, ?, ?)')
+    const value = new Date(start - 1000).toISOString().slice(0, 19)
+    sqlite.exec('BEGIN')
+    try {
+      for (let index = 0; index <= MAX_EVENTS_PER_QUERY; index += 1) {
+        insert.run(ALICE, `booking-overflow-${index}`, value, start - 1000, value, start + 60 * 60_000)
+        membership.run(ALICE, `booking-overflow-${index}`, link.calendarId)
+      }
+      sqlite.exec('COMMIT')
+    } catch (error) {
+      sqlite.exec('ROLLBACK')
+      throw error
+    }
+    expect((await call('GET', `/api/public/calendar/scheduling/${link.slug}`)).status).toBe(503)
+    expect((await call('POST', `/api/public/calendar/scheduling/${link.slug}/book`, {
+      startMs: start,
+      name: 'Dana',
+    })).status).toBe(503)
+  })
+
+  it('fails closed when recurring busy expansion is truncated', async () => {
+    const link = await bookingLink((await defaultCalendar()).id)
+    const start = alignedStart(86_400_000)
+    const value = new Date(start).toISOString().replace('Z', '[UTC]')
+    const insert = sqlite.prepare(
+      `INSERT INTO calendar_events
+         (user_id, id, title, start_value, start_type, start_ms, end_value, end_type, end_ms,
+          recurrence_rule, created_at, updated_at)
+       VALUES (?, ?, 'Busy', ?, 'zoned', ?, ?, 'zoned', ?, 'FREQ=DAILY;COUNT=15', 1, 1)`,
+    )
+    const membership = sqlite.prepare('INSERT INTO calendar_event_calendars (user_id, event_id, calendar_id) VALUES (?, ?, ?)')
+    const masters = Math.ceil((MAX_RECURRENCE_OCCURRENCES + 1) / RECURRING_OCCURRENCES_PER_MASTER)
+    for (let index = 0; index < masters; index += 1) {
+      const id = `booking-recurring-overflow-${index}`
+      insert.run(ALICE, id, value, start, value, start + 60_000)
+      membership.run(ALICE, id, link.calendarId)
+    }
+    expect((await call('GET', `/api/public/calendar/scheduling/${link.slug}`)).status).toBe(503)
   })
 
   it('parks a snooze and filters search by attendee, recurrence and task status', async () => {

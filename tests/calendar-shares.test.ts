@@ -3,8 +3,9 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { CalendarDto, CalendarShareDto } from '../src/shared/calendar/model'
+import type { CalendarDto, CalendarEventDto, CalendarShareDto } from '../src/shared/calendar/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import { CalendarStore } from '../src/worker/calendar/store'
 import { errorResponse } from '../src/worker/lib/errors'
 import { calendarRoutes } from '../src/worker/routes/calendar'
 import { calendarShareRoutes } from '../src/worker/routes/calendar-shares'
@@ -61,14 +62,19 @@ async function newCalendar(name: string): Promise<CalendarDto> {
   return answer.calendar
 }
 
-async function addEvent(calendarId: string, title: string): Promise<void> {
+async function addEvent(
+  calendarId: string,
+  title: string,
+  overrides: Record<string, unknown> = {},
+): Promise<CalendarEventDto> {
   const created = await call('POST', '/events', {
     title,
     start: { value: '2026-11-03T09:00:00', type: 'datetime' },
     end: { value: '2026-11-03T10:00:00', type: 'datetime' },
     calendarId,
+    ...overrides,
   })
-  await json(created)
+  return (await json<{ event: CalendarEventDto }>(created)).event
 }
 
 async function shareOf(calendarId: string): Promise<CalendarShareDto | null> {
@@ -149,6 +155,60 @@ describe('the reader side of a public calendar link', () => {
     expect(body).toContain('SUMMARY:Ferry to the island')
     expect(body).not.toContain('Quarterly review')
     expect(body).not.toContain(ALICE)
+  })
+
+  it('publishes only public fields, without guest identities or meeting secrets', async () => {
+    const trips = await newCalendar('Trips')
+    const event = await addEvent(trips.id, 'Public meeting', {
+      meta: {
+        originalUid: 'external-owner@example.com',
+        organizerEmail: 'event-organizer@example.com',
+        attendees: [{ email: 'meta-guest@example.com', name: 'Meta Guest', status: 'accepted' }],
+        location: 'Room 1',
+        categories: ['Shared'],
+        url: 'https://example.com/event',
+      },
+      conference: {
+        joinUrl: 'https://meet.example.com/room',
+        password: 'meeting-password',
+        meetingId: 'private-meeting-id',
+        hostUrl: 'https://meet.example.com/host',
+        meta: { password: 'nested-meeting-password' },
+      },
+    })
+    const store = new CalendarStore(db, ALICE)
+    await store.setEventAttendees(event.id, [
+      { email: 'stored-guest@example.com', name: 'Stored Guest', status: 'tentative' },
+    ], event.rev)
+    const preferences = await store.preferences()
+    await store.savePreferences({ ...preferences, organizerEmail: 'preference-owner@example.com' })
+    const share = (await json<{ share: CalendarShareDto }>(await call('POST', `/calendars/${trips.id}/share`))).share
+
+    user = ''
+    const response = await read(share.slug)
+    expect(response.status).toBe(200)
+    const body = await response.text()
+    expect(body).toContain('SUMMARY:Public meeting')
+    expect(body).toContain('LOCATION:Room 1')
+    expect(body).toContain('CATEGORIES:Shared')
+    expect(body).toContain('URL:https://meet.example.com/room')
+    expect(body).not.toMatch(/^(?:ORGANIZER|ATTENDEE)[;:]/m)
+    for (const privateValue of [
+      'external-owner@example.com',
+      'event-organizer@example.com',
+      'meta-guest@example.com',
+      'stored-guest@example.com',
+      'preference-owner@example.com',
+      'Meta Guest',
+      'Stored Guest',
+      'meeting-password',
+      'nested-meeting-password',
+      'private-meeting-id',
+      'https://meet.example.com/host',
+    ]) {
+      expect(body).not.toContain(privateValue)
+    }
+    user = ALICE
   })
 
   it('addresses the same calendar with or without the .ics suffix', async () => {

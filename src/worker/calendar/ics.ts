@@ -7,6 +7,7 @@ import {
   MAX_ICS_BYTES,
   MAX_ICS_EVENTS,
   MAX_RECURRENCE_RULE,
+  isCalendarAttendeeStatus,
   isCalendarEntityId,
   isTemporalKind,
   temporalValueToEpochMs,
@@ -31,6 +32,7 @@ const MAX_CATEGORIES = 100
 const MAX_META_DATES = 500
 const MAX_FLATTEN_ITERATIONS = 100_000
 const MAX_ZONE_CACHE_ENTRIES = 500
+const ICS_CONTROL_CHARS = /[\u0000-\u001F\u007F]/
 const FLATTEN_WINDOW_YEARS = 2
 
 /** A stable per-calendar external id; flattened occurrences need their recurrence id in the key. */
@@ -377,6 +379,8 @@ function isCancelled(component: IcalComponent, context: WarningContext): boolean
 
 function safeHttpUrl(value: unknown, httpsOnly: boolean): string | null {
   if (typeof value !== 'string' || !value || value.length > MAX_CONFERENCE_URL) return null
+  // URL parsing removes raw line breaks; returning the original value would write them back into ICS.
+  if (ICS_CONTROL_CHARS.test(value)) return null
   try {
     const url = new URL(value)
     if (httpsOnly ? url.protocol !== 'https:' : (url.protocol !== 'https:' && url.protocol !== 'http:')) {
@@ -859,6 +863,17 @@ function metaOf(event: CalendarEventInput): Record<string, unknown> {
     : {}
 }
 
+function attendeesFor(event: IcsSerializableEvent, meta: Record<string, unknown>): unknown[] {
+  const attendees = Array.isArray(event.attendees) ? event.attendees : meta.attendees
+  return Array.isArray(attendees) ? attendees.slice(0, 50) : []
+}
+
+function attendeeName(value: unknown): string {
+  return typeof value === 'string'
+    ? value.replace(/[\r\n]+/g, ' ').trim().slice(0, 120)
+    : ''
+}
+
 function temporalValueFrom(value: unknown): TemporalValue | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
@@ -1168,14 +1183,18 @@ function veventFor(event: IcsSerializableEvent, uid: string, organizerEmail?: st
     vevent.addProperty(property)
   }
 
-  const guests = event.attendees ?? (Array.isArray(meta.attendees) ? meta.attendees as CalendarAttendeeDto[] : [])
-  for (const guest of guests.slice(0, 50)) {
+  for (const candidate of attendeesFor(event, meta)) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
+    const guest = candidate as Record<string, unknown>
     const email = mailAddress(guest.email)
     if (!email) continue
     const property = new ICAL.Property('attendee')
     property.setValue(`mailto:${email}`)
-    if (guest.name) property.setParameter('cn', guest.name.slice(0, 120))
-    property.setParameter('partstat', guest.status.toUpperCase())
+    const name = attendeeName(guest.name)
+    if (name) property.setParameter('cn', name)
+    property.setParameter('partstat', isCalendarAttendeeStatus(guest.status)
+      ? guest.status.toUpperCase()
+      : 'NEEDS-ACTION')
     vevent.addProperty(property)
   }
 

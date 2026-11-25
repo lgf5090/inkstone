@@ -8,6 +8,7 @@
 export const CALENDAR_CACHE_PREFIXES = [
   'inkstone.calendar.first-paint.',
   'inkstone.calendar.range.',
+  'inkstone.calendar.outbox:',
 ] as const
 
 function readStorage(): Storage | null {

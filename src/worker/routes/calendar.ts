@@ -14,7 +14,7 @@ import { Hono, type Context } from 'hono'
 import { MAX_CALENDAR_NAME, MAX_EVENTS_PER_BATCH, isSharedCalendarId, parseSharedCalendarId, sharedCalendarId, temporalValueToEpochMs } from '@shared/calendar/model'
 import type { CalendarEventDto } from '@shared/calendar/model'
 import type { AppBindings } from '../env'
-import { CalendarStore } from '../calendar/store'
+import { CalendarStore, type CalendarEventWriteInput } from '../calendar/store'
 import { CountdownStore } from '../calendar/countdowns'
 import { listEventAttachments } from '../calendar/attachments'
 import { expandRecurringEvents } from '../calendar/ics'
@@ -74,6 +74,11 @@ function store(c: Ctx): CalendarStore {
 
 function pathId(c: Ctx): string {
   return parseEntityId(c.req.param('id'), 'id')
+}
+
+/** Provider identity is set by internal sync/import parsers, never by an HTTP request body. */
+function publicEventInput(value: unknown, defaultTimeZone: string): CalendarEventWriteInput {
+  return parseEventInput(value, { defaultTimeZone, allowSourceIdentity: false })
 }
 
 function noContent(c: Ctx): Response {
@@ -147,6 +152,20 @@ async function sharedEventTarget(c: Ctx, id: string): Promise<{ ownerId: string;
   if (!event) return null
   const target = await sharedWriterIds(c, event.calendarIds.map(calendarId => sharedCalendarId(parsed.ownerId, calendarId)))
   return { ownerId: parsed.ownerId, store: target.store, eventId: event.id, event }
+}
+
+/** An upsert may replace memberships, so every original calendar must also grant this guest write access. */
+async function assertSharedBatchUpsertWritable(
+  c: Ctx,
+  target: SharedWriterTarget,
+  inputs: readonly CalendarEventWriteInput[],
+): Promise<void> {
+  for (const input of inputs) {
+    if (input.id === undefined) continue
+    const existing = await target.store.getEvent(input.id)
+    if (!existing) continue
+    await sharedWriterIds(c, existing.calendarIds.map(calendarId => sharedCalendarId(target.ownerId, calendarId)))
+  }
 }
 
 async function fallbackTimeZone(s: CalendarStore): Promise<string> {
@@ -316,7 +335,8 @@ calendarRoutes.post('/events/batch', async (c) => {
     }
     prepared.push(answer.body)
   }
-  const inputs = prepared.map((event) => parseEventInput(event, { defaultTimeZone: timeZone }))
+  const inputs = prepared.map((event) => publicEventInput(event, timeZone))
+  if (shared && body.mode === 'upsert') await assertSharedBatchUpsertWritable(c, shared, inputs)
   const events = await (shared ? shared.store.createEvents(inputs, body.mode) : s.createEvents(inputs, body.mode))
   return c.json({ events: shared ? events.map(event => sharedEventDto(shared!.ownerId, event)) : events })
 })
@@ -326,7 +346,7 @@ calendarRoutes.post('/events', async (c) => {
   const timeZone = await fallbackTimeZone(s)
   const raw = await readJson<Record<string, unknown>>(c, EVENT_BODY_LIMIT)
   const prepared = await prepareSharedWrite(c, raw)
-  const input = parseEventInput(prepared.body, { defaultTimeZone: timeZone })
+  const input = publicEventInput(prepared.body, timeZone)
   if (prepared.target) {
     const event = await prepared.target.store.createEvent(input)
     return c.json({ event: sharedEventDto(prepared.target.ownerId, event) })

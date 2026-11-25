@@ -81,6 +81,8 @@ import type {
 export interface ParseEventOptions {
   /** The account's display zone, used when the value carries no zone of its own. */
   defaultTimeZone?: string
+  /** Public event APIs disable this; only server-side sync/import callers may preserve provider identity. */
+  allowSourceIdentity?: boolean
 }
 
 interface ParsedTemporal {
@@ -376,6 +378,10 @@ export function parseEventInput(value: unknown, options: ParseEventOptions = {})
     ? { completed: false, completedAt: null, completedAtMs: null, priority: null }
     : null)
   const recurrenceRule = recurringRuleFrom(record, meta)
+  const source = record.source === undefined ? 'local' : parseSource(record.source)
+  const externalId = record.externalId === undefined || record.externalId === null
+    ? null
+    : entityId(record.externalId, 'External id')
   return {
     ...(id === undefined ? {} : { id }),
     title: eventTitle(record.title),
@@ -393,10 +399,8 @@ export function parseEventInput(value: unknown, options: ParseEventOptions = {})
     icon: parseIcon(record.icon),
     color: record.color === undefined || record.color === null ? null : calendarColor(record.color, 'color'),
     recurrenceRule,
-    source: record.source === undefined ? 'local' : parseSource(record.source),
-    externalId: record.externalId === undefined || record.externalId === null
-      ? null
-      : entityId(record.externalId, 'External id'),
+    source: options.allowSourceIdentity === false ? 'local' : source,
+    externalId: options.allowSourceIdentity === false ? null : externalId,
   }
 }
 

@@ -15,7 +15,7 @@ import { MAX_ICS_EXPORT_BYTES } from '@shared/calendar/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { newSlug } from '../lib/id'
-import { encodeIcsChunks } from './ics'
+import { encodeIcsChunks, type IcsSerializableEvent } from './ics'
 import { CalendarStore } from './store'
 
 interface ShareRow {
@@ -137,6 +137,34 @@ export async function sharedCalendarEtag(
   }
 }
 
+/** Only the event fields a public calendar needs; guest identities and meeting secrets stay private. */
+const PUBLIC_EVENT_META_KEYS = [
+  'location',
+  'categories',
+  'url',
+  'recurrenceRule',
+  'recurrenceId',
+  'exdates',
+  'rdates',
+] as const
+
+function publicEventFor(event: CalendarEventDto): IcsSerializableEvent {
+  const meta: Record<string, unknown> = {}
+  for (const key of PUBLIC_EVENT_META_KEYS) {
+    if (event.meta[key] !== undefined) meta[key] = event.meta[key]
+  }
+  return {
+    id: event.id,
+    title: event.title,
+    description: event.description,
+    start: event.start,
+    end: event.end,
+    recurrenceRule: event.recurrenceRule,
+    ...(event.conference ? { conference: { joinUrl: event.conference.joinUrl } } : {}),
+    meta,
+  }
+}
+
 /** The published document: the whole calendar, in the owner's zone, without the account's other data. */
 export async function sharedCalendarChunks(
   db: AppBindings['Bindings']['DB'],
@@ -152,7 +180,7 @@ export async function sharedCalendarChunks(
   }
   const range = await store.listEvents(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, [calendarId])
   if (range.truncated) return { chunks: null, name: calendar.name }
-  const events: CalendarEventDto[] = range.events
+  const events = range.events.map(publicEventFor)
   return {
     chunks: encodeIcsChunks({
       name: calendar.name,

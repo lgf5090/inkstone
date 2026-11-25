@@ -336,6 +336,7 @@ export function toEventInput(event: Event, options: EventSerializationOptions): 
  * crosses the API.
  */
 export function toEventUpdates(event: Event): Partial<Event> {
+  const seriesRule = typeof event.meta?.seriesRule === 'string' ? event.meta.seriesRule : undefined
   return {
     title: event.title,
     description: event.description,
@@ -347,8 +348,24 @@ export function toEventUpdates(event: Event): Partial<Event> {
     allDay: event.allDay,
     calendarId: event.calendarId,
     calendarIds: event.calendarIds,
-    meta: stripRenderOnlyMeta(event.meta),
+    // Unlike DayFlow's other render-only fields, this is the stored rule temporarily hidden while
+    // exceptions exist. In-memory refreshes, rollbacks and history replays must all carry it forward.
+    meta: { ...stripRenderOnlyMeta(event.meta), ...(seriesRule !== undefined ? { seriesRule } : {}) },
     icon: typeof event.icon === 'boolean' ? event.icon : undefined,
+  }
+}
+
+/** Conference host controls and passwords must never enter localStorage snapshots or write queues. */
+export function toPersistedCalendarEvent<T extends CalendarEventInput | CalendarEventDto>(event: T): T {
+  if (!event.conference) return event
+  const conference = event.conference
+  return {
+    ...event,
+    conference: {
+      ...(conference.provider ? { provider: conference.provider } : {}),
+      joinUrl: conference.joinUrl,
+      ...(conference.meetingId ? { meetingId: conference.meetingId } : {}),
+    },
   }
 }
 

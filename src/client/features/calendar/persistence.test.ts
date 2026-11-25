@@ -86,7 +86,7 @@ describe('event persistence rollback', () => {
     vi.useRealTimers()
   })
 
-  it('restores the server-confirmed shape when a write is refused', async () => {
+  it('restores the server-confirmed shape and hidden series rule when a write is refused', async () => {
     const fake = fakeApp()
     const onError = vi.fn()
     const record = vi.fn()
@@ -104,16 +104,22 @@ describe('event persistence rollback', () => {
     })
     persistence.start()
     vi.mocked(api.updateEvent).mockRejectedValue(new ApiError(403, 'forbidden', 'read only'))
+    const before = {
+      ...event('Original'),
+      meta: { exdates: ['2026-10-27T09:00:00Z'], seriesRule: 'FREQ=DAILY;COUNT=8' },
+    }
+    const after = { ...before, title: 'Edited', meta: { exdates: ['2026-10-28T09:00:00Z'] } }
 
-    fake.emit({ type: 'update', before: event('Original'), after: event('Edited'), source: 'local' })
+    fake.emit({ type: 'update', before, after, source: 'local' })
     await vi.advanceTimersByTimeAsync(300)
 
     expect(onError).toHaveBeenCalledTimes(1)
     expect(record).not.toHaveBeenCalled()
-    expect(fake.applied).toHaveLength(1)
-    expect(fake.applied[0]?.source).toBe('local')
     expect(fake.applied[0]?.changes).toMatchObject({
-      update: [{ id: 'evt-1', updates: { title: 'Original' } }],
+      update: [{
+        id: 'evt-1',
+        updates: { title: 'Original', meta: { exdates: ['2026-10-27T09:00:00Z'], seriesRule: 'FREQ=DAILY;COUNT=8' } },
+      }],
     })
     persistence.dispose()
   })
@@ -363,6 +369,35 @@ describe('write conflicts', () => {
     context.persistence.dispose()
   })
 
+  it('opens conflict handling when the retry receives a stale revision', async () => {
+    const context = setup()
+    vi.mocked(api.updateEvent)
+      .mockRejectedValueOnce(new ApiError(500, 'internal', 'temporary'))
+      .mockRejectedValueOnce(new ApiError(409, 'conflict', 'stale revision'))
+    context.fake.emit({ type: 'update', before: event('Original'), after: event('Edited'), source: 'local' })
+    await vi.advanceTimersByTimeAsync(900)
+
+    expect(context.onConflict).toHaveBeenCalledTimes(1)
+    expect(context.onError).not.toHaveBeenCalled()
+    expect(context.fake.applied).toHaveLength(0)
+    context.persistence.dispose()
+  })
+
+  it('adopts an outbox conflict so the existing dialog can resolve it', async () => {
+    const context = setup()
+    const request = { id: 'evt-1', intent: 'save' as const, mine: merged }
+    context.persistence.acceptConflict(request)
+    expect(context.persistence.hasPending('evt-1')).toBe(true)
+    vi.mocked(api.updateEvent).mockResolvedValue(serverDto(8) as never)
+
+    await context.persistence.resolveConflict('evt-1', { action: 'save', input: merged, rev: 6 })
+
+    expect(api.updateEvent).toHaveBeenCalledWith('evt-1', merged, 6)
+    expect(context.revs.get('evt-1')).toBe(8)
+    expect(context.persistence.hasPending('evt-1')).toBe(false)
+    context.persistence.dispose()
+  })
+
   it('ignores a decision for an event it has already forgotten', async () => {
     const context = setup()
     await conflictWhileSavingEdit(context)
@@ -432,8 +467,77 @@ describe('occurrence edits and offline writes', () => {
     fake.emit({ type: 'update', before: event('Original'), after: event('Queued'), source: 'local' })
     await vi.advanceTimersByTimeAsync(900)
     expect(onOffline).toHaveBeenCalledTimes(1)
-    expect(onOffline.mock.calls[0]?.[0]).toMatchObject({ kind: 'save', eventId: 'evt-1' })
+    expect(onOffline.mock.calls[0]?.[0]).toMatchObject({ kind: 'save', eventId: 'evt-1', baseRev: 1 })
     expect(fake.applied).toHaveLength(0)
+    persistence.dispose()
+  })
+
+  it('rolls back and records no history when durable queueing fails', async () => {
+    const fake = fakeApp()
+    const onOffline = vi.fn(async () => false)
+    const record = vi.fn()
+    vi.mocked(api.updateEvent).mockRejectedValue(new ApiError(0, 'offline', 'network down'))
+    const persistence = new EventPersistence(options(fake, {
+      onOffline,
+      history: { record },
+      revs: new Map([['evt-1', 1]]),
+    }))
+    persistence.start()
+
+    fake.emit({ type: 'update', before: event('Original'), after: event('Queued'), source: 'local' })
+    await vi.advanceTimersByTimeAsync(900)
+
+    expect(onOffline).toHaveBeenCalledWith(expect.objectContaining({ kind: 'save', baseRev: 1 }))
+    expect(record).not.toHaveBeenCalled()
+    expect(fake.applied[0]?.changes).toMatchObject({ update: [{ id: 'evt-1', updates: { title: 'Original' } }] })
+    persistence.dispose()
+  })
+
+  it('records a null base revision for a newly created offline event', async () => {
+    const fake = fakeApp()
+    const onOffline = vi.fn(async () => true)
+    vi.mocked(api.createEvent).mockRejectedValue(new ApiError(0, 'offline', 'network down'))
+    const persistence = new EventPersistence(options(fake, { onOffline, revs: new Map() }))
+    persistence.start()
+
+    fake.emit({ type: 'create', event: event('New'), source: 'local' })
+    await vi.advanceTimersByTimeAsync(900)
+
+    expect(onOffline).toHaveBeenCalledWith(expect.objectContaining({ kind: 'save', eventId: 'evt-1', baseRev: null }))
+    persistence.dispose()
+  })
+
+  it('cancels a queued offline create when the new event is deleted', async () => {
+    const fake = fakeApp()
+    const onOffline = vi.fn(async () => true)
+    vi.mocked(api.createEvent).mockRejectedValue(new ApiError(0, 'offline', 'network down'))
+    const persistence = new EventPersistence(options(fake, { onOffline, revs: new Map() }))
+    persistence.start()
+    const created = event('New')
+
+    fake.emit({ type: 'create', event: created, source: 'local' })
+    await vi.advanceTimersByTimeAsync(900)
+    fake.emit({ type: 'delete', event: created, source: 'local' })
+    await vi.advanceTimersByTimeAsync(300)
+
+    expect(onOffline).toHaveBeenLastCalledWith({ kind: 'delete', eventId: 'evt-1', rev: null })
+    expect(api.deleteEvent).not.toHaveBeenCalled()
+    persistence.dispose()
+  })
+
+  it('keeps a deleted event visible when cancelling its queued create fails', async () => {
+    const fake = fakeApp()
+    const onOffline = vi.fn(async () => false)
+    const persistence = new EventPersistence(options(fake, { onOffline, revs: new Map() }))
+    persistence.start()
+    const created = event('New')
+
+    fake.emit({ type: 'create', event: created, source: 'local' })
+    fake.emit({ type: 'delete', event: created, source: 'local' })
+    await vi.advanceTimersByTimeAsync(300)
+
+    expect(onOffline).toHaveBeenCalledWith({ kind: 'delete', eventId: 'evt-1', rev: null })
+    expect(fake.applied[0]?.changes).toMatchObject({ add: [{ id: 'evt-1', title: 'New' }] })
     persistence.dispose()
   })
 })

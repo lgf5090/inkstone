@@ -96,30 +96,42 @@ describe('the calendar routes', () => {
 })
 
 describe('calendar routes', () => {
-  it('refuses local batch writes to a read-only calendar but accepts provider sync writes', async () => {
+  it('refuses client source identities on read-only calendars', async () => {
     const readOnly = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {
       name: 'Read only',
       color: '#123456',
       readOnly: true,
     }))
+    const forged = { source: 'caldav', externalId: 'remote-sync-1' }
 
     expect((await call('POST', '/events', eventBody(readOnly.calendar.id))).status).toBe(403)
+    expect((await call('POST', '/events', eventBody(readOnly.calendar.id, forged))).status).toBe(403)
     expect((await call('POST', '/events/batch', {
       mode: 'create',
       events: [eventBody(readOnly.calendar.id)],
     })).status).toBe(403)
-
-    const synced = await call('POST', '/events/batch', {
+    expect((await call('POST', '/events/batch', {
       mode: 'create',
-      events: [eventBody(readOnly.calendar.id, { source: 'caldav', externalId: 'remote-sync-1' })],
-    })
-    expect(synced.status).toBe(200)
-    expect((await json<{ events: CalendarEventDto[] }>(synced)).events[0]?.calendarIds).toEqual([readOnly.calendar.id])
+      events: [eventBody(readOnly.calendar.id, forged)],
+    })).status).toBe(403)
+    expect((await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [eventBody(readOnly.calendar.id, forged)],
+    })).status).toBe(403)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events').get()).toEqual({ count: 0 })
 
     const writable = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {
       name: 'Writable',
       color: '#654321',
     }))
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(writable.calendar.id, forged)))
+    expect(created.event).toMatchObject({ source: 'local', externalId: null })
+    const batch = await json<{ events: CalendarEventDto[] }>(await call('POST', '/events/batch', {
+      mode: 'create',
+      events: [eventBody(writable.calendar.id, { ...forged, id: 'client-identity' })],
+    }))
+    expect(batch.events[0]).toMatchObject({ source: 'local', externalId: null })
+
     const mixed = await call('POST', '/events', eventBody(writable.calendar.id, {
       calendarIds: [writable.calendar.id, readOnly.calendar.id],
     }))
@@ -227,6 +239,77 @@ describe('event routes', () => {
     expect(found.results.map((entry) => entry.event.title)).toEqual(['Alpha planning'])
     expect(found.results[0]?.calendarName).toBe('Calendar')
     expect(found.truncated).toBe(false)
+  })
+
+  it('refuses a shared batch upsert that would remove a private membership', async () => {
+    const sharedCalendar = (await meta()).calendars[0]!
+    const privateCalendar = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {
+      name: 'Private',
+      color: '#654321',
+    }))
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(privateCalendar.calendar.id, {
+      id: 'owner-event',
+      title: 'Owner event',
+      calendarIds: [privateCalendar.calendar.id, sharedCalendar.id],
+    })))
+    sqlite.prepare(
+      `INSERT INTO calendar_members
+         (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+       VALUES (?, ?, ?, 'writer', 'accepted', 1, 1)`,
+    ).run(ALICE, sharedCalendar.id, BOB)
+    const beforeRow = sqlite.prepare('SELECT * FROM calendar_events WHERE user_id = ? AND id = ?')
+      .get(ALICE, created.event.id)
+    const beforeMemberships = sqlite.prepare(
+      `SELECT calendar_id, position FROM calendar_event_calendars
+        WHERE user_id = ? AND event_id = ? ORDER BY position ASC, calendar_id ASC`,
+    ).all(ALICE, created.event.id)
+
+    user = BOB
+    const sharedId = `shared:${ALICE}:${sharedCalendar.id}`
+    const refused = await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [
+        eventBody(sharedId, { id: 'batch-first', title: 'Must not land' }),
+        eventBody(sharedId, { id: created.event.id, title: 'Stolen', calendarIds: [sharedId] }),
+      ],
+    })
+    expect(refused.status).toBe(403)
+
+    user = ALICE
+    expect(sqlite.prepare('SELECT * FROM calendar_events WHERE user_id = ? AND id = ?')
+      .get(ALICE, created.event.id)).toEqual(beforeRow)
+    expect(sqlite.prepare(
+      `SELECT calendar_id, position FROM calendar_event_calendars
+        WHERE user_id = ? AND event_id = ? ORDER BY position ASC, calendar_id ASC`,
+    ).all(ALICE, created.event.id)).toEqual(beforeMemberships)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events').get()).toEqual({ count: 1 })
+    expect((await json<{ event: CalendarEventDto }>(await call('GET', `/events/${created.event.id}`))).event).toEqual(created.event)
+  })
+
+  it('still lets a shared writer upsert an event whose memberships are all writable', async () => {
+    const sharedCalendar = (await meta()).calendars[0]!
+    sqlite.prepare(
+      `INSERT INTO calendar_members
+         (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+       VALUES (?, ?, ?, 'writer', 'accepted', 1, 1)`,
+    ).run(ALICE, sharedCalendar.id, BOB)
+
+    user = BOB
+    const sharedId = `shared:${ALICE}:${sharedCalendar.id}`
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(sharedId, {
+      id: 'shared-event',
+      title: 'Shared event',
+    })))
+    const updated = await json<{ events: CalendarEventDto[] }>(await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [eventBody(sharedId, { id: created.event.id.split(':').at(-1), title: 'Shared update' })],
+    }))
+    expect(updated.events[0]).toMatchObject({
+      id: created.event.id,
+      title: 'Shared update',
+      rev: created.event.rev + 1,
+      calendarIds: [sharedId],
+    })
   })
 
   it('rejects a malformed event id and a bad range', async () => {

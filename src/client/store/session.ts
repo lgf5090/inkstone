@@ -69,6 +69,12 @@ function prepareLocalAccountClear(notifyOtherTabs: boolean): void {
 async function clearLocalAccountData(): Promise<void> {
   prepareLocalAccountClear(false)
   await localDb.clear()
+  try {
+    const { clearCalendarSessionCaches } = await import('../features/calendar/session-cache')
+    clearCalendarSessionCaches()
+  } catch (error) {
+    console.warn('[inkstone] Calendar cache cleanup failed:', error instanceof Error ? error.message : error)
+  }
   useSession.setState({ status: 'anonymous', user: null, site: null, settings: DEFAULT_SETTINGS })
 }
 
@@ -267,6 +273,7 @@ export const useSession = create<SessionState>((set, get) => ({
   async logout() {
     if (logoutPromise) return logoutPromise
     const task = (async () => {
+      const accountId = get().user?.id
       // Push unsaved offline edits before clearing local data, otherwise
       // they would be silently dropped. Dynamic import keeps the session
       // store free of a circular dependency on the notes store.
@@ -336,6 +343,12 @@ export const useSession = create<SessionState>((set, get) => ({
       } catch (error) {
         // Logout must still complete; the reload below would otherwise leave the reader signed in.
         console.warn('[inkstone] Calendar cache cleanup failed:', error instanceof Error ? error.message : error)
+      }
+      try {
+        const { clearOutbox } = await import('../features/calendar/offline-outbox')
+        if (accountId) await clearOutbox(accountId)
+      } catch (error) {
+        console.warn('[inkstone] Calendar offline queue cleanup failed:', error instanceof Error ? error.message : error)
       }
       // Feature-owned localStorage snapshots (the music queue and preferences) belong to the account
       // that just left; the reload would otherwise reveal them to the next login on this browser.

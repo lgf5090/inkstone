@@ -354,6 +354,37 @@ describe('batch writes', () => {
     expect(byExternal[0]?.rev).toBe(created.rev + 2)
   })
 
+  it('keeps internal provider sync writes and upserts available on read-only calendars', async () => {
+    const readOnly = await store.createCalendar({ name: 'Provider feed', readOnly: true })
+    const created = await store.createEvents([eventInput({
+      calendarId: readOnly.id,
+      source: 'caldav',
+      externalId: 'remote-sync-1',
+      title: 'First sync',
+    })], 'create')
+    expect(created[0]).toMatchObject({
+      source: 'caldav',
+      externalId: 'remote-sync-1',
+      calendarIds: [readOnly.id],
+      rev: 1,
+    })
+
+    const updated = await store.createEvents([eventInput({
+      calendarId: readOnly.id,
+      source: 'caldav',
+      externalId: 'remote-sync-1',
+      title: 'Second sync',
+    })], 'upsert')
+    expect(updated[0]).toMatchObject({
+      id: created[0]!.id,
+      source: 'caldav',
+      externalId: 'remote-sync-1',
+      calendarIds: [readOnly.id],
+      title: 'Second sync',
+      rev: 2,
+    })
+  })
+
   it('scopes an external id to its calendar so two accounts cannot overwrite each other', async () => {
     const second = await store.createCalendar({ name: 'Second Google' })
     const firstEvent = await store.createEvent(eventInput({

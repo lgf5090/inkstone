@@ -50,6 +50,25 @@ describe('calendar edit history', () => {
     expect(history.canRedo).toBe(false)
   })
 
+  it('keeps a hidden series rule through undo and redo', () => {
+    const applyEventsChanges = vi.fn()
+    const app = { applyEventsChanges } as unknown as ICalendarApp
+    const history = new CalendarEditHistory()
+    const before = { ...event('a', 'A before'), meta: { exdates: ['2026-10-27'], seriesRule: 'FREQ=DAILY;COUNT=8' } }
+    const after = { ...event('a', 'A after'), meta: { exdates: ['2026-10-28'], seriesRule: 'FREQ=DAILY;COUNT=8' } }
+    history.record({ id: 'a', before, after })
+
+    history.undo(app)
+    history.redo(app)
+
+    expect(applyEventsChanges.mock.calls[0]?.[0]).toMatchObject({
+      update: [{ id: 'a', updates: { meta: { exdates: ['2026-10-27'], seriesRule: 'FREQ=DAILY;COUNT=8' } } }],
+    })
+    expect(applyEventsChanges.mock.calls[1]?.[0]).toMatchObject({
+      update: [{ id: 'a', updates: { meta: { exdates: ['2026-10-28'], seriesRule: 'FREQ=DAILY;COUNT=8' } } }],
+    })
+  })
+
   it('does not let the write queue turn a replay into a fresh entry', () => {
     const app = { applyEventsChanges: vi.fn() } as unknown as ICalendarApp
     const history = new CalendarEditHistory()

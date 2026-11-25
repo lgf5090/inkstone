@@ -74,7 +74,7 @@ import { cellLabel } from './almanac'
 import type { CalendarCountdownDto } from '@shared/calendar/countdown'
 import { navigateToPath } from '../../lib/app-history'
 import { holidayPresets } from './holidays'
-import { enqueueOutbox, flushOutbox } from './offline-outbox'
+import { enqueueOutbox, flushOutbox, removeOutbox } from './offline-outbox'
 import { CalendarQuickAdd } from './CalendarQuickAdd'
 import { attachCalendarChrome } from './calendar-chrome'
 import { CalendarPrintSheet } from './CalendarPrintSheet'
@@ -103,6 +103,7 @@ import {
   toCalendarType,
   toDayFlowEvent,
   toEventUpdates,
+  toPersistedCalendarEvent,
   toSearchEvent,
 } from './model'
 
@@ -424,8 +425,8 @@ function rememberRange(userId: string, from: number, to: number, page: api.Event
     to,
     savedAt: Date.now(),
     revision: page.revision,
-    events: page.events,
-    occurrences: page.occurrences,
+    events: page.events.map(toPersistedCalendarEvent),
+    occurrences: page.occurrences.map(toPersistedCalendarEvent),
   })
 }
 
@@ -580,11 +581,11 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       theirs = await api.getEvent(request.id)
     } catch (error) {
       toastFailure(t('calendar.error.refresh'), error)
-      await reloadRef.current(request.id)
+      await persistenceRef.current?.resolveConflict(request.id, { action: 'server' })
       return
     }
     if (!theirs) {
-      await reloadRef.current(request.id)
+      await persistenceRef.current?.resolveConflict(request.id, { action: 'server' })
       return
     }
     if (request.intent === 'delete' || !request.mine) {
@@ -1217,11 +1218,29 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       onConflict: request => { void openConflict(request) },
       onRecurringEdit: () => useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' }),
       onRecurrenceOccurrence: request => setRecurrenceRequest(request),
-      onOffline: (entry) => {
+      onOffline: async (entry) => {
         const account = accountRef.current
-        if (!account) return
-        enqueueOutbox(account, { ...entry, at: Date.now() })
+        if (!account) {
+          toastFailure(t('calendar.error.save_failed'), new Error('No signed-in account is available for offline sync.'))
+          return false
+        }
+        try {
+          if (entry.kind === 'delete') {
+            const rev = entry.rev
+            if (rev === null) {
+              await removeOutbox(account, entry.eventId)
+              return true
+            }
+            await enqueueOutbox(account, { ...entry, rev, at: Date.now() })
+          } else {
+            await enqueueOutbox(account, { ...entry, at: Date.now() })
+          }
+        } catch (error) {
+          toastFailure(t('calendar.error.save_failed'), error)
+          return false
+        }
         useUi.getState().toast({ title: t('calendar.offline.queued'), tone: 'warning' })
+        return true
       },
       onReadOnlyEdit: () => useUi.getState().toast({ title: t('calendar.event.delete_read_only'), tone: 'warning' }),
       onCommitted: (id, recurring) => {
@@ -1293,9 +1312,24 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     if (!userId) return
     let cancelled = false
     const flush = async (): Promise<void> => {
-      const result = await flushOutbox(userId)
-      if (cancelled || result.flushed === 0) return
-      await reloadRef.current()
+      try {
+        const result = await flushOutbox(userId, {
+          onConflict: request => {
+            persistenceRef.current?.acceptConflict(request)
+            void openConflict(request)
+          },
+        })
+        if (cancelled) return
+        if (result.dropped > 0) {
+          useUi.getState().toast({
+            title: t('calendar.sync.failed', { name: t('calendar.app.title') }),
+            tone: 'danger',
+          })
+        }
+        if (result.flushed > 0 || result.dropped > 0) await reloadRef.current()
+      } catch (error) {
+        if (!cancelled) toastFailure(t('calendar.error.save_failed'), error)
+      }
     }
     void flush()
     const online = (): void => { void flush() }
@@ -1304,7 +1338,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       cancelled = true
       window.removeEventListener('online', online)
     }
-  }, [userId])
+  }, [userId, openConflict])
 
   useEffect(() => {
     void syncRegistry(meta.calendars).catch(error => toastFailure(t('calendar.error.refresh'), error))

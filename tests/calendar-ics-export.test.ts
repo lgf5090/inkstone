@@ -141,6 +141,77 @@ describe('GET /api/calendar/ics/export', () => {
     expect(again.events.map((event) => event.title).sort()).toEqual(['Standup', '设计评审'])
   })
 
+  it('keeps valid attendees and the organizer in a private export without CN injection', async () => {
+    const calendar = await createCalendar('Work')
+    const event = await createEvent(calendar.id)
+    const store = new CalendarStore(db, ALICE)
+    await store.setEventAttendees(event.id, [{
+      email: 'guest@example.com',
+      name: 'Guest\r\nX-INJECTED:yes',
+      status: 'accepted',
+    }], event.rev)
+    const preferences = await store.preferences()
+    await store.savePreferences({ ...preferences, organizerEmail: 'organizer@example.com' })
+
+    const response = await call('GET', `/ics/export?calendarId=${calendar.id}`)
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    const unfolded = text.replace(/\r\n[ \t]/g, '')
+    expect(text).toContain('ORGANIZER:mailto:organizer@example.com')
+    expect(unfolded).toContain('ATTENDEE;CN="Guest X-INJECTED:yes";PARTSTAT=ACCEPTED:mailto:guest@example.com')
+    expect(text.split('\r\n')).not.toContain('X-INJECTED:yes')
+
+    const parsed = parseIcsCalendar({ content: text, defaultTimeZone: 'UTC', maxEvents: 10 })
+    expect(parsed.events[0]?.meta?.attendees).toEqual([{
+      email: 'guest@example.com',
+      name: 'Guest X-INJECTED:yes',
+      status: 'accepted',
+    }])
+  })
+
+  it('does not turn CRLF in a URL into new ICS properties', async () => {
+    const calendar = await createCalendar('Work')
+    await createEvent(calendar.id, {
+      meta: { url: 'https://example.com/\r\nATTENDEE;CN=injected:mailto:attacker@example.com' },
+    })
+    await createEvent(calendar.id, {
+      title: 'Line feed',
+      meta: { url: 'https://example.com/\nX-INJECTED:yes' },
+    })
+
+    const response = await call('GET', `/ics/export?calendarId=${calendar.id}`)
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).not.toContain('URL:')
+    expect(text).not.toMatch(/^(?:ATTENDEE|X-INJECTED)[;:]/m)
+    expect(text.split('\r\n')).not.toContain('X-INJECTED:yes')
+  })
+
+  it('skips malformed meta attendees instead of failing the export', async () => {
+    const calendar = await createCalendar('Work')
+    await createEvent(calendar.id, {
+      meta: {
+        attendees: [
+          null,
+          'not-an-attendee',
+          [],
+          {},
+          { email: 'valid@example.com', name: 'Valid Guest', status: 'accepted' },
+          { email: 'not-an-email', name: 'Invalid Guest', status: 'accepted' },
+          { email: 'default@example.com', name: 42, status: { unknown: true } },
+        ],
+      },
+    })
+
+    const response = await call('GET', `/ics/export?calendarId=${calendar.id}`)
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    const unfolded = text.replace(/\r\n[ \t]/g, '')
+    expect(unfolded).toContain('ATTENDEE;CN=Valid Guest;PARTSTAT=ACCEPTED:mailto:valid@example.com')
+    expect(unfolded).toContain('ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:default@example.com')
+    expect(text).not.toContain('mailto:not-an-email')
+  })
+
   it('exports only the requested calendar', async () => {
     const work = await createCalendar('Work')
     const personal = await createCalendar('Personal')
