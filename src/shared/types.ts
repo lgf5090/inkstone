@@ -1075,6 +1075,16 @@ export interface PatchNoteBody {
   preserveVersion?: boolean
 }
 
+export interface NotePropertyTableRow {
+  note: NoteSummary
+  properties: Record<string, unknown>
+}
+
+export interface NotePropertyTablePage {
+  rows: NotePropertyTableRow[]
+  nextCursor: string | null
+}
+
 export interface MergeNotesBody {
   rev: number
   sources: Array<{ id: string; rev: number }>

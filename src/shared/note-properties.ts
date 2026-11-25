@@ -11,6 +11,7 @@ export interface IndexedNoteProperty {
   keyKey: string
   ordinal: number
   kind: string
+  array: boolean
   text: string | null
   number: number | null
   boolean: number | null
@@ -34,6 +35,7 @@ export function indexNoteProperties(content: string): IndexedNoteProperty[] {
         keyKey,
         ordinal,
         kind,
+        array: Array.isArray(value),
         text: propertyDisplayText(item).slice(0, PROPERTY_TEXT_CHARS_MAX),
         number: typeof item === 'number' && Number.isFinite(item) ? item : null,
         boolean: typeof item === 'boolean' ? Number(item) : null,

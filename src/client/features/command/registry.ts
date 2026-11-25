@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, Globe, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Shuffle, Smile, Square, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare, CornerDownLeft, FilePlus2, Replace, ArrowRightToLine, KeyRound, Lock, Pipette,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, Globe, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Shuffle, Smile, Square, SquarePen, Sparkles, Star, Sun, Moon, Table2, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare, CornerDownLeft, FilePlus2, Replace, ArrowRightToLine, KeyRound, Lock, Pipette,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -187,6 +187,14 @@ export function appCommands(random: () => number = Math.random): AppCommand[] {
             const selected = candidates[Math.floor(random() * candidates.length)]!
             void state.openNote(selected.id)
         },
+    },
+    {
+        id: 'cmd-notes-property-table',
+        kind: 'command',
+        label: t("command.notes_property_table"),
+        icon: Table2,
+        group: t("command.commands"),
+        run: () => useUi.getState().openPanel('notes-table'),
     },
     {
         id: 'cmd-emoji',

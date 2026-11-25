@@ -250,9 +250,9 @@ export function buildNoteDerivedStatements(
     db
       .prepare(
         `INSERT INTO note_properties
-          (user_id, note_id, key, key_key, ordinal, kind, value_text, value_number, value_boolean, value_date)
+          (user_id, note_id, key, key_key, ordinal, kind, is_array, value_text, value_number, value_boolean, value_date)
          SELECT ?1, ?2, json_extract(value, '$.key'), json_extract(value, '$.keyKey'),
-                json_extract(value, '$.ordinal'), json_extract(value, '$.kind'),
+                json_extract(value, '$.ordinal'), json_extract(value, '$.kind'), json_extract(value, '$.array'),
                 json_extract(value, '$.text'), json_extract(value, '$.number'),
                 json_extract(value, '$.boolean'), json_extract(value, '$.date')
            FROM json_each(?3)

@@ -17,6 +17,7 @@ export type PanelName =
   | 'settings'
   | 'shortcuts'
   | 'graph'
+  | 'notes-table'
   | 'folders'
   | 'templates'
   | 'versions'

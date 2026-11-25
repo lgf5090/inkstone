@@ -13,6 +13,7 @@ describe('indexNoteProperties', () => {
     ])
     expect(rows.find((row) => row.keyKey === 'rating')?.number).toBe(4)
     expect(rows.find((row) => row.keyKey === 'published')?.boolean).toBe(1)
+    expect(rows.filter((row) => row.keyKey === 'aliases').every((row) => row.array)).toBe(true)
   })
 
   it('keeps empty properties searchable and ignores malformed front matter', () => {

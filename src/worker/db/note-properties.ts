@@ -1,7 +1,7 @@
 import { indexNoteProperties } from '@shared/note-properties'
 
 const BACKFILL_PAGE_SIZE = 500
-const BACKFILL_META_KEY = 'note-properties-index-v1'
+const BACKFILL_META_KEY = 'note-properties-index-v2'
 
 export async function backfillNoteProperties(db: D1Database): Promise<void> {
   const complete = await db.prepare('SELECT value FROM app_meta WHERE key = ?1').bind(BACKFILL_META_KEY).first<{ value: string }>()
@@ -22,10 +22,10 @@ export async function backfillNoteProperties(db: D1Database): Promise<void> {
     await db.batch([
       db.prepare(`DELETE FROM note_properties WHERE note_id IN (${placeholders})`).bind(...ids),
       db.prepare(`INSERT INTO note_properties
-        (user_id, note_id, key, key_key, ordinal, kind, value_text, value_number, value_boolean, value_date)
+        (user_id, note_id, key, key_key, ordinal, kind, is_array, value_text, value_number, value_boolean, value_date)
         SELECT json_extract(value, '$.userId'), json_extract(value, '$.noteId'),
                json_extract(value, '$.key'), json_extract(value, '$.keyKey'),
-               json_extract(value, '$.ordinal'), json_extract(value, '$.kind'),
+               json_extract(value, '$.ordinal'), json_extract(value, '$.kind'), json_extract(value, '$.array'),
                json_extract(value, '$.text'), json_extract(value, '$.number'),
                json_extract(value, '$.boolean'), json_extract(value, '$.date')
           FROM json_each(?1)`).bind(JSON.stringify(rows)),

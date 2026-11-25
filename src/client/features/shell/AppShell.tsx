@@ -39,6 +39,7 @@ const CommandPalette = lazy(importCommandPalette);
 const OmnisearchPrompt = lazy(() => import('../omnisearch/OmnisearchPrompt').then((m) => ({ default: m.OmnisearchPrompt })));
 const ShortcutsPanel = lazy(() => import('../command/ShortcutsPanel').then((m) => ({ default: m.ShortcutsPanel })));
 const GraphPanel = lazy(() => import('../graph/GraphPanel').then((m) => ({ default: m.GraphPanel })));
+const NotesPropertyTable = lazy(() => import('../notes/NotesPropertyTable').then((m) => ({ default: m.NotesPropertyTable })));
 const ManageFoldersPanel = lazy(() => import('../folders/ManageFoldersPanel').then((m) => ({ default: m.ManageFoldersPanel })));
 const TemplateGallery = lazy(() => import('../templates').then((m) => ({ default: m.TemplateGallery })));
 const SharePanel = lazy(() => import('../share/SharePanel').then((m) => ({ default: m.SharePanel })));
@@ -284,6 +285,7 @@ function OverlayHost() {
         {panel === 'command' && <CommandPalette initialQuery="> " onClose={closePanel}/>}
         {panel === 'shortcuts' && <ShortcutsPanel onClose={closePanel}/>}
         {panel === 'graph' && <GraphPanel onClose={closePanel}/>}
+        {panel === 'notes-table' && <NotesPropertyTable onClose={closePanel}/>}
         {panel === 'folders' && <ManageFoldersPanel onClose={closePanel}/>}
         {panel === 'templates' && <TemplateGallery onClose={closePanel}/>}
         {panel === 'share' && <SharePanel onClose={closePanel}/>}

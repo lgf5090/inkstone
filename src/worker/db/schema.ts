@@ -470,6 +470,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     key_key TEXT NOT NULL,
     ordinal INTEGER NOT NULL,
     kind TEXT NOT NULL,
+    is_array INTEGER NOT NULL DEFAULT 0,
     value_text TEXT,
     value_number REAL,
     value_boolean INTEGER,
@@ -4621,6 +4622,11 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_note_properties_note ON note_properties(note_id)`,
     ],
   },
+  {
+    version: 423,
+    skipIfColumnExists: { table: 'note_properties', column: 'is_array' },
+    statements: [`ALTER TABLE note_properties ADD COLUMN is_array INTEGER NOT NULL DEFAULT 0`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -4648,7 +4654,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   notes: ['id', 'user_id', 'folder_id', 'title', 'title_key', 'content', 'excerpt', 'rev', 'word_count', 'char_count', 'is_pinned', 'is_starred', 'is_archived', 'is_encrypted', 'position', 'content_hash', 'created_at', 'updated_at', 'deleted_at'],
   tags: ['id', 'user_id', 'name', 'color', 'is_manual', 'created_at'],
   note_tags: ['note_id', 'tag_id'],
-  note_properties: ['user_id', 'note_id', 'key', 'key_key', 'ordinal', 'kind', 'value_text', 'value_number', 'value_boolean', 'value_date'],
+  note_properties: ['user_id', 'note_id', 'key', 'key_key', 'ordinal', 'kind', 'is_array', 'value_text', 'value_number', 'value_boolean', 'value_date'],
   links: ['source_note_id', 'target_key', 'target_title', 'target_note_id', 'user_id'],
   note_versions: ['id', 'note_id', 'user_id', 'title', 'content', 'size', 'created_at'],
   attachments: ['id', 'user_id', 'scope', 'note_id', 'folder_id', 'filename', 'mime', 'size', 'sha256', 'object_key', 'width', 'height', 'is_starred', 'is_pinned', 'tags', 'storage', 'created_at'],

@@ -67,7 +67,7 @@ describe('the command registry', () => {
     // app, put a note selection in it, or read today's list; the three the QR-code tool adds; and the
     // thirteen of the colour tool — one per view (`cmd-color-studio` … `cmd-color-settings`) plus the
     // copy, the token scale and the picker.
-    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(96)
+    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(97)
     expect(new Set(commands.map((entry) => entry.id)).size).toBe(commands.length)
     for (const entry of commands) {
       expect(entry.kind).toBe('command')
@@ -159,6 +159,12 @@ describe('the command registry', () => {
       random.mockRestore()
       openNote.mockRestore()
     }
+  })
+
+  it('opens the notes property table from the shared command registry', () => {
+    useUi.setState({ panel: null })
+    expect(runAppCommand('cmd-notes-property-table')).toEqual({ ok: true })
+    expect(useUi.getState().panel).toBe('notes-table')
   })
 
   it('refuses an id it does not know instead of doing nothing quietly', () => {

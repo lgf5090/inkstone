@@ -1186,6 +1186,8 @@ export const api = {
       request<{ title: string; url: string; html: string }>('/api/notes/clip', { method: 'POST', body: { url }, timeoutMs: 20_000 }),
     list: (params: Record<string, string | number | undefined>) =>
       request<ListNotesResponse>(`/api/notes${toQuery(params)}`),
+    propertyTable: (params: { cursor?: string; limit?: number; q?: string } = {}) =>
+      request<import('@shared/types').NotePropertyTablePage>(`/api/notes/property-table${toQuery(params)}`),
     get: (id: string) => request<Note>(`/api/notes/${id}`),
     create: (body: { id?: string; content?: string; title?: string; folderId?: string | null; isStarred?: boolean }) =>
       request<Note>('/api/notes', { method: 'POST', body, timeoutMs: 30_000 }),

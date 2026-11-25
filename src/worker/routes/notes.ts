@@ -163,6 +163,14 @@ notesRoutes.post('/trash/empty', async (c) => {
   return c.json({ purged })
 })
 
+notesRoutes.get('/property-table', async (c) => {
+  const cursor = (c.req.query('cursor') ?? '').trim()
+  if (cursor && !isValidId(cursor)) throw ApiError.badRequest('cursor must be a valid note id')
+  const query = (c.req.query('q') ?? '').trim().slice(0, 200)
+  const limit = clampInt(c.req.query('limit'), 20, 100, 50)
+  return c.json(await store(c).propertyTablePage(cursor, limit, query))
+})
+
 notesRoutes.get('/:id', async (c) => {
   return c.json(await loadNote(store(c), c.req.param('id')))
 })

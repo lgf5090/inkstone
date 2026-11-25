@@ -37,7 +37,7 @@ import {
   trimFrontMatterLead,
 } from '@shared/markdown-utils'
 import { truncateText, utf8ByteLength } from '@shared/text-utils'
-import type { SortKey, SortOrder, ViewKind } from '@shared/types'
+import type { NotePropertyTablePage, SortKey, SortOrder, ViewKind } from '@shared/types'
 import {
   NOTE_COLUMNS_FULL,
   NOTE_COLUMNS_NOTAGS,
@@ -46,6 +46,7 @@ import {
   noteTagsQueryForPage,
   splitTags,
   tagScopePredicate,
+  toNoteSummary,
   type NoteRow,
   type NoteTagRow,
 } from '../db/rows'
@@ -438,6 +439,67 @@ export class NotesStore {
       .bind(id, this.userId)
       .first<NoteRow>()
     return row ?? null
+  }
+
+  async propertyTablePage(afterId: string, limit: number, query = ''): Promise<NotePropertyTablePage> {
+    const binds: unknown[] = [this.userId, afterId, limit + 1]
+    let titleFilter = ''
+    if (query) {
+      binds.push(likePattern(query))
+      titleFilter = ` AND n.title LIKE ?${binds.length} ESCAPE '\\'`
+    }
+    const noteRows = (await this.db.prepare(
+      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n
+        WHERE n.user_id = ?1 AND n.id > ?2 AND n.deleted_at IS NULL AND n.is_encrypted = 0${titleFilter}
+        ORDER BY n.id ASC LIMIT ?3`,
+    ).bind(...binds).all<NoteRow>()).results
+    const page = noteRows.slice(0, limit)
+    if (!page.length) return { rows: [], nextCursor: null }
+    const ids = page.map((row) => row.id)
+    const placeholders = ids.map(() => '?').join(', ')
+    const propertyRows = (await this.db.prepare(
+      `SELECT note_id, key, key_key, ordinal, kind, is_array, value_text, value_number, value_boolean, value_date
+         FROM note_properties WHERE user_id = ? AND note_id IN (${placeholders})
+         ORDER BY note_id ASC, key_key ASC, ordinal ASC`,
+    ).bind(this.userId, ...ids).all<{
+      note_id: string
+      key: string
+      key_key: string
+      ordinal: number
+      kind: string
+      is_array: number
+      value_text: string | null
+      value_number: number | null
+      value_boolean: number | null
+      value_date: number | null
+    }>()).results
+    const grouped = new Map<string, Map<string, typeof propertyRows>>()
+    for (const row of propertyRows) {
+      let note = grouped.get(row.note_id)
+      if (!note) {
+        note = new Map()
+        grouped.set(row.note_id, note)
+      }
+      const values = note.get(row.key_key) ?? []
+      values.push(row)
+      note.set(row.key_key, values)
+    }
+    const rows = page.map((note) => {
+      const properties: Record<string, unknown> = {}
+      for (const values of grouped.get(note.id)?.values() ?? []) {
+        const first = values[0]!
+        const decoded = values.map((row) => row.kind === 'number'
+          ? row.value_number
+          : row.kind === 'boolean'
+            ? row.value_boolean === 1
+            : row.value_text ?? '')
+        properties[first.key] = first.is_array === 1
+          ? values.length === 1 && decoded[0] === '' ? [] : decoded
+          : decoded[0]
+      }
+      return { note: toNoteSummary(note), properties }
+    })
+    return { rows, nextCursor: noteRows.length > limit ? page[page.length - 1]!.id : null }
   }
 
   /**
