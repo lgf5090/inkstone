@@ -23,6 +23,7 @@ import { ASSISTANT_REQUIRED_COLUMNS, ASSISTANT_SCHEMA_STATEMENTS } from '../src/
  * belongs to. Nothing is whitelisted, because the rule is only about statements this tree already writes.
  */
 const NOTES_STORE = path.join('src', 'worker', 'notes', 'store.ts')
+const NOTES_PURGE = path.join('src', 'worker', 'notes', 'notes-purge.ts')
 /** The two purge paths: one note, and a page of the trash. */
 const PURGE_FUNCTIONS = ['purge', 'trashPurgeStatements']
 /** The column a chat table uses to point at a note. */
@@ -137,7 +138,7 @@ function cascadeGaps(statements: readonly string[], storeText: string): string[]
 }
 
 const SCHEMA_STATEMENTS = [...ASSISTANT_SCHEMA_STATEMENTS]
-const STORE_TEXT = read(NOTES_STORE)
+const STORE_TEXT = `${read(NOTES_STORE)}\n${read(NOTES_PURGE)}`
 const GAPS = cascadeGaps(SCHEMA_STATEMENTS, STORE_TEXT)
 const REFERENCES = noteReferences(SCHEMA_STATEMENTS).map((reference) => reference.table).sort()
 

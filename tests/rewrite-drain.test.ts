@@ -27,6 +27,16 @@ function seed(candidateCount: number) {
     CREATE TABLE tags (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL, color TEXT,
       is_manual INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
     CREATE TABLE note_tags (note_id TEXT NOT NULL, tag_id TEXT NOT NULL, PRIMARY KEY (note_id, tag_id));
+    CREATE TABLE note_properties (user_id TEXT NOT NULL, note_id TEXT NOT NULL, key TEXT NOT NULL,
+      key_key TEXT NOT NULL, ordinal INTEGER NOT NULL, kind TEXT NOT NULL, is_array INTEGER NOT NULL DEFAULT 0,
+      value_text TEXT, value_number REAL, value_boolean INTEGER, value_date INTEGER,
+      PRIMARY KEY (user_id, note_id, key_key, ordinal));
+    CREATE INDEX idx_note_properties_lookup ON note_properties(user_id, key_key, value_text);
+    CREATE INDEX idx_note_properties_note ON note_properties(note_id);
+    CREATE TABLE note_task_reminders (user_id TEXT NOT NULL, id TEXT NOT NULL, note_id TEXT NOT NULL,
+      line_number INTEGER NOT NULL, title TEXT NOT NULL, due_day TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0,
+      fired_at INTEGER, updated_at INTEGER NOT NULL, PRIMARY KEY (user_id, id), UNIQUE(id));
+    CREATE INDEX idx_note_task_reminders_due ON note_task_reminders(user_id, fired_at, due_day);
     CREATE TABLE note_versions (id TEXT PRIMARY KEY, note_id TEXT NOT NULL, user_id TEXT NOT NULL, title TEXT NOT NULL,
       content TEXT NOT NULL, size INTEGER NOT NULL, created_at INTEGER NOT NULL);
     CREATE TABLE changes (seq INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, entity TEXT NOT NULL,
