@@ -437,6 +437,47 @@ it('derives one summary without replacing another note object', () => {
   expect(notifications).toBe(0)
 })
 
+it('keeps dirty tag removals reflected when a sync refreshes tag counts', () => {
+  useNotes.setState({
+    notes: { [note.id]: { ...note, tags: ['demo'] } },
+    contents: { [note.id]: 'body #demo' },
+    tags: [{ id: 't-demo', name: 'demo', color: null, count: 1, createdAt: 1 }],
+  })
+  useNotes.getState().editContent(note.id, 'body')
+  vi.advanceTimersByTime(80)
+  expect(useNotes.getState().tags[0].count).toBe(0)
+
+  const remote = { ...note, rev: 2, tags: ['demo'] }
+  const payload = { ...sync(remote), facetsFull: true, tags: [{ id: 't-demo', name: 'demo', color: null, count: 1, createdAt: 1 }] }
+  useNotes.getState().applySync(payload)
+  useNotes.getState().applySync(payload)
+
+  expect(useNotes.getState().notes[note.id].tags).toEqual([])
+  expect(useNotes.getState().tags[0].count).toBe(0)
+})
+
+it('overlays every dirty note when a full tag count arrives', () => {
+  const other = { ...note, id: 'note-other', title: 'Other', tags: ['demo'] }
+  useNotes.setState({
+    notes: { [note.id]: { ...note, tags: ['demo'] }, [other.id]: other },
+    contents: { [note.id]: 'body #demo', [other.id]: 'body #demo' },
+    tags: [{ id: 't-demo', name: 'demo', color: null, count: 2, createdAt: 1 }],
+  })
+  useNotes.getState().editContent(note.id, 'body')
+  useNotes.getState().editContent(other.id, 'body')
+  vi.advanceTimersByTime(80)
+  expect(useNotes.getState().tags[0].count).toBe(0)
+
+  const remote = { ...note, rev: 2, tags: ['demo'] }
+  useNotes.getState().applySync({
+    ...sync(remote),
+    facetsFull: true,
+    tags: [{ id: 't-demo', name: 'demo', color: null, count: 2, createdAt: 1 }],
+  })
+
+  expect(useNotes.getState().tags[0].count).toBe(0)
+})
+
 it('takes the linked text the server wrote back into the note it belongs to', async () => {
   withPristineNote('see Example now')
   mocks.linkMention.mockResolvedValue({

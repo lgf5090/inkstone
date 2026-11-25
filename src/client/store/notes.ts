@@ -228,6 +228,7 @@ interface DirtyNoteWrite {
     dependsOnWriteId?: string;
     updatedAt: number;
     persisted: Promise<boolean>;
+    baselineTags?: readonly string[];
 }
 const dirty = new Map<string, DirtyNoteWrite>();
 const notifiedLockedConflicts = new Set<string>();
@@ -489,14 +490,26 @@ export const useNotes = create<NotesState>((set, get) => ({
         const previousNoteIds = payload.full ? Object.keys(get().notes) : [];
         const before = get();
         const notes = reconcileNotes(before.notes, payload.notes, payload.deletions, payload.full);
-        const replaceFacets = payload.full || payload.facetsFull;
-        const remoteFolders = replaceFacets
+        const replaceTags = payload.full || payload.facetsFull;
+        const remoteFolders = payload.full
             ? reconcileList(before.folders, payload.folders, folderEqual)
             : mergeById(before.folders, payload.folders, payload.deletions, 'folder', folderEqual);
         const folders = applyPendingFolderMutations(remoteFolders);
-        const tags = replaceFacets
+        let tags = replaceTags
             ? reconcileList(before.tags, payload.tags, tagEqual)
             : mergeById(before.tags, payload.tags, payload.deletions, 'tag', tagEqual);
+        if (replaceTags) {
+            const remoteNotes = new Map(payload.notes.map((note) => [note.id, note]));
+            for (const [id, pending] of dirty) {
+                const local = notes[id];
+                if (!local || local.isEncrypted || local.deletedAt !== null || local.isArchived) continue;
+                const remote = remoteNotes.get(id);
+                const baseline = remote?.tags ?? pending.baselineTags;
+                if (!baseline) continue;
+                if (remote) dirty.set(id, { ...pending, baselineTags: remote.tags });
+                tags = adjustTagCountsForNoteEdit(tags, baseline, local.tags);
+            }
+        }
         // zustand happens to call an updater once, but a set() that bumps module counters and
         // writes to IDB would double-fire the moment that stops holding.
         if (notes !== before.notes || folders !== before.folders || tags !== before.tags
@@ -1986,7 +1999,7 @@ function stageNoteTextWrite(id: string, content: string, title: string | undefin
         });
         pendingOutboxWrites.set(id, { item, resolvers });
     }
-    dirty.set(id, { content, contentDirty, ...(title !== undefined ? { title } : {}), rev: payload.rev, writeId, queueId, dependsOnWriteId, updatedAt, persisted });
+    dirty.set(id, { content, contentDirty, ...(title !== undefined ? { title } : {}), rev: payload.rev, writeId, queueId, dependsOnWriteId, updatedAt, persisted, baselineTags: previousDirty?.baselineTags ?? summary.tags });
     const titleChanged = title !== undefined && summary.title !== title;
     set((current) => ({
         notes: titleChanged
