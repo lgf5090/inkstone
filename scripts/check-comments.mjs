@@ -31300,6 +31300,9 @@ const allowed = new Map([
     "// no longer authoritative, so fail closed instead of resealing over the remote note.",
     "/** A remote envelope replacement invalidates the old key and any edit based on its plaintext. */",
   ]],
+  ["src/client/store/note-summary-record.ts", [
+    "// A fresh Proxy identity publishes one changed key while the shared target avoids copying the vault.",
+  ]],
   ["src/client/store/note-templates.test.ts", [
     "// One icon per built-in category, and the count is the catalog's own length rather than a second number",
     "// to remember: a new category has to come with an icon and a colour to keep this true.",

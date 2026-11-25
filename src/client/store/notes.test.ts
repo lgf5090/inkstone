@@ -416,6 +416,27 @@ it('leaves the counts untouched while editing a note that the archive excludes',
   expect(useNotes.getState().tags[0].count).toBe(5)
 })
 
+it('derives one summary without replacing another note object', () => {
+  const other = { ...note, id: 'note-other', title: 'Other' }
+  useNotes.setState({
+    notes: { [note.id]: note, [other.id]: other },
+    contents: { [note.id]: 'old' },
+    tags: [{ id: 't-demo', name: 'demo', color: null, count: 1, createdAt: 1 }],
+  })
+  let notifications = 0
+  const unsubscribe = useNotes.subscribe((state) => {
+    if (state.notes[other.id] !== other) notifications += 1
+  })
+  useNotes.getState().editContent(note.id, '# Heading\nalpha #demo body')
+  vi.advanceTimersByTime(80)
+  unsubscribe()
+
+  expect(useNotes.getState().notes[note.id].excerpt).toBe('alpha #demo body')
+  expect(useNotes.getState().notes[other.id]).toBe(other)
+  expect(Object.values(useNotes.getState().notes)).toHaveLength(2)
+  expect(notifications).toBe(0)
+})
+
 it('takes the linked text the server wrote back into the note it belongs to', async () => {
   withPristineNote('see Example now')
   mocks.linkMention.mockResolvedValue({

@@ -37,6 +37,7 @@ import { createEmptyInkDocument, uniqueInkTitle } from '../lib/inkpad/document';
 import { useSession } from './session';
 import { isBlogPublished, useBlogNoteStatus } from '../features/blog/status';
 import { useUi, type WorkspacePane } from './ui';
+import { updateNoteSummaryRecord } from './note-summary-record';
 import { getLocale, t, useLocale } from "../lib/i18n";
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'synced' | 'offline';
 interface NotesState {
@@ -1813,17 +1814,14 @@ function commitPendingSummaryDerivation(id: string): void {
         if (facetTags !== state.tags)
             tagStateGeneration++;
         return {
-            notes: {
-                ...state.notes,
-                [id]: {
-                    ...summary,
-                    excerpt,
-                    wordCount: words,
-                    charCount: chars,
-                    tags,
-                    updatedAt: pending.updatedAt,
-                },
-            },
+            notes: updateNoteSummaryRecord(state.notes, id, {
+                ...summary,
+                excerpt,
+                wordCount: words,
+                charCount: chars,
+                tags,
+                updatedAt: pending.updatedAt,
+            }),
             tags: facetTags,
         };
     });
