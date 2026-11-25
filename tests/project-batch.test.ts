@@ -144,6 +144,18 @@ describe('batch patch', () => {
     expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards: [{ id: a.id, patch: { parentId: b.id } }] })).status).toBe(400)
   })
 
+  it('rejects a parent cycle created by two patches in the same batch', async () => {
+    const board = await createBoard('alice')
+    const a = await createCard('alice', board.id, 'A')
+    const b = await createCard('alice', board.id, 'B')
+    const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, {
+      cards: [{ id: a.id, patch: { parentId: b.id } }, { id: b.id, patch: { parentId: a.id } }],
+    })
+    expect(response.status).toBe(400)
+    const result = await bundle('alice', board.id)
+    expect(result.cards.every((card) => card.parentId === '')).toBe(true)
+  })
+
   it('refuses a card from another board and a viewer', async () => {
     const board = await createBoard('alice')
     const other = await createBoard('alice')

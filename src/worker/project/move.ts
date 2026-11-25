@@ -96,8 +96,13 @@ export async function moveProjectCard(
     childrenOf.set(row.parent_id, list)
   }
   const movedIds = [card.id]
+  const movedSet = new Set<string>([card.id])
   for (let index = 0; index < movedIds.length; index += 1) {
-    for (const child of childrenOf.get(movedIds[index]!) ?? []) movedIds.push(child)
+    for (const child of childrenOf.get(movedIds[index]!) ?? []) {
+      if (movedSet.has(child)) continue
+      movedSet.add(child)
+      movedIds.push(child)
+    }
   }
 
   const valueRows: { card_id: string, property_id: string, value: string }[] = []
@@ -166,7 +171,6 @@ export async function moveProjectCard(
     statements.push(db.prepare(`UPDATE project_attachments SET board_id = ?1 WHERE card_id IN (${projectPlaceholders(chunk.length, 2)})`).bind(targetBoardId, ...chunk))
   }
 
-  const movedSet = new Set(movedIds)
   const links = new Map<string, { from_card_id: string, to_card_id: string, kind: string }>()
   for (let at = 0; at < movedIds.length; at += 45) {
     const chunk = movedIds.slice(at, at + 45)

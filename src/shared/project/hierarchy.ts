@@ -20,6 +20,23 @@ export interface ParentDonePatch {
  * with its new values already applied. Each ancestor is judged against the state the walk has just
  * decided for its own children, which is what makes a three-level tree settle in one pass.
  */
+export function projectParentMapHasCycle(cards: readonly Pick<ProjectCard, 'id' | 'parentId'>[]): boolean {
+  const parents = new Map(cards.map((card) => [card.id, card.parentId]))
+  const checked = new Set<string>()
+  for (const card of cards) {
+    if (checked.has(card.id)) continue
+    const path = new Set<string>()
+    let current: string | null = card.id
+    while (current && parents.has(current) && !checked.has(current)) {
+      if (path.has(current)) return true
+      path.add(current)
+      current = parents.get(current) || null
+    }
+    for (const id of path) checked.add(id)
+  }
+  return false
+}
+
 export function projectParentDonePatches(
   cards: readonly ProjectCard[],
   properties: readonly ProjectProperty[],

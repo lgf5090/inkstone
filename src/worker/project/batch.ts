@@ -19,6 +19,7 @@ import { applyCardValueEffects } from './enhance'
 import { assertProjectRelationValues, projectRelationTargets } from './relations'
 import { getProjectView, viewPatchStatements } from './views'
 import { projectIdChunks, projectPlaceholders } from './d1'
+import { projectParentMapHasCycle } from '@shared/project/hierarchy'
 
 type ProjectBatchInput = z.infer<typeof ProjectBatchSchema>
 type ProjectBatchDeleteInput = z.infer<typeof ProjectBatchDeleteSchema>
@@ -92,12 +93,26 @@ export async function batchPatchProjectBoard(
   const cardsById = await readCardsByIds(db, cards.map((entry) => entry.id))
   const contentsById = await readContentsByIds(db, contents.map((entry) => entry.id))
   const viewsById = await readViewsByIds(db, views.map((entry) => entry.id))
+  const { results: parentRows } = await db.prepare(
+    'SELECT id, parent_id FROM project_cards WHERE board_id = ?1 AND delete_at = 0',
+  ).bind(board.id).all<{ id: string, parent_id: string }>()
+  const parents = new Map(parentRows.map((row) => [row.id, row.parent_id]))
+  for (const { id, patch } of cards) {
+    const card = cardsById.get(id)
+    if (!card || card.boardId !== board.id || card.deleteAt !== 0) throw ApiError.notFound('Card not found')
+    if (patch.parentId !== undefined) {
+      await assertProjectParent(db, card, patch.parentId)
+      parents.set(id, patch.parentId)
+    }
+  }
+  if (projectParentMapHasCycle([...parents].map(([id, parentId]) => ({ id, parentId })))) {
+    throw ApiError.badRequest('Cyclic parent relationship is not allowed')
+  }
   const statements: D1PreparedStatement[] = []
   const valueCards: ProjectCard[] = []
   for (const { id, patch } of cards) {
     const card = cardsById.get(id)
     if (!card || card.boardId !== board.id || card.deleteAt !== 0) throw ApiError.notFound('Card not found')
-    if (patch.parentId) await assertProjectParent(db, card, patch.parentId)
     if (patch.values !== undefined) valueCards.push(card)
     statements.push(...cardPatchStatements(db, card, patch, userId, now, relationTargets))
   }

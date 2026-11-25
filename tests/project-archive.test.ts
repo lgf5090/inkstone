@@ -270,6 +270,18 @@ const cardBlock = (id: string, boardId: string): unknown => ({
 })
 
 describe('archive import trust boundary', () => {
+  it('rejects an archive whose card hierarchy contains a cycle', async () => {
+    const boardId = 'b-cycle'
+    const firstBlock = cardBlock('c-cycle-a', boardId) as { data: { fields: Record<string, unknown> } }
+    const secondBlock = cardBlock('c-cycle-b', boardId) as { data: { fields: Record<string, unknown> } }
+    const first = { ...firstBlock.data, fields: { ...firstBlock.data.fields, parentId: 'c-cycle-b' } }
+    const second = { ...secondBlock.data, fields: { ...secondBlock.data.fields, parentId: 'c-cycle-a' } }
+    const bytes = archiveWithLines(boardId, [boardLine(boardId), { type: 'block', data: first }, { type: 'block', data: second }])
+    const response = await reqRaw('alice', '/boards/import', bytes)
+    expect(response.status).toBe(400)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM project_boards WHERE id = ?').get(boardId)).toMatchObject({ count: 0 })
+  })
+
   it('never restores member rows from an uploaded archive', async () => {
     const bytes = archiveWithLines('b-attack1', [
       boardLine('b-attack1'),

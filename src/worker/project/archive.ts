@@ -28,6 +28,7 @@ import { listBoardLinks } from './enhance'
 import { rebuildBoardRelations } from './relations'
 import { listBoardAttachments, projectAttachmentObjectKey } from './files'
 import { ProjectStore } from './store'
+import { projectParentMapHasCycle } from '@shared/project/hierarchy'
 
 const ARCHIVE_MAX_BYTES = 32 * 1024 * 1024
 const ARCHIVE_MAX_FILES = 100
@@ -151,6 +152,7 @@ function assertArchiveImport(imported: ReturnType<typeof projectArchiveLinesToIm
     if (card.parentId && !cardIds.has(card.parentId)) throw ApiError.badRequest('archive card references an unknown parent')
     if (card.parentId === card.id) throw ApiError.badRequest('archive card is its own parent')
   }
+  if (projectParentMapHasCycle(imported.cards)) throw ApiError.badRequest('archive card hierarchy contains a cycle')
   if (imported.attachments.length > ARCHIVE_MAX_ATTACHMENTS) throw ApiError.tooLarge('archive has too many files')
   for (const attachment of imported.attachments) {
     archiveId(attachment.id, 'attachment')

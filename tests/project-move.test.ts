@@ -157,6 +157,17 @@ describe('moving a card to another board', () => {
     expect(count.count).toBe(101)
   })
 
+  it('terminates when legacy data already contains a parent cycle', async () => {
+    const source = await createBoard('alice', 'Source')
+    const target = await createBoard('alice', 'Target')
+    seedCard(source.id, id('c'), { parent_id: id('d') })
+    seedCard(source.id, id('d'), { parent_id: id('c') })
+    const response = await req('alice', 'POST', `/cards/${id('c')}/move`, { targetBoardId: target.id })
+    expect(response.status, await response.clone().text()).toBe(200)
+    const count = sqlite.prepare('SELECT COUNT(*) AS count FROM project_cards WHERE board_id = ?').get(target.id) as { count: number }
+    expect(count.count).toBe(2)
+  })
+
   it('refuses a target the reader cannot edit, and a move onto the same board', async () => {
     const source = await createBoard('alice', 'Source', [])
     const target = await createBoard('bob', 'Target', [])
