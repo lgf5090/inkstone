@@ -15,6 +15,7 @@ import { ApiError } from '../lib/errors'
 import { readBoardProperties } from './boards'
 import { getProjectCard } from './cards'
 import { rebuildBoardRelations } from './relations'
+import { projectIdChunks, projectPlaceholders } from './d1'
 
 const MOVE_BATCH_SIZE = 500
 const OPTION_TYPES = new Set<ProjectPropertyType>(['select', 'multiSelect'])
@@ -99,13 +100,15 @@ export async function moveProjectCard(
     for (const child of childrenOf.get(movedIds[index]!) ?? []) movedIds.push(child)
   }
 
-  const placeholders = movedIds.map((_, at) => `?${at + 1}`).join(', ')
-  const valueRows = await db
-    .prepare(`SELECT card_id, property_id, value FROM project_card_values WHERE card_id IN (${placeholders})`)
-    .bind(...movedIds)
-    .all<{ card_id: string, property_id: string, value: string }>()
+  const valueRows: { card_id: string, property_id: string, value: string }[] = []
+  for (const chunk of projectIdChunks(movedIds)) {
+    const { results } = await db.prepare(
+      `SELECT card_id, property_id, value FROM project_card_values WHERE card_id IN (${projectPlaceholders(chunk.length)})`,
+    ).bind(...chunk).all<{ card_id: string, property_id: string, value: string }>()
+    valueRows.push(...results)
+  }
   const valuesByCard = new Map<string, Record<string, string>>()
-  for (const row of valueRows.results) {
+  for (const row of valueRows) {
     const values = valuesByCard.get(row.card_id) ?? {}
     values[row.property_id] = row.value
     valuesByCard.set(row.card_id, values)
@@ -113,7 +116,7 @@ export async function moveProjectCard(
 
   const sourceProperties = await readBoardProperties(db, card.boardId)
   const targetProperties = await readBoardProperties(db, targetBoardId)
-  const usedIds = new Set(valueRows.results.map((row) => row.property_id))
+  const usedIds = new Set(valueRows.map((row) => row.property_id))
   if (sourceProperties.some((property) => usedIds.has(property.id) && !projectPropertyVisibleTo(property, role))) {
     throw ApiError.forbidden('Cannot move a card with fields this role cannot read')
   }
@@ -156,21 +159,39 @@ export async function moveProjectCard(
     }
   }
 
-  const inClause = movedIds.map((_, at) => `?${at + 3}`).join(', ')
-  const pairClause = movedIds.map((_, at) => `?${at + 2}`).join(', ')
-  statements.push(db.prepare(`UPDATE project_card_contents SET board_id = ?1, update_at = ?2 WHERE card_id IN (${inClause}) AND delete_at = 0`).bind(targetBoardId, now, ...movedIds))
-  statements.push(db.prepare(`UPDATE project_comments SET board_id = ?1, update_at = ?2 WHERE card_id IN (${inClause}) AND delete_at = 0`).bind(targetBoardId, now, ...movedIds))
-  statements.push(db.prepare(`UPDATE project_attachments SET board_id = ?1 WHERE card_id IN (${pairClause})`).bind(targetBoardId, ...movedIds))
-  statements.push(db.prepare(
-    `DELETE FROM project_card_links
-     WHERE board_id = ?1
-       AND (from_card_id IN (${pairClause}) OR to_card_id IN (${pairClause}))
-       AND NOT (from_card_id IN (${pairClause}) AND to_card_id IN (${pairClause}))`,
-  ).bind(card.boardId, ...movedIds))
-  statements.push(db.prepare(
-    `UPDATE project_card_links SET board_id = ?1
-     WHERE board_id = ?2 AND (from_card_id IN (${inClause}) OR to_card_id IN (${inClause}))`,
-  ).bind(targetBoardId, card.boardId, ...movedIds))
+  for (const chunk of projectIdChunks(movedIds)) {
+    const marks = projectPlaceholders(chunk.length, 3)
+    statements.push(db.prepare(`UPDATE project_card_contents SET board_id = ?1, update_at = ?2 WHERE card_id IN (${marks}) AND delete_at = 0`).bind(targetBoardId, now, ...chunk))
+    statements.push(db.prepare(`UPDATE project_comments SET board_id = ?1, update_at = ?2 WHERE card_id IN (${marks}) AND delete_at = 0`).bind(targetBoardId, now, ...chunk))
+    statements.push(db.prepare(`UPDATE project_attachments SET board_id = ?1 WHERE card_id IN (${projectPlaceholders(chunk.length, 2)})`).bind(targetBoardId, ...chunk))
+  }
+
+  const movedSet = new Set(movedIds)
+  const links = new Map<string, { from_card_id: string, to_card_id: string, kind: string }>()
+  for (let at = 0; at < movedIds.length; at += 45) {
+    const chunk = movedIds.slice(at, at + 45)
+    const fromMarks = projectPlaceholders(chunk.length, 2)
+    const toMarks = projectPlaceholders(chunk.length, chunk.length + 2)
+    const { results } = await db.prepare(
+      `SELECT from_card_id, to_card_id, kind FROM project_card_links
+       WHERE board_id = ?1 AND (from_card_id IN (${fromMarks}) OR to_card_id IN (${toMarks}))`,
+    ).bind(card.boardId, ...chunk, ...chunk).all<{ from_card_id: string, to_card_id: string, kind: string }>()
+    for (const row of results) links.set(`${row.from_card_id}|${row.to_card_id}|${row.kind}`, row)
+  }
+  for (const link of links.values()) {
+    const fromMoved = movedSet.has(link.from_card_id)
+    const toMoved = movedSet.has(link.to_card_id)
+    if (fromMoved && toMoved) {
+      statements.push(db.prepare(
+        `UPDATE project_card_links SET board_id = ?1
+         WHERE board_id = ?2 AND from_card_id = ?3 AND to_card_id = ?4 AND kind = ?5`,
+      ).bind(targetBoardId, card.boardId, link.from_card_id, link.to_card_id, link.kind))
+    } else {
+      statements.push(db.prepare(
+        'DELETE FROM project_card_links WHERE board_id = ?1 AND from_card_id = ?2 AND to_card_id = ?3 AND kind = ?4',
+      ).bind(card.boardId, link.from_card_id, link.to_card_id, link.kind))
+    }
+  }
 
   for (let index = 0; index < statements.length; index += MOVE_BATCH_SIZE) {
     await db.batch(statements.slice(index, index + MOVE_BATCH_SIZE))

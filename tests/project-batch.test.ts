@@ -19,7 +19,7 @@ let env: Env
 
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
-  env = testBindings(makeD1(sqlite))
+  env = testBindings(makeD1(sqlite, { maxBoundParameters: 100 }))
   await app.fetch(new Request('http://localhost/api/health'), env)
   const now = Date.now()
   for (const account of ACCOUNTS) {
@@ -151,6 +151,14 @@ describe('batch patch', () => {
     expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards: [{ id: foreign.id, patch: { title: 'X' } }] })).status).toBe(404)
     addMember(board.id, 'bob', 'viewer')
     expect((await req('bob', 'PATCH', `/boards/${board.id}/batch`, { cards: [] })).status).toBe(403)
+  })
+
+  it('chunks a valid over-100-id batch before D1 reads', async () => {
+    const board = await createBoard('alice')
+    const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, {
+      cards: Array.from({ length: 101 }, () => ({ id: missingId, patch: { title: 'X' } })),
+    })
+    expect(response.status).toBe(404)
   })
 
   it('rejects an over-limit batch before reading any rows', async () => {

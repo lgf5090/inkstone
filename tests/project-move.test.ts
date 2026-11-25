@@ -21,7 +21,7 @@ const id = (prefix: string): string => prefix + 'a'.repeat(26)
 
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
-  env = testBindings(makeD1(sqlite))
+  env = testBindings(makeD1(sqlite, { maxBoundParameters: 100 }))
   await app.fetch(new Request('http://localhost/api/health'), env)
   const now = Date.now()
   for (const account of ACCOUNTS) {
@@ -142,6 +142,19 @@ describe('moving a card to another board', () => {
     expect((sqlite.prepare('SELECT board_id FROM project_cards WHERE id = ?').get(id('d')) as { board_id: string }).board_id).toBe(source.id)
     expect((sqlite.prepare('SELECT board_id FROM project_card_contents WHERE id = ?').get(id('f')) as { board_id: string }).board_id).toBe(target.id)
     expect((sqlite.prepare('SELECT board_id FROM project_comments WHERE id = ?').get(id('g')) as { board_id: string }).board_id).toBe(target.id)
+  })
+
+  it('chunks value and child updates for a subtree over 100 cards', async () => {
+    const source = await createBoard('alice', 'Source')
+    const target = await createBoard('alice', 'Target')
+    seedCard(source.id, id('c'))
+    for (let index = 1; index <= 100; index += 1) {
+      seedCard(source.id, `c${String(index).padStart(26, '0')}`, { parent_id: id('c') })
+    }
+    const response = await req('alice', 'POST', `/cards/${id('c')}/move`, { targetBoardId: target.id })
+    expect(response.status, await response.clone().text()).toBe(200)
+    const count = sqlite.prepare('SELECT COUNT(*) AS count FROM project_cards WHERE board_id = ?').get(target.id) as { count: number }
+    expect(count.count).toBe(101)
   })
 
   it('refuses a target the reader cannot edit, and a move onto the same board', async () => {

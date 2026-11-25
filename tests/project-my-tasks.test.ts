@@ -19,7 +19,7 @@ const pid = (n: number) => `p${String(n).padStart(26, '0')}`
 
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
-  env = testBindings(makeD1(sqlite))
+  env = testBindings(makeD1(sqlite, { maxBoundParameters: 100 }))
   await app.fetch(new Request('http://localhost/api/health'), env)
   const now = Date.now()
   for (const account of ['alice', 'bob', 'carol']) {
@@ -66,6 +66,30 @@ function addMember(boardId: string, account: string): void {
 }
 
 describe('the cross-board task list', () => {
+  it('chunks date lookups for more than 100 assigned cards', async () => {
+    const board = await createBoard('alice', {
+      title: 'Many',
+      cardProperties: [
+        { id: pid(1), name: 'Owner', type: 'person', options: [] },
+        { id: pid(2), name: 'Due', type: 'date', options: [] },
+      ],
+    })
+    addMember(board.id, 'bob')
+    const insert = sqlite.prepare(`INSERT INTO project_cards
+      (id, board_id, title, created_by, modified_by, create_at, update_at, delete_at)
+      VALUES (?, ?, ?, 'alice', 'alice', 1, 1, 0)`)
+    const value = sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)')
+    for (let index = 0; index < 101; index += 1) {
+      const cardId = `c${String(index).padStart(26, '0')}`
+      insert.run(cardId, board.id, `Task ${index}`)
+      value.run(cardId, pid(1), 'bob')
+      value.run(cardId, pid(2), dateValue(10))
+    }
+    const response = await req('bob', 'GET', '/my-tasks')
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(((await response.json()) as { tasks: unknown[] }).tasks).toHaveLength(101)
+  })
+
   it('keeps assigned cards the reader may see, drops the rest, and dates the earliest date', async () => {
     const board = await createBoard('alice', {
       title: 'Mine',

@@ -7,6 +7,7 @@
  */
 import type { ProjectMyTask } from '@shared/project/model'
 import { parseProjectDateValue, projectStampToDay } from '@shared/project/date'
+import { projectIdChunks, projectPlaceholders } from './d1'
 
 interface TaskRow {
   card_id: string
@@ -43,23 +44,24 @@ export async function listProjectMyTasks(db: D1Database, userId: string): Promis
   if (results.length === 0) return []
 
   const cardIds = results.map((row) => row.card_id)
-  const placeholders = cardIds.map((_, index) => `?${index + 1}`).join(', ')
-  const dates = await db.prepare(
-    `SELECT v.card_id, v.value
+  const dueByCard = new Map<string, number>()
+  for (const chunk of projectIdChunks(cardIds)) {
+    const placeholders = projectPlaceholders(chunk.length)
+    const { results: dates } = await db.prepare(
+      `SELECT v.card_id, v.value
        FROM project_card_values v
        JOIN project_cards c ON c.id = v.card_id
        JOIN project_properties p ON p.board_id = c.board_id AND p.id = v.property_id
       WHERE v.card_id IN (${placeholders}) AND p.type = 'date'`,
-  ).bind(...cardIds).all<DateRow>()
-
-  const dueByCard = new Map<string, number>()
-  for (const row of dates.results) {
-    const value = parseProjectDateValue(row.value)
-    const stamp = value?.to ?? value?.from
-    if (stamp === undefined) continue
-    const day = projectStampToDay(stamp, value?.includeTime === true, value?.timeZone).getTime()
-    const current = dueByCard.get(row.card_id)
-    if (current === undefined || day < current) dueByCard.set(row.card_id, day)
+    ).bind(...chunk).all<DateRow>()
+    for (const row of dates) {
+      const value = parseProjectDateValue(row.value)
+      const stamp = value?.to ?? value?.from
+      if (stamp === undefined) continue
+      const day = projectStampToDay(stamp, value?.includeTime === true, value?.timeZone).getTime()
+      const current = dueByCard.get(row.card_id)
+      if (current === undefined || day < current) dueByCard.set(row.card_id, day)
+    }
   }
 
   return results

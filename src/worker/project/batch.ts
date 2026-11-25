@@ -18,6 +18,7 @@ import { cardOrderStatement, contentPatchStatements, getProjectContent, readCard
 import { applyCardValueEffects } from './enhance'
 import { assertProjectRelationValues, projectRelationTargets } from './relations'
 import { getProjectView, viewPatchStatements } from './views'
+import { projectIdChunks, projectPlaceholders } from './d1'
 
 type ProjectBatchInput = z.infer<typeof ProjectBatchSchema>
 type ProjectBatchDeleteInput = z.infer<typeof ProjectBatchDeleteSchema>
@@ -31,39 +32,40 @@ async function commit(db: D1Database, statements: D1PreparedStatement[]): Promis
   if (statements.length) await db.batch(statements)
 }
 
-function placeholders(ids: readonly string[]): string {
-  return ids.map((_, index) => `?${index + 1}`).join(', ')
-}
-
 async function readCardsByIds(db: D1Database, ids: readonly string[]): Promise<Map<string, ProjectCard>> {
   const map = new Map<string, ProjectCard>()
-  if (!ids.length) return map
-  const marks = placeholders(ids)
-  const { results: rows } = await db.prepare(`SELECT * FROM project_cards WHERE id IN (${marks})`).bind(...ids).all<CardRow>()
-  const { results: valueRows } = await db.prepare(`SELECT card_id, property_id, value FROM project_card_values WHERE card_id IN (${marks})`).bind(...ids).all<ValueRow>()
   const valuesByCard = new Map<string, Record<string, string>>()
-  for (const row of valueRows) {
-    let values = valuesByCard.get(row.card_id)
-    if (!values) { values = {}; valuesByCard.set(row.card_id, values) }
-    values[row.property_id] = row.value
+  for (const chunk of projectIdChunks(ids)) {
+    const marks = projectPlaceholders(chunk.length)
+    const [{ results: rows }, { results: valueRows }] = await Promise.all([
+      db.prepare(`SELECT * FROM project_cards WHERE id IN (${marks})`).bind(...chunk).all<CardRow>(),
+      db.prepare(`SELECT card_id, property_id, value FROM project_card_values WHERE card_id IN (${marks})`).bind(...chunk).all<ValueRow>(),
+    ])
+    for (const row of valueRows) {
+      let values = valuesByCard.get(row.card_id)
+      if (!values) { values = {}; valuesByCard.set(row.card_id, values) }
+      values[row.property_id] = row.value
+    }
+    for (const row of rows) map.set(row.id, rowToCard(row, valuesByCard.get(row.id) ?? {}))
   }
-  for (const row of rows) map.set(row.id, rowToCard(row, valuesByCard.get(row.id) ?? {}))
   return map
 }
 
 async function readContentsByIds(db: D1Database, ids: readonly string[]): Promise<Map<string, ProjectContent>> {
   const map = new Map<string, ProjectContent>()
-  if (!ids.length) return map
-  const { results } = await db.prepare(`SELECT * FROM project_card_contents WHERE id IN (${placeholders(ids)})`).bind(...ids).all<ContentRow>()
-  for (const row of results) map.set(row.id, rowToContent(row))
+  for (const chunk of projectIdChunks(ids)) {
+    const { results } = await db.prepare(`SELECT * FROM project_card_contents WHERE id IN (${projectPlaceholders(chunk.length)})`).bind(...chunk).all<ContentRow>()
+    for (const row of results) map.set(row.id, rowToContent(row))
+  }
   return map
 }
 
 async function readViewsByIds(db: D1Database, ids: readonly string[]): Promise<Map<string, ProjectView>> {
   const map = new Map<string, ProjectView>()
-  if (!ids.length) return map
-  const { results } = await db.prepare(`SELECT * FROM project_views WHERE id IN (${placeholders(ids)})`).bind(...ids).all<ViewRow>()
-  for (const row of results) map.set(row.id, rowToView(row))
+  for (const chunk of projectIdChunks(ids)) {
+    const { results } = await db.prepare(`SELECT * FROM project_views WHERE id IN (${projectPlaceholders(chunk.length)})`).bind(...chunk).all<ViewRow>()
+    for (const row of results) map.set(row.id, rowToView(row))
+  }
   return map
 }
 
