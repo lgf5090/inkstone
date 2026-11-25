@@ -22,6 +22,8 @@ import type { BlockActionContext } from '../features/preview/block-overlay';
 import { attachMediaLayoutHost } from '../features/preview/media-layout-drag';
 import type { MediaSurface } from '../features/preview/media-layout-drag';
 import type { MediaEdit } from '../lib/markdown/media-layout-source';
+import { resolveLockedNoteAttachment } from '../store/note-locks';
+import { resolveEncryptedPreviewAttachments } from '../features/preview/preview-encrypted-attachments';
 
 const focusChanged = StateEffect.define<boolean>();
 const refresh = StateEffect.define<boolean>();
@@ -87,6 +89,15 @@ class RenderedBlock extends WidgetType {
         const prepare = async () => {
             await resolveNoteEmbeds(host, { currentContent: this.source, currentTitle: this.title, isCurrent: () => alive });
             if (!alive) return;
+            const noteId = useUi.getState().activeNoteId;
+            if (noteId && useNotes.getState().notes[noteId]?.isEncrypted) {
+                await resolveEncryptedPreviewAttachments(
+                    host,
+                    (attachmentId) => resolveLockedNoteAttachment(noteId, attachmentId),
+                    t('notelock.attachment_unavailable'),
+                );
+                if (!alive) return;
+            }
             await enhancePreview(host, { math: settings.math, mermaid: settings.mermaid, chart: settings.chart, kanban: 'snapshot', kanbanShape: 'board', mindmap: 'snapshot', excalidraw: 'source', dataview: 'live', dark, codeBlockCollapseLines: 0 });
             // A layout block is the one rendered block the reader edits with the pointer, so its settings
             // bar and its drag edges are built here too — on this host, which is the live tree. The rest of

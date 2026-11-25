@@ -3,7 +3,7 @@ import { configureCodeBlockCollapsing, decorateCodeBlock, toggleCodeBlockCollaps
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { capturePreviewInteractionState, restorePreviewInteractionState } from './preview-state'
 import { selectMarkdownTab } from './markdown-tabs'
-import { patchChildren } from './Preview'
+import { patchChildren } from './preview-dom-patch'
 
 describe('preview interaction state', () => {
   it('namespaces interactive IDs for separate preview instances', () => {

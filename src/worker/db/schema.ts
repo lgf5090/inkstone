@@ -615,6 +615,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     is_pinned INTEGER NOT NULL DEFAULT 0,
     tags TEXT NOT NULL DEFAULT '[]',
     storage TEXT NOT NULL CHECK (storage IN ('r2', 'kv')),
+    encryption TEXT NOT NULL DEFAULT 'none',
+    plaintext_size INTEGER,
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_attachments_user ON attachments(user_id, created_at DESC, id DESC)`,
@@ -4817,6 +4819,20 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON note_task_reminders(user_id, fired_at, due_day)`,
     ],
   },
+  {
+    version: 426,
+    skipIfColumnExists: { table: 'attachments', column: 'encryption' },
+    statements: [
+      `ALTER TABLE attachments ADD COLUMN encryption TEXT NOT NULL DEFAULT 'none'`,
+    ],
+  },
+  {
+    version: 427,
+    skipIfColumnExists: { table: 'attachments', column: 'plaintext_size' },
+    statements: [
+      `ALTER TABLE attachments ADD COLUMN plaintext_size INTEGER`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -4850,7 +4866,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   note_webhooks: ['id', 'user_id', 'title', 'url', 'secret_ciphertext', 'events', 'enabled', 'created_at', 'updated_at'],
   note_webhook_deliveries: ['id', 'webhook_id', 'user_id', 'event', 'payload', 'attempts', 'next_attempt_at', 'status', 'last_error', 'created_at'],
   note_task_reminders: ['id', 'user_id', 'note_id', 'line_number', 'title', 'due_day', 'completed', 'fired_at', 'updated_at'],
-  attachments: ['id', 'user_id', 'scope', 'note_id', 'folder_id', 'filename', 'mime', 'size', 'sha256', 'object_key', 'width', 'height', 'is_starred', 'is_pinned', 'tags', 'storage', 'created_at'],
+  attachments: ['id', 'user_id', 'scope', 'note_id', 'folder_id', 'filename', 'mime', 'size', 'sha256', 'object_key', 'width', 'height', 'is_starred', 'is_pinned', 'tags', 'storage', 'encryption', 'plaintext_size', 'created_at'],
   attachment_folders: ['user_id', 'id', 'scope', 'parent_id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
   attachment_tags: ['user_id', 'id', 'scope', 'name', 'color', 'is_pinned', 'created_at'],
   attachment_cleanup: ['object_key', 'user_id', 'created_at'],

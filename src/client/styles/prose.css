@@ -672,6 +672,17 @@
    The block itself is a column of rows; a row is a line of flexed cells, so a row's height is one
    number shared by every picture in it, and a cell's share of the width is one number too.
    -------------------------------------------------------------------------- */
+.ink-prose .attachment-decrypt-error {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-sm);
+  background: var(--bg-inset);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
 .ink-prose .markdown-media {
   position: relative;
   display: flex;

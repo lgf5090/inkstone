@@ -35,6 +35,8 @@ export interface HubAttachment {
   tags: string[]
   /** Where the file is used, for the "insert into" action and the inspector's back-link. */
   ownerId: string | null
+  encryption?: 'none' | 'note-lock-v1'
+  plaintextSize?: number
   createdAt: number
 }
 

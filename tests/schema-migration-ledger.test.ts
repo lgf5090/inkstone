@@ -152,6 +152,19 @@ describe('the to-do read switch', () => {
   })
 })
 
+describe('the encrypted attachment columns spend a number each', () => {
+  it('guards both columns so fresh and partially migrated databases replay safely', () => {
+    expect(SCHEMA_MIGRATIONS.find((entry) => entry.version === 426)).toMatchObject({
+      skipIfColumnExists: { table: 'attachments', column: 'encryption' },
+      statements: [`ALTER TABLE attachments ADD COLUMN encryption TEXT NOT NULL DEFAULT 'none'`],
+    })
+    expect(SCHEMA_MIGRATIONS.find((entry) => entry.version === 427)).toMatchObject({
+      skipIfColumnExists: { table: 'attachments', column: 'plaintext_size' },
+      statements: [`ALTER TABLE attachments ADD COLUMN plaintext_size INTEGER`],
+    })
+  })
+})
+
 describe('the email access switch', () => {
   it('arrives off, under its own guarded number', () => {
     expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 156)).toMatchObject({

@@ -28,6 +28,16 @@ export async function collectAttachmentReferences(
           scanBodyReferences(db, userId, table, wantedIds, references),
         ),
       )
+      const encrypted = await db.prepare(
+        `SELECT a.id FROM attachments a
+           JOIN notes n ON n.id = a.note_id AND n.user_id = a.user_id
+          WHERE a.user_id = ?1 AND a.scope = 'notes' AND a.encryption = 'note-lock-v1'
+            AND n.deleted_at IS NULL`,
+      ).bind(userId).all<{ id: string }>()
+      for (const row of encrypted.results) {
+        if (wantedIds && !wantedIds.has(row.id)) continue
+        references.set(row.id, (references.get(row.id) ?? 0) + 1)
+      }
       return references
     }
     case 'memos':

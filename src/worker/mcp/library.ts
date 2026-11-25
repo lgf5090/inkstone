@@ -2,7 +2,7 @@ import { LIMITS } from '@shared/constants'
 import { parseFrontMatter } from '@shared/markdown-utils'
 import { sharePasscodeProblem } from '@shared/share-passcode'
 import { normalizeOrganizerIcon, organizerColorOrNull } from '@shared/organizer-colors'
-import type { BackupRun } from '@shared/types'
+import type { BackupRun, NoteAttachmentEncryption } from '@shared/types'
 import { stringify as stringifyYaml } from 'yaml'
 import { readAttachmentObject, readAttachmentObjectRange } from '../attachments/backend'
 import { drainAttachmentCleanup } from '../attachments/cleanup'
@@ -840,10 +840,11 @@ export async function listMcpAttachments(
   if (input.noteId) await requireOwnedNote(db, userId, input.noteId)
   const limit = Math.max(1, Math.min(50, input.limit ?? 20))
   const cursor = parseAttachmentListCursor(input.cursor, input.noteId)
-  const scope = input.noteId ? 'user_id = ?1 AND note_id = ?2' : 'user_id = ?1'
+  const scope = input.noteId ? 'a.user_id = ?1 AND a.note_id = ?2' : 'a.user_id = ?1'
+  const visible = `AND a.encryption <> 'note-lock-v1' AND (a.note_id IS NULL OR n.is_encrypted = 0)`
   const valueParam = input.noteId ? 3 : 2
   const continuation = cursor.kind === 'key'
-    ? ` AND (created_at < ?${valueParam} OR (created_at = ?${valueParam} AND id < ?${valueParam + 1}))`
+    ? ` AND (a.created_at < ?${valueParam} OR (a.created_at = ?${valueParam} AND a.id < ?${valueParam + 1}))`
     : ''
   const page = cursor.kind === 'key'
     ? `LIMIT ?${valueParam + 2}`
@@ -856,9 +857,11 @@ export async function listMcpAttachments(
       ? [userId, input.noteId, limit + 1, cursor.offset]
       : [userId, limit + 1, cursor.offset]
   const { results } = await db.prepare(
-    `SELECT id, note_id, filename, mime, size, width, height, created_at
-       FROM attachments WHERE ${scope}${continuation}
-      ORDER BY created_at DESC, id DESC ${page}`,
+    `SELECT a.id, a.note_id, a.filename, a.mime, a.size, a.width, a.height, a.encryption, a.plaintext_size, a.created_at
+       FROM attachments a
+       LEFT JOIN notes n ON n.id = a.note_id AND n.user_id = a.user_id
+      WHERE ${scope}${visible}${continuation}
+      ORDER BY a.created_at DESC, a.id DESC ${page}`,
   ).bind(...binds).all<{
     id: string
     note_id: string | null
@@ -867,6 +870,8 @@ export async function listMcpAttachments(
     size: number
     width: number | null
     height: number | null
+    encryption: NoteAttachmentEncryption
+    plaintext_size: number | null
     created_at: number
   }>()
   const hasMore = results.length > limit
@@ -880,6 +885,8 @@ export async function listMcpAttachments(
       size: row.size,
       width: row.width,
       height: row.height,
+      encryption: row.encryption,
+      plaintext_size: row.plaintext_size,
       created_at: new Date(row.created_at).toISOString(),
     })),
     next_cursor: hasMore && last ? encodeAttachmentListCursor(last.created_at, last.id, input.noteId) : null,
@@ -892,8 +899,11 @@ export async function readMcpAttachment(
   input: { attachmentId: string; cursor?: number; maxBytes?: number },
 ) {
   const row = await env.DB.prepare(
-    `SELECT id, user_id, note_id, filename, mime, size, sha256, object_key, storage, created_at
-       FROM attachments WHERE id = ?1 AND user_id = ?2`,
+    `SELECT a.id, a.user_id, a.note_id, a.filename, a.mime, a.size, a.sha256, a.object_key,
+            a.storage, a.encryption, a.created_at, n.is_encrypted
+       FROM attachments a
+       LEFT JOIN notes n ON n.id = a.note_id AND n.user_id = a.user_id
+      WHERE a.id = ?1 AND a.user_id = ?2`,
   ).bind(input.attachmentId, userId).first<{
     id: string
     user_id: string
@@ -904,9 +914,14 @@ export async function readMcpAttachment(
     sha256: string
     object_key: string | null
     storage: AttachmentObjectStorage
+    encryption: NoteAttachmentEncryption
+    is_encrypted: number | null
     created_at: number
   }>()
   if (!row) throw ApiError.notFound('Attachment not found')
+  if (row.encryption === 'note-lock-v1' || row.is_encrypted === 1) {
+    throw ApiError.forbidden('Encrypted note attachments can only be read in an unlocked browser session')
+  }
   const window = attachmentReadWindow(row.size, input.cursor, input.maxBytes)
   const bytes = await readAttachmentObjectRange(env, row.storage, attachmentObjectKey(row), window.start, window.length)
     ?? await readAttachmentWindowFallback(env, row.storage, attachmentObjectKey(row), window)
@@ -970,7 +985,15 @@ export async function uploadMcpAttachment(
 ) {
   const id = input.attachmentId ?? newId()
   if (!isValidId(id)) throw ApiError.badRequest('attachment_id must be a valid Inkstone id')
-  if (input.noteId) await requireOwnedNote(context.env.DB, context.userId, input.noteId)
+  if (input.noteId) {
+    await requireOwnedNote(context.env.DB, context.userId, input.noteId)
+    const note = await context.env.DB.prepare(
+      'SELECT is_encrypted FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL',
+    ).bind(input.noteId, context.userId).first<{ is_encrypted: number }>()
+    if (note?.is_encrypted === 1) {
+      throw ApiError.badRequest('MCP cannot upload plaintext attachments to a locked note; use the unlocked app')
+    }
+  }
   let bytes: Uint8Array
   try {
     bytes = fromBase64(input.base64)

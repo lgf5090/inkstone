@@ -111,7 +111,14 @@ export async function copyFileUrl(file: HubAttachmentWithUsage): Promise<boolean
   return copyText(new URL(file.url, window.location.origin).href)
 }
 
+export function refuseLockedAttachment(file: HubAttachmentWithUsage): boolean {
+  if (file.encryption !== 'note-lock-v1') return false
+  useUi.getState().toast({ title: t('notelock.attachment_hub_locked'), tone: 'warning' })
+  return true
+}
+
 export function downloadFile(file: HubAttachmentWithUsage): void {
+  if (refuseLockedAttachment(file)) return
   const link = document.createElement('a')
   link.href = file.url
   link.download = file.filename
@@ -127,7 +134,7 @@ export function reportCopyFailure(): void {
 
 export function buildAttachmentMenuItems(ctx: AttachmentMenuCtx): MenuItem[] {
   const items: MenuItem[] = [{ id: 'preview', label: t('common.preview'), icon: <Eye size={13} />, onSelect: ctx.onPreview }]
-  if (ctx.onInsertHere) {
+  if (ctx.onInsertHere && ctx.file.encryption !== 'note-lock-v1') {
     items.push({ id: 'insert', label: t('attachments.insert_here'), icon: <Paperclip size={13} />, onSelect: ctx.onInsertHere })
   }
   items.push(

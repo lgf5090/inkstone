@@ -124,6 +124,7 @@ export const LIMITS = {
   foldersMaxPerUser: 2_000,
   folderDepthMax: 12,
   attachmentMaxBytes: 25 * 1024 * 1024,
+  noteAttachmentEnvelopeOverheadBytes: 32,
   /**
    * The account ceiling when bytes live in R2.
    *

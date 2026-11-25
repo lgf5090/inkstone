@@ -8,7 +8,7 @@ import {
     mindmapSourceStates,
     mindmapToolbar,
 } from './mindmap-block-toolbar';
-import { patchChildren } from './Preview';
+import { patchChildren } from './preview-dom-patch';
 import type { BlockActionContext } from './block-overlay';
 
 const { session, fitMindmapBlock, retryMindmap } = vi.hoisted(() => ({

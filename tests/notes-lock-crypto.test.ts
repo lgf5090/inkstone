@@ -189,6 +189,47 @@ describe('envelope validation happens before key derivation', () => {
   })
 })
 
+describe('locked-note attachments use context-bound binary envelopes', () => {
+  it('round-trips arbitrary bytes with a fresh nonce and authenticated context', async () => {
+    const session = await NoteLockSession.create('pw', FAST)
+    const plaintext = new Uint8Array([0, 255, 1, 2, 3, 128])
+    const sealed = await session.sealNoteAttachment('note-a', 'file-a', plaintext)
+    const again = await session.sealNoteAttachment('note-a', 'file-a', plaintext)
+
+    expect(new TextDecoder().decode(sealed.slice(0, 4))).toBe('IKA1')
+    expect(sealed.length).toBe(plaintext.length + 32)
+    expect(sealed.slice(4, 16)).not.toEqual(again.slice(4, 16))
+    await expect(session.openNoteAttachment('note-a', 'file-a', sealed)).resolves.toEqual(plaintext)
+  })
+
+  it('refuses another note, attachment, password or edited byte', async () => {
+    const session = await NoteLockSession.create('pw', FAST)
+    const sealed = await session.sealNoteAttachment('note-a', 'file-a', new Uint8Array([1, 2, 3]))
+    const wrong = await NoteLockSession.create('wrong', FAST)
+    const tampered = sealed.slice()
+    tampered[tampered.length - 1] ^= 1
+
+    await expect(session.openNoteAttachment('note-b', 'file-a', sealed)).rejects.toMatchObject({ code: 'wrong-password' })
+    await expect(session.openNoteAttachment('note-a', 'file-b', sealed)).rejects.toMatchObject({ code: 'wrong-password' })
+    await expect(wrong.openNoteAttachment('note-a', 'file-a', sealed)).rejects.toMatchObject({ code: 'wrong-password' })
+    await expect(session.openNoteAttachment('note-a', 'file-a', tampered)).rejects.toMatchObject({ code: 'wrong-password' })
+  })
+
+  it('rejects malformed framing before decryption', async () => {
+    const session = await NoteLockSession.create('pw', FAST)
+    const decrypt = vi.spyOn(crypto.subtle, 'decrypt')
+    try {
+      await expect(session.openNoteAttachment('note-a', 'file-a', new Uint8Array(31)))
+        .rejects.toMatchObject({ code: 'invalid-envelope' })
+      await expect(session.openNoteAttachment('note-a', 'file-a', new Uint8Array(32)))
+        .rejects.toMatchObject({ code: 'invalid-envelope' })
+      expect(decrypt).not.toHaveBeenCalled()
+    } finally {
+      decrypt.mockRestore()
+    }
+  })
+})
+
 describe('v1 fixtures stay readable', () => {
   it('opens a legacy note with the implicit 150,000-round work factor and no AAD', async () => {
     expect(iterationsOfEnvelope(V1_TITLE)).toBe(NOTE_LOCK_KDF_ITERATIONS)
@@ -198,6 +239,21 @@ describe('v1 fixtures stay readable', () => {
       title: 'Legacy title',
       content: 'Legacy body',
     })
+  })
+
+  it('omits additionalData entirely for v1, as strict browser WebCrypto requires', async () => {
+    const session = await NoteLockSession.create('fixture password')
+    const encrypt = vi.spyOn(crypto.subtle, 'encrypt')
+    const decrypt = vi.spyOn(crypto.subtle, 'decrypt')
+    try {
+      const sealed = await session.seal('Legacy body')
+      expect(encrypt.mock.calls[0]?.[0]).not.toHaveProperty('additionalData')
+      await expect(session.open(sealed)).resolves.toBe('Legacy body')
+      expect(decrypt.mock.calls[0]?.[0]).not.toHaveProperty('additionalData')
+    } finally {
+      encrypt.mockRestore()
+      decrypt.mockRestore()
+    }
   })
 })
 

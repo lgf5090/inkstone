@@ -6,6 +6,7 @@ import { matchesETag } from '../src/worker/routes/files'
 
 const currentId = '00000000000000000000000001'
 const historicalId = '00000000000000000000000002'
+const encryptedId = '00000000000000000000000004'
 const otherUserId = '00000000000000000000000003'
 let sqlite: DatabaseSync
 let db: D1Database
@@ -13,15 +14,18 @@ let db: D1Database
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(`
-    CREATE TABLE notes (id TEXT PRIMARY KEY, user_id TEXT, content TEXT);
+    CREATE TABLE notes (id TEXT PRIMARY KEY, user_id TEXT, content TEXT, deleted_at INTEGER);
     CREATE TABLE note_versions (id TEXT PRIMARY KEY, user_id TEXT, content TEXT);
+    CREATE TABLE attachments (id TEXT PRIMARY KEY, user_id TEXT, scope TEXT, note_id TEXT, encryption TEXT);
   `)
-  sqlite.prepare('INSERT INTO notes VALUES (?, ?, ?)')
+  sqlite.prepare('INSERT INTO notes VALUES (?, ?, ?, NULL)')
     .run('note', 'user', `![current](/api/files/${currentId})`)
   sqlite.prepare('INSERT INTO note_versions VALUES (?, ?, ?)')
     .run('version', 'user', `![old](/api/files/${historicalId})`)
   sqlite.prepare('INSERT INTO note_versions VALUES (?, ?, ?)')
     .run('other-version', 'other-user', `![other](/api/files/${otherUserId})`)
+  sqlite.prepare('INSERT INTO attachments VALUES (?, ?, ?, ?, ?)')
+    .run(encryptedId, 'user', 'notes', 'note', 'note-lock-v1')
   db = {
     prepare(sql: string) {
       return {
@@ -42,7 +46,7 @@ afterEach(() => sqlite.close())
 
 it('protects attachments referenced only by retained versions and isolates users', async () => {
   const references = await collectAttachmentReferences(db, 'user')
-  expect([...references.keys()].sort()).toEqual([currentId, historicalId])
+  expect([...references.keys()].sort()).toEqual([currentId, historicalId, encryptedId])
   expect(references.has(otherUserId)).toBe(false)
 })
 

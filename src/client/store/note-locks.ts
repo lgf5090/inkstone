@@ -16,6 +16,8 @@ import {
   sealNote,
 } from '@shared/crypto'
 import { folderDescendantIds } from '../lib/folders'
+import { t } from '../lib/i18n'
+import type { AttachmentWithUsage } from '@shared/types'
 import { api, ApiError } from '../lib/api'
 import { useNotes } from './notes'
 import { useSession } from './session'
@@ -54,6 +56,76 @@ const retainedSessions = new Map<string, RetainedNoteSession>()
 const lockTimers = new Map<string, number>()
 /** Serialize reseals so a slower earlier edit cannot overwrite a later revision. */
 const saveTails = new Map<string, Promise<unknown>>()
+const attachmentUrls = new Map<string, Map<string, ResolvedNoteAttachment>>()
+const attachmentLoads = new Map<string, Promise<ResolvedNoteAttachment>>()
+const attachmentEpochs = new Map<string, number>()
+
+export interface ResolvedNoteAttachment {
+  url: string
+  filename: string
+  mime: string
+}
+
+function attachmentLoadKey(noteId: string, attachmentId: string): string {
+  return `${noteId}:${attachmentId}`
+}
+
+function revokeAttachmentUrls(id: string): void {
+  attachmentEpochs.set(id, (attachmentEpochs.get(id) ?? 0) + 1)
+  for (const attachment of attachmentUrls.get(id)?.values() ?? []) URL.revokeObjectURL(attachment.url)
+  attachmentUrls.delete(id)
+}
+
+export async function resolveLockedNoteAttachment(
+  noteId: string,
+  attachmentId: string,
+): Promise<ResolvedNoteAttachment> {
+  const cached = attachmentUrls.get(noteId)?.get(attachmentId)
+  if (cached) return cached
+  const key = attachmentLoadKey(noteId, attachmentId)
+  const pending = attachmentLoads.get(key)
+  if (pending) return pending
+  const retained = retainedSessions.get(noteId)
+  if (!retained) throw new NoteUnlockError('invalid-envelope')
+  const epoch = attachmentEpochs.get(noteId) ?? 0
+  const task = (async (): Promise<ResolvedNoteAttachment> => {
+    const response = await fetch(`/api/files/${encodeURIComponent(attachmentId)}`, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    })
+    if (!response.ok) throw new Error(`Encrypted attachment fetch failed: ${response.status}`)
+    if (response.headers.get('X-Inkstone-Attachment-Encryption') !== 'note-lock-v1') {
+      throw new NoteUnlockError('invalid-envelope')
+    }
+    const sealed = new Uint8Array(await response.arrayBuffer())
+    if (retainedSessions.get(noteId) !== retained || (attachmentEpochs.get(noteId) ?? 0) !== epoch) {
+      throw new NoteUnlockError('invalid-envelope')
+    }
+    const plaintext = await openLockedNoteAttachment(noteId, attachmentId, sealed)
+    if (retainedSessions.get(noteId) !== retained || (attachmentEpochs.get(noteId) ?? 0) !== epoch) {
+      throw new NoteUnlockError('invalid-envelope')
+    }
+    const mime = response.headers.get('X-Inkstone-Attachment-Type') || 'application/octet-stream'
+    const encodedFilename = response.headers.get('X-Inkstone-Attachment-Filename') ?? ''
+    let filename = attachmentId
+    try {
+      filename = decodeURIComponent(encodedFilename) || attachmentId
+    } catch {
+      filename = attachmentId
+    }
+    const url = URL.createObjectURL(new Blob([new Uint8Array(plaintext)], { type: mime }))
+    const urls = attachmentUrls.get(noteId) ?? new Map<string, ResolvedNoteAttachment>()
+    urls.set(attachmentId, { url, filename, mime })
+    attachmentUrls.set(noteId, urls)
+    return { url, filename, mime }
+  })()
+  attachmentLoads.set(key, task)
+  const clear = () => {
+    if (attachmentLoads.get(key) === task) attachmentLoads.delete(key)
+  }
+  void task.then(clear, clear)
+  return task
+}
 
 function timeoutMs(): number {
   const minutes = useSession.getState().settings.notes?.lockTimeoutMinutes
@@ -69,7 +141,23 @@ function clearTimer(id: string): void {
 function scheduleLock(id: string): void {
   clearTimer(id)
   if (typeof window === 'undefined') return
-  lockTimers.set(id, window.setTimeout(() => lockNow(id), timeoutMs()))
+  lockTimers.set(id, window.setTimeout(() => void lockAfterSaving(id), timeoutMs()))
+}
+
+async function lockAfterSaving(id: string): Promise<void> {
+  const draft = useNoteLocks.getState().drafts[id]
+  if (draft) {
+    try {
+      const result = await saveUnlockedNoteEdit(id, draft)
+      if (result === 'conflict') throw new Error('The note changed on another device')
+    } catch (error) {
+      console.warn('[inkstone] could not save a draft before auto-lock', id, error)
+      useUi.getState().toast({ title: t('notelock.autolock_unsaved'), tone: 'warning' })
+      if (isNoteUnlocked(id)) scheduleLock(id)
+      return
+    }
+  }
+  lockNow(id)
 }
 
 /** Object URLs embedded in decrypted text must not outlive the session that revealed them. */
@@ -86,6 +174,7 @@ function revokeDecryptedUrls(...texts: Array<string | undefined>): void {
 /** Drop one note's key, draft and decrypted text. Idempotent. */
 export function lockNow(id: string): void {
   clearTimer(id)
+  revokeAttachmentUrls(id)
   const state = useNoteLocks.getState()
   const unlocked = state.unlocked[id]
   const draft = state.drafts[id]
@@ -113,6 +202,18 @@ export function lockOthers(activeId: string | null): void {
 
 export function isNoteUnlocked(id: string | null | undefined): boolean {
   return Boolean(id && useNoteLocks.getState().unlocked[id] && retainedSessions.has(id))
+}
+
+export async function sealLockedNoteAttachment(noteId: string, attachmentId: string, bytes: Uint8Array): Promise<Uint8Array> {
+  const retained = retainedSessions.get(noteId)
+  if (!retained) throw new NoteUnlockError('invalid-envelope')
+  return retained.session.sealNoteAttachment(noteId, attachmentId, bytes)
+}
+
+export async function openLockedNoteAttachment(noteId: string, attachmentId: string, bytes: Uint8Array): Promise<Uint8Array> {
+  const retained = retainedSessions.get(noteId)
+  if (!retained) throw new NoteUnlockError('invalid-envelope')
+  return retained.session.openNoteAttachment(noteId, attachmentId, bytes)
 }
 
 /**
@@ -160,6 +261,7 @@ export function updateUnlockedNoteDraft(id: string, edit: Partial<UnlockedNoteDr
   useNoteLocks.setState((latest) => ({
     drafts: { ...latest.drafts, [id]: next },
   }))
+  scheduleLock(id)
 }
 
 /**
@@ -219,6 +321,80 @@ export async function saveUnlockedNoteEdit(
   return task
 }
 
+interface PreparedAttachmentMigration {
+  id: string
+  filename: string
+  mime: string
+  plaintext: Uint8Array
+  sealed?: Uint8Array
+  expectedSha256?: string
+}
+
+async function attachmentsOfNote(noteId: string | null): Promise<AttachmentWithUsage[]> {
+  const attachments: AttachmentWithUsage[] = []
+  let cursor: string | undefined
+  do {
+    const page = await api.files.list(cursor)
+    attachments.push(...page.files.filter((file) => noteId === null || file.noteId === noteId))
+    cursor = page.nextCursor ?? undefined
+  } while (cursor)
+  return attachments
+}
+
+async function attachmentBytes(id: string, encrypted: boolean): Promise<Uint8Array> {
+  const response = await fetch(`/api/files/${encodeURIComponent(id)}`, { credentials: 'same-origin', cache: 'no-store' })
+  if (!response.ok) throw new Error(`Attachment fetch failed: ${response.status}`)
+  const header = response.headers.get('X-Inkstone-Attachment-Encryption')
+  if ((header === 'note-lock-v1') !== encrypted) throw new NoteUnlockError('invalid-envelope')
+  return new Uint8Array(await response.arrayBuffer())
+}
+
+async function prepareAttachmentSeal(
+  noteId: string,
+  session: NoteLockSession,
+  known?: AttachmentWithUsage[],
+): Promise<PreparedAttachmentMigration[]> {
+  const prepared: PreparedAttachmentMigration[] = []
+  for (const file of known ?? await attachmentsOfNote(noteId)) {
+    if (file.encryption === 'note-lock-v1') throw new Error(t('notelock.attachment_migration_failed'))
+    const plaintext = await attachmentBytes(file.id, false)
+    prepared.push({
+      id: file.id,
+      filename: file.filename,
+      mime: file.mime,
+      plaintext,
+      sealed: await session.sealNoteAttachment(noteId, file.id, plaintext),
+      expectedSha256: file.sha256,
+    })
+  }
+  return prepared
+}
+
+async function prepareAttachmentOpen(
+  noteId: string,
+  session: NoteLockSession,
+  known?: AttachmentWithUsage[],
+): Promise<PreparedAttachmentMigration[]> {
+  const prepared: PreparedAttachmentMigration[] = []
+  for (const file of known ?? await attachmentsOfNote(noteId)) {
+    if (file.encryption !== 'note-lock-v1') continue
+    const sealed = await attachmentBytes(file.id, true)
+    prepared.push({
+      id: file.id,
+      filename: file.filename,
+      mime: file.mime,
+      plaintext: await session.openNoteAttachment(noteId, file.id, sealed),
+      sealed,
+      expectedSha256: file.sha256,
+    })
+  }
+  return prepared
+}
+
+function attachmentFile(file: PreparedAttachmentMigration, bytes: Uint8Array): File {
+  return new File([new Uint8Array(bytes)], file.filename, { type: file.mime || 'application/octet-stream' })
+}
+
 /**
  * Seal one note with a caller-held session.
  *
@@ -226,7 +402,7 @@ export async function saveUnlockedNoteEdit(
  * to the server before the in-memory key is dropped, so a failed request leaves the note readable
  * rather than claiming a lock the account never received.
  */
-export async function sealWithSession(id: string, session: NoteLockSession): Promise<void> {
+export async function sealWithSession(id: string, session: NoteLockSession, knownAttachments?: AttachmentWithUsage[]): Promise<void> {
   const state = useNotes.getState()
   const note = state.notes[id]
   if (!note || note.isEncrypted) return
@@ -240,8 +416,42 @@ export async function sealWithSession(id: string, session: NoteLockSession): Pro
     rev = fetched.rev
   }
   if (content === undefined) throw new Error('Note content could not be loaded')
+  const attachments = await prepareAttachmentSeal(id, session, knownAttachments)
   const sealed = await sealNote(session, id, { title: note.title, content })
   await useNotes.getState().sealNoteRecord(id, sealed, rev)
+  const replaced: PreparedAttachmentMigration[] = []
+  try {
+    for (const file of attachments) {
+      if (!file.sealed) throw new Error('Prepared attachment ciphertext is missing')
+      const stored = await api.files.replace(file.id, attachmentFile(file, file.sealed), {
+        encryption: 'note-lock-v1',
+        plaintextSize: file.plaintext.byteLength,
+        expectedSha256: file.expectedSha256,
+      })
+      file.expectedSha256 = stored.sha256 ?? file.expectedSha256
+      replaced.push(file)
+    }
+  } catch (error) {
+    const rollbackErrors: unknown[] = []
+    try {
+      const remote = await api.notes.get(id)
+      if (remote.isEncrypted) await useNotes.getState().openNoteRecord(id, { title: note.title, content }, remote.rev)
+    } catch (rollbackError) {
+      rollbackErrors.push(rollbackError)
+    }
+    for (const file of replaced) {
+      try {
+        await api.files.replace(file.id, attachmentFile(file, file.plaintext), {
+          encryption: 'none',
+          expectedSha256: file.expectedSha256,
+        })
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError)
+      }
+    }
+    if (rollbackErrors.length) throw new AggregateError([error, ...rollbackErrors], t('notelock.attachment_migration_failed'))
+    throw new Error(t('notelock.attachment_migration_failed'), { cause: error })
+  }
   lockNow(id)
 }
 
@@ -277,6 +487,8 @@ export async function lockVaultWithPassword(password: string): Promise<{ sealed:
 async function sealMany(ids: string[], password: string): Promise<{ sealed: number; skipped: number }> {
   let sealed = 0
   let skipped = 0
+  const byNote = new Map<string, AttachmentWithUsage[]>()
+  for (const file of await attachmentsOfNote(null)) byNote.set(file.noteId ?? '', [...(byNote.get(file.noteId ?? '') ?? []), file])
   for (const id of ids) {
     try {
       const before = useNotes.getState().notes[id]
@@ -286,7 +498,7 @@ async function sealMany(ids: string[], password: string): Promise<{ sealed: numb
       }
       // One salt per note, exactly as Memos seals one memo per salt: no two notes share key
       // material even when a folder is locked in one pass.
-      await sealWithSession(id, await NoteLockSession.create(password))
+      await sealWithSession(id, await NoteLockSession.create(password), byNote.get(id) ?? [])
       sealed++
     } catch (error) {
       // One unusable note must not abandon the rest of the batch; the caller reports both counts.
@@ -302,7 +514,7 @@ async function sealMany(ids: string[], password: string): Promise<{ sealed: numb
  * This is the only operation in this module that puts plaintext back on the server, which is why it
  * is a deliberate "remove encryption" action and not part of unlocking for reading.
  */
-export async function decryptNotePermanently(id: string, password: string): Promise<void> {
+export async function decryptNotePermanently(id: string, password: string, knownAttachments?: AttachmentWithUsage[]): Promise<void> {
   const state = useNotes.getState()
   const note = state.notes[id]
   if (!note?.isEncrypted) return
@@ -318,7 +530,41 @@ export async function decryptNotePermanently(id: string, password: string): Prom
   if (!salt) throw new NoteUnlockError('invalid-envelope')
   const session = await NoteLockSession.fromEnvelope(password, note.title)
   const opened = await openNote(session, id, { title: note.title, content })
+  const attachments = await prepareAttachmentOpen(id, session, knownAttachments)
   await useNotes.getState().openNoteRecord(id, opened, rev)
+  const replaced: PreparedAttachmentMigration[] = []
+  try {
+    for (const file of attachments) {
+      const stored = await api.files.replace(file.id, attachmentFile(file, file.plaintext), {
+        encryption: 'none',
+        expectedSha256: file.expectedSha256,
+      })
+      file.expectedSha256 = stored.sha256 ?? file.expectedSha256
+      replaced.push(file)
+    }
+  } catch (error) {
+    const rollbackErrors: unknown[] = []
+    try {
+      const remote = await api.notes.get(id)
+      if (!remote.isEncrypted) await useNotes.getState().saveNoteEnvelope(id, { title: note.title, content }, remote.rev)
+    } catch (rollbackError) {
+      rollbackErrors.push(rollbackError)
+    }
+    for (const file of replaced) {
+      if (!file.sealed) continue
+      try {
+        await api.files.replace(file.id, attachmentFile(file, file.sealed), {
+          encryption: 'note-lock-v1',
+          plaintextSize: file.plaintext.byteLength,
+          expectedSha256: file.expectedSha256,
+        })
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError)
+      }
+    }
+    if (rollbackErrors.length) throw new AggregateError([error, ...rollbackErrors], t('notelock.attachment_migration_failed'))
+    throw new Error(t('notelock.attachment_migration_failed'), { cause: error })
+  }
   lockNow(id)
 }
 
@@ -331,30 +577,17 @@ export async function decryptFolderPermanently(folderId: string, password: strin
     .map((note) => note.id)
   let opened = 0
   let skipped = 0
+  const byNote = new Map<string, AttachmentWithUsage[]>()
+  for (const file of await attachmentsOfNote(null)) byNote.set(file.noteId ?? '', [...(byNote.get(file.noteId ?? '') ?? []), file])
   for (const id of ids) {
     try {
       const note = useNotes.getState().notes[id]
       if (!note) continue
-      const salt = saltOfEnvelope(note.title)
-      if (!salt) {
+      if (!saltOfEnvelope(note.title)) {
         skipped++
         continue
       }
-      const session = await NoteLockSession.fromEnvelope(password, note.title)
-      let content = useNotes.getState().contents[id]
-      let rev = note.rev
-      if (content === undefined) {
-        const fetched = await api.notes.get(id)
-        content = fetched.content
-        rev = fetched.rev
-      }
-      if (content === undefined) {
-        skipped++
-        continue
-      }
-      const openedNote = await openNote(session, id, { title: note.title, content })
-      await useNotes.getState().openNoteRecord(id, openedNote, rev)
-      lockNow(id)
+      await decryptNotePermanently(id, password, byNote.get(id) ?? [])
       opened++
     } catch (error) {
       console.warn('[inkstone] could not decrypt a note', id, error)
@@ -390,7 +623,7 @@ export function installNoteLockLifecycle(): () => void {
   })
   const unsubscribeNotes = useNotes.subscribe((state, previous) => {
     for (const id of retainedSessions.keys()) {
-      if (previous.notes[id]?.isEncrypted && !state.notes[id]?.isEncrypted) lockNow(id)
+      if (!state.notes[id] || (previous.notes[id]?.isEncrypted && !state.notes[id]?.isEncrypted)) lockNow(id)
     }
   })
   const onNoteSealed = (event: Event) => {

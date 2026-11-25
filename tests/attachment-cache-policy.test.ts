@@ -12,15 +12,15 @@ import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/binding
 /**
  * How long an attachment response may be kept, split by who is allowed to invalidate it.
  *
- * The bytes behind an attachment id never change, so an owner's own browser may hold them
- * indefinitely — that is what the ETag work added, and it is the only party that can delete them.
+ * An owner's browser may keep a private copy, but byte replacement can change the bytes and
+ * encryption under the same id, so it must revalidate rather than trust an immutable response.
  * A share grant is different: rotating the share password is documented to cut old asset sessions
  * off immediately, and a year-long cache in the visitor's browser would keep serving the file after
  * both the rotation and the share are gone. Revocable access cannot be cacheable.
  */
 
 const USER = '0123456789abcdefghjkmnpqrs'
-const OWNER_CACHE = 'private, max-age=31536000, immutable'
+const OWNER_CACHE = 'private, no-cache'
 const SHARE_CACHE = 'private, no-store'
 // Slugs are exactly twenty characters and attachment ids exactly twenty-six, both drawn from the
 // same generated alphabet, which is also what the body reference scanner matches against.
@@ -89,7 +89,7 @@ beforeEach(() => {
 })
 
 describe('an owner reading their own attachment', () => {
-  it('may keep the bytes privately for a year', async () => {
+  it('may keep the bytes privately but must revalidate after a replacement', async () => {
     const response = await get(`/api/files/${ATTACHMENT}`)
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe(OWNER_CACHE)

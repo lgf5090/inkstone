@@ -146,7 +146,7 @@ function GridCard(props: GridCardProps) {
           onDoubleClick={props.onPreview}
           className='block h-full w-full cursor-pointer'
         >
-          {isImage
+          {isImage && file.encryption !== 'note-lock-v1'
             ? <img src={file.url} alt={file.filename} loading='lazy' className='h-full w-full object-cover transition-transform duration-[var(--dur-base)] group-hover:scale-105' />
             : (
               <span className='flex h-full w-full items-center justify-center p-[var(--sp-4)]'>

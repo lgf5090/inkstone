@@ -995,6 +995,8 @@ export interface Backlink {
   context: string
 }
 
+export type NoteAttachmentEncryption = 'none' | 'note-lock-v1'
+
 export interface Attachment {
   id: string
   noteId: string | null
@@ -1005,6 +1007,9 @@ export interface Attachment {
   height: number | null
   url: string
   createdAt: number
+  encryption?: NoteAttachmentEncryption
+  plaintextSize?: number
+  sha256?: string
 }
 
 export interface AttachmentWithUsage extends Attachment {

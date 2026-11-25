@@ -10,7 +10,7 @@ import {
 import { drainAttachmentCleanup } from '../attachments/cleanup'
 import { collectAttachmentReferences } from '../attachments/references'
 import { attachmentObjectKey } from '../attachments/keys'
-import { persistAttachmentWithinQuota } from '../attachments/storage'
+import { persistAttachmentWithinQuota, replaceNoteAttachment } from '../attachments/storage'
 import {
   attachmentById,
   AttachmentsStore,
@@ -33,9 +33,9 @@ export const filesRoutes = new Hono<AppBindings>()
 // an unfinished scan here only withholds one asset, which is the safe direction.
 const SHARE_ASSET_SCAN_LIMITS = { maxDepth: 2, maxChars: 200_000 }
 
-// An owner re-reading their own attachment is the one cache that can be trusted to stay valid: the
-// bytes behind an id never change, and the reader is the only party that can delete them.
-const OWNER_ATTACHMENT_CACHE = 'private, max-age=31536000, immutable'
+// An owner may keep a private copy, but replacement can change both bytes and encryption under the
+// same id. Revalidation is therefore mandatory; an immutable response could outlive a migration.
+const OWNER_ATTACHMENT_CACHE = 'private, no-cache'
 
 // A share grant, however, is revocable — rotating the share password is documented to cut old asset
 // sessions off at once, and a year-long cache in the visitor's browser would outlive both the
@@ -66,6 +66,41 @@ function store(c: Context<AppBindings>): AttachmentsStore {
   return new AttachmentsStore(c.env.DB, c.get('userId'))
 }
 
+async function assertAttachmentUploadBudget(db: D1Database, userId: string): Promise<void> {
+  await assertAttemptBudget(() => consumeAttemptBudget(db, [{
+    key: `attachment-upload:${userId}`,
+    maxAttempts: LIMITS.attachmentUploadsPerHour,
+    windowMs: 60 * 60 * 1000,
+    lockMs: 60 * 60 * 1000,
+  }]), 'Too many uploads')
+}
+
+function readAttachmentEncryption(
+  form: FormData,
+  bytes: Uint8Array,
+): { encryption: 'none' | 'note-lock-v1'; plaintextSize?: number } {
+  const rawEncryption = form.get('encryption')
+  if (rawEncryption !== null && rawEncryption !== 'none' && rawEncryption !== 'note-lock-v1') {
+    throw ApiError.badRequest('Unsupported attachment encryption')
+  }
+  const encryption = rawEncryption === 'note-lock-v1' ? 'note-lock-v1' : 'none'
+  if (encryption === 'none') return { encryption }
+
+  const rawPlaintextSize = form.get('plaintextSize')
+  const plaintextSize = typeof rawPlaintextSize === 'string' && /^\d+$/.test(rawPlaintextSize)
+    ? Number(rawPlaintextSize)
+    : null
+  if (plaintextSize === null || !Number.isSafeInteger(plaintextSize) || plaintextSize > LIMITS.attachmentMaxBytes || bytes.length !== plaintextSize + LIMITS.noteAttachmentEnvelopeOverheadBytes) {
+    throw ApiError.badRequest('Invalid encrypted attachment length')
+  }
+  return { encryption, plaintextSize }
+}
+
+function assertAttachmentFileSize(size: number, encryption: 'none' | 'note-lock-v1'): void {
+  const ceiling = LIMITS.attachmentMaxBytes + (encryption === 'note-lock-v1' ? LIMITS.noteAttachmentEnvelopeOverheadBytes : 0)
+  if (size > ceiling) throw ApiError.tooLarge('The file exceeds the 25 MB limit')
+}
+
 function toAttachment(row: AttachmentRow): Attachment {
   return {
     id: row.id,
@@ -77,33 +112,36 @@ function toAttachment(row: AttachmentRow): Attachment {
     height: row.height,
     url: `/api/files/${row.id}`,
     createdAt: row.created_at,
+    encryption: row.encryption,
+    plaintextSize: row.plaintext_size ?? undefined,
+    sha256: row.sha256,
   }
 }
 
 filesRoutes.post('/', requireAuth, async (c) => {
   const userId = c.get('userId')
-  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [{
-    key: `attachment-upload:${userId}`,
-    maxAttempts: LIMITS.attachmentUploadsPerHour,
-    windowMs: 60 * 60 * 1000,
-    lockMs: 60 * 60 * 1000,
-  }]), 'Too many uploads')
+  await assertAttachmentUploadBudget(c.env.DB, userId)
 
   const form = await readFormDataWithinLimit(c.req, FORM_BODY_LIMITS.attachment)
 
   const file = form.get('file')
   if (!(file instanceof File)) throw ApiError.badRequest('Missing file field')
 
-  if (file.size > LIMITS.attachmentMaxBytes) {
-    throw ApiError.tooLarge('The file exceeds the 25 MB limit')
-  }
-
   const bytes = new Uint8Array(await file.arrayBuffer())
-  const id = newId()
+  const { encryption, plaintextSize } = readAttachmentEncryption(form, bytes)
+  assertAttachmentFileSize(file.size, encryption)
+  const rawAttachmentId = form.get('attachmentId')
+  const id = encryption === 'note-lock-v1' ? rawAttachmentId : newId()
+  if (typeof id !== 'string' || !isValidId(id)) throw ApiError.badRequest('Invalid attachment id')
   const rawNoteId = form.get('noteId')
   const noteId = typeof rawNoteId === 'string' && rawNoteId ? rawNoteId.slice(0, 128) : null
-  if (noteId && !(await store(c).noteIsLive(noteId))) {
-    throw ApiError.badRequest('The associated note does not exist')
+  const noteState = noteId ? await store(c).noteUploadState(noteId) : null
+  if (noteId && !noteState) throw ApiError.badRequest('The associated note does not exist')
+  if (encryption === 'note-lock-v1' && (!noteId || !noteState?.isEncrypted)) {
+    throw ApiError.badRequest('Encrypted attachments require a locked note')
+  }
+  if (encryption === 'none' && noteState?.isEncrypted) {
+    throw ApiError.badRequest('Locked notes only accept encrypted attachments')
   }
   const now = Date.now()
   const stored = await persistAttachmentWithinQuota(c.env, {
@@ -115,6 +153,8 @@ filesRoutes.post('/', requireAuth, async (c) => {
     reportedMime: file.type,
     bytes,
     createdAt: now,
+    encryption,
+    plaintextSize: plaintextSize ?? undefined,
   })
 
   const attachment: Attachment = {
@@ -122,15 +162,62 @@ filesRoutes.post('/', requireAuth, async (c) => {
     noteId,
     filename: stored.filename,
     mime: stored.mime,
-    size: bytes.byteLength,
+    size: stored.size,
     width: stored.width,
     height: stored.height,
     url: `/api/files/${id}`,
     createdAt: now,
+    encryption: stored.encryption,
+    plaintextSize: stored.plaintextSize ?? undefined,
+    sha256: stored.sha256,
   }
   return c.json(attachment, 201)
 })
 
+filesRoutes.put('/:id', requireAuth, async (c) => {
+  const id = c.req.param('id')
+  if (!isValidId(id)) throw ApiError.notFound('Attachment not found')
+  const userId = c.get('userId')
+  await assertAttachmentUploadBudget(c.env.DB, userId)
+
+  const form = await readFormDataWithinLimit(c.req, FORM_BODY_LIMITS.attachment)
+  const file = form.get('file')
+  if (!(file instanceof File)) throw ApiError.badRequest('Missing file field')
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const { encryption, plaintextSize } = readAttachmentEncryption(form, bytes)
+  assertAttachmentFileSize(file.size, encryption)
+  const rawExpectedSha256 = form.get('expectedSha256')
+  if (rawExpectedSha256 !== null && (typeof rawExpectedSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(rawExpectedSha256))) {
+    throw ApiError.badRequest('Invalid expected attachment checksum')
+  }
+  const expectedSha256 = typeof rawExpectedSha256 === 'string' ? rawExpectedSha256 : undefined
+  const stored = await replaceNoteAttachment(c.env, {
+    id,
+    userId,
+    filename: file.name || 'file',
+    reportedMime: file.type,
+    bytes,
+    encryption,
+    plaintextSize,
+    expectedSha256,
+  })
+
+  const attachment: Attachment = {
+    id,
+    noteId: stored.noteId,
+    filename: stored.filename,
+    mime: stored.mime,
+    size: stored.size,
+    width: stored.width,
+    height: stored.height,
+    url: `/api/files/${id}`,
+    createdAt: stored.createdAt,
+    encryption: stored.encryption,
+    plaintextSize: stored.plaintextSize ?? undefined,
+    sha256: stored.sha256,
+  }
+  return c.json(attachment)
+})
 
 filesRoutes.get('/:id', async (c) => {
   const id = c.req.param('id')
@@ -159,12 +246,24 @@ filesRoutes.get('/:id', async (c) => {
   }
   if (!allowed) throw ApiError.unauthenticated('You do not have access to this attachment')
 
-  const cacheControl = owner ? OWNER_ATTACHMENT_CACHE : SHARE_ATTACHMENT_CACHE
-  const etag = `"${row.sha256}"`
+  const encrypted = row.encryption === 'note-lock-v1'
+  if (owner && row.note_id) {
+    const noteState = await store(c).noteUploadState(row.note_id)
+    if (noteState && noteState.isEncrypted !== encrypted) {
+      throw ApiError.conflict('Attachment encryption does not match its note; migration is incomplete')
+    }
+  }
+
+  const objectKey = attachmentObjectKey(row)
+  const cacheControl = encrypted ? 'private, no-store' : owner ? OWNER_ATTACHMENT_CACHE : SHARE_ATTACHMENT_CACHE
+  // The object key changes on replacement, so metadata-only changes and a plaintext-to-ciphertext
+  // migration cannot receive a stale 304 for the previous representation.
+  const etagTag = `${row.sha256}:${encodeURIComponent(objectKey)}`
+  const etag = `"${etagTag}"`
   const ifNoneMatch = c.req.header('if-none-match')
   // Conditional revalidation only means something for a response the reader is allowed to keep, so
   // the share path answers the bytes every time rather than a 304 backed by a cache it must not have.
-  if (owner && ifNoneMatch && matchesETag(ifNoneMatch, row.sha256)) {
+  if (!encrypted && owner && ifNoneMatch && matchesETag(ifNoneMatch, etagTag)) {
     return new Response(null, {
       status: 304,
       headers: {
@@ -175,12 +274,19 @@ filesRoutes.get('/:id', async (c) => {
   }
 
   const headers = new Headers({
-    'Content-Type': row.mime,
+    'Content-Type': encrypted ? 'application/octet-stream' : row.mime,
     'Cache-Control': cacheControl,
     'ETag': etag,
-    'Content-Disposition': `${isInlineSafe(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeContentDispositionFilename(row.filename)}`,
+    'Content-Disposition': encrypted
+      ? `attachment; filename*=UTF-8''${encodeContentDispositionFilename(`${row.filename}.enc`)}`
+      : `${isInlineSafe(row.mime) ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeContentDispositionFilename(row.filename)}`,
     'X-Content-Type-Options': 'nosniff',
   })
+  if (encrypted) {
+    headers.set('X-Inkstone-Attachment-Encryption', 'note-lock-v1')
+    headers.set('X-Inkstone-Attachment-Type', row.mime)
+    headers.set('X-Inkstone-Attachment-Filename', encodeURIComponent(row.filename))
+  }
 
   if (!hasAttachmentStorage(c.env, row.storage)) {
     throw new ApiError(
@@ -189,7 +295,7 @@ filesRoutes.get('/:id', async (c) => {
       `${row.storage === 'r2' ? 'R2' : 'Workers KV'} attachment storage is not bound, so the attachment cannot be read`,
     )
   }
-  const object = await readAttachmentObjectStream(c.env, row.storage, attachmentObjectKey(row))
+  const object = await readAttachmentObjectStream(c.env, row.storage, objectKey)
   if (!object) throw ApiError.notFound('Attachment data is missing')
   return new Response(object.body as BodyInit, { headers })
 })

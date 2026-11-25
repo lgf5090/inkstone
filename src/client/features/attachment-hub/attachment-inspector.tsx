@@ -26,7 +26,7 @@ import { attachmentHubApi } from './api'
 import { useHubOrganizer } from './attachment-store'
 import { useHubScope } from './hub-scope'
 import { badgeLabelOf, fileExtensionOf, getFileCategory } from './attachment-helpers'
-import { markdownOf, reportCopyFailure } from './attachment-item-common'
+import { markdownOf, downloadFile, reportCopyFailure } from './attachment-item-common'
 
 interface AttachmentInspectorProps {
   file: HubAttachmentWithUsage | null
@@ -179,7 +179,7 @@ function PreviewBlock({ file, isImage, badge, onPreview }: {
   onPreview: (file: HubAttachmentWithUsage) => void
 }) {
   const chrome = 'group relative flex aspect-video w-full cursor-pointer items-center justify-center overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)]'
-  if (isImage) {
+  if (isImage && file.encryption !== 'note-lock-v1') {
     return (
       <button type='button' aria-label={t('attachments.preview_file')} onClick={() => onPreview(file)} className={chrome}>
         <img src={file.url} alt={file.filename} className='h-full w-full object-cover transition-transform duration-[var(--dur-base)] group-hover:scale-105' />
@@ -230,7 +230,7 @@ function ActionButtons({ file, copy, onInsertHere, onShowQr }: {
 }) {
   return (
     <div className='grid grid-cols-2 gap-[var(--sp-1-5)] pt-[var(--sp-1)]'>
-      {onInsertHere && (
+      {onInsertHere && file.encryption !== 'note-lock-v1' && (
         <Button size='sm' variant='secondary' className='col-span-2' icon={<Paperclip size={13} />} onClick={() => onInsertHere(file)}>
           {t('attachments.insert_here')}
         </Button>
@@ -244,14 +244,9 @@ function ActionButtons({ file, copy, onInsertHere, onShowQr }: {
       <Button size='sm' variant='secondary' icon={<QrCode size={13} />} onClick={() => onShowQr(file)}>
         {t('attachments.qr_code_title')}
       </Button>
-      <a
-        href={file.url}
-        download={file.filename}
-        className='inline-flex h-9 items-center justify-center gap-[var(--sp-1-5)] rounded-[var(--r-sm)] border border-[var(--border-default)] px-[var(--sp-3)] text-[length:var(--text-12)] font-medium whitespace-nowrap text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)] md:h-7 md:px-2.5'
-      >
-        <Download size={13} />
+      <Button size='sm' variant='secondary' icon={<Download size={13} />} onClick={() => downloadFile(file)}>
         <span>{t('common.download')}</span>
-      </a>
+      </Button>
     </div>
   )
 }

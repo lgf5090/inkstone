@@ -10,6 +10,8 @@ import katexPrintCss from 'katex/dist/katex.min.css?inline'
 // A diagram is coloured entirely by CSS variables, so the page an export lands on has to carry the
 // ramp itself: without it every shape falls back to the engine's defaults, light and dark alike.
 import diagramPrintCss from '../styles/pele.css?inline'
+import { resolveLockedNoteAttachment } from '../store/note-locks'
+import { privateAttachmentId } from './private-attachment-url'
 
 // Pinned so an exported document cannot silently load a different stylesheet: the hash
 // is the sha384 of node_modules/katex/dist/katex.min.css for the version in package.json.
@@ -80,13 +82,13 @@ export function exportNoteAsMarkdown(note: { title: string; content: string }): 
   downloadTextFile(`${safeFileName(title) || 'note'}.md`, `${frontMatter}${note.content}`, 'text/markdown;charset=utf-8')
 }
 
-export async function exportNoteAsHtml(note: { title: string; content: string }, language: string): Promise<void> {
-  const { body, hasMath } = await prepareExportBody(note)
+export async function exportNoteAsHtml(note: { title: string; content: string }, language: string, noteId?: string): Promise<void> {
+  const { body, hasMath } = await prepareExportBody(note, noteId)
   downloadTextFile(`${safeFileName(note.title) || 'note'}.html`, htmlDocument(note.title, body, language, hasMath ? CDN_MATH_STYLESHEET : ''), 'text/html;charset=utf-8')
 }
 
-export async function exportNoteAsPdf(note: { title: string; content: string }, language: string): Promise<void> {
-  const { body, hasMath } = await prepareExportBody(note)
+export async function exportNoteAsPdf(note: { title: string; content: string }, language: string, noteId?: string): Promise<void> {
+  const { body, hasMath } = await prepareExportBody(note, noteId)
   await printHtml(htmlDocument(note.title, body, language, hasMath ? INLINE_MATH_STYLESHEET : ''))
 }
 
@@ -131,13 +133,14 @@ async function waitForPrintReady(iframe: HTMLIFrameElement): Promise<void> {
 const IMAGE_FETCH_CONCURRENCY = 6
 const IMAGE_FETCH_TIMEOUT_MS = 30_000
 
-async function prepareExportBody(note: { title: string; content: string }): Promise<{ body: string; hasMath: boolean }> {
+async function prepareExportBody(note: { title: string; content: string }, noteId?: string): Promise<{ body: string; hasMath: boolean }> {
   const rendered = renderMarkdown(note.content)
   const doc = new DOMParser().parseFromString(rendered.html, 'text/html')
   registerFenceBodies(doc.body, rendered.fences)
   // Embeds resolve first: their expanded bodies carry their own images, placeholders and
   // tab sets, and every pass below runs over the whole document, so going early covers them.
   await resolveNoteEmbeds(doc.body, { currentContent: note.content, currentTitle: note.title })
+  if (noteId) await inlineEncryptedAttachments(doc.body, noteId)
   await inlinePrivateImages(doc)
   // `false` because the exported page is always the light scheme.
   await renderMath(doc)
@@ -190,6 +193,41 @@ function expandHiddenBlocks(root: HTMLElement): void {
       }
     })
   })
+}
+
+async function inlineEncryptedAttachments(root: HTMLElement, noteId: string): Promise<void> {
+  const targets = [...root.querySelectorAll<HTMLElement>('img[src], a[href], source[src], video[src], audio[src], iframe[src]')]
+  const dataUrls = new Map<string, string>()
+  const filenames = new Map<string, string>()
+  const mimes = new Map<string, string>()
+  for (const element of targets) {
+    const attribute = element.matches('a') ? 'href' : 'src'
+    const value = element.getAttribute(attribute)
+    const attachmentId = privateAttachmentId(value)
+    if (!attachmentId) continue
+    try {
+      let dataUrl = dataUrls.get(attachmentId)
+      let filename = filenames.get(attachmentId) ?? attachmentId
+      let mime = mimes.get(attachmentId) ?? 'application/octet-stream'
+      if (!dataUrl) {
+        const resolved = await resolveLockedNoteAttachment(noteId, attachmentId)
+        filename = resolved.filename
+        mime = resolved.mime
+        filenames.set(attachmentId, filename)
+        mimes.set(attachmentId, mime)
+        const response = await fetch(resolved.url)
+        if (!response.ok) throw new Error(`Decrypted attachment read failed: ${response.status}`)
+        const converted = await blobToDataUrl(new Blob([await response.arrayBuffer()], { type: mime }))
+        if (!converted) throw new Error('Decrypted attachment could not be embedded')
+        dataUrl = converted
+        dataUrls.set(attachmentId, dataUrl)
+      }
+      element.setAttribute(attribute, dataUrl)
+      if (element.matches('a')) element.setAttribute('download', filename)
+    } catch (error) {
+      throw new Error(`Encrypted attachment ${attachmentId} could not be exported`, { cause: error })
+    }
+  }
 }
 
 async function inlinePrivateImages(doc: Document): Promise<void> {

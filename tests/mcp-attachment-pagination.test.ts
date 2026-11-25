@@ -34,9 +34,11 @@ function database(): DatabaseSync {
 }
 
 function migrate(sqlite: DatabaseSync): void {
-  const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 421)
-  expect(migration).toBeDefined()
-  sqlite.exec(migration!.statements.join(';\n'))
+  for (const version of [421, 426, 427]) {
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === version)
+    expect(migration).toBeDefined()
+    sqlite.exec(migration!.statements.join(';\n'))
+  }
 }
 
 function seed(sqlite: DatabaseSync): void {

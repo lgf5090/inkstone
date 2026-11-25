@@ -43,6 +43,8 @@ interface HubRow {
   object_key: string | null
   width: number | null
   height: number | null
+  encryption: 'none' | 'note-lock-v1' | null
+  plaintext_size: number | null
 }
 
 const TYPE_CONDITIONS: Record<HubAttachmentType, string> = {
@@ -116,8 +118,11 @@ class Bindings {
 function rowColumns(descriptor: AttachmentScopeDescriptor): string {
   const owner = descriptor.ownerColumn ?? 'NULL'
   const dimensions = descriptor.hasDimensions ? 'width, height' : 'NULL AS width, NULL AS height'
+  const encryption = descriptor.table === 'attachments'
+    ? 'encryption, plaintext_size'
+    : 'NULL AS encryption, NULL AS plaintext_size'
   return `id, filename, mime, size, folder_id, is_starred, is_pinned, tags, created_at,
-          ${owner} AS owner_id, ${descriptor.keyColumn} AS object_key, ${dimensions}`
+          ${owner} AS owner_id, ${descriptor.keyColumn} AS object_key, ${dimensions}, ${encryption}`
 }
 
 function toHubAttachment(
@@ -142,6 +147,8 @@ function toHubAttachment(
     isPinned: Boolean(row.is_pinned),
     tags: decodeTags(row.tags),
     ownerId: row.owner_id,
+    ...(row.encryption ? { encryption: row.encryption } : {}),
+    ...(row.plaintext_size !== null ? { plaintextSize: row.plaintext_size } : {}),
     createdAt: normalizeCreatedAt(row.created_at),
     references,
   }

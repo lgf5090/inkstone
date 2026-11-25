@@ -14,7 +14,7 @@ import {
   type HubCategory,
   type HubSizeFilter,
 } from '../attachment-helpers'
-import { downloadFile } from '../attachment-item-common'
+import { downloadFile, refuseLockedAttachment } from '../attachment-item-common'
 
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>
 type ToastFn = (input: ToastInput) => void
@@ -279,7 +279,9 @@ function useHubHandlers(
   const [previewFile, setPreviewFile] = useState<HubAttachmentWithUsage | null>(null)
 
   /** Every type previews through the one lazy viewer, so a PDF and an image open the same way. */
-  const handlePreview = (file: HubAttachmentWithUsage) => setPreviewFile(file)
+  const handlePreview = (file: HubAttachmentWithUsage) => {
+    if (!refuseLockedAttachment(file)) setPreviewFile(file)
+  }
 
   const handleToggleFlag = async (file: HubAttachmentWithUsage, flag: 'isStarred' | 'isPinned') => {
     const next = !file[flag]

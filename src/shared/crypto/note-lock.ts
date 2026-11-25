@@ -1,5 +1,5 @@
 /**
- * The sealed-text primitives shared by the notebook and Memos.
+ * The sealed-note primitives shared by the notebook and Memos.
  *
  * Memos keeps its original one-field wire format, with an implicit 150,000-round work factor:
  *
@@ -11,6 +11,7 @@
  *
  * PBKDF2-SHA256 derives a 256-bit AES-GCM key. Note ciphertext additionally authenticates the note id
  * and field as AAD, so moving either field to another note or swapping title and body fails closed.
+ * Attachments reuse that key with a binary envelope bound to both the note and attachment ids.
  */
 
 const encoder = new TextEncoder()
@@ -26,6 +27,9 @@ const KEY_BITS = 256
 const BASE64URL = /^[A-Za-z0-9_-]+$/
 const UNSIGNED_DECIMAL = /^[1-9]\d*$/
 const NOTE_AAD_DOMAIN = 'inkstone:note-lock:v2'
+const NOTE_ATTACHMENT_AAD_DOMAIN = 'inkstone:note-lock-attachment:v1'
+const NOTE_ATTACHMENT_MAGIC = encoder.encode('IKA1')
+const NOTE_ATTACHMENT_HEADER_BYTES = NOTE_ATTACHMENT_MAGIC.length + IV_BYTES
 
 export const NOTE_LOCK_ENVELOPE_PREFIX = PREFIX
 export const NOTE_LOCK_KDF_NAME = 'PBKDF2-SHA256'
@@ -194,6 +198,14 @@ function noteAad(noteId: string, field: NoteLockField): Uint8Array {
   return encoder.encode(`${NOTE_AAD_DOMAIN}:${JSON.stringify([noteId, field])}`)
 }
 
+function noteAttachmentAad(noteId: string, attachmentId: string): Uint8Array {
+  return encoder.encode(`${NOTE_ATTACHMENT_AAD_DOMAIN}:${JSON.stringify([noteId, attachmentId])}`)
+}
+
+function assertNoteAttachmentContext(noteId: string, attachmentId: string): void {
+  if (typeof noteId !== 'string' || !noteId || typeof attachmentId !== 'string' || !attachmentId) invalidEnvelope()
+}
+
 function assertNoteContext(noteId: string, field: NoteLockField): void {
   if (typeof noteId !== 'string' || !noteId || (field !== 'title' && field !== 'content')) invalidEnvelope()
 }
@@ -242,7 +254,7 @@ export class NoteLockSession {
       {
         name: 'AES-GCM',
         iv: fromBase64Url(iv, IV_BYTES) as unknown as BufferSource,
-        additionalData: additionalData as unknown as BufferSource,
+        ...(additionalData ? { additionalData: additionalData as unknown as BufferSource } : {}),
       },
       this.key,
       encoder.encode(plaintext),
@@ -266,7 +278,7 @@ export class NoteLockSession {
         {
           name: 'AES-GCM',
           iv: iv as unknown as BufferSource,
-          additionalData: additionalData as unknown as BufferSource,
+          ...(additionalData ? { additionalData: additionalData as unknown as BufferSource } : {}),
         },
         this.key,
         ciphertext as unknown as BufferSource,
@@ -301,6 +313,48 @@ export class NoteLockSession {
     assertNoteContext(noteId, field)
     const parsed = parseNoteLockEnvelope(envelope)
     return this.openParsed(parsed, parsed.version === 2 ? noteAad(noteId, field) : undefined)
+  }
+
+  async sealNoteAttachment(noteId: string, attachmentId: string, plaintext: Uint8Array): Promise<Uint8Array> {
+    assertNoteAttachmentContext(noteId, attachmentId)
+    if (!(plaintext instanceof Uint8Array)) invalidEnvelope()
+    const iv = randomBytes(IV_BYTES)
+    const ciphertext = new Uint8Array(await subtle().encrypt(
+      {
+        name: 'AES-GCM',
+        iv: iv as unknown as BufferSource,
+        additionalData: noteAttachmentAad(noteId, attachmentId) as unknown as BufferSource,
+      },
+      this.key,
+      plaintext as unknown as BufferSource,
+    ))
+    const sealed = new Uint8Array(NOTE_ATTACHMENT_HEADER_BYTES + ciphertext.length)
+    sealed.set(NOTE_ATTACHMENT_MAGIC)
+    sealed.set(iv, NOTE_ATTACHMENT_MAGIC.length)
+    sealed.set(ciphertext, NOTE_ATTACHMENT_HEADER_BYTES)
+    return sealed
+  }
+
+  async openNoteAttachment(noteId: string, attachmentId: string, sealed: Uint8Array): Promise<Uint8Array> {
+    assertNoteAttachmentContext(noteId, attachmentId)
+    if (!(sealed instanceof Uint8Array) || sealed.length < NOTE_ATTACHMENT_HEADER_BYTES + GCM_TAG_BYTES
+      || NOTE_ATTACHMENT_MAGIC.some((byte, index) => sealed[index] !== byte)) invalidEnvelope()
+    const iv = sealed.slice(NOTE_ATTACHMENT_MAGIC.length, NOTE_ATTACHMENT_HEADER_BYTES)
+    const ciphertext = sealed.slice(NOTE_ATTACHMENT_HEADER_BYTES)
+    try {
+      const opened = await subtle().decrypt(
+        {
+          name: 'AES-GCM',
+          iv: iv as unknown as BufferSource,
+          additionalData: noteAttachmentAad(noteId, attachmentId) as unknown as BufferSource,
+        },
+        this.key,
+        ciphertext as unknown as BufferSource,
+      )
+      return new Uint8Array(opened)
+    } catch {
+      throw new NoteUnlockError('wrong-password')
+    }
   }
 }
 

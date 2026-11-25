@@ -17,8 +17,10 @@
  *    they land together.
  */
 
+import type { NoteAttachmentEncryption } from '@shared/types'
 import type { AttachmentObjectStorage } from './keys'
 import { attachmentCleanupTarget, attachmentObjectKey } from './keys'
+import type { AttachmentScope } from './scopes'
 
 export interface AttachmentRow {
   id: string
@@ -32,7 +34,29 @@ export interface AttachmentRow {
   width: number | null
   height: number | null
   storage: AttachmentObjectStorage
+  encryption: NoteAttachmentEncryption
+  plaintext_size: number | null
   created_at: number
+}
+
+/** A note attachment whose owning note still exists, as a byte replacement needs it. */
+export interface NoteAttachmentReplacementRow extends Omit<AttachmentRow, 'note_id'> {
+  note_id: string
+  scope: AttachmentScope
+}
+
+/** The mutable columns replaced together; identity, ownership and creation time stay put. */
+export interface AttachmentReplacementValues {
+  filename: string
+  mime: string
+  size: number
+  sha256: string
+  object_key: string
+  width: number | null
+  height: number | null
+  storage: AttachmentObjectStorage
+  encryption: NoteAttachmentEncryption
+  plaintext_size: number | null
 }
 
 
@@ -81,7 +105,7 @@ export interface PruneOutcome {
 }
 
 /** The columns a listing reads. `sha256` is only the read path's, so the list spells its own set. */
-const ATTACHMENT_LIST_COLUMNS = 'id, user_id, note_id, filename, mime, size, width, height, object_key, storage, created_at'
+const ATTACHMENT_LIST_COLUMNS = 'id, user_id, note_id, filename, mime, size, sha256, width, height, object_key, storage, encryption, plaintext_size, created_at'
 
 
 /**
@@ -93,7 +117,7 @@ const ATTACHMENT_LIST_COLUMNS = 'id, user_id, note_id, filename, mime, size, wid
  */
 export function attachmentById(db: D1Database, id: string): Promise<AttachmentRow | null> {
   return db.prepare(
-    `SELECT id, user_id, note_id, filename, mime, size, sha256, object_key, width, height, storage, created_at
+    `SELECT id, user_id, note_id, filename, mime, size, sha256, object_key, width, height, storage, encryption, plaintext_size, created_at
        FROM attachments WHERE id = ?1`,
   ).bind(id).first<AttachmentRow>()
 }
@@ -165,14 +189,105 @@ export class AttachmentsStore {
     }
   }
 
-  /** Whether a note the upload wants to hang off is one this account still has. */
-  async noteIsLive(noteId: string): Promise<boolean> {
+  /** Whether a note the upload wants to hang off is one this account still has, and its lock state. */
+  async noteUploadState(noteId: string): Promise<{ isEncrypted: boolean } | null> {
     const owned = await this.db.prepare(
-      `SELECT id FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
+      `SELECT is_encrypted FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
     )
       .bind(noteId, this.userId)
-      .first<{ id: string }>()
-    return Boolean(owned)
+      .first<{ is_encrypted: number }>()
+    return owned ? { isEncrypted: owned.is_encrypted === 1 } : null
+  }
+
+  /** One owned note attachment, joined to its live note so task and orphan rows cannot be replaced. */
+  async forNoteReplacement(id: string): Promise<NoteAttachmentReplacementRow | null> {
+    return this.db.prepare(
+      `SELECT a.id, a.user_id, a.note_id, a.filename, a.mime, a.size, a.sha256,
+              a.object_key, a.width, a.height, a.storage, a.encryption, a.plaintext_size,
+              a.created_at, a.scope
+         FROM attachments a
+         JOIN notes n ON n.id = a.note_id AND n.user_id = a.user_id AND n.deleted_at IS NULL
+        WHERE a.id = ?1 AND a.user_id = ?2 AND a.scope = 'notes'
+          AND a.note_id IS NOT NULL AND a.note_id <> ''`,
+    )
+      .bind(id, this.userId)
+      .first<NoteAttachmentReplacementRow>()
+  }
+
+  /** Whether this exact backend/key is already queued, so a replacement must not reuse it. */
+  async hasPendingCleanup(storage: AttachmentObjectStorage, objectKey: string): Promise<boolean> {
+    const row = await this.db.prepare(
+      `SELECT 1 AS pending FROM attachment_cleanup WHERE object_key = ?1 AND user_id = ?2 LIMIT 1`,
+    )
+      .bind(attachmentCleanupTarget(storage, objectKey), this.userId)
+      .first<{ pending: number }>()
+    return Boolean(row)
+  }
+
+  /**
+   * Replace the mutable bytes metadata and queue the previous object in one transaction.
+   *
+   * The note-state predicate is repeated here because locking can change after the object write. A
+   * stale replacement changes no row and therefore queues no cleanup; the caller rolls back its new
+   * object. The cleanup insert runs after the update and checks the new key, so it cannot delete the
+   * replacement when an old row happened to use the same derived key.
+   */
+  async replaceBytes(
+    row: NoteAttachmentReplacementRow,
+    values: AttachmentReplacementValues,
+    expectedSha256?: string,
+  ): Promise<boolean> {
+    const statements: D1PreparedStatement[] = [
+      this.db.prepare(
+        `UPDATE attachments
+            SET filename = ?1, mime = ?2, size = ?3, sha256 = ?4, object_key = ?5,
+                width = ?6, height = ?7, storage = ?8, encryption = ?9, plaintext_size = ?10
+          WHERE id = ?11 AND user_id = ?12 AND scope = 'notes'
+            AND note_id IS NOT NULL AND note_id <> ''
+            AND (?14 IS NULL OR sha256 = ?14)
+            AND EXISTS (
+              SELECT 1 FROM notes
+                WHERE notes.id = attachments.note_id AND notes.user_id = ?12
+                  AND notes.deleted_at IS NULL
+                  AND notes.is_encrypted = ?13
+            )`,
+      ).bind(
+        values.filename,
+        values.mime,
+        values.size,
+        values.sha256,
+        values.object_key,
+        values.width,
+        values.height,
+        values.storage,
+        values.encryption,
+        values.plaintext_size,
+        row.id,
+        this.userId,
+        values.encryption === 'note-lock-v1' ? 1 : 0,
+        expectedSha256 ?? null,
+      ),
+    ]
+
+    const previousObjectKey = attachmentObjectKey(row)
+    if (previousObjectKey !== values.object_key) {
+      statements.push(
+        this.db.prepare(
+          `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
+           SELECT ?1, user_id, ?2 FROM attachments
+            WHERE id = ?3 AND user_id = ?4 AND object_key = ?5`,
+        ).bind(
+          attachmentCleanupTarget(row.storage, previousObjectKey),
+          Date.now(),
+          row.id,
+          this.userId,
+          values.object_key,
+        ),
+      )
+    }
+
+    const results = await this.db.batch(statements)
+    return Boolean(results[0]?.meta.changes)
   }
 
   /** The row a deletion is answered from: the object it has to release and the account it belongs to. */

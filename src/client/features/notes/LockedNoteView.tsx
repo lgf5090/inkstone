@@ -1,5 +1,6 @@
 /** The workspace surface for a sealed note that has not been unlocked in this session. */
 import { ArrowLeft, KeyRound, Lock, Unlock } from 'lucide-react'
+import { useState } from 'react'
 import type { NoteSummary } from '@shared/types'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
@@ -9,6 +10,17 @@ export function LockedNoteView({ note, onMobileBack }: {
   note: NoteSummary
   onMobileBack?: () => void
 }) {
+  const [pending, setPending] = useState<'unlock' | 'decrypt' | null>(null)
+  const run = async (operation: 'unlock' | 'decrypt') => {
+    if (pending) return
+    setPending(operation)
+    try {
+      if (operation === 'unlock') await unlockNoteFromMenu(note.id)
+      else await decryptNoteFromMenu(note.id)
+    } finally {
+      setPending(null)
+    }
+  }
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-editor)]">
       <header className="flex min-h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1">
@@ -43,10 +55,10 @@ export function LockedNoteView({ note, onMobileBack }: {
             {t('notelock.real_e2e_hint')}
           </p>
           <div className="mt-5 flex items-center justify-end gap-2">
-            <Button variant="secondary" onClick={() => void decryptNoteFromMenu(note.id)}>
+            <Button variant="secondary" loading={pending === 'decrypt'} disabled={pending !== null} onClick={() => void run('decrypt')}>
               <KeyRound size={13}/> {t('notelock.menu_remove')}
             </Button>
-            <Button variant="primary" onClick={() => void unlockNoteFromMenu(note.id)}>
+            <Button variant="primary" loading={pending === 'unlock'} disabled={pending !== null} onClick={() => void run('unlock')}>
               <Unlock size={13}/> {t('notelock.unlock_action')}
             </Button>
           </div>

@@ -219,10 +219,8 @@ describe('excalidraw view helpers and patch guard', () => {
         expect(node.querySelector('.excalidraw-error-message')?.textContent).toBe('Network error');
     });
 
-    // The case pulls in the whole preview module to reach `patchChildren`, and a full-suite run is
-    // contended enough for that transform to cross the 30 s default it would otherwise inherit.
     it('patchChildren preserves a mounted ready excalidraw block across typing', async () => {
-        const { patchChildren } = await import('../../features/preview/Preview');
+        const { patchChildren } = await import('../../features/preview/preview-dom-patch');
         const { markExcalidrawReady } = await import('./excalidraw/view');
 
         const initialDoc = `# Title\n\n\`\`\`excalidraw\n${SAMPLE_EXCALIDRAW_JSON}\n\`\`\``;

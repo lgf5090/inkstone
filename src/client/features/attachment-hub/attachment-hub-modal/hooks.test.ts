@@ -17,9 +17,10 @@ vi.mock('../api', () => ({
   attachmentHubApi: { list: mocks.list },
 }))
 
-vi.mock('../../../store/ui', () => ({
-  useUi: (selector: (state: { toast: typeof mocks.toast }) => unknown) => selector({ toast: mocks.toast }),
-}))
+vi.mock('../../../store/ui', () => {
+  const useUi = (selector: (state: { toast: typeof mocks.toast }) => unknown) => selector({ toast: mocks.toast })
+  return { useUi: Object.assign(useUi, { getState: () => ({ toast: mocks.toast }) }) }
+})
 
 vi.mock('../attachment-store', () => ({
   useHubOrganizer: () => [],
@@ -110,6 +111,14 @@ afterEach(() => {
 })
 
 describe('attachment hub search requests', () => {
+  it('refuses to preview encrypted note attachments outside their unlocked note', async () => {
+    await mount()
+    const encrypted = { ...file('a'), encryption: 'note-lock-v1' as const }
+    act(() => { hub.handlePreview(encrypted) })
+    expect(hub.previewFile).toBeNull()
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ tone: 'warning' }))
+  })
+
   it('waits 180ms after the last search edit before listing', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     await mount()

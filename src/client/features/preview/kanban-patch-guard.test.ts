@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderMarkdown } from '../../lib/markdown/renderer'
 import { registerFenceBodies } from '../../lib/markdown/fence-bodies'
-import { patchChildren } from './Preview'
+import { patchChildren } from './preview-dom-patch'
 
 const FENCE = '```'
 const BODY_A = '{\n  "title": "A",\n  "items": []\n}'

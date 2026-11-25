@@ -1,7 +1,7 @@
 import type { RssFetchResult } from '@shared/rss/model'
 import { CLIENT_HEADER } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
-import type { ReaderUsage } from '@shared/types'
+import type { ReaderUsage, NoteAttachmentEncryption } from '@shared/types'
 import type { ChatAttachment,
   AssistantSkill,
   AssistantSkillInput,
@@ -1303,11 +1303,32 @@ export const api = {
     ),
     byName: (name: string, signal?: AbortSignal) =>
       request<{ files: Attachment[] }>(`/api/files${toQuery({ name })}`, { signal }),
-    upload: async (file: File, noteId?: string) => {
+    upload: async (file: File, noteId?: string, options: {
+      encryption?: NoteAttachmentEncryption
+      attachmentId?: string
+      plaintextSize?: number
+    } = {}) => {
       const form = new FormData()
       form.append('file', file)
       if (noteId) form.append('noteId', noteId)
+      if (options.encryption) form.append('encryption', options.encryption)
+      if (options.attachmentId) form.append('attachmentId', options.attachmentId)
+      if (options.plaintextSize !== undefined) form.append('plaintextSize', String(options.plaintextSize))
       const attachment = await request<Attachment>('/api/files', { method: 'POST', formData: form })
+      window.dispatchEvent(new CustomEvent('inkstone:files-changed'))
+      return attachment
+    },
+    replace: async (id: string, file: File, options: {
+      encryption: NoteAttachmentEncryption
+      plaintextSize?: number
+      expectedSha256?: string
+    }) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('encryption', options.encryption)
+      if (options.plaintextSize !== undefined) form.append('plaintextSize', String(options.plaintextSize))
+      if (options.expectedSha256) form.append('expectedSha256', options.expectedSha256)
+      const attachment = await request<Attachment>(`/api/files/${id}`, { method: 'PUT', formData: form })
       window.dispatchEvent(new CustomEvent('inkstone:files-changed'))
       return attachment
     },

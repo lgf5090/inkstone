@@ -829,7 +829,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     'list_attachments',
     {
       title: 'List attachments',
-      description: 'List bounded private attachment metadata, optionally for one note. Continue with the returned opaque cursor; legacy numeric offsets remain accepted.',
+      description: 'List bounded private attachment metadata, optionally for one note. Continue with the returned opaque cursor; legacy numeric offsets remain accepted. Encrypted note attachments are omitted.',
       inputSchema: z.object({
         note_id: noteId.optional(),
         limit: z.number().int().min(1).max(50).default(20),
@@ -849,7 +849,7 @@ export function createInkstoneMcpServer(options: InkstoneMcpServerOptions): McpS
     'read_attachment',
     {
       title: 'Read attachment chunk',
-      description: 'Read a bounded base64 chunk of one private attachment with cursor continuation.',
+      description: 'Read a bounded base64 chunk of one private attachment with cursor continuation. Encrypted note attachments are refused because their keys exist only in an unlocked browser session.',
       inputSchema: z.object({
         attachment_id: noteId,
         cursor: z.number().int().nonnegative().optional(),

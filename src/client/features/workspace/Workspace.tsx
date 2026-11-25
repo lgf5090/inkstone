@@ -4,7 +4,6 @@ import type { EditorView } from '@codemirror/view';
 import { ArrowLeft, Columns2, Download, Eye, FileCode, FileDown, FileText, FolderClosed, Globe, Hash, History, Link as LinkIcon, ListTree, MoreHorizontal, PanelRightClose, Paperclip, Pencil, Plus, Presentation, Share2, Sparkles, Star, Waypoints, X, } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { insertRenderedTemplate, insertText } from '../../editor/commands';
-import { api } from '../../lib/api';
 import { countText, readingMinutes } from '@shared/markdown-utils';
 import { LIMITS } from '@shared/constants';
 import type { EditorLayout } from '@shared/types';
@@ -29,6 +28,7 @@ import { Preview } from '../preview/Preview';
 import { LockedNoteView } from '../notes/LockedNoteView';
 import { noteLockMenuItems } from '../notes/note-lock-menu';
 import { offlineNoteMenuItems } from '../notes/offline-notes';
+import { uploadNoteAttachment } from '../notes/note-attachments';
 import { saveUnlockedNoteEdit, updateUnlockedNoteDraft, useNoteLocks } from '../../store/note-locks';
 import { Outline } from '../preview/Outline';
 import { FloatingOutline } from '../preview/FloatingOutline';
@@ -328,9 +328,9 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const handlers = useMemo(() => ({
         uploadFile: async (file: File) => {
             try {
-                if (note?.isEncrypted) throw new Error(t('notelock.attachments_blocked'));
+                if (!note?.id) throw new Error(t('workspace.upload_failed'));
                 const optimized = await optimizeImageFile(file);
-                const uploaded = await api.files.upload(optimized, note?.id);
+                const uploaded = await uploadNoteAttachment(optimized, note.id, Boolean(note.isEncrypted));
                 return {
                     url: uploaded.url,
                     filename: uploaded.filename,
@@ -356,7 +356,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
                 return;
             editContent(noteId, `${source.slice(0, at)}${replacement}${source.slice(at + placeholder.length)}`);
         },
-    }), [note?.id, toast, editContent]);
+    }), [note?.id, note?.isEncrypted, toast, editContent]);
     const onChange = useCallback((next: string) => {
         if (!note)
             return;
@@ -377,13 +377,9 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         useUi.getState().setWorkspaceNote('secondary', id, true);
     }, []);
     const pickWithFileInput = useCallback((kind: 'image' | 'file') => {
-        if (note?.isEncrypted) {
-            toast({ title: t('notelock.attachments_blocked'), tone: 'warning' });
-            return;
-        }
         pendingFileKind.current = kind;
         fileInputRef.current?.click();
-    }, [note?.isEncrypted, toast]);
+    }, []);
     // The context menu is handed to `Preview`, which is memoised, so its host object has to keep its
     // identity across the re-renders the cursor causes. These two read the note through a ref rather
     // than closing over it, which is what lets the callbacks be stable.
@@ -398,9 +394,9 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         }
         try {
             if (format === 'html')
-                await exportNoteAsHtml(target, getLocale());
+                await exportNoteAsHtml(target, getLocale(), useNotes.getState().notes[target.id]?.isEncrypted ? target.id : undefined);
             else
-                await exportNoteAsPdf(target, getLocale());
+                await exportNoteAsPdf(target, getLocale(), useNotes.getState().notes[target.id]?.isEncrypted ? target.id : undefined);
         }
         catch (err) {
             useUi.getState().toast({
@@ -528,9 +524,9 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         }
         try {
             if (format === 'html')
-                await exportNoteAsHtml(payload, locale);
+                await exportNoteAsHtml(payload, locale, note.isEncrypted ? note.id : undefined);
             else
-                await exportNoteAsPdf(payload, locale);
+                await exportNoteAsPdf(payload, locale, note.isEncrypted ? note.id : undefined);
         }
         catch (err) {
             toast({
@@ -840,7 +836,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         {showSplit && !isMobile && (<SplitResizer label={t("workspace.resize_editor_and_preview_panes")} containerRef={containerRef} ratio={effectiveSplitRatio} onChange={(splitRatio) => setLayout({ splitRatio })} onReset={() => setLayout({ splitRatio: null })}/>)}
 
         {showPreview && (<div className={cn('relative flex min-h-0 min-w-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-editor)]', isMobile && layout === 'split' && 'flex-1 border-l-0 border-t', layout === 'preview' && 'flex-1 border-l-0')} style={{ width: layout === 'split' && !isMobile ? previewWidth : '100%' }}>
-            <Preview key={note.id} content={content} noteId={note.id} noteTitle={note.title} onHeadings={setHeadings} scrollerRef={previewScrollerRef} onRendered={invalidateSyncAnchors} onInitialRender={(scroller) => restoreReading(scroller, readingKey)} onScroll={(scroller) => saveReadingPosition(scroller, readingKey)} className="min-w-0 flex-1" contextMenu={previewSettings.contextMenu ? contextMenu : undefined}/>
+            <Preview key={note.id} content={content} noteId={note.id} noteTitle={note.title} encryptedAttachments={Boolean(note.isEncrypted)} onHeadings={setHeadings} scrollerRef={previewScrollerRef} onRendered={invalidateSyncAnchors} onInitialRender={(scroller) => restoreReading(scroller, readingKey)} onScroll={(scroller) => saveReadingPosition(scroller, readingKey)} className="min-w-0 flex-1" contextMenu={previewSettings.contextMenu ? contextMenu : undefined}/>
             {outlineVisible && (<Outline headings={headings} onSelect={jumpToHeading} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount} hoverPeek={outlineHoverPeek} textDirection={outlineTextDirection}/>)}
           </div>)}
         {!showPreview && outlineVisible && <Outline headings={headings} onSelect={jumpToHeading} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} activeOverride={outlineCursorActive} content={content} onContentChange={onChange} dragEdits={outlineDragEdits} autoExpand={outlineAutoExpand} tooltipSide={outlineTooltipSide} truncateLength={outlineTruncateLength} markdownLabels={outlineMarkdownLabels} showReadingTime={outlineShowReadingTime} readingSpeed={outlineReadingSpeed} wordCount={note.wordCount} hoverPeek={outlineHoverPeek} textDirection={outlineTextDirection}/>}

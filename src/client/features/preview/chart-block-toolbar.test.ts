@@ -9,7 +9,7 @@ import type { BlockActionContext } from './block-overlay';
 
 const press = (button: HTMLElement, ctx: BlockActionContext) => chartToolbar.handle({ preventDefault: () => {} }, button, ctx);
 import { renderMarkdown } from '../../lib/markdown/renderer';
-import { patchChildren } from './Preview';
+import { patchChildren } from './preview-dom-patch';
 import { encodeDataValue } from '../../lib/markdown/data-attr';
 import { t } from '../../lib/i18n';
 
