@@ -67,6 +67,12 @@ describe('the live editor and the preview render the same markup', () => {
     })
   }
 
+  it('renders a wiki link alias as its label while keeping the target address', () => {
+    const html = renderMarkdown('[[Other|Readable alias]]').html
+    expect(html).toContain('>Readable alias</a>')
+    expect(html).toContain('data-wikilink=')
+  })
+
   it('keeps the source line each block came from', () => {
     const source = ['# H1', '', 'para', '', '- a', '- b', '', '| x |', '| - |', '| 1 |'].join('\n')
     const lines = renderMarkdownBlocks(source, { hideFrontMatter: true }).blocks.map(block => block.startLine)
