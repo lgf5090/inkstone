@@ -24,7 +24,7 @@
 | ID | Status | Task | Acceptance | Commit |
 |---|---|---|---|---|
 | P1-01 | done | F5 mint idempotency key before first write; retry 429 with Retry-After; sequence outbox; isolate 5xx | lost response does not duplicate; FIFO; one failure does not block shared queue | 7f45b0c4 |
-| P1-02 | done | F6 make move/copy/import/attachment delete recoverable and atomic | injected mid-batch/R2 failures leave no visible half-state or orphan bytes | pending hash |
+| P1-02 | done | F6 make move/copy/import/attachment delete recoverable and atomic | injected mid-batch/R2 failures leave no visible half-state or orphan bytes | 40e9aa47 |
 | P1-03 | pending | F7 remap property config/formula/relation/permissions on move; rebuild copied relations; enforce quotas | moved/copy cards retain config and relation edges; target caps enforced | - |
 | P1-04 | pending | F10 make cross-category drag move and reorder atomically | source board appears only in target category at requested position | - |
 | P1-05 | pending | F11 make board/list drag one command; fix expanded subtask index | failed drag rolls back; expanded list drop lands on intended root | - |
@@ -90,4 +90,4 @@
 - 2026-11-25: P0-07 completed in `c32790aa`; property relation deletion is board-scoped, stale property revisions conflict, and accumulated property count is capped.
 - 2026-11-25: P0-08 completed in `0897b0be`; empty password save is inert, removal is explicit and confirmed, and share expiry is editable.
 - 2026-11-25: P1-01 completed in `7f45b0c4`; first write and replay share an idempotency key, 429/5xx retry without stopping the shared queue, and queue timestamps are monotonic.
-- 2026-11-25: P1-02 completed; oversized multi-step writes reject before mutation, relation edges commit with copies/imports, account import rolls back earlier boards, and attachment deletion leaves retryable cleanup rows.
+- 2026-11-25: P1-02 completed in `40e9aa47`; oversized multi-step writes reject before mutation, relation edges commit with copies/imports, account import rolls back earlier boards, and attachment deletion leaves retryable cleanup rows.
