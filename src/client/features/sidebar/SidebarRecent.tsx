@@ -7,6 +7,7 @@ import { fullTime, shortSince } from '../../lib/time';
 import { IconButton } from '../../components/primitives';
 import { useTreeRovingTabIndex } from '../../lib/tree';
 import { ExplorerNote } from './ExplorerNote';
+import { WindowedNoteRows } from './windowed-note-rows';
 
 /**
  * The notes this device has opened, newest first. The order is the reader's own trail, so
@@ -34,8 +35,8 @@ export function SidebarRecent() {
           </IconButton>
         )}
       </div>
-      {visible.length === 0 ? (<p className="px-2 py-3 text-[length:var(--text-12)] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.recent_empty')}</p>) : (<div ref={treeRef} role="tree" aria-label={t('sidebar.tab_recent')} data-recent-list className="space-y-px">
-          {visible.map((note, index) => (<ExplorerNote
+      {visible.length === 0 ? (<p className="px-2 py-3 text-[length:var(--text-12)] leading-relaxed text-[var(--text-quaternary)]">{t('sidebar.recent_empty')}</p>) : (<div ref={treeRef} role="tree" aria-label={t('sidebar.tab_recent')} data-recent-list>
+          <WindowedNoteRows notes={visible} resetKey={recentIds.join('|')} renderNote={(note, index) => (<ExplorerNote
             key={note.id}
             note={note}
             depth={0}
@@ -45,7 +46,7 @@ export function SidebarRecent() {
             trailing={(<span data-recent-age title={fullTime(note.updatedAt)} className="shrink-0 pr-1 text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
                     {shortSince(note.updatedAt, now)}
                   </span>)}
-          />))}
+          />)}/>
         </div>)}
     </>);
 }

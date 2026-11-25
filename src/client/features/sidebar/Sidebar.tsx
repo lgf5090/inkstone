@@ -42,6 +42,7 @@ import { SearchButton } from '../shell/SearchButton';
 import { OmnisearchEntry, useOmnisearchEntryEnabled } from '../omnisearch/OmnisearchEntry';
 import { openOmnisearch } from '../omnisearch/store';
 import { ExplorerNote, groupExplorerNotes } from './ExplorerNote';
+import { WindowedNoteRows } from './windowed-note-rows';
 import { FolderMotionIcon } from '../../components/FolderMotionIcon';
 import { TemplateQuickActions } from '../templates/quick-actions';
 import { CalendarTree, InboxTree, isDropBlockedTarget } from './virtual-tree';
@@ -1029,7 +1030,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
       {childrenMounted && (<div role="group" aria-hidden={!childrenVisible} inert={!childrenVisible} className={cn('folder-children-grid', childrenVisible && 'is-expanded')}>
           <div className="min-h-0 space-y-px overflow-hidden">
             {node.children.map((child, childIndex) => (<FolderRow key={child.id} node={child} notesByFolder={notesByFolder} mobile={mobile} canOpenToSide={canOpenToSide} siblings={node.children} index={childIndex} parentNode={node} parentSiblings={siblings} onCreateChild={onCreateChild} onMove={onMove} onChooseParent={onChooseParent} rootTree={rootTree} onSortSiblings={onSortSiblings} onExportZip={onExportZip} onDropNotes={onDropNotes} onToggleInbox={onToggleInbox} createdFolderId={createdFolderId} renamingId={renamingId} onStartRename={onStartRename} onFinishRename={onFinishRename} search={search}/>))}
-            {visibleNotes.map((note) => <ExplorerNote key={note.id} note={note} depth={node.depth + 1} canOpenToSide={canOpenToSide} highlight={search.open ? search.query : undefined}/>)}
+            {visibleNotes.length > 0 && (<WindowedNoteRows notes={visibleNotes} resetKey={visibleNotes.map((note) => note.id).join('|')} renderNote={(note) => <ExplorerNote key={note.id} note={note} depth={node.depth + 1} canOpenToSide={canOpenToSide} highlight={search.open ? search.query : undefined}/>}/>)}
           </div>
         </div>)}
 

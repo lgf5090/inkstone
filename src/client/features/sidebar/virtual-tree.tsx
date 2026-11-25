@@ -26,6 +26,7 @@ import { isNoteDrag } from '../../lib/note-drag';
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { ExplorerNote } from './ExplorerNote';
+import { WindowedNoteRows } from './windowed-note-rows';
 import { FolderMotionIcon } from '../../components/FolderMotionIcon';
 import { treeIndent, treeItemProps, useTreeChildrenMount, useTreeKeyboard, useTreeRovingTabIndex } from '../../lib/tree';
 
@@ -288,7 +289,7 @@ export function InboxTree() {
       </div>
       {childrenMounted && (<div role="group" aria-hidden={!childrenVisible} inert={!childrenVisible} className={cn('folder-children-grid', childrenVisible && 'is-expanded')}>
         <div className="min-h-0 space-y-px overflow-hidden">
-          {unfiled.map((note, index) => <ExplorerNote key={note.id} note={note} depth={1} canOpenToSide={false} setSize={unfiled.length} posInSet={index + 1}/>)}
+          {unfiled.length > 0 && (<WindowedNoteRows notes={unfiled} resetKey={unfiled.map((note) => note.id).join('|')} renderNote={(note, index) => <ExplorerNote key={note.id} note={note} depth={1} canOpenToSide={false} setSize={unfiled.length} posInSet={index + 1}/>}/>)}
         </div>
       </div>)}
       </div>
