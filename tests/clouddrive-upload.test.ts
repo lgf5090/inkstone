@@ -1,11 +1,28 @@
 import { DatabaseSync } from 'node:sqlite'
+import * as nodeStreamWeb from 'node:stream/web'
 import { unzipSync } from 'fflate'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../src/worker/app'
 import { hashToken } from '../src/worker/lib/session-store'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 import type { Env } from '../src/worker/env'
+import { newId } from '../src/worker/lib/id'
+import * as external from '../src/worker/clouddrive/external'
+import { effectiveMeta } from '../src/worker/clouddrive/meta'
+
+const NodeFixedLengthStream = (nodeStreamWeb as unknown as {
+  FixedLengthStream: new (length: number) => {
+    readable: ReadableStream<Uint8Array>
+    writable: WritableStream<Uint8Array>
+  }
+}).FixedLengthStream
+Object.defineProperty(globalThis, 'FixedLengthStream', { configurable: true, writable: true, value: NodeFixedLengthStream })
+
+vi.mock('../src/worker/clouddrive/external', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/worker/clouddrive/external')>()
+  return { ...actual, readExternal: vi.fn() }
+})
 
 const USER_A = 'user-a'
 const USER_B = 'user-b'
@@ -128,6 +145,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   h.sqlite.close()
 })
 
@@ -166,6 +184,27 @@ describe('clouddrive direct upload', () => {
       'SELECT id FROM CloudDrive_upload_sessions WHERE user_id = ? AND id = ?',
     ).get(USER_A, upload.session.session.id)
     expect(session).toBeUndefined()
+  })
+
+  it('streams direct content and rejects a short body without storing an object', async () => {
+    const init = await initUpload(h, { parentPath: '/', name: 'stream.txt', size: 5, mime: 'text/plain' })
+    const session = await init.json() as UploadSessionResponse
+    const shapes: string[] = []
+    const put = h.bucket.put.bind(h.bucket)
+    h.bucket.put = async (key, value, options) => {
+      shapes.push(value instanceof ReadableStream ? 'stream' : 'buffered')
+      return await put(key, value, options)
+    }
+
+    const short = await request(h, 'PUT', `/api/clouddrive/uploads/${session.session.id}/content`, { body: 'four' })
+    expect(short.status).toBe(400)
+    expect(shapes).toEqual(['stream'])
+    expect(h.bucket.objects.size).toBe(0)
+
+    const complete = await request(h, 'PUT', `/api/clouddrive/uploads/${session.session.id}/content`, { body: 'hello' })
+    expect(complete.status).toBe(200)
+    expect(shapes).toEqual(['stream', 'stream'])
+    expect([...h.bucket.objects.values()][0]?.byteLength).toBe(5)
   })
 
   it('renames on a sibling collision and skips when the conflict says so', async () => {
@@ -304,6 +343,17 @@ describe('clouddrive multipart upload', () => {
     expect(session.session.strategy).toBe('multipart')
     expect(session.session.partSize).toBe(5 * MIB)
     expect(session.session.totalParts).toBe(2)
+    const partShapes: string[] = []
+    const resume = h.bucket.resumeMultipartUpload.bind(h.bucket)
+    h.bucket.resumeMultipartUpload = (key, uploadId) => {
+      const multipart = resume(key, uploadId)
+      const uploadPart = multipart.uploadPart.bind(multipart)
+      multipart.uploadPart = async (partNumber, value) => {
+        partShapes.push(value instanceof ReadableStream ? 'stream' : 'buffered')
+        return await uploadPart(partNumber, value)
+      }
+      return multipart
+    }
 
     const firstPart = new Uint8Array(5 * MIB).fill(1)
     const lastPart = new Uint8Array(MIB).fill(2)
@@ -315,6 +365,7 @@ describe('clouddrive multipart upload', () => {
       body: firstPart,
     })
     expect(first.status).toBe(200)
+    expect(partShapes).toEqual(['stream', 'stream'])
 
     const partRows = h.sqlite.prepare(
       'SELECT part_number, size FROM CloudDrive_upload_parts WHERE session_id = ? ORDER BY part_number',
@@ -445,6 +496,79 @@ describe('clouddrive content', () => {
     expect(thumbnail.status).toBe(200)
     expect(thumbnail.headers.get('x-clouddrive-thumbnail')).toBe('fallback')
     expect(thumbnail.headers.get('content-type')).toBe('image/png')
+  })
+
+  it('authorizes external thumbnails before reading and replaces unsafe upstream headers', async () => {
+    const mountId = newId()
+    const storageId = newId()
+    const now = Date.now()
+    h.sqlite.prepare(
+      `INSERT INTO CloudDrive_storages (user_id,id,name,type,config,credentials,status,created_at,updated_at)
+       VALUES (?, ?, 'External', 'url_tree', '{}', '', 'enabled', ?, ?)`,
+    ).run(USER_A, storageId, now, now)
+    h.sqlite.prepare(
+      `INSERT INTO CloudDrive_mounts (user_id,id,storage_id,name,mount_path,created_at,updated_at)
+       VALUES (?, ?, ?, 'External', '/drive', ?, ?)`,
+    ).run(USER_A, mountId, storageId, now, now)
+    const locked = await request(h, 'PUT', '/api/clouddrive/meta', {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mountId, path: '/private', password: 'folder password' }),
+    })
+    expect(locked.status).toBe(200)
+    const read = vi.mocked(external.readExternal).mockReset()
+    const id = external.externalEntryId(mountId, '/private/photo.png')
+    expect(external.parseExternalEntryId(id)).toEqual({ mountId, path: '/private/photo.png', ref: null })
+    expect((await effectiveMeta(h.env.DB, USER_A, mountId, '/private')).passwordHash).not.toBe('')
+    const denied = await request(h, 'GET', `/api/clouddrive/files/${id}/thumbnail`)
+    expect(denied.status, await denied.clone().text()).toBe(403)
+    expect(read).not.toHaveBeenCalled()
+
+    read.mockResolvedValue(new Response('png bytes', {
+      headers: {
+        'Content-Type': 'image/png',
+        'Content-Disposition': 'attachment; filename="upstream.png"',
+        'Content-Security-Policy': "default-src 'self'",
+        'Set-Cookie': 'secret=value',
+        'X-Upstream-Private': 'do-not-forward',
+      },
+    }))
+    const openId = external.externalEntryId(mountId, '/photo.png')
+    const thumbnail = await request(h, 'GET', `/api/clouddrive/files/${openId}/thumbnail`)
+    expect(thumbnail.status).toBe(200)
+    expect(thumbnail.headers.get('content-type')).toBe('image/png')
+    expect(thumbnail.headers.get('content-disposition')).toBe('inline')
+    expect(thumbnail.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(thumbnail.headers.get('content-security-policy')).toContain("default-src 'none'")
+    expect(thumbnail.headers.get('set-cookie')).toBeNull()
+    expect(thumbnail.headers.get('x-upstream-private')).toBeNull()
+  })
+
+  it('rejects non-image and oversized external thumbnail responses', async () => {
+    const mountId = newId()
+    const storageId = newId()
+    const now = Date.now()
+    h.sqlite.prepare(
+      `INSERT INTO CloudDrive_storages (user_id,id,name,type,config,credentials,status,created_at,updated_at)
+       VALUES (?, ?, 'External', 'url_tree', '{}', '', 'enabled', ?, ?)`,
+    ).run(USER_A, storageId, now, now)
+    h.sqlite.prepare(
+      `INSERT INTO CloudDrive_mounts (user_id,id,storage_id,name,mount_path,created_at,updated_at)
+       VALUES (?, ?, ?, 'External', '/drive', ?, ?)`,
+    ).run(USER_A, mountId, storageId, now, now)
+    const read = vi.mocked(external.readExternal).mockReset()
+    const id = external.externalEntryId(mountId, '/photo.png')
+    read.mockResolvedValueOnce(new Response('<script>alert(1)</script>', {
+      headers: { 'Content-Type': 'image/svg+xml' },
+    }))
+    expect((await request(h, 'GET', `/api/clouddrive/files/${id}/thumbnail`)).status).toBe(400)
+    read.mockResolvedValueOnce(new Response('small', {
+      headers: { 'Content-Type': 'image/png', 'Content-Length': String(11 * 1024 * 1024) },
+    }))
+    expect((await request(h, 'GET', `/api/clouddrive/files/${id}/thumbnail`)).status).toBe(413)
+    read.mockResolvedValueOnce(new Response(new Uint8Array(11 * 1024 * 1024), {
+      headers: { 'Content-Type': 'image/png' },
+    }))
+    expect((await request(h, 'GET', `/api/clouddrive/files/${id}/thumbnail`)).status).toBe(413)
   })
 
   it('rejects invalid thumbnail widths', async () => {

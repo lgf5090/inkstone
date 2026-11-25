@@ -11,6 +11,7 @@
  * request, because a plain GET cannot be resumed.
  */
 import { checkTarget } from '../lib/outbound'
+import { knownLengthByteStream } from '../lib/body-stream'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import {
@@ -134,7 +135,7 @@ export async function probeRemote(rawUrl: string): Promise<RemoteProbe> {
   return { url, size, mime: mime.slice(0, MIME_MAX_LENGTH), filename, ranges }
 }
 
-async function fetchRange(url: string, start: number, end: number, expected: number): Promise<Uint8Array> {
+async function fetchRange(url: string, start: number, end: number, expected: number): Promise<{ stream: ReadableStream<Uint8Array>; completed: Promise<void> }> {
   const { response } = await remoteFetch(url, {
     method: 'GET',
     headers: { Range: `bytes=${start}-${end}` },
@@ -148,14 +149,15 @@ async function fetchRange(url: string, start: number, end: number, expected: num
     await discard(response)
     throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote part has an unexpected length')
   }
-  const bytes = new Uint8Array(await response.arrayBuffer())
-  if (bytes.byteLength !== expected) {
-    throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote part does not match the requested range')
-  }
-  return bytes
+  return knownLengthByteStream(response.body, {
+    maxBytes: expected,
+    expectedBytes: expected,
+    tooLarge: () => new ApiError(502, 'clouddrive_mount_unavailable', 'The remote part is larger than the requested range'),
+    mismatched: () => new ApiError(502, 'clouddrive_mount_unavailable', 'The remote part does not match the requested range'),
+  }, expected)
 }
 
-async function fetchWhole(url: string, expected: number): Promise<Uint8Array> {
+async function fetchWhole(url: string, expected: number): Promise<{ stream: ReadableStream<Uint8Array>; completed: Promise<void> }> {
   const { response } = await remoteFetch(url, { method: 'GET', headers: { Accept: '*/*' } })
   if (!response.ok) {
     await discard(response)
@@ -166,11 +168,12 @@ async function fetchWhole(url: string, expected: number): Promise<Uint8Array> {
     await discard(response)
     throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote file changed length after it was inspected')
   }
-  const bytes = new Uint8Array(await response.arrayBuffer())
-  if (bytes.byteLength !== expected) {
-    throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote file changed length after it was inspected')
-  }
-  return bytes
+  return knownLengthByteStream(response.body, {
+    maxBytes: expected,
+    expectedBytes: expected,
+    tooLarge: () => new ApiError(502, 'clouddrive_mount_unavailable', 'The remote file grew after it was inspected'),
+    mismatched: () => new ApiError(502, 'clouddrive_mount_unavailable', 'The remote file changed length after it was inspected'),
+  }, expected)
 }
 
 interface RemoteTaskPayload {
@@ -280,14 +283,17 @@ export async function runRemoteUploadTask(env: Env, task: RemoteTaskRow, now = D
   })
 
   if (payload.mode === 'direct') {
-    const bytes = await fetchWhole(payload.url, payload.size)
+    const { stream, completed } = await fetchWhole(payload.url, payload.size)
     const status = await taskStatus(env.DB, task.user_id, task.id)
     if (status === 'cancelled') {
       await abandonSession(env, task, session, 'aborted')
       return 'cancelled'
     }
     if (!session.storage_key) throw new ApiError(500, 'internal', 'The upload session has no storage key')
-    await bucket.put(session.storage_key, bytes, { httpMetadata: { contentType: session.mime } })
+    await Promise.all([
+      bucket.put(session.storage_key, stream, { httpMetadata: { contentType: session.mime } }),
+      completed,
+    ])
     await completeUploadSession(env, task.user_id, session, decodeSessionConflict(session.error))
     await writeTask(env.DB, task, 'completed', progressOf(1, payload.size), null, null)
     return 'completed'
@@ -319,8 +325,11 @@ export async function runRemoteUploadTask(env: Env, task: RemoteTaskRow, now = D
     const start = (partNumber - 1) * session.part_size
     const end = Math.min(start + session.part_size - 1, session.size - 1)
     const expected = end - start + 1
-    const bytes = await fetchRange(payload.url, start, end, expected)
-    const part = await multipart.uploadPart(partNumber, bytes)
+    const { stream, completed } = await fetchRange(payload.url, start, end, expected)
+    const [part] = await Promise.all([
+      multipart.uploadPart(partNumber, stream),
+      completed,
+    ])
     if (!part.etag) throw new ApiError(500, 'internal', 'R2 did not return a part etag')
     const stepNow = Date.now()
     await env.DB.batch([
@@ -329,7 +338,7 @@ export async function runRemoteUploadTask(env: Env, task: RemoteTaskRow, now = D
          VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(session_id, part_number) DO UPDATE SET
            etag = excluded.etag, size = excluded.size, uploaded_at = excluded.uploaded_at`,
-      ).bind(session.id, partNumber, part.etag, bytes.byteLength, stepNow),
+      ).bind(session.id, partNumber, part.etag, expected, stepNow),
       env.DB.prepare(
         `UPDATE CloudDrive_upload_sessions
             SET parts_uploaded = (SELECT COUNT(*) FROM CloudDrive_upload_parts WHERE session_id = ?2),
@@ -339,7 +348,7 @@ export async function runRemoteUploadTask(env: Env, task: RemoteTaskRow, now = D
       ).bind(task.user_id, session.id, stepNow),
     ])
     const done = uploaded.size + 1
-    const bytesDone = Math.min(session.size, start + bytes.byteLength)
+    const bytesDone = Math.min(session.size, start + expected)
     await writeTask(env.DB, task, 'running', progressOf(done, bytesDone), null, stepNow + LOCK_MS)
     if (Date.now() - started > TIME_BUDGET_MS) return 'handed-off'
   }

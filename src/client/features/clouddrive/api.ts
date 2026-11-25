@@ -209,8 +209,9 @@ export const clouddriveApi = {
   }[] }>(`/api/clouddrive/uploads`),
 
   initUpload: (body: { mountId: string; parentPath: string; name: string; size: number; mime: string; conflict?: string }) => request<{
-    session: { id: string; strategy: string; partSize: number; totalParts: number; uploadedParts?: number }
+    session?: { id: string; strategy: string; partSize: number; totalParts: number; uploadedParts?: number }
     entryPath: string
+    skipped?: boolean
     existing?: CloudDriveEntry
   }>('/api/clouddrive/uploads', json(body)),
   uploadUrl: (body: { url: string; parentPath: string; name?: string; conflict?: string }) => request<{
@@ -221,7 +222,7 @@ export const clouddriveApi = {
     skipped?: boolean
     existing?: CloudDriveEntry
   }>('/api/clouddrive/uploads/url', json(body)),
-  completeUpload: (id: string) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}/complete`, json({})),
+  completeUpload: (id: string) => request<{ entry?: CloudDriveEntry; skipped?: boolean; existing?: CloudDriveEntry; entryPath?: string }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}/complete`, json({})),
   abortUpload: (id: string) => request<{ ok: true }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}/abort`, json({})),
 
   contentUrl: (id: string, download = false) => `/api/clouddrive/files/${encodeURIComponent(id)}/content${download ? '?download=1' : ''}`,

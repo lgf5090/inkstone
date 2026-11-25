@@ -169,6 +169,10 @@ export async function runMirror({
         mime: file.type || 'application/octet-stream',
         conflict: 'overwrite',
       })
+      if (!init.session) {
+        uploaded += 1
+        continue
+      }
       if (init.session.strategy === 'direct') {
         await putBytes(`/api/clouddrive/uploads/${encodeURIComponent(init.session.id)}/content`, file)
       } else {
