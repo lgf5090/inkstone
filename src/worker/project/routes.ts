@@ -168,6 +168,41 @@ import { projectCardForRole, projectPropertiesForRole } from './visibility'
 
 export const projectRoutes = new Hono<AppBindings>()
 
+const TOKEN_SESSION_ONLY_PATH = /(?:\/tokens(?:\/|$)|\/webhooks(?:\/|$)|\/members(?:\/|$)|\/share$|\/save-as-template$|\/automations(?:\/|$)|\/import(?:-account)?$)/
+const TOKEN_ACCOUNT_EXPORT_PATH = /^\/api\/project\/export$/
+
+function projectTokenValueMaps(value: unknown): Record<string, unknown>[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  const record = value as Record<string, unknown>
+  const maps: Record<string, unknown>[] = []
+  if (record.values && typeof record.values === 'object' && !Array.isArray(record.values)) {
+    maps.push(record.values as Record<string, unknown>)
+  }
+  if (Array.isArray(record.cards)) {
+    for (const card of record.cards) maps.push(...projectTokenValueMaps(card))
+  }
+  if (record.patch) maps.push(...projectTokenValueMaps(record.patch))
+  return maps
+}
+
+async function assertProjectTokenBodyScope(c: Context<AppBindings>, boardId: string): Promise<void> {
+  if (!(c.req.header('Content-Type') ?? '').includes('application/json')) return
+  let body: unknown
+  try { body = await c.req.raw.clone().json() } catch { return }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return
+  const record = body as Record<string, unknown>
+  if (typeof record.targetBoardId === 'string' && record.targetBoardId !== boardId) {
+    throw ApiError.notFound('Board not found')
+  }
+  const maps = projectTokenValueMaps(body)
+  if (!maps.length) return
+  const properties = await readBoardProperties(c.env.DB, boardId)
+  for (const property of properties) {
+    if (property.type !== 'relation' || !property.config?.targetBoardId || property.config.targetBoardId === boardId) continue
+    if (maps.some((values) => Object.hasOwn(values, property.id))) throw ApiError.notFound('Board not found')
+  }
+}
+
 /**
  * Machine clients authenticate with a hashed, board-scoped token instead of a cookie. Setting
  * `userId` lets every existing route reuse `requireBoard`; the scope and board checks below are the
@@ -180,8 +215,9 @@ projectRoutes.use('*', async (c, next) => {
   const auth = await verifyProjectApiToken(c.env.DB, secret, Date.now())
   if (!auth) throw ApiError.unauthenticated('Invalid API token')
   const path = c.req.path
-  if (/^\/api\/project\/tokens(\/|$)/.test(path) || path.includes('/webhooks')) {
-    throw ApiError.forbidden('API tokens cannot manage integrations')
+  if (TOKEN_SESSION_ONLY_PATH.test(path) || TOKEN_ACCOUNT_EXPORT_PATH.test(path)
+    || (c.req.method.toUpperCase() === 'DELETE' && /^\/api\/project\/boards\/[^/]+$/.test(path))) {
+    throw ApiError.forbidden('This operation requires a browser session')
   }
   if (auth.scope === 'read' && !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method.toUpperCase())) {
     throw ApiError.forbidden('This token is read-only')
@@ -200,6 +236,7 @@ projectRoutes.use('*', async (c, next) => {
       }
     }
     if (boardId !== auth.boardId) throw ApiError.notFound('Board not found')
+    await assertProjectTokenBodyScope(c, auth.boardId)
   }
   c.set('userId', auth.userId)
   c.set('projectTokenId', auth.id)

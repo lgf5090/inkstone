@@ -12,7 +12,7 @@
 |---|---|---|---|---|
 | P0-01 | done | F1 unify field visibility across card APIs, properties, search, rollup, move, exports and AI tools | viewer/editor/admin HTTP + AI + export tests; hidden values never leave server | b2e6bc67 |
 | P0-02 | done | F2 move idempotency replay after resource authorization; bind method/path/body hash; claim concurrent keys | revoked member replay fails; same key different request conflicts; concurrent key creates once | ee99b54f |
-| P0-03 | pending | F3 enforce board token scope on body targets; narrow account-wide token scopes | board token cannot move/link across boards; high-risk routes session-only | - |
+| P0-03 | done | F3 enforce board token scope on body targets; narrow account-wide token scopes | board token cannot move/link across boards; high-risk routes session-only | pending hash |
 | P0-04 | pending | F4 chunk every dynamic IN query to D1's 100-binding limit | 101/200/500 id requests paginate or reject cleanly, never 500 | - |
 | P0-05 | pending | F8 fail incomplete archive exports; support complete or explicit multipart export | truncated contents/comments/files produce explicit error or complete archive | - |
 | P0-06 | pending | F9 reject parent cycles in archive import and hierarchy writes | cyclic archive/batch returns 400; no unbounded traversal | - |
@@ -83,3 +83,4 @@
 - 2026-11-25: worktree and baseline plan created.
 - 2026-11-25: P0-01 completed in `b2e6bc67`; 19 focused tests passed, 10 downstream files exercised (the 4 card-contract failures were fixed and its 9 tests rerun green), Worker/test typecheck, ESLint and four static gates passed.
 - 2026-11-25: P0-02 completed in `ee99b54f`; request-bound receipts, resource reauthorization, pending claims and stale-claim recovery covered by 25 passing tests.
+- 2026-11-25: P0-03 completed; board-token cross-board move/relation and account-token high-risk routes covered by 25 passing tests.

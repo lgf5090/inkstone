@@ -32,7 +32,9 @@ beforeAll(async () => {
 
 beforeEach(() => {
   sqlite.exec(`DELETE FROM project_webhook_deliveries; DELETE FROM project_webhooks; DELETE FROM project_api_tokens;
-    DELETE FROM project_views; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_settings`)
+    DELETE FROM project_card_relations; DELETE FROM project_property_configs; DELETE FROM project_card_values;
+    DELETE FROM project_cards; DELETE FROM project_properties; DELETE FROM project_views; DELETE FROM project_board_members;
+    DELETE FROM project_boards; DELETE FROM project_settings`)
 })
 
 afterEach(() => { vi.unstubAllGlobals() })
@@ -96,6 +98,33 @@ describe('project API tokens', () => {
     expect((await call('POST', `/boards/${board.id}/cards`, { bearer: secret, body: { title: 'x' } })).status).toBe(403)
     expect((await call('GET', '/tokens', { bearer: secret })).status).toBe(403)
     expect((await call('GET', `/boards/${board.id}/webhooks`, { bearer: secret })).status).toBe(403)
+  })
+
+  it('does not let a board token move or relate a card into another board', async () => {
+    const board = await createBoard()
+    const other = await createBoard()
+    const card = ((await (await call('POST', `/boards/${board.id}/cards`, { account: 'alice', body: { title: 'Scoped' } })).json()) as { card: { id: string } }).card
+    const otherCard = ((await (await call('POST', `/boards/${other.id}/cards`, { account: 'alice', body: { title: 'Other' } })).json()) as { card: { id: string } }).card
+    const { secret } = await createToken(board.id)
+    expect((await call('POST', `/cards/${card.id}/move`, { bearer: secret, body: { targetBoardId: other.id } })).status).toBe(404)
+
+    const relationId = 'p00000000000000000000000001'
+    sqlite.prepare(`INSERT INTO project_properties (board_id, id, name, type, options, position, created_at, updated_at)
+      VALUES (?, ?, 'Related', 'relation', '[]', 0, 1, 1)`).run(board.id, relationId)
+    sqlite.prepare('INSERT INTO project_property_configs (board_id, property_id, config, updated_at) VALUES (?, ?, ?, 1)')
+      .run(board.id, relationId, JSON.stringify({ targetBoardId: other.id, multiple: true }))
+    expect((await call('POST', `/boards/${board.id}/cards`, {
+      bearer: secret, body: { title: 'Cross-board relation', values: { [relationId]: JSON.stringify([otherCard.id]) } },
+    })).status).toBe(404)
+  })
+
+  it('keeps account-wide token operations away from high-risk session routes', async () => {
+    const board = await createBoard()
+    const { secret } = await createToken()
+    expect((await call('DELETE', `/boards/${board.id}`, { bearer: secret })).status).toBe(403)
+    expect((await call('GET', '/export', { bearer: secret })).status).toBe(403)
+    expect((await call('PUT', `/boards/${board.id}/share`, { bearer: secret, body: {} })).status).toBe(403)
+    expect((await call('POST', `/boards/${board.id}/members`, { bearer: secret, body: { username: 'bob', role: 'viewer' } })).status).toBe(403)
   })
 
   it('stops accepting a revoked or expired token', async () => {
