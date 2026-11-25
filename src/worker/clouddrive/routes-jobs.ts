@@ -10,6 +10,7 @@
 import { Hono, type Context } from 'hono'
 import type { AppBindings, Env } from '../env'
 import { ApiError } from '../lib/errors'
+import { requireOwner } from '../middleware/auth'
 import { newId } from '../lib/id'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { decodeCursor, encodeCursor } from './lib'
@@ -100,10 +101,7 @@ const BUILTIN_SEEDS: readonly BuiltinSeed[] = [
   },
 ]
 
-clouddriveJobRoutes.use('*', async (c, next) => {
-  if (!c.get('userId')) throw ApiError.unauthenticated()
-  await next()
-})
+clouddriveJobRoutes.use('*', requireOwner)
 
 function userIdOf(c: Context<AppBindings>): string {
   return c.get('userId')

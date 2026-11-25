@@ -28,7 +28,7 @@
 - [ ] LOG-04 分享下载按访客/文件/窗口去重
 - [ ] LOG-05 分享、ACL、最近列表游标分页
 - [ ] LOG-06 清理或接通 allow_list 等死配置
-- [ ] LOG-07 Jobs 前后端权限契约统一
+- [x] LOG-07 Jobs 前后端权限契约统一
 - [ ] LOG-08 外部写入冲突策略与 S3 MOVE 可恢复化
 - [ ] LOG-09 父子同选移动保持树结构
 - [ ] LOG-10 隐藏项 total 修正
@@ -77,6 +77,7 @@
 | PERF-06 | DONE | 本次提交 | `clouddrive-files` + `clouddrive-mounts` 47 项通过；主挂载仅缺失时写 |
 | SEC-13 | DONE | 本次提交 | Google Drive、Dropbox、AutoIndex、external drivers 44 项通过 |
 | LOG-11 | DONE | 本次提交 | OAuth tokens + driver resolver 17 项通过；解密失败显式报错 |
+| LOG-07 | DONE | 本次提交 | 新增 `clouddrive-jobs.test.ts` 2 项通过；owner 200/member 403 |
 
 ## 验证命令
 
