@@ -63,6 +63,7 @@ export function indexFingerprint(search: SearchSettings): string {
     properties,
     search.maxContentChars,
     search.maxIndexedNotes,
+    search.pdfOcrEnabled ? 'ocr' : 'text',
   ].join('|')
 }
 

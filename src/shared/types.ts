@@ -544,6 +544,7 @@ export interface SearchSettings {
   displayTitleProperty: string
   maxIndexedNotes: number
   maxContentChars: number
+  pdfOcrEnabled: boolean
   /** Ceiling on the note bodies kept on this device for excerpts. */
   indexStorageMb: number
   savedSearches?: SavedNoteSearch[]

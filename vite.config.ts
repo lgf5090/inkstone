@@ -275,6 +275,40 @@ const pdfjsVendorPlugin = (): Plugin => {
   }
 }
 
+const tesseractVendorPlugin = (): Plugin => {
+  const prefix = '/vendor/tesseract/'
+  const assets = [
+    'tesseract.js/dist/worker.min.js',
+    'tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js',
+    'tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm',
+    '@tesseract.js-data/eng/4.0.0/eng.traineddata.gz',
+  ].map((rel) => ({ rel: path.basename(rel), full: r(`node_modules/${rel}`) }))
+
+  return {
+    name: 'inkstone:tesseract-vendor',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url || !req.url.startsWith(prefix)) return next()
+        const name = req.url.slice(prefix.length).split('?')[0]
+        const asset = assets.find((entry) => entry.rel === name)
+        if (!asset || !fs.existsSync(asset.full)) return next()
+        res.setHeader('Content-Type', name.endsWith('.js')
+          ? 'application/javascript'
+          : name.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream')
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+        res.end(fs.readFileSync(asset.full))
+      })
+    },
+    generateBundle() {
+      for (const asset of assets) {
+        if (fs.existsSync(asset.full)) {
+          this.emitFile({ type: 'asset', fileName: `vendor/tesseract/${asset.rel}`, source: fs.readFileSync(asset.full) })
+        }
+      }
+    },
+  }
+}
+
 /**
  * Pele ships its own build: the 33 diagram entries are thin files over 89 chunks named by content
  * hash and shared between types, so there is no per-type name to hand the bundler. Left alone, every
@@ -365,6 +399,7 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
     katexWoff2Only(),
     excalidrawVendorPlugin(),
     pdfjsVendorPlugin(),
+    tesseractVendorPlugin(),
     tailwindcss(),
     // Emits each renderer's worker/wasm/font assets (archive's libarchive worker has no other way to
     // reach the bundle) and keeps one chunk per renderer. The renderer list is explicit rather than a

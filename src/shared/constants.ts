@@ -551,6 +551,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     displayTitleProperty: '',
     maxIndexedNotes: 3000,
     maxContentChars: 100000,
+    pdfOcrEnabled: false,
     indexStorageMb: 64,
     savedSearches: [],
   },
@@ -1508,6 +1509,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.search.displayTitleProperty = trimmedText(search.displayTitleProperty, SEARCH_DISPLAY_TITLE_MAX)
   base.search.maxIndexedNotes = integerInRange(search.maxIndexedNotes, 200, 20000, base.search.maxIndexedNotes)
   base.search.maxContentChars = integerInRange(search.maxContentChars, 2000, 200000, base.search.maxContentChars)
+  base.search.pdfOcrEnabled = booleanValue(search.pdfOcrEnabled, base.search.pdfOcrEnabled)
   base.search.indexStorageMb = integerInRange(search.indexStorageMb, 8, 512, base.search.indexStorageMb)
   base.search.savedSearches = savedNoteSearches(search.savedSearches)
   base.dataview.enabled = booleanValue(dataview.enabled, base.dataview.enabled)

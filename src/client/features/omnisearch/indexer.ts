@@ -17,6 +17,7 @@ import { useSession } from '../../store/session'
 import { useNotes } from '../../store/notes'
 import { buildFileDocument, buildNoteDocument, type FileSource, type NoteSource } from './document'
 import { attachPdfText } from './pdf-text'
+import { terminatePdfOcrIfLoaded } from './pdf-ocr-state'
 import { docIdForFile, docIdForNote, noteIdOfDoc, OmnisearchEngine } from './engine'
 import { buildTokenizer } from './tokenizer'
 import { foldTerm } from './fold'
@@ -302,10 +303,11 @@ export class OmnisearchIndexer {
       if (!cursor) break
     }
     let pdfs = 0
+    const ocr = useSession.getState().settings.search.pdfOcrEnabled
     for (let index = 0; index < out.length && pdfs < PDF_ATTACHMENTS_MAX; index++) {
       const source = out[index]!
       if (source.mime.toLowerCase() !== 'application/pdf' && !/\.pdf$/i.test(source.filename)) continue
-      out[index] = await attachPdfText(source)
+      out[index] = await attachPdfText(source, { ocr })
       pdfs++
     }
     this.fileSources = out
@@ -547,6 +549,7 @@ export class OmnisearchIndexer {
   }
 
   dispose(): void {
+    void terminatePdfOcrIfLoaded().catch((error: unknown) => console.warn('[inkstone] PDF OCR shutdown failed:', error))
     window.clearTimeout(this.refreshTimer)
     window.clearTimeout(this.attachmentRefreshTimer)
     window.clearTimeout(this.cacheTimer)

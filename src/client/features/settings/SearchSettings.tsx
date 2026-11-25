@@ -88,6 +88,11 @@ export function SearchSettings() {
                 useCache,
             })} label={t('settings.search_use_cache')}/>
         </SettingRow>
+        <SettingRow title={t('settings.search_pdf_ocr')} description={t('settings.search_pdf_ocr_desc')}>
+          <Switch checked={search.pdfOcrEnabled} onChange={(pdfOcrEnabled) => patch({
+                pdfOcrEnabled,
+            })} label={t('settings.search_pdf_ocr')}/>
+        </SettingRow>
         <SettingRow title={t('settings.search_max_notes')} description={t('settings.search_max_notes_desc')}>
           <Slider label={t('settings.search_max_notes')} className="w-[200px]" value={search.maxIndexedNotes} min={200} max={20000} step={100} onChange={(maxIndexedNotes) => patch({
                 maxIndexedNotes,

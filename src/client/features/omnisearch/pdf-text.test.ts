@@ -6,11 +6,17 @@ const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   pageText: vi.fn(),
   destroy: vi.fn(async () => {}),
+  ocr: vi.fn(async () => 'Recognized scan text'),
+  terminateOcr: vi.fn(async () => {}),
 }))
 
 vi.mock('../reading/engine/pdf', () => ({
   openPdfDocument: mocks.open,
   readPdfPageText: mocks.pageText,
+}))
+vi.mock('./pdf-ocr', () => ({
+  ocrPdfDocument: mocks.ocr,
+  terminatePdfOcr: mocks.terminateOcr,
 }))
 
 const source: FileSource = {
@@ -28,6 +34,8 @@ beforeEach(() => {
     destroy: mocks.destroy,
   })
   mocks.pageText.mockReset().mockImplementation(async (page: { number: number }) => ({ text: `Page ${page.number} searchable text` }))
+  mocks.ocr.mockClear()
+  mocks.terminateOcr.mockClear()
   mocks.destroy.mockClear()
   vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), {
     headers: { 'content-type': 'application/pdf', 'content-length': '3' },
@@ -52,6 +60,17 @@ describe('PDF text indexing', () => {
     expect(await attachPdfText(oversized)).toBe(oversized)
     expect(await attachPdfText(image)).toBe(image)
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('runs local OCR only when explicitly enabled and the text layer is empty', async () => {
+    mocks.pageText.mockResolvedValue({ text: '' })
+    expect((await attachPdfText(source)).text).toBe('')
+    expect(mocks.ocr).not.toHaveBeenCalled()
+
+    const result = await attachPdfText(source, { ocr: true })
+    expect(result.text).toBe('Recognized scan text')
+    expect(mocks.ocr).toHaveBeenCalledOnce()
+    expect(mocks.destroy).toHaveBeenCalledTimes(2)
   })
 
   it('keeps filename indexing when fetch or PDF parsing fails', async () => {

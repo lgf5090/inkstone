@@ -5303,6 +5303,8 @@ console.log(\`Hello, \${name}!\`)
     "settings.search_index_limits": "索引",
     "settings.search_use_cache": "在本机保存索引",
     "settings.search_use_cache_desc": "关闭后每次启动都会重新建立整个索引。",
+    "settings.search_pdf_ocr": "识别扫描版 PDF",
+    "settings.search_pdf_ocr_desc": "显式启用后，对几乎没有文本层的 PDF 在本机执行 OCR。英文模型按需下载且不会离开设备。",
     "settings.search_max_notes": "索引笔记上限",
     "settings.search_max_notes_desc": "笔记数超过上限时，优先索引最近编辑的。",
     "settings.search_max_chars": "每篇笔记的字符上限",
