@@ -519,6 +519,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     syncFrontMatterTitle: true,
     lockTimeoutMinutes: 5,
     versionRetentionCount: LIMITS.versionsPerNote,
+    offlineNoteIds: [],
   },
   search: {
     enabled: true,
@@ -680,6 +681,7 @@ export const TODO_SAVED_FILTER_QUERY_MAX = 200
 export const NOTE_SAVED_SEARCH_MAX = 20
 export const NOTE_SAVED_SEARCH_NAME_MAX = 60
 export const NOTE_SAVED_SEARCH_QUERY_MAX = 200
+export const OFFLINE_NOTES_MAX = 200
 
 /**
  * The range a daily or weekly goal may name, in whole tasks.
@@ -1104,6 +1106,7 @@ export function mergeSettings(partial: unknown): UserSettings {
     LIMITS.versionsPerNoteMax,
     base.notes.versionRetentionCount,
   )
+  base.notes.offlineNoteIds = offlineNoteIds(notes.offlineNoteIds)
   base.todo.defaultRemind = todoRemindOffset(todo.defaultRemind)
   base.todo.dailyGoal = todoGoal(todo.dailyGoal)
   base.todo.weeklyGoal = todoGoal(todo.weeklyGoal)
@@ -1790,6 +1793,20 @@ function savedNoteSearches(value: unknown): SavedNoteSearch[] {
   return out
 }
 
+function offlineNoteIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const id = typeof item === 'string' && /^[0-9a-hjkmnp-tv-z]{26}$/.test(item) ? item : ''
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+    if (out.length >= OFFLINE_NOTES_MAX) break
+  }
+  return out
+}
+
 /** The board marks one account may keep; a mark naming a board that no longer exists is dropped by the reader. */
 const PROJECT_BOARD_MARKS_MAX = 200
 
@@ -2189,7 +2206,7 @@ function cloneDefaultSettings(): UserSettings {
     backup: { ...DEFAULT_SETTINGS.backup },
     emailBackup: { ...DEFAULT_SETTINGS.emailBackup },
     sync: { ...DEFAULT_SETTINGS.sync },
-    notes: { ...DEFAULT_SETTINGS.notes },
+    notes: { ...DEFAULT_SETTINGS.notes, offlineNoteIds: [] },
     search: {
       ...DEFAULT_SETTINGS.search,
       weightCustomProperties: [],

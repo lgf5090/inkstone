@@ -32,6 +32,7 @@ import { openNoteFloatingWindow } from './note-floating-window';
 import { FolderPicker } from '../folders/FolderPicker';
 import { useLintNoteMenuItems } from '../linter/useLintMenuItems';
 import { noteLockMenuItems } from '../notes/note-lock-menu';
+import { offlineNoteMenuItems } from '../notes/offline-notes';
 import { TemplateQuickActions } from '../templates/quick-actions';
 import { SavedSearchMenu } from './SavedSearchMenu';
 import { OmnisearchEntry } from '../omnisearch/OmnisearchEntry';
@@ -564,6 +565,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
         ]
         : [
             ...noteLockMenuItems(note, unlockedTitle !== null),
+            ...offlineNoteMenuItems(note),
             ...(breakpoint === 'desktop' ? [{
                 id: 'open-side',
                 label: t("notes.open_to_side"),

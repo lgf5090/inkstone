@@ -1,5 +1,5 @@
 import { memo, useRef, useState } from 'react';
-import { Archive, Brush, Columns2, FileText, FolderInput, Lock, MoreHorizontal, Network, PenLine, Star, Trash2 } from 'lucide-react';
+import { Archive, Brush, CloudDownload, Columns2, FileText, FolderInput, Lock, MoreHorizontal, Network, PenLine, Star, Trash2 } from 'lucide-react';
 import type { Folder, NoteSummary } from '@shared/types';
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import { isInkNoteTitle } from '../../lib/inkpad/document';
@@ -14,6 +14,8 @@ import { useUi } from '../../store/ui';
 import { FolderPicker } from '../folders/FolderPicker';
 import { useLintNoteMenuItems } from '../linter/useLintMenuItems';
 import { noteLockMenuItems } from '../notes/note-lock-menu';
+import { offlineNoteMenuItems } from '../notes/offline-notes';
+import { useSession } from '../../store/session';
 import { writeNoteDrag } from '../../lib/note-drag';
 import { treeIndent, treeItemProps, useTreeKeyboard } from '../../lib/tree';
 import { noteFolderOwner } from '../../lib/folders';
@@ -63,6 +65,7 @@ function titleWithHighlight(note: NoteSummary, unlockedTitle: string | null, hig
 function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight, setSize, posInSet }: { note: NoteSummary; depth: number; canOpenToSide: boolean; trailing?: React.ReactNode; highlight?: Query; setSize?: number; posInSet?: number }) {
     const active = useUi((s) => s.activeNoteId === note.id);
     const unlockedTitle = useNoteLocks((s) => s.unlocked[note.id]?.title ?? null);
+    const offlinePinned = useSession((s) => (s.settings.notes.offlineNoteIds ?? []).includes(note.id));
     const openNote = useNotes((s) => s.openNote);
     const patchNote = useNotes((s) => s.patchNote);
     const deleteNote = useNotes((s) => s.deleteNote);
@@ -87,6 +90,7 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight, setS
         { id: 'archive', label: t('navigation.archive'), icon: <Archive size={13}/>, onSelect: () => void patchNote(note.id, { isArchived: true }) },
         ...lintItems,
         ...noteLockMenuItems(note, unlockedTitle !== null),
+        ...offlineNoteMenuItems(note),
         { id: 'delete', label: t('common.move_to_trash'), icon: <Trash2 size={13}/>, separatorBefore: true, tone: 'danger', onSelect: () => void deleteNote(note.id) },
     ];
     const isDrawing = note.title.endsWith('.excalidraw');
@@ -112,6 +116,7 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight, setS
             <button type="button" tabIndex={-1} data-tree-note-open data-tree-row data-navigation-item aria-current={active ? 'page' : undefined} title={unlockedTitle ?? (note.isEncrypted ? t('notelock.masked') : note.title || t('common.untitled_note'))} onClick={() => open()} onKeyDown={onKeyDown} className="h-full min-w-0 flex-1 truncate pl-1 text-left text-[length:var(--text-12-5)]">
                 {titleWithHighlight(note, unlockedTitle, highlight)}
             </button>
+            {offlinePinned && <CloudDownload role="img" aria-label={t('notes.offline_pinned_badge')} className="shrink-0 text-[var(--text-tertiary)]"/>}
             {trailing}
             <IconButton label={t('common.more_actions')} size="sm" onClick={() => { contextMenu.close(); setMenuOpen(true); }} className="shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"><MoreHorizontal size={13}/></IconButton>
         </div>

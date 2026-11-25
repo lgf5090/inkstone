@@ -428,6 +428,7 @@ export interface NotesSettings {
   /** Minutes an unlocked note stays readable before it locks again. */
   lockTimeoutMinutes: number
   versionRetentionCount: number
+  offlineNoteIds: string[]
 }
 
 export interface NoteTemplateCategory {

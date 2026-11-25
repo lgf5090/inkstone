@@ -28,6 +28,7 @@ import { exportNoteAsHtml, exportNoteAsMarkdown, exportNoteAsPdf } from '../../l
 import { Preview } from '../preview/Preview';
 import { LockedNoteView } from '../notes/LockedNoteView';
 import { noteLockMenuItems } from '../notes/note-lock-menu';
+import { offlineNoteMenuItems } from '../notes/offline-notes';
 import { saveUnlockedNoteEdit, updateUnlockedNoteDraft, useNoteLocks } from '../../store/note-locks';
 import { Outline } from '../preview/Outline';
 import { FloatingOutline } from '../preview/FloatingOutline';
@@ -599,6 +600,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             onSelect: () => void exportNote('pdf'),
         },
         ...noteLockMenuItems(note, Boolean(unlockedNote)),
+        ...offlineNoteMenuItems(note),
     ];
     const groupedItems: MenuItem[] = [
         { id: 'layout-live', label: t("workspace.editing_mode"), checked: layout === 'live', onSelect: () => setEditorLayout('live') },

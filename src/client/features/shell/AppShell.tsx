@@ -33,6 +33,7 @@ import { t } from "../../lib/i18n";
 import { PinnedWindowsLayer } from '../preview/pinned-windows-layer';
 import { scheduleSettingsWarmup } from '../settings/sections';
 import { FileOpenHandler } from './FileOpenHandler';
+import { prefetchOfflineNotes } from '../notes/offline-notes';
 const Workspace = lazy(() => import('../workspace/Workspace').then((m) => ({ default: m.Workspace })));
 const importCommandPalette = () => import('../command/CommandPalette').then((m) => ({ default: m.CommandPalette }));
 const CommandPalette = lazy(importCommandPalette);
@@ -122,6 +123,11 @@ export function AppShell() {
             void checkForUpdates();
     }, [role, checkForUpdates]);
     const indexReady = hydrated && !loading;
+    const offlineNoteIds = useSession((s) => s.settings.notes.offlineNoteIds);
+    useEffect(() => {
+        if (!indexReady || !userId || !offlineNoteIds.length) return;
+        void prefetchOfflineNotes(offlineNoteIds);
+    }, [indexReady, userId, offlineNoteIds]);
     useEffect(() => {
         // The in-memory index belongs to an account, so signing out has to drop it rather than let the
         // next reader search the previous one's notes from cache.
