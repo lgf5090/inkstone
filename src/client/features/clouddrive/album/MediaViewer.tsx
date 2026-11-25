@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ChevronLeft,
@@ -18,6 +18,8 @@ import { formatBytes } from '../../../lib/time'
 import { localeTag, useLocale } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { clouddriveApi } from '../api'
+import { useSession } from '../../../store/session'
+import { mediaProgressSaveInterval, readMediaProgress, saveMediaProgress } from './media-progress'
 import { ct, type CloudDriveMessageKey } from '../media-i18n'
 
 export interface MediaViewerProps {
@@ -41,6 +43,8 @@ const ZOOM_STEP = 0.5
 export function MediaViewer({ open, entries, index, onIndexChange, onClose, onDownload }: MediaViewerProps) {
   const entry = entries[index] ?? null
   const locale = useLocale()
+  const userId = useSession((state) => state.user?.id)
+  const lastProgressSave = useRef(0)
   const [zoom, setZoom] = useState(1)
   const [details, setDetails] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -55,6 +59,7 @@ export function MediaViewer({ open, entries, index, onIndexChange, onClose, onDo
     setZoom(1)
     setFailed(false)
     setRetryKey(0)
+    lastProgressSave.current = 0
   }, [entry?.id])
 
   useEffect(() => {
@@ -87,6 +92,19 @@ export function MediaViewer({ open, entries, index, onIndexChange, onClose, onDo
   const counter = ct('clouddrive.viewer.counter', { index: index + 1, count: entries.length })
 
   const zoomBy = (delta: number) => setZoom((value) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value + delta)))
+  const restoreProgress = (element: HTMLMediaElement) => {
+    if (!userId) return
+    const saved = readMediaProgress(userId, entry.id, element.duration)
+    if (saved !== null) element.currentTime = saved
+    lastProgressSave.current = Date.now()
+  }
+  const trackProgress = (element: HTMLMediaElement, force = false) => {
+    if (!userId) return
+    const now = Date.now()
+    if (!force && now - lastProgressSave.current < mediaProgressSaveInterval()) return
+    lastProgressSave.current = now
+    saveMediaProgress(userId, entry.id, element.currentTime, element.duration)
+  }
 
   return (
     <Modal open onClose={onClose} variant="fullscreen" ariaLabel={entry.name}>
@@ -172,6 +190,9 @@ export function MediaViewer({ open, entries, index, onIndexChange, onClose, onDo
                 controls
                 playsInline
                 preload="metadata"
+                onLoadedMetadata={(event) => restoreProgress(event.currentTarget)}
+                onTimeUpdate={(event) => trackProgress(event.currentTarget)}
+                onPause={(event) => trackProgress(event.currentTarget, true)}
                 onError={() => setFailed(true)}
                 className="max-h-full max-w-full rounded-[var(--r-sm)] bg-black"
               >
@@ -193,6 +214,9 @@ export function MediaViewer({ open, entries, index, onIndexChange, onClose, onDo
                   src={contentUrl}
                   controls
                   preload="metadata"
+                  onLoadedMetadata={(event) => restoreProgress(event.currentTarget)}
+                  onTimeUpdate={(event) => trackProgress(event.currentTarget)}
+                  onPause={(event) => trackProgress(event.currentTarget, true)}
                   onError={() => setFailed(true)}
                   className="w-full"
                 />
