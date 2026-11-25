@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { startTransition, useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { NoteSummary } from '@shared/types'
 import { useBreakpoint } from '../../lib/hooks'
 
@@ -16,17 +16,21 @@ function useSidebarWindow(count: number, rowHeight: number, resetKey: string) {
   const containerRef = useRef<HTMLDivElement>(null)
   const scrollParentRef = useRef<HTMLElement | null>(null)
   const [range, setRange] = useState({ start: 0, end: 0 })
-  const overscan = 4
+  const frameRef = useRef(0)
+  const overscan = 3
+  const commitRange = useCallback((next: { start: number; end: number }) => {
+    startTransition(() => setRange((current) => current.start === next.start && current.end === next.end ? current : next))
+  }, [])
 
   const update = useCallback(() => {
     const node = containerRef.current
     if (!node || count === 0) {
-      setRange({ start: 0, end: 0 })
+      commitRange({ start: 0, end: 0 })
       return
     }
     const rect = node.getBoundingClientRect()
     if (rect.height === 0 && rect.top === 0 && rect.bottom === 0) {
-      setRange({ start: 0, end: Math.min(count, 60) })
+      commitRange({ start: 0, end: Math.min(count, 60) })
       return
     }
     const scrollParent = scrollParentOf(node)
@@ -35,36 +39,54 @@ function useSidebarWindow(count: number, rowHeight: number, resetKey: string) {
     const top = Math.max(rect.top, clip?.top ?? 0, 0)
     const bottom = Math.min(rect.bottom, clip?.bottom ?? window.innerHeight, window.innerHeight)
     if (bottom <= top) {
-      setRange({ start: 0, end: 0 })
+      commitRange({ start: 0, end: 0 })
       return
     }
     const first = Math.max(0, Math.floor((top - rect.top) / rowHeight))
     const last = Math.min(count - 1, Math.ceil((bottom - rect.top) / rowHeight) - 1)
     const start = Math.max(0, first - overscan)
     const end = Math.min(count, last + overscan + 1)
-    setRange((current) => current.start === start && current.end === end ? current : { start, end })
-  }, [count, rowHeight])
+    commitRange({ start, end })
+  }, [commitRange, count, rowHeight])
+
+  const scheduleUpdate = useCallback(() => {
+    if (frameRef.current) return
+    frameRef.current = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame(() => {
+        frameRef.current = 0
+        update()
+      })
+      : window.setTimeout(() => {
+        frameRef.current = 0
+        update()
+      }, 16)
+  }, [update])
 
   useLayoutEffect(() => {
-    setRange({ start: 0, end: 0 })
+    commitRange({ start: 0, end: 0 })
     update()
-  }, [resetKey, update])
+  }, [commitRange, resetKey, update])
 
   useLayoutEffect(() => {
     const node = containerRef.current
     if (!node) return
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleUpdate)
     observer?.observe(node)
     const scrollParent = scrollParentOf(node)
     if (scrollParent) observer?.observe(scrollParent)
-    window.addEventListener('scroll', update, true)
-    window.addEventListener('resize', update)
+    window.addEventListener('scroll', scheduleUpdate, true)
+    window.addEventListener('resize', scheduleUpdate)
     return () => {
       observer?.disconnect()
-      window.removeEventListener('scroll', update, true)
-      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', scheduleUpdate, true)
+      window.removeEventListener('resize', scheduleUpdate)
+      if (frameRef.current) {
+        if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(frameRef.current)
+        window.clearTimeout(frameRef.current)
+      }
+      frameRef.current = 0
     }
-  }, [resetKey, update])
+  }, [resetKey, scheduleUpdate])
 
   const ensureVisible = useCallback((index: number) => {
     const node = containerRef.current

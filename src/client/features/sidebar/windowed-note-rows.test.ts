@@ -62,10 +62,12 @@ describe('windowed sidebar notes', () => {
     })))
     expect(scroller.querySelectorAll('[data-tree-row]').length).toBeLessThan(100)
 
-    const edge = scroller.querySelector<HTMLButtonElement>('[data-sidebar-note-index="13"] [data-tree-row]')!
+    const wrappers = [...scroller.querySelectorAll<HTMLElement>('[data-sidebar-note-index]')]
+    const edgeIndex = Number(wrappers[wrappers.length - 1]!.dataset.sidebarNoteIndex)
+    const edge = wrappers[wrappers.length - 1]!.querySelector<HTMLButtonElement>('[data-tree-row]')!
     await act(async () => edge.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })))
     expect(scroller.scrollTop).toBeGreaterThan(0)
-    expect(document.activeElement?.textContent).toBe('Note 14')
+    expect(document.activeElement?.textContent).toBe(`Note ${edgeIndex + 1}`)
     expect(scroller.querySelectorAll('[data-tree-row]').length).toBeLessThan(100)
   })
 })
