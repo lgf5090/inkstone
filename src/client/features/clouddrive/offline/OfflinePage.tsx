@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { FilePreviewTarget } from '../../file-preview/types'
+import type { FilePreviewTarget } from '../../file-preview'
 import { Download, ExternalLink, RefreshCw, Trash2 } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'

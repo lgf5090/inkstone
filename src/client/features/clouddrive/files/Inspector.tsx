@@ -7,6 +7,8 @@ import { t } from '../../../lib/i18n'
 import { clouddriveApi } from '../api'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input, Textarea } from '../../../components/form'
+import { Drawer } from '../../../components/overlay'
+import { useMediaQuery } from '../../../lib/hooks'
 import { useUi } from '../../../store/ui'
 import { FileIcon } from './FileIcon'
 import { FolderColorMenu, TagEditorMenu } from './ColorTagMenus'
@@ -235,6 +237,7 @@ export function Inspector({
   // it when it first opens instead of claiming "not shared" for files it never looked at.
   const [sharedIds, setSharedIds] = useState<Set<string> | null>(null)
   const sharesRequested = useRef(false)
+  const mobile = useMediaQuery('(max-width: 767px)')
 
   useEffect(() => {
     if (!open || sharesRequested.current) return
@@ -256,14 +259,7 @@ export function Inspector({
   if (!open) return null
   const single = entries.length === 1 ? entries[0] : null
   const metadataWritable = single !== null && !readOnly && !single.readOnly && single.storageKind !== 'external'
-  return (
-    <aside className="cd-inspector flex min-h-0 flex-col" aria-label={t('clouddrive.inspector.title')}>
-      <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
-        <h2 className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">{t('clouddrive.inspector.title')}</h2>
-        <IconButton label={t('common.close')} size="sm" onClick={onClose}>
-          <X size={14} />
-        </IconButton>
-      </header>
+  const content = (
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {entries.length === 0 && (
           <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.inspector.none')}</p>
@@ -356,6 +352,23 @@ export function Inspector({
           </div>
         )}
       </div>
+  )
+  if (mobile) {
+    return (
+      <Drawer open onClose={onClose} side="right" width={320} title={t('clouddrive.inspector.title')}>
+        {content}
+      </Drawer>
+    )
+  }
+  return (
+    <aside className="cd-inspector flex min-h-0 flex-col" aria-label={t('clouddrive.inspector.title')}>
+      <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
+        <h2 className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">{t('clouddrive.inspector.title')}</h2>
+        <IconButton label={t('common.close')} size="sm" onClick={onClose}>
+          <X size={14} />
+        </IconButton>
+      </header>
+      {content}
     </aside>
   )
 }

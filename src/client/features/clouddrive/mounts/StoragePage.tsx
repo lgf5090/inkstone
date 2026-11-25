@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Database, HardDrive, Pencil, Plus, RefreshCw, Search, Star, Trash2 } from 'lucide-react'
 import { formatBytes } from '../../../lib/time'
 import { t } from '../../../lib/i18n'
+import type { MessageKey } from '@shared/locales/en-US'
 import { useUi } from '../../../store/ui'
 import { Button, Spinner } from '../../../components/primitives'
 import { Checkbox, Field, Input, Select } from '../../../components/form'
 import { confirm, Modal } from '../../../components/overlay'
-import { clouddriveApi } from '../api'
+import { clouddriveApi, cloudDriveErrorKey } from '../api'
 import { useCloudDriveStore } from '../store'
 import { formatEntryDate } from '../files/format'
 import {
@@ -31,6 +32,10 @@ import {
   type Storage,
   type StorageType,
 } from './shared'
+
+function storageErrorMessage(error: unknown): string {
+  return t(cloudDriveErrorKey(error) as MessageKey)
+}
 
 interface StorageForm {
   name: string
@@ -378,7 +383,7 @@ export function StoragePage() {
       const result = await clouddriveApi.storages()
       setStorages(result.storages)
     } catch (error) {
-      toast({ title: t('clouddrive.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+      toast({ title: t('clouddrive.failed'), description: storageErrorMessage(error), tone: 'danger' })
     } finally {
       setLoading(false)
     }
@@ -458,7 +463,7 @@ export function StoragePage() {
       setOpen(false)
       await refreshAll()
     } catch (error) {
-      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+      toast({ title: t('clouddrive.toast.failed'), description: storageErrorMessage(error), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -469,10 +474,10 @@ export function StoragePage() {
       const result = await clouddriveApi.testStorage(storage.id)
       const description = result.quota
         ? `${t('clouddrive.admin.storage.quota')}: ${formatBytes(result.quota.used)} / ${result.quota.total === null ? '—' : formatBytes(result.quota.total)}`
-        : result.message
+        : t(result.ok ? 'clouddrive.admin.test_ok' : 'clouddrive.admin.test_failed')
       toast({ title: result.ok ? t('clouddrive.storage.test') : t('clouddrive.toast.failed'), description, tone: result.ok ? 'default' : 'danger' })
     } catch (error) {
-      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+      toast({ title: t('clouddrive.toast.failed'), description: storageErrorMessage(error), tone: 'danger' })
     }
     await load()
   }
@@ -482,7 +487,7 @@ export function StoragePage() {
       await clouddriveApi.defaultStorage(storage.id)
       await refreshAll()
     } catch (error) {
-      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+      toast({ title: t('clouddrive.toast.failed'), description: storageErrorMessage(error), tone: 'danger' })
     }
   }
 
@@ -491,7 +496,7 @@ export function StoragePage() {
       await clouddriveApi.patchStorage(storage.id, { status: storage.status === 'enabled' ? 'disabled' : 'enabled' })
       await refreshAll()
     } catch (error) {
-      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+      toast({ title: t('clouddrive.toast.failed'), description: storageErrorMessage(error), tone: 'danger' })
     }
   }
 
@@ -501,7 +506,7 @@ export function StoragePage() {
       await clouddriveApi.deleteStorage(storage.id)
       await refreshAll()
     } catch (error) {
-      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+      toast({ title: t('clouddrive.toast.failed'), description: storageErrorMessage(error), tone: 'danger' })
     }
   }
 
@@ -510,7 +515,7 @@ export function StoragePage() {
       const result = await clouddriveApi.oauthStart(storage.type, storage.id)
       window.location.assign(result.url)
     } catch (error) {
-      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+      toast({ title: t('clouddrive.toast.failed'), description: storageErrorMessage(error), tone: 'danger' })
     }
   }
 
@@ -522,7 +527,7 @@ export function StoragePage() {
       setSmsSent(true)
       toast({ title: t('clouddrive.driver.sms.sent') })
     } catch (error) {
-      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+      toast({ title: t('clouddrive.toast.failed'), description: storageErrorMessage(error), tone: 'danger' })
     } finally {
       setSmsBusy(false)
     }
@@ -539,7 +544,7 @@ export function StoragePage() {
       setSmsSent(false)
       await refreshAll()
     } catch (error) {
-      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+      toast({ title: t('clouddrive.toast.failed'), description: storageErrorMessage(error), tone: 'danger' })
     } finally {
       setSmsBusy(false)
     }
@@ -743,9 +748,9 @@ export function StoragePage() {
                     <option value="other">{t('clouddrive.admin.storage.provider_other')}</option>
                   </Select>
                 </Field>
-                <Field label={t('clouddrive.storage.region')}><Input value={form.region} onChange={(event) => set({ region: event.target.value })} placeholder="auto" /></Field>
+                <Field label={t('clouddrive.storage.region')}><Input value={form.region} onChange={(event) => set({ region: event.target.value })} placeholder={t('clouddrive.storage.region_placeholder')} /></Field>
               </div>
-              <Field label={t('clouddrive.storage.endpoint')} required><Input value={form.endpoint} onChange={(event) => set({ endpoint: event.target.value })} placeholder="https://s3.example.com" /></Field>
+              <Field label={t('clouddrive.storage.endpoint')} required><Input value={form.endpoint} onChange={(event) => set({ endpoint: event.target.value })} placeholder={t('clouddrive.storage.endpoint_placeholder')} /></Field>
               <div className="grid gap-2 sm:grid-cols-2">
                 <Field label={t('clouddrive.storage.bucket')} required><Input value={form.bucketName} onChange={(event) => set({ bucketName: event.target.value })} /></Field>
                 <Field label={t('clouddrive.storage.root_path')}><Input value={form.rootPath} onChange={(event) => set({ rootPath: event.target.value })} placeholder={t('clouddrive.storage.root_path_placeholder')} /></Field>
@@ -764,7 +769,7 @@ export function StoragePage() {
 
           {form.type === 'webdav' && (
             <>
-              <Field label={t('clouddrive.storage.base_url')} required><Input value={form.baseUrl} onChange={(event) => set({ baseUrl: event.target.value })} placeholder="https://dav.example.com/dav" /></Field>
+              <Field label={t('clouddrive.storage.base_url')} required><Input value={form.baseUrl} onChange={(event) => set({ baseUrl: event.target.value })} placeholder={t('clouddrive.storage.base_url_placeholder')} /></Field>
               <Field label={t('clouddrive.storage.root_path')}><Input value={form.rootPath} onChange={(event) => set({ rootPath: event.target.value })} placeholder={t('clouddrive.storage.root_path_placeholder')} /></Field>
               <div className="grid gap-2 sm:grid-cols-2">
                 <Field label={t('clouddrive.storage.username')}><Input value={form.username} onChange={(event) => set({ username: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>
@@ -783,7 +788,7 @@ export function StoragePage() {
                     <option value="dataset">{t('clouddrive.storage.repo_type_dataset')}</option>
                   </Select>
                 </Field>
-                <Field label={t('clouddrive.storage.revision')}><Input value={form.revision} onChange={(event) => set({ revision: event.target.value })} placeholder="main" /></Field>
+                <Field label={t('clouddrive.storage.revision')}><Input value={form.revision} onChange={(event) => set({ revision: event.target.value })} placeholder={t('clouddrive.storage.revision_placeholder')} /></Field>
               </div>
               <Field label={t('clouddrive.storage.root_path')}><Input value={form.rootPath} onChange={(event) => set({ rootPath: event.target.value })} placeholder={t('clouddrive.storage.root_path_placeholder')} /></Field>
               <Field label={t('clouddrive.storage.token')}><Input type="password" value={form.token} onChange={(event) => set({ token: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>
@@ -801,7 +806,7 @@ export function StoragePage() {
 
           {form.type === 'googledrive' && (
             <>
-              <Field label={t('clouddrive.storage.folder_id')}><Input value={form.folderId} onChange={(event) => set({ folderId: event.target.value })} placeholder="root" /></Field>
+              <Field label={t('clouddrive.storage.folder_id')}><Input value={form.folderId} onChange={(event) => set({ folderId: event.target.value })} placeholder={t('clouddrive.storage.folder_id_placeholder')} /></Field>
               <Field label={t('clouddrive.storage.root_path')}><Input value={form.rootPath} onChange={(event) => set({ rootPath: event.target.value })} placeholder={t('clouddrive.storage.root_path_placeholder')} /></Field>
               <div className="grid gap-2 sm:grid-cols-2">
                 <Field label={t('clouddrive.storage.token')}><Input type="password" value={form.token} onChange={(event) => set({ token: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>

@@ -41,12 +41,12 @@
 - [x] PERF-06 移除每请求主挂载初始化写
 - [ ] PERF-07 配额计数表与定时校准
 - [ ] PERF-08 URL 上传超时、限流与流式限长
-- [ ] UX-01 公开页接入统一 API 服务层
-- [ ] UX-02 跨 feature 引用改公开入口
-- [ ] UX-03 设置、最近、分享浏览补齐错误三态
-- [ ] UX-04 移动端 Inspector 改 Drawer/dialog
-- [ ] UX-05 表单错误 ARIA 关联与键盘路径
-- [ ] UX-06 设计令牌、i18n 与死代码清理
+- [x] UX-01 公开页接入统一 API 服务层
+- [x] UX-02 跨 feature 引用改公开入口
+- [x] UX-03 设置、最近、分享浏览补齐错误三态
+- [x] UX-04 移动端 Inspector 改 Drawer/dialog
+- [x] UX-05 表单错误 ARIA 关联与键盘路径
+- [x] UX-06 设计令牌、i18n 与死代码清理
 - [ ] UX-07 拆分 FilesPage 与 store-files 职责
 - [ ] UX-08 文件列表工具栏、列与搜索体验
 - [ ] UX-09 补齐 lint、测试、build、a11y 门禁
@@ -57,7 +57,7 @@
 - [ ] FEAT-05 ACL 权限分级与到期授权
 - [ ] FEAT-06 SHA-256 秒传与内容去重
 - [ ] FEAT-07 文件活动审计与异常提醒
-- [ ] FEAT-08 元数据与配置备份导出
+- [x] FEAT-08 元数据与配置备份导出
 - [ ] FEAT-09 自动备份与后台同步
 - [ ] FEAT-10 整盘快照与时间点恢复
 - [ ] FEAT-11 私密保险箱
@@ -78,12 +78,14 @@
 | SEC-13 | DONE | 5301e9a9 | Google Drive、Dropbox、AutoIndex、external drivers 44 项通过 |
 | LOG-11 | DONE | 2b790bf3 | OAuth tokens + driver resolver 17 项通过；解密失败显式报错 |
 | LOG-07 | DONE | 81521917 | 新增 `clouddrive-jobs.test.ts` 2 项通过；owner 200/member 403 |
-| FEAT-08 | IN PROGRESS | f5de7cf1 | 后端配置导出与脱敏测试通过；设置页入口待接 |
+| FEAT-08 | DONE | f5de7cf1 + 本次提交 | 后端脱敏导出与设置页入口完成；浏览器端点 200 |
 | FEAT-13 | IN PROGRESS | 16cd1663 | 音视频续播与账号隔离已实现；HEIC/转码仍待评估 |
 | FEAT-06 | IN PROGRESS | 75215bf8 | 增量 SHA-256 工具与测试通过；上传去重协议待接 |
 | FEAT-14 | IN PROGRESS | 8b35bf97 | 列表/网格/相册启用 content-visibility；大列表性能实测待做 |
 | SEC-12 | IN PROGRESS | 97b6acc0 | scope 模型与迁移兼容测试通过；DAV 方法级检查待接 |
-| UX-09 | IN PROGRESS | 本次提交 | 新增 gates:full；全量类型、测试与构建待跑 |
+| UX-01～06 | DONE | 本次提交 | 7 文件 16 项 UX 测试、i18n、ESLint、Stylelint 通过；构建通过 |
+| UX-09 | IN PROGRESS | 84248129 | 新增 gates:full；全量类型、测试与构建待跑 |
+| QA-02 | IN PROGRESS | - | 有头 Chrome 已进入 CloudDrive；配置导出 200；直传 FixedLengthStream 回归待修 |
 
 ## 验证命令
 

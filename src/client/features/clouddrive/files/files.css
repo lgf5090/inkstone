@@ -295,15 +295,6 @@
 }
 
 @media (max-width: 767px) {
-  [data-clouddrive-files] .cd-inspector {
-    position: fixed;
-    inset-block: 0;
-    inset-inline-end: 0;
-    z-index: var(--z-drawer);
-    inline-size: min(320px, 88vw);
-    box-shadow: var(--shadow-modal);
-  }
-
   [data-clouddrive-files] .cd-col-modified,
   [data-clouddrive-files] .cd-col-kind,
   [data-clouddrive-files] .cd-col-tags {

@@ -15,7 +15,7 @@ export class CloudDriveApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}, acceptFailureResult = false): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}, acceptFailureResult = false): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set(CLIENT_HEADER, '1')
   if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {

@@ -363,7 +363,7 @@ function MediaTile({ entry, selecting, selected, onOpen, onToggle }: {
           {selecting && (
             <span
               className={cn(
-                'absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-[5px] border',
+                'absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-[var(--r-sm)] border',
                 selected
                   ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-contrast)]'
                   : 'border-[var(--border-strong)] bg-[var(--bg-overlay)]/90 text-transparent',

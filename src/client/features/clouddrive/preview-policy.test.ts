@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PREVIEW_RULES, parsePreviewRules, type CloudDrivePreviewRule } from '@shared/clouddrive/settings'
-import { previewRendererFor } from '../file-preview/registry'
+import { previewRendererFor } from '../file-preview'
 import { cloudDrivePreviewPolicy } from './preview-policy'
 
 function rule(id: string, type: CloudDrivePreviewRule['type'], priority: number, extensions: string[]): CloudDrivePreviewRule {
