@@ -29,8 +29,11 @@ import {
   likePattern,
   linkFirstMention,
   normalizeLinkKey,
+  parseFrontMatter,
   plainLinkText,
   replaceWikiLinkTarget,
+  setFrontMatterValue,
+  sortTagNames,
   trimFrontMatterLead,
 } from '@shared/markdown-utils'
 import { truncateText, utf8ByteLength } from '@shared/text-utils'
@@ -131,6 +134,20 @@ export interface NoteDuplicateInput {
   isArchived: number
   contentHash: string
   now: number
+}
+
+export interface NoteMergeInput {
+  target: NoteRow
+  sources: NoteRow[]
+  now: number
+}
+
+export interface NoteMergeResult {
+  row: NoteRow | null
+  changeSeq: number | undefined
+  applied: boolean
+  merged: number
+  tooLarge: boolean
 }
 
 export interface NoteWriteResult {
@@ -243,6 +260,9 @@ export interface NotePatchInput {
   sealing?: boolean
   /** `null` when the previous text is not kept; the route owns that rule. */
   snapshot: { preserve: boolean; bigChange: boolean } | null
+  extraGuard?: { sql: string; values: unknown[] }
+  prefixStatements?: D1PreparedStatement[]
+  suffixStatements?: D1PreparedStatement[]
 }
 
 export interface NotePatchResult {
@@ -588,6 +608,109 @@ export class NotesStore {
     }
   }
 
+  async merge(input: NoteMergeInput): Promise<NoteMergeResult> {
+    const { target, sources, now } = input
+    const targetTags = sortTagNames([...new Set([...splitTags(target.tag_names), ...extractTags(target.content)])])
+    const mergedTags = sortTagNames([...new Set([
+      ...targetTags,
+      ...sources.flatMap((source) => [...splitTags(source.tag_names), ...extractTags(source.content)]),
+    ])])
+    const sections = [
+      target.content.trimEnd(),
+      ...sources.map((source) => {
+        const title = source.title.replace(/\s+/g, ' ').trim()
+        const body = parseFrontMatter(source.content).body.trim()
+        return `## ${title}${body ? `\n\n${body}` : ''}`
+      }),
+    ].filter(Boolean)
+    let content = sections.join('\n\n---\n\n')
+    if (JSON.stringify(mergedTags) !== JSON.stringify(targetTags))
+      content = setFrontMatterValue(content, 'tags', mergedTags)
+    if (utf8ByteLength(content) > LIMITS.contentMaxBytes)
+      return { row: target, changeSeq: undefined, applied: false, merged: 0, tooLarge: true }
+
+    const contentHash = await sha256Hex(content)
+    const { words, chars } = countText(content)
+    const sourceIds = sources.map((source) => source.id)
+    const sourceKeys = sources.map((source) => normalizeLinkKey(source.title))
+    const sourceValues = sources.flatMap((source) => [source.id, this.userId, source.rev])
+    const sourceChecks = sources.map(() =>
+      'EXISTS (SELECT 1 FROM notes WHERE id = ? AND user_id = ? AND rev = ? AND deleted_at IS NULL)').join(' AND ')
+    const sourceIdsJson = JSON.stringify(sourceIds)
+    const idPlaceholders = sourceIds.map(() => '?').join(', ')
+    const keyPlaceholders = sourceKeys.map(() => '?').join(', ')
+    const targetKey = normalizeLinkKey(target.title)
+    const guardedMove = (table: string, column: string) => this.db.prepare(
+      `UPDATE ${table} SET ${column} = ? WHERE user_id = ? AND ${column} IN (${idPlaceholders})
+        AND (${sourceChecks})`,
+    ).bind(target.id, this.userId, ...sourceIds, ...sourceValues)
+
+    const retargetLinks = this.db.prepare(
+      `UPDATE links SET target_note_id = ?, target_key = ?, target_title = ?
+        WHERE user_id = ? AND (target_note_id IN (${idPlaceholders}) OR target_key IN (${keyPlaceholders}))
+          AND (${sourceChecks})`,
+    ).bind(target.id, targetKey, target.title, this.userId, ...sourceIds, ...sourceKeys, ...sourceValues)
+    const prefixStatements = [
+      guardedMove('attachments', 'note_id'),
+      guardedMove('note_versions', 'note_id'),
+      guardedMove('chat_artifacts', 'note_id'),
+      guardedMove('chat_conversations', 'note_id'),
+      guardedMove('chat_memories', 'note_id'),
+      guardedMove('chat_runs', 'note_id'),
+      this.db.prepare(
+        `UPDATE blog_pages SET published_at = NULL WHERE user_id = ? AND note_id IN (${idPlaceholders})
+          AND (${sourceChecks})`,
+      ).bind(this.userId, ...sourceIds, ...sourceValues),
+      this.db.prepare(
+        `UPDATE blog_posts SET status = 'withdrawn' WHERE user_id = ? AND note_id IN (${idPlaceholders})
+          AND (${sourceChecks})`,
+      ).bind(this.userId, ...sourceIds, ...sourceValues),
+    ]
+    const suffixStatements = [
+      retargetLinks,
+      this.db.prepare(
+        `UPDATE notes SET deleted_at = ?, updated_at = ?, rev = rev + 1
+          WHERE user_id = ? AND deleted_at IS NULL AND id IN (${idPlaceholders}) AND (${sourceChecks})`,
+      ).bind(now, now, this.userId, ...sourceIds, ...sourceValues),
+      this.db.prepare(`DELETE FROM note_properties WHERE user_id = ? AND note_id IN (${idPlaceholders})`)
+        .bind(this.userId, ...sourceIds),
+      this.db.prepare(`DELETE FROM ai_note_embeddings WHERE user_id = ? AND note_id IN (${idPlaceholders})`)
+        .bind(this.userId, ...sourceIds),
+      this.db.prepare(`DELETE FROM rewrite_queue WHERE user_id = ? AND source_id IN (${idPlaceholders})`)
+        .bind(this.userId, ...sourceIds),
+      ...trashPurgeStatements(this.db, this.userId, sourceIdsJson, now, this.ftsEnabled),
+    ]
+    const patched = await this.patch({
+      current: target,
+      expectedRev: target.rev,
+      columns: {
+        content,
+        content_hash: contentHash,
+        excerpt: deriveExcerpt(content),
+        word_count: words,
+        char_count: chars,
+      },
+      title: target.title,
+      content,
+      contentHash,
+      now,
+      contentChanged: true,
+      titleChanged: false,
+      derive: target.deleted_at === null,
+      snapshot: { preserve: true, bigChange: true },
+      extraGuard: { sql: sourceChecks, values: sourceValues },
+      prefixStatements,
+      suffixStatements,
+    })
+    return {
+      row: patched.next,
+      changeSeq: patched.changeSeq,
+      applied: patched.applied,
+      merged: patched.applied ? sources.length : 0,
+      tooLarge: false,
+    }
+  }
+
   // ---------------------------------------------------------------- versions
 
   /**
@@ -728,31 +851,34 @@ export class NotesStore {
     const binds: unknown[] = []
     for (const [column, value] of Object.entries(input.columns)) {
       binds.push(value)
-      sets.push(`${column} = ?${binds.length}`)
+      sets.push(`${column} = ?`)
     }
     binds.push(now)
-    sets.push(`updated_at = ?${binds.length}`)
+    sets.push('updated_at = ?')
     binds.push(nextRev)
-    sets.push(`rev = ?${binds.length}`)
+    sets.push('rev = ?')
     binds.push(id, this.userId, input.expectedRev)
 
+    const extraGuard = input.extraGuard
+    const extraValues = extraGuard?.values ?? []
     const mutationGuard = `EXISTS (SELECT 1 FROM notes
       WHERE id = ?1 AND user_id = ?2 AND rev = ?3
         AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
     const mutationValues = [id, this.userId, nextRev, input.contentHash, input.title, now] as const
 
-    const folderIndex = sets.findIndex((set) => set.startsWith('folder_id = ')) + 1
-    const folderGuard = folderIndex > 0
-      ? ` AND (?${folderIndex} IS NULL OR EXISTS (
-          SELECT 1 FROM folders WHERE id = ?${folderIndex} AND user_id = ?${binds.length - 1} AND deleted_at IS NULL
-        ))`
+    const changesFolder = Object.prototype.hasOwnProperty.call(input.columns, 'folder_id')
+    const folderGuard = changesFolder
+      ? ' AND (? IS NULL OR EXISTS (SELECT 1 FROM folders WHERE id = ? AND user_id = ? AND deleted_at IS NULL))'
       : ''
+    if (changesFolder) binds.push(input.columns.folder_id, this.userId)
     const update = this.db.prepare(
       `UPDATE notes SET ${sets.join(', ')}
-        WHERE id = ?${binds.length - 2} AND user_id = ?${binds.length - 1} AND rev = ?${binds.length}${folderGuard}`,
-    ).bind(...binds)
+        WHERE id = ? AND user_id = ? AND rev = ?${folderGuard}${extraGuard ? ` AND (${extraGuard.sql})` : ''}`,
+    ).bind(...binds, ...extraValues)
 
-    const statements: D1PreparedStatement[] = [update]
+    const prefixStatements = input.prefixStatements ?? []
+    const suffixStatements = input.suffixStatements ?? []
+    const statements: D1PreparedStatement[] = [...prefixStatements, update]
     let tags: string[] | null = null
 
     if (input.snapshot) {
@@ -819,7 +945,7 @@ export class NotesStore {
     // it rides along with the mutation instead of costing the rename path its own round trip.
     let ambiguityIndex = -1
     if (input.titleChanged) {
-      ambiguityIndex = statements.length
+      ambiguityIndex = prefixStatements.length + statements.length
       statements.push(this.db.prepare(
         `SELECT 1 AS found FROM notes
           WHERE user_id = ?1 AND id <> ?2 AND deleted_at IS NULL AND title_key IN (?3, ?4)
@@ -852,6 +978,7 @@ export class NotesStore {
       }
     }
 
+    statements.push(...suffixStatements)
     statements.push(
       this.db.prepare(
         `INSERT INTO changes (user_id, entity, entity_id, op, at)
@@ -868,7 +995,7 @@ export class NotesStore {
     const next: NoteRow = { ...current, ...input.columns, updated_at: now, rev: nextRev }
     if (nextTags !== null) next.tag_names = nextTags.join(String.fromCharCode(TAG_SEP_CODE))
     return {
-      applied: Boolean(results[0]?.meta.changes),
+      applied: Boolean(results[prefixStatements.length]?.meta.changes),
       changeSeq: (results.at(-1) as D1Result<{ seq: number }>).results?.[0]?.seq,
       next,
       ambiguous: input.titleChanged && (results[ambiguityIndex]?.results?.length ?? 0) > 0,

@@ -7,6 +7,7 @@ import { duplicateNoteTitle, truncateText, utf8ByteLength } from '@shared/text-u
 import type {
   CreateNoteBody,
   ListNotesResponse,
+  MergeNotesBody,
   Note,
   PatchNoteBody,
   SortKey,
@@ -543,6 +544,47 @@ notesRoutes.post('/:id/duplicate', async (c) => {
   // rather than a state a client can reach.
   const note = toNote(outcome.row!)
   return c.json(note, 201)
+})
+
+
+notesRoutes.post('/:id/merge', async (c) => {
+  const userId = c.get('userId')
+  const id = c.req.param('id')
+  const body = await readJson<MergeNotesBody>(c, JSON_BODY_LIMITS.note)
+  if (!Number.isInteger(body.rev) || body.rev < 1)
+    throw ApiError.badRequest('rev must be a positive integer')
+  if (!Array.isArray(body.sources) || body.sources.length < 1 || body.sources.length > LIMITS.noteMergeSourcesMax)
+    throw ApiError.badRequest(`sources must contain between 1 and ${LIMITS.noteMergeSourcesMax} notes`)
+  const seen = new Set<string>()
+  for (const source of body.sources) {
+    if (!source || !isValidId(source.id) || source.id === id || seen.has(source.id) || !Number.isInteger(source.rev) || source.rev < 1)
+      throw ApiError.badRequest('sources must contain unique live note ids and positive revisions')
+    seen.add(source.id)
+  }
+  const s = store(c)
+  const target = await loadNoteRow(s, id)
+  if (target.deleted_at !== null) throw ApiError.conflict('This note is in the trash')
+  if (target.is_encrypted === 1) throw ApiError.conflict('This note is locked; unlock it before merging')
+  if (body.rev !== target.rev) throw ApiError.conflict('This note was modified elsewhere', { server: toNote(target) })
+  const sources = await Promise.all(body.sources.map((source) => loadNoteRow(s, source.id)))
+  for (const [index, source] of sources.entries()) {
+    if (source.deleted_at !== null) throw ApiError.conflict('A source note is in the trash')
+    if (source.is_encrypted === 1) throw ApiError.conflict('A source note is locked; unlock it before merging')
+    if (source.rev !== body.sources[index]!.rev)
+      throw ApiError.conflict('A source note was modified elsewhere', { server: toNote(source) })
+  }
+  const outcome = await s.merge({ target, sources, now: Math.max(Date.now(), target.updated_at + 1) })
+  if (outcome.tooLarge) throw ApiError.tooLarge('Merged note content exceeds the limit')
+  if (!outcome.applied) {
+    const current = await loadNoteRow(s, id)
+    throw ApiError.conflict('This note was modified elsewhere', { server: current })
+  }
+  await broadcastCursor(c, outcome.changeSeq)
+  scheduleFtsDrain(c)
+  scheduleAiDrainForNote(c, userId)
+  const note = toNote(outcome.row!)
+  await syncBlogForNote(c, { id: note.id, title: note.title, content: note.content, deleted_at: null })
+  return c.json({ note, merged: outcome.merged })
 })
 
 

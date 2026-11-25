@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   patch: vi.fn(),
   create: vi.fn(),
+  merge: vi.fn(),
   linkMention: vi.fn(),
   setContent: vi.fn(),
   markOutboxFailure: vi.fn(),
@@ -43,7 +44,7 @@ vi.mock('../lib/db', () => ({
 }))
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<any>('../lib/api')
-  return { ...actual, api: { ...actual.api, notes: { get: mocks.get, patch: mocks.patch, create: mocks.create, linkMention: mocks.linkMention } } }
+  return { ...actual, api: { ...actual.api, notes: { get: mocks.get, patch: mocks.patch, create: mocks.create, merge: mocks.merge, linkMention: mocks.linkMention } } }
 })
 import { findNoteByTitle, flushLocalDbWrites, useNotes } from './notes'
 import { api } from '../lib/api'
@@ -80,7 +81,7 @@ function withPristineNote(content: string): void {
 beforeEach(() => {
   vi.useFakeTimers()
   mocks.queue = []
-  mocks.get.mockReset(); mocks.patch.mockReset(); mocks.create.mockReset(); mocks.linkMention.mockReset()
+  mocks.get.mockReset(); mocks.patch.mockReset(); mocks.create.mockReset(); mocks.merge.mockReset(); mocks.linkMention.mockReset()
   mocks.setContent.mockReset().mockResolvedValue(undefined)
   mocks.completeBatch.mockReset().mockImplementation(async (items: Array<{ id: string; writeId: string }>) => {
     const completed = new Set(items.map((item) => JSON.stringify([item.id, item.writeId])))
@@ -95,6 +96,23 @@ beforeEach(() => {
     folders: [], tags: [], cursor: 1, pendingCount: 0, online: true })
 })
 afterEach(() => vi.useRealTimers())
+
+it('merges through the server and removes source notes from local state', async () => {
+  const source = { ...note, id: '01mergesource', title: 'Source', content: 'source body' }
+  const merged = { ...note, rev: 2, content: 'merged body', excerpt: 'merged body' }
+  useNotes.setState({
+    notes: { [note.id]: note, [source.id]: source },
+    contents: { [note.id]: note.content, [source.id]: source.content },
+  })
+  mocks.merge.mockResolvedValue({ note: merged, merged: 1 })
+
+  expect(await useNotes.getState().mergeNotes(note.id, [source.id])).toBe(1)
+  expect(mocks.merge).toHaveBeenCalledWith(note.id, { rev: 1, sources: [{ id: source.id, rev: 1 }] })
+  expect(useNotes.getState().notes[source.id]).toBeUndefined()
+  expect(useNotes.getState().contents[source.id]).toBeUndefined()
+  expect(useNotes.getState().notes[note.id]?.rev).toBe(2)
+  expect(useUi.getState().selectedIds).toEqual([note.id])
+})
 
 it('moves every note of a deleted folder in a single store write', async () => {
   const many = Object.fromEntries(Array.from({ length: 500 }, (_, index) => {

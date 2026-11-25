@@ -1,7 +1,7 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { PenLine } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, BookOpen, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, Lock, MoreHorizontal, Network, Newspaper, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Sparkles, Star, StarOff, Tag, Trash2, Undo2, X, Zap, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, BookOpen, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, Lock, Merge, MoreHorizontal, Network, Newspaper, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Sparkles, Star, StarOff, Tag, Trash2, Undo2, X, Zap, } from 'lucide-react';
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import { isInkNoteTitle } from '../../lib/inkpad/document';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
@@ -777,6 +777,8 @@ function BulkBar() {
     const notes = useNotes((s) => s.notes);
     const tags = useNotes((s) => s.tags);
     const editRemoteContent = useNotes((s) => s.editRemoteContent);
+    const mergeNotes = useNotes((s) => s.mergeNotes);
+    const activeNoteId = useUi((s) => s.activeNoteId);
     const toast = useUi((s) => s.toast);
     const [folderPickerOpen, setFolderPickerOpen] = useState(false);
     const [tagMenuOpen, setTagMenuOpen] = useState(false);
@@ -839,6 +841,22 @@ function BulkBar() {
             clear();
         });
     };
+    const mergeSelected = () => {
+        const targetId = activeNoteId && ids.includes(activeNoteId) ? activeNoteId : ids[0]!;
+        const sources = ids.filter((id) => id !== targetId);
+        void runAll(async () => {
+            const accepted = await confirm({
+                title: t('notes.merge_confirm', { value0: ids.length }),
+                description: t('notes.merge_desc', { value0: notes[targetId]?.title ?? '' }),
+                confirmLabel: t('notes.merge_notes'),
+                tone: 'danger',
+            });
+            if (!accepted) return;
+            const merged = await mergeNotes(targetId, sources);
+            toast({ title: t('notes.merge_result', { value0: merged }), tone: 'success' });
+            clear();
+        });
+    };
     const tagItems: MenuItem[] = [
         ...[...tags].sort((left, right) => left.name.localeCompare(right.name)).map((tag) => ({
             id: `tag:${tag.id}`,
@@ -871,6 +889,11 @@ function BulkBar() {
         <Tooltip label={t("notes.bulk_tag")}>
           <IconButton ref={tagButtonRef} label={t("notes.bulk_tag")} size="sm" disabled={busy} onClick={() => setTagMenuOpen(true)}>
             <Tag size={13}/>
+          </IconButton>
+        </Tooltip>
+        <Tooltip label={t("notes.merge_notes")}>
+          <IconButton label={t("notes.merge_notes")} size="sm" disabled={busy} onClick={mergeSelected}>
+            <Merge size={13}/>
           </IconButton>
         </Tooltip>
         <Tooltip label={t("navigation.archive")}>

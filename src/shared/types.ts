@@ -1075,6 +1075,11 @@ export interface PatchNoteBody {
   preserveVersion?: boolean
 }
 
+export interface MergeNotesBody {
+  rev: number
+  sources: Array<{ id: string; rev: number }>
+}
+
 export interface ConflictPayload {
   code: 'conflict'
   message: string

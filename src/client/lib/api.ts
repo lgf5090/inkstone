@@ -1202,6 +1202,8 @@ export const api = {
       }),
     duplicate: (id: string, body: { id?: string } = {}) =>
       request<Note>(`/api/notes/${id}/duplicate`, { method: 'POST', body }),
+    merge: (id: string, body: import('@shared/types').MergeNotesBody) =>
+      request<{ note: Note; merged: number }>(`/api/notes/${id}/merge`, { method: 'POST', body }),
     emptyTrash: () => request<{ purged: number }>('/api/notes/trash/empty', { method: 'POST' }),
     versions: (id: string, signal?: AbortSignal) =>
       request<{ versions: NoteVersionMeta[] }>(`/api/notes/${id}/versions`, { signal }),

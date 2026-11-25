@@ -108,6 +108,7 @@ interface NotesState {
     purgeNote: (id: string) => Promise<void>;
     emptyTrash: () => Promise<number | null>;
     duplicateNote: (id: string) => Promise<void>;
+    mergeNotes: (targetId: string, sourceIds: string[]) => Promise<number>;
     createFolder: (input?: {
         name?: string;
         parentId?: string | null;
@@ -1455,6 +1456,42 @@ export const useNotes = create<NotesState>((set, get) => ({
             if (pendingNoteCreates.get(copyId) === request)
                 pendingNoteCreates.delete(copyId);
         }
+    },
+    async mergeNotes(targetId, sourceIds) {
+        if (!requireOnlineMutation(get)) return 0;
+        const target = get().notes[targetId];
+        const uniqueSources = [...new Set(sourceIds)].filter((id) => id !== targetId);
+        if (!target || target.isEncrypted || target.deletedAt || !uniqueSources.length || uniqueSources.length > LIMITS.noteMergeSourcesMax)
+            return 0;
+        const sources = uniqueSources.map((id) => get().notes[id]);
+        if (sources.some((note) => !note || note.isEncrypted || note.deletedAt)) return 0;
+        await get().flush();
+        const queued = await localDb.getOutbox();
+        if (queued.some((item) => item.entity === 'note' && (item.entityId === targetId || uniqueSources.includes(item.entityId))))
+            throw new Error(t('notes.merge_unsynced'));
+        for (const id of [targetId, ...uniqueSources]) commitPendingSummaryDerivation(id);
+        const result = await api.notes.merge(targetId, {
+            rev: target.rev,
+            sources: sources.map((note) => ({ id: note.id, rev: note.rev })),
+        });
+        adoptNote(result.note, set, get);
+        set((state) => {
+            const notes = { ...state.notes };
+            const contents = { ...state.contents };
+            for (const id of uniqueSources) {
+                delete notes[id];
+                delete contents[id];
+                dirty.delete(id);
+                offlineCreates.delete(id);
+                useUi.getState().removeWorkspaceNote(id);
+            }
+            return { notes, contents };
+        });
+        await Promise.all(uniqueSources.flatMap((id) => [localDb.dropContent(id), localDb.dropOmnisearchBodies([id])]));
+        useUi.getState().setSelected([targetId]);
+        useUi.getState().setActiveNote(targetId);
+        scheduleShellSave(get);
+        return result.merged;
     },
     createFolder(input) {
         if (!requireOnlineMutation(get)) return null;

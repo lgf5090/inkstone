@@ -114,6 +114,7 @@ export const LIMITS = {
   noteLockTitleMaxBytes: 4096,
   // D1 limits an entire row to 2,000,000 bytes; reserve room for note metadata.
   contentMaxBytes: 1_900_000,
+  noteMergeSourcesMax: 20,
   folderNameMaxLength: 120,
   tagNameMaxLength: 60,
   /** Upper bound on simultaneously selected tag filters; the sidebar warns past it. */
