@@ -78,6 +78,7 @@
 | SEC-13 | DONE | 本次提交 | Google Drive、Dropbox、AutoIndex、external drivers 44 项通过 |
 | LOG-11 | DONE | 本次提交 | OAuth tokens + driver resolver 17 项通过；解密失败显式报错 |
 | LOG-07 | DONE | 本次提交 | 新增 `clouddrive-jobs.test.ts` 2 项通过；owner 200/member 403 |
+| FEAT-08 | IN PROGRESS | 本次提交 | 后端配置导出与脱敏测试通过；设置页入口待接 |
 
 ## 验证命令
 
