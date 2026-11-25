@@ -17,7 +17,7 @@
 | P0-05 | done | F8 fail incomplete archive exports; support complete or explicit multipart export | truncated contents/comments/files produce explicit error or complete archive | 16079bfd |
 | P0-06 | done | F9 reject parent cycles in archive import and hierarchy writes | cyclic archive/batch returns 400; no unbounded traversal | 84a2c46f |
 | P0-07 | done | F13 scope property relation deletion by board; version property patches; enforce property cap | deleting a copied property never affects source board; stale patch conflicts | c32790aa |
-| P0-08 | done | F20 distinguish unchanged/set/remove share password; show protection state | empty save keeps password; explicit remove clears it; expiry UI works | pending hash |
+| P0-08 | done | F20 distinguish unchanged/set/remove share password; show protection state | empty save keeps password; explicit remove clears it; expiry UI works | 0897b0be |
 
 ## P1 Data integrity and core correctness
 
@@ -88,4 +88,4 @@
 - 2026-11-25: P0-05 completed in `16079bfd`; truncated bundles, missing attachment bytes and ZIP/file-size budget overruns now fail explicitly.
 - 2026-11-25: P0-06 completed in `84a2c46f`; archive and same-batch parent cycles are rejected, and legacy cyclic subtrees cannot loop during move.
 - 2026-11-25: P0-07 completed in `c32790aa`; property relation deletion is board-scoped, stale property revisions conflict, and accumulated property count is capped.
-- 2026-11-25: P0-08 completed; empty password save is inert, removal is explicit and confirmed, and share expiry is editable.
+- 2026-11-25: P0-08 completed in `0897b0be`; empty password save is inert, removal is explicit and confirmed, and share expiry is editable.
