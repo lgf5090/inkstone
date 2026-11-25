@@ -261,7 +261,7 @@ export function LibraryPage({ onContextChange }: { onContextChange?: (context: A
     ].filter(Boolean).slice(0, 8)
     onContextChange({ surface: 'imgbed', label, facts })
     // The key carries every value the effect reads; the object itself is rebuilt on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [pageContextKey, onContextChange])
 
   const ids = [...selected]

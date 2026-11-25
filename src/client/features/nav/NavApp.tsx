@@ -299,6 +299,10 @@ export function NavApp() {
   if (IS_DEMO_MODE) {
     return <div className="flex h-full items-center justify-center p-8 text-center text-[length:var(--text-13)] text-[var(--text-tertiary)]">{t('nav.demo_unavailable')}</div>
   }
+  return <NavAppContent />
+}
+
+function NavAppContent() {
   const status = useNavStore((state) => state.status)
   const error = useNavStore((state) => state.error)
   const categories = useNavStore((state) => state.categories)

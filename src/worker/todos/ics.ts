@@ -98,7 +98,7 @@ const FREQ_TO_IC: Record<RepeatRule['freq'], string> = {
 function escapeIcsText(value: string): string {
   return value
     .replace(/\r\n|\r|\u2028|\u2029/g, '\n')
-    // eslint-disable-next-line no-control-regex -- the point is to strip exactly the control codes RFC 5545 disallows
+
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
     .replace(/\\/g, '\\\\')
     .replace(/;/g, '\\;')

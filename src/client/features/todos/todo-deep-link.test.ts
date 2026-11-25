@@ -93,7 +93,7 @@ async function mountAt(pathname: string): Promise<void> {
   await act(async () => { root.render(createElement(TodosApp)) })
   // The panel opens once the row the address names has come back: the load, then the read, then the paint.
   for (let pass = 0; pass < 4; pass += 1) {
-    // eslint-disable-next-line no-await-in-loop -- the point is to let each microtask turn settle
+
     await act(async () => { await Promise.resolve() })
   }
 }

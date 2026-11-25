@@ -34,7 +34,7 @@ export function CommentCard({ ids, rect, bookId, onClose, onEdit, onRemove }: Co
   useEffect(() => {
     setDrafts(Object.fromEntries(cards.map((one) => [one.id, one.comment])))
     ref.current?.focus({ preventScroll: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [ids.join(' ')])
 
   useEffect(() => {

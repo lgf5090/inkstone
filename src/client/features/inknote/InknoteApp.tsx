@@ -140,7 +140,7 @@ export function InknoteApp() {
       ? previous
       : visible?.length ? visible[visible.length - 1]!.id : null)
     // The page's layer list is owned by the layer dialog; switching pages is what resets the choice.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [activePage?.id, activePage?.content.layers])
   useEffect(() => {
     if (note) replaceAddress(`/inknote/note/${note.id}`)

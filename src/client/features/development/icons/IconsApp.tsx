@@ -200,7 +200,7 @@ export function IconsApp() {
     void load(true)
     // The tuple below is the exact filter surface; the browse object also carries view settings that
     // must not refetch the list.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [
     debouncedQuery,
     browse.state,
@@ -336,13 +336,13 @@ export function IconsApp() {
     })()
     return () => { cancelled = true }
     // The seed runs once per mount; it is driven through the same resumable import the dialog uses.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [applyBootstrap])
 
   useEffect(() => {
     void resumeImport()
     // Resume once per mount; the import id guard inside driveImport prevents a second loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [])
 
   const startImport = useCallback(async (prefix: string, mode: 'full' | 'missing') => {

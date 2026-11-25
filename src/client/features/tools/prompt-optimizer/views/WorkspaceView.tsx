@@ -79,7 +79,7 @@ export function WorkspaceView() {
   const runTest = usePromptOptimizerStore((s) => s.runTest)
   const evaluate = usePromptOptimizerStore((s) => s.evaluate)
   const rewrite = usePromptOptimizerStore((s) => s.rewrite)
-  const useVersion = usePromptOptimizerStore((s) => s.useVersion)
+  const restoreVersion = usePromptOptimizerStore((s) => s.useVersion)
   const extractVariablesAction = usePromptOptimizerStore((s) => s.extractVariables)
   const generateVariableValues = usePromptOptimizerStore((s) => s.generateVariableValues)
   const uploadImage = usePromptOptimizerStore((s) => s.uploadImage)
@@ -554,7 +554,7 @@ export function WorkspaceView() {
                     <Button
                       variant={record.optimizedPrompt === draft.optimized ? 'primary' : 'ghost'}
                       size="sm"
-                      onClick={() => useVersion(record)}
+                      onClick={() => restoreVersion(record)}
                     >
                       {t('tools.prompt_optimizer.workspace.version').replace('{version}', String(record.version))}
                     </Button>

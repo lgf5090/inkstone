@@ -1440,7 +1440,7 @@ function addBlankLinesAroundStartAndStopMathIndicators(text: string, mathBlockSt
 
   // try to cleanup whitespace that may get left behind by this logic when moving the opening
   // math block indicators to its own line
-  // eslint-disable-next-line no-unmodified-loop-condition -- the logic here does break, so there is no need to be stringent about no loop condition changing
+
   while (startingNewLineAdded && mathBlockStartIndex > 0) {
     const previousChar = text[mathBlockStartIndex - 1];
     if (previousChar !== ' ' && previousChar !== '\t') {
@@ -1598,7 +1598,7 @@ export function getAllCustomIgnoreSectionsInText(text: string): { startIndex: nu
 
     let foundEndingIndicator = false;
     let endingPosition = text.length - 1;
-    // eslint-disable-next-line no-unmodified-loop-condition -- endMatches does not need to be modified with regards to being undefined or null
+
     while (endMatches && endMatches.length !== 0 && !foundEndingIndicator) {
       if (endMatches[0].index <= iteratorIndex) {
         endMatches.shift();

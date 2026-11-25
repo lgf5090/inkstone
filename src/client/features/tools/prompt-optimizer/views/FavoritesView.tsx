@@ -64,7 +64,7 @@ export function FavoritesView() {
     return () => window.removeEventListener('keydown', handleEscape)
   }, [])
 
-  const useFavorite = async (favorite: FavoritePrompt) => {
+  const applyFavorite = async (favorite: FavoritePrompt) => {
     const workspace: PromptOptimizerNavView = favorite.functionMode === 'image'
       ? 'image_text2image'
       : favorite.functionMode === 'context'
@@ -206,7 +206,7 @@ export function FavoritesView() {
                 <div className="mt-auto flex flex-wrap items-center gap-1">
                   {favorite.tags.slice(0, 4).map((item) => <Badge key={item} tone="neutral">{item}</Badge>)}
                   {favorite.useCount > 0 && <Badge tone="accent">{favorite.useCount}</Badge>}
-                  <Button variant="ghost" size="sm" className="ml-auto" onClick={() => void useFavorite(favorite)}>
+                  <Button variant="ghost" size="sm" className="ml-auto" onClick={() => void applyFavorite(favorite)}>
                     <Star size={13} />
                     {t('tools.prompt_optimizer.favorites.use')}
                   </Button>

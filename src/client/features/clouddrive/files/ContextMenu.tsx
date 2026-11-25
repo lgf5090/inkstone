@@ -92,7 +92,7 @@ export function ContextMenu({
     if (target) menu.openAt(target.point)
     else menu.close()
     // The menu is repositioned for a new point, not for a row whose tags just changed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [pointKey])
 
   const entry = target?.entry ?? null

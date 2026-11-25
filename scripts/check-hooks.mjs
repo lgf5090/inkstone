@@ -6,9 +6,9 @@ import { walkSource } from './lib/scratch-files.mjs'
 /**
  * `useEffect` has to say when it re-runs.
  *
- * `tsc -b` is the only static gate this repo runs on source, and there is no ESLint, so nothing checked
- * hook dependency arrays: one navigation shortcut registered and removed its global `keydown` listener on
- * every render (round 2, C2-01) and stayed green through typecheck, i18n, comments and the full suite.
+ * `tsc -b` checks types and ESLint checks hook call order, but neither requires an effect to declare
+ * when it re-runs. Before this guard, one navigation shortcut registered and removed its global
+ * `keydown` listener on every render (round 2, C2-01) and stayed green through every existing check.
  *
  * A missing second argument is not always wrong — running after every render is a real technique — so the
  * exemptions below are per file and per line, and a new bare `useEffect` fails until someone says so

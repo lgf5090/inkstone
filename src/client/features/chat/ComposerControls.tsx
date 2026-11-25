@@ -142,7 +142,7 @@ export function ModelMenu({
   useEffect(() => {
     if (openRequest) anchor.openMenu()
     // Only the ask itself moves the menu: an anchor rebuilt every render would reopen it on any keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [openRequest])
   const active = models.find((model) => model.id === activeId)
   const providers = useAssistant((state) => state.providers)

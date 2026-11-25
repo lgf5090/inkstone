@@ -26,6 +26,16 @@ export function ToolManagerSection() {
     return ASSISTANT_TOOL_SPECS.filter((spec) =>
       !needle || spec.name.toLocaleLowerCase().includes(needle) || t(spec.labelKey).toLocaleLowerCase().includes(needle))
   }, [query])
+  const groups = useMemo(() => {
+    const buckets = new Map<AssistantToolCategory, typeof rows>()
+    for (const spec of rows) {
+      const category = toolCategoryOf(spec.name, spec.category)
+      buckets.set(category, [...(buckets.get(category) ?? []), spec])
+    }
+    return ASSISTANT_TOOL_CATEGORIES
+      .filter((category) => buckets.has(category))
+      .map((category) => ({ category, rows: buckets.get(category)! }))
+  }, [rows])
   if (!settings) return null
   const enabledCount = ASSISTANT_TOOL_SPECS.filter((spec) => settings.toolSettings[spec.name]?.enabled !== false).length
   const tokenEstimate = Math.round(ASSISTANT_TOOL_SPECS.reduce((total, spec) => total + spec.name.length + t(spec.labelKey).length * 2, 0) / 4)
@@ -40,16 +50,6 @@ export function ToolManagerSection() {
     void saveSettings({ toolSettings: { ...settings.toolSettings, [name]: merged } })
   }
   const modeValue = (name: string): ModeChoice => entryFor(name).mode ?? 'inherit'
-  const groups = useMemo(() => {
-    const buckets = new Map<AssistantToolCategory, typeof rows>()
-    for (const spec of rows) {
-      const category = toolCategoryOf(spec.name, spec.category)
-      buckets.set(category, [...(buckets.get(category) ?? []), spec])
-    }
-    return ASSISTANT_TOOL_CATEGORIES
-      .filter((category) => buckets.has(category))
-      .map((category) => ({ category, rows: buckets.get(category)! }))
-  }, [rows])
   return (
     <div className="space-y-2">
       <SettingRow title={t('assistant.tools.disclosure')} description={t('assistant.tools.disclosure_hint')} controlId="assistant-tool-disclosure">

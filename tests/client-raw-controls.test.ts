@@ -817,7 +817,6 @@ function rawZIndexSites(): Array<{ key: string; file: string; value: string; for
  * checked by value, so moving one does not clear the entry and changing one fails.
  */
 const RAW_Z_INDEX_BASELINE = new Map<string, { value: string; reason: string }>([
-  ['src/client/features/excalidraw/TextToDiagramModal.tsx:424', { value: '100', reason: 'Inside the Excalidraw host, whose canvas already fixes its own stacking context; the app scale governs the viewport-fixed tiers and reaching for one here would fight the vendor surface.' }],
   ['src/client/features/graph/graph-panel/overlays.tsx:49', { value: '1', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
   ['src/client/features/graph/graph-panel/overlays.tsx:173', { value: '3', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
   ['src/client/features/graph/graph-panel/settings.tsx:53', { value: '235', reason: 'The panel’s own settings drawer: deliberately above the workspace tier it opens from and below every prompt, which no band in the scale names. A band would be invented for one site; arithmetic on two bands would be a tier nobody can look up.' }],
@@ -852,9 +851,6 @@ const PLAIN_Z_INDEX_BASELINE = new Map<string, { values: Record<string, number>;
   ['src/client/features/development/github/components/DiscoverCard.tsx', { values: { '10': 3 }, reason: LOCAL_OVERLAY_REASON }],
   ['src/client/features/development/github/components/FavoritesView.tsx', { values: { '10': 1 }, reason: LOCAL_OVERLAY_REASON }],
   ['src/client/features/development/icons/IconsApp.tsx', { values: { '10': 1, '30': 1 }, reason: 'Sticky table head and development jobs overlay are local to the icon catalog surface.' }],
-  ['src/client/features/excalidraw/ExcalidrawFloatingCapsule.tsx', { values: { '40': 1 }, reason: 'Floating control inside the Excalidraw host’s own canvas stacking context.' }],
-  ['src/client/features/excalidraw/ExcalidrawToolsPanel.tsx', { values: { '50': 1 }, reason: 'Tools panel inside the Excalidraw host’s own canvas stacking context.' }],
-  ['src/client/features/excalidraw/TextToDiagramModal.tsx', { values: { '50': 1 }, reason: 'Prompt palette inside the Excalidraw host’s own canvas stacking context.' }],
   ['src/client/features/folders/FolderAppearanceMenus.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
   ['src/client/features/imgbed/library/LibraryPage.tsx', { values: { '20': 2 }, reason: LOCAL_OVERLAY_REASON }],
   ['src/client/features/list/NoteList.tsx', { values: { '20': 1 }, reason: 'Scroll-to-bottom control layered over the note list’s own scrollport.' }],

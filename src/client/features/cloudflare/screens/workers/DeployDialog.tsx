@@ -207,7 +207,7 @@ export function DeployDialog({
     setDeploying(false)
     void loadRedeployConfig()
     // loadRedeployConfig reads the same redeploy values; the effect is keyed on opening it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [open, redeploy?.accountId, redeploy?.name, redeploy?.type])
 
   useEffect(() => {
@@ -221,7 +221,7 @@ export function DeployDialog({
     editorRequested.current = true
     void loadEditorSource()
     // Loading is intentionally once per dialog opening.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [open, source, deployType, isRedeploy])
 
   function currentOptions(): {

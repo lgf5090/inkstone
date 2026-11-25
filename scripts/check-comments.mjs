@@ -28,8 +28,8 @@ const allowed = new Map([
     "/**\n * The character class `check-i18n.mjs` rejects, taken unchanged so this cannot be looser or tighter\n * than the gate it protects. This script holds its allowlist as string literals and `check-i18n`\n * scans this file, so a Chinese character that was only ever a comment somewhere else arrives here as\n * text in an allowlisted entry and fails there — reported against this script, with no hint of which\n * source comment carried it. Reading the same class here names both, at the gate that writes it.\n */",
   ]],
   ["scripts/check-hooks.mjs", [
-    "/**\n * `useEffect` has to say when it re-runs.\n *\n * `tsc -b` is the only static gate this repo runs on source, and there is no ESLint, so nothing checked\n * hook dependency arrays: one navigation shortcut registered and removed its global `keydown` listener on\n * every render (round 2, C2-01) and stayed green through typecheck, i18n, comments and the full suite.\n *\n * A missing second argument is not always wrong — running after every render is a real technique — so the\n * exemptions below are per file and per line, and a new bare `useEffect` fails until someone says so\n * deliberately.\n */",
     "/**\n * Files still carrying an unreviewed bare `useEffect`.\n *\n * Registered per file, the same way `check-i18n.mjs` registers its Chinese exemptions: the point is to\n * stop the number growing, not to adjudicate nineteen other features in the change that introduced the\n * gate. Removing an entry means that file has been looked through.\n */",
+    "/**\n * `useEffect` has to say when it re-runs.\n *\n * `tsc -b` checks types and ESLint checks hook call order, but neither requires an effect to declare\n * when it re-runs. Before this guard, one navigation shortcut registered and removed its global\n * `keydown` listener on every render (round 2, C2-01) and stayed green through every existing check.\n *\n * A missing second argument is not always wrong — running after every render is a real technique — so the\n * exemptions below are per file and per line, and a new bare `useEffect` fails until someone says so\n * deliberately.\n */",
   ]],
   ["scripts/check-i18n.mjs", [
     "// The OAuth consent page is a self-contained HTML document with its own",
@@ -2081,7 +2081,6 @@ const allowed = new Map([
     "// off must not find it back on the next keystroke elsewhere in the page.",
     "// `derivedPageContext` is read through its key: the object is rebuilt on every render, the key is",
     "// the only thing that means the screen actually changed.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
     "/* The generic page chip. Drawn only when the page supplied its own page context, so the built-in\n          surfaces keep their single bespoke chip and the notebook keeps its note chip: one visible\n          promise per screen rather than two saying the same thing. */",
     "// What the notebook's chips were before this screen borrowed the store, so leaving can put them",
     "// back rather than leaving the notebook silently contextless. Read before the two setters below.",
@@ -2878,7 +2877,6 @@ const allowed = new Map([
     "// reason rather than being left for the reader to rediscover by typing.",
     "/**\n   * How many times something outside this row has asked for the menu — the command palette, mostly.\n   *\n   * Counted rather than boolean because the second ask has to be able to raise a menu the reader closed in\n   * between, and zero means nothing was asked, so a fresh mount never opens one by itself.\n   */",
     "// Only the ask itself moves the menu: an anchor rebuilt every render would reopen it on any keystroke.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
     "/** The word each scope kind is called, so a chip can name what it limits rather than only what it is. */",
     "/**\n * One scope the current turn is limited to, drawn as a control rather than a label.\n *\n * A chip that only shows a name hides two things the reader coming back to the composer needs: what the\n * pin actually does (it narrows what the assistant may read this turn), and where to change it (the `#`\n * picker). So the name of the chip says \"this turn is limited to the folder …\" in full, the body is a\n * button that reaches the control that changes it, and only the small X removes it. Nothing here opens a\n * settings page — it hands the reader back to the composer's own scope control.\n */",
     "/**\n * What a stored answer was allowed to read, spelled out where the reader can actually find it.\n *\n * The turn's scopes are stored with the message, but stored is not the same as surfaced: a chip that only\n * carries a mouse `title` is invisible to a keyboard and to a screen reader, and to a reader coming back\n * to an old thread it is the whole point — knowing the answer only saw this folder. So the names are in\n * the accessible text, grouped under a label that says what they limit, not hidden behind a hover.\n */",
@@ -6356,13 +6354,11 @@ const allowed = new Map([
   ["src/client/features/clouddrive/files/ContextMenu.tsx", [
     "/** The current selection the action applies to; the right-clicked entry is included. */",
     "// The menu is repositioned for a new point, not for a row whose tags just changed.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
     "// A share link resolves a `CloudDrive_files` row, and an external mount has only synthetic",
     "// ids, so the server would answer 404 for every one of these.",
   ]],
   ["src/client/features/clouddrive/files/Dialogs.tsx", [
     "// The reset runs when the dialog opens, not on every render of its parent.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
     "/**\n * Renames the whole selection with one rule and shows every resulting name before anything is sent.\n * The plan is computed from the same two checks the server applies, so a row the drive would refuse\n * is marked here rather than failing as a toast afterwards.\n */",
     "/** The rest of the folder, so a new name colliding with a row that stays put is visible. */",
   ]],
@@ -6981,7 +6977,6 @@ const allowed = new Map([
   ["src/client/features/cloudflare/screens/workers/DeployDialog.tsx", [
     "/**\n * Deploying a Worker or a Pages project, to one account or several.\n *\n * A redeploy starts from the deployed configuration: variables, bindings and (for a Worker) the\n * current source are loaded first, so an empty field means \"keep what is running\" rather than\n * \"delete it\". A batch keeps each account's outcome separately and lets a failed one be retried\n * without re-sending the successful ones.\n */",
     "// loadRedeployConfig reads the same redeploy values; the effect is keyed on opening it.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
     "// Loading is intentionally once per dialog opening.",
   ]],
   ["src/client/features/cloudflare/screens/workers/DeployEnvVarsTab.tsx", [
@@ -6999,7 +6994,6 @@ const allowed = new Map([
   ["src/client/features/cloudflare/screens/workers/PagesSettingsDrawer.tsx", [
     "/**\n * A Pages project's settings: information, custom domains, environment variables, resource bindings\n * and deployment history.\n *\n * Pages keeps environment and binding configuration under `deployment_configs`, once for production\n * and once for preview. Every write here merges into the existing section rather than replacing it,\n * because a form that sends only its own fields would delete the rest of the project's configuration.\n */",
     "// The loaders read accountId/name; reopening on another project is the only reason to reload.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
   ]],
   ["src/client/features/cloudflare/screens/workers/WorkerMetricsDrawer.tsx", [
     "/**\n * One Worker's metrics over 1, 7 or 30 days, in Cloudflare's own reporting units.\n *\n * Requests, errors, subrequests and CPU quantiles come from `workersInvocationsAdaptive`; the error\n * rate is derived from those two counts and is labelled as a rate, never sent back as a Cloudflare\n * field. A failed CPU-total query hides only that card rather than blanking the rest.\n */",
@@ -7007,7 +7001,6 @@ const allowed = new Map([
   ["src/client/features/cloudflare/screens/workers/WorkerSettingsDrawer.tsx", [
     "/**\n * A Worker's settings: variables and secrets, cron triggers, custom domains, workers.dev, script\n * settings, routes, source and deployment history.\n *\n * Each tab loads its own slice of Cloudflare's API when the drawer opens. Saving a plain variable is\n * a redeploy (Cloudflare has no variable-only endpoint); a secret goes through the secrets endpoint.\n * The drawer keeps the two paths distinct so a secret is never written as plain text.\n */",
     "// The loaders are intentionally re-run only when the drawer opens on another worker.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
   ]],
   ["src/client/features/cloudflare/screens/workers/WorkerTable.tsx", [
     "/**\n * The Workers table: one row per script or Pages project, with the account's usage beside it.\n *\n * Usage belongs to the account, not to a single script (Cloudflare reports it per account), so the\n * numbers repeat on each row of that account. The column headers say so by naming the deployment\n * count rather than a per-row deployment list.\n */",
@@ -7337,7 +7330,6 @@ const allowed = new Map([
   ["src/client/features/development/icons/IconsApp.tsx", [
     "// The tuple below is the exact filter surface; the browse object also carries view settings that",
     "// must not refetch the list.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
     "// A failed poll leaves the last known list on screen.",
     "// A failed look-up leaves the page usable; the banner appears on the next visit.",
     "// Resume once per mount; the import id guard inside driveImport prevents a second loop.",
@@ -7773,11 +7765,9 @@ const allowed = new Map([
   ["src/client/features/imgbed/library/LibraryPage.tsx", [
     "/**\n   * What the assistant is told about this screen.\n   *\n   * The dock lives one level up, so the library reports rather than owns: the label is the folder the\n   * reader is actually looking at, and the facts are the filters currently applied and what they leave.\n   * The key is a string, so a new object with the same words does not re-attach a chip the reader took off.\n   */",
     "// The key carries every value the effect reads; the object itself is rebuilt on every render.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
   ]],
   ["src/client/features/inknote/InknoteApp.tsx", [
     "// The page's layer list is owned by the layer dialog; switching pages is what resets the choice.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
   ]],
   ["src/client/features/inknote/api.ts", [
     "/** Typed calls to /api/inknote. The worker is the only source of truth for every shape here. */",
@@ -7785,7 +7775,6 @@ const allowed = new Map([
   ["src/client/features/inknote/components/InkCanvasArea.tsx", [
     "/** The live page: engine mount, text overlay and the selection bar. */",
     "// The engine is mounted once; page/tool changes are handled by the effects below.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
     "/** The page as it was before the text box appeared or was edited, for one undo step. */",
     "// The paper is read from primitives, not from the object: a server refresh rebuilds the note's paper",
     "// object even when it says the same thing, and an object dependency re-ran setPage/fitView on every",
@@ -8989,7 +8978,6 @@ const allowed = new Map([
     "/** One small async-state hook for music pages; the project does not use a query library. */",
     "/**\n * Run `loader` whenever `deps` change. The loader is deliberately not a dependency: callers pass an\n * inline closure over the same values, and requiring a memoized function would only add noise.\n * A previous answer stays visible while a reload is in flight.\n */",
     "// The caller owns the dependency list; the loader is intentionally excluded.",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
   ]],
   ["src/client/features/music/radio/RadioChip.tsx", [
     "/**\n * The station label above the Now Playing title: what is growing this queue, a dislike for FM, and\n * the way out.\n *\n * Exiting drops the station but not the track: the reader keeps listening to the song that is already\n * playing, and the queue simply stops growing at its end. Dislike is only offered for FM because the\n * provider's trash endpoint is the FM signal, not a heart-mode control.\n */",
@@ -13744,7 +13732,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/reading/reader/CommentCard.tsx", [
     "/**\n * What a marked passage says.\n *\n * A highlight with a comment is the interesting case, so the card opens straight into the note the\n * reader wrote rather than into the mark's metadata. Clicking a passage that carries two overlapping\n * marks shows both, since the reader may have meant either.\n */",
-    "// eslint-disable-next-line react-hooks/exhaustive-deps",
   ]],
   ["src/client/features/reading/reader/EpubStage.tsx", [
     "/**\n * The page a reader actually looks at.\n *\n * One chapter is laid out at a time inside a column box, and a page turn moves the box sideways. That\n * is the whole trick, and it has three consequences this component exists to manage: the page count is\n * only known *after* layout (so images arriving late change it), a position must survive a resize\n * (so the reader's place is stored as text, not as a scroll offset), and turning past either end of a\n * chapter has to load its neighbour and land on the right page of it.\n */",
@@ -19043,7 +19030,6 @@ const allowed = new Map([
     "// The board's open page holds one task, `on-board`. The deep-linked rows are deliberately not on it.",
     "/** Open the app cold at an address, the way a pasted link or a pressed reminder does. */",
     "// The panel opens once the row the address names has come back: the load, then the read, then the paint.",
-    "// eslint-disable-next-line no-await-in-loop -- the point is to let each microtask turn settle",
     "// The reader is told, rather than silently moved: the failure is the point of the toast.",
     "// `?view=list` names the list screen with no collection, which is the inbox; the sidebar's own row",
     "// spells it `list=inbox`. Either way the address after a close has to keep saying \"a list\", or the",
@@ -23357,7 +23343,6 @@ const allowed = new Map([
     "// make sure that a blank blockquote line is checked for in order to determine if a change needs to happen just for blockquotes",
     "// try to cleanup whitespace that may get left behind by this logic when moving the opening",
     "// math block indicators to its own line",
-    "// eslint-disable-next-line no-unmodified-loop-condition -- the logic here does break, so there is no need to be stringent about no loop condition changing",
     "/**\n * Gets a list of all tables in the provided text and returns a list of starting and ending positions from the\n * last to first found based on index.\n * @param {string} text - The text to get the list of table locations from.\n * @return {{startIndex: number, endIndex: number}[]} An array of start and end indexes of each table found from last to earliest.\n */",
     "// a table must have a pipe in either the header or the separator row",
     "// if the delimiter row and the first row do not have the same amount of cells,",
@@ -23369,7 +23354,6 @@ const allowed = new Map([
     "// since they are not valid",
     "// handle a scenario where the regex fails to work as intended and matches the ending of an invalid table separator",
     "// it could contain text or an invalid table cell for the separator",
-    "// eslint-disable-next-line no-unmodified-loop-condition -- endMatches does not need to be modified with regards to being undefined or null",
     "// nothing is replaced, the language is put in after the fence, so the only place that has to",
     "// be writable is the point it goes in at",
     "// mailto: seems to get left off when dealing with links even though the url text includes it. So to properly escape it we need to walk back the start of the position",
@@ -46042,7 +46026,6 @@ const allowed = new Map([
     "/** The domain half of every `UID`, so ids from another calendar can never collide with ours. */",
     "/** RFC 5545 `PRIORITY` runs 1 (highest) to 9 (lowest); this maps the app's four words onto it. */",
     "/** RFC 5545 forbids raw control characters and folds on `, ; : \\` and newline; this is the TEXT escaper. */",
-    "// eslint-disable-next-line no-control-regex -- the point is to strip exactly the control codes RFC 5545 disallows",
     "/**\n * Fold one logical property line to the 75-octet ceiling RFC 5545 imposes, splitting only on code\n * point boundaries so a multi-byte character is never torn in half across the fold.\n */",
     "/**\n * Whether the offset of `timezone` stays flat across `[dueAt, dueAt+horizon]`.\n *\n * Probed at five points rather than just the endpoints: a zone that shifts and shifts back inside a\n * long horizon would otherwise read as flat. Anything but an identical offset at every probe is\n * treated as a DST-bearing zone, because the safe answer when the probe is uncertain is to degrade.\n */",
     "/** Whether the day-of-month this rule anchors on survives every period without the clamp/skip split. */",

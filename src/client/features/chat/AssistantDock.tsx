@@ -431,7 +431,7 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
     }
     // `derivedPageContext` is read through its key: the object is rebuilt on every render, the key is
     // the only thing that means the screen actually changed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [surface, pageContextKey, setPageContext])
 
   const streaming = (!!turn && !turn.done) || remoteStreaming

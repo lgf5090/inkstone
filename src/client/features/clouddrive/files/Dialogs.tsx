@@ -22,7 +22,7 @@ function useOpenReset(open: boolean, reset: () => void, inputRef: RefObject<HTML
     }, 0)
     return () => window.clearTimeout(timer)
     // The reset runs when the dialog opens, not on every render of its parent.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [open])
 }
 

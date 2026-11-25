@@ -24,9 +24,9 @@ export function BatchBar(props: {
   onClear: () => void
   busy: boolean
 }) {
-  if (!props.count) return null
   const anchor = useRef<HTMLButtonElement | null>(null)
   const [folderMenu, setFolderMenu] = useState(false)
+  if (!props.count) return null
 
   const folderItems = [
     ...props.folders.map((folder) => ({

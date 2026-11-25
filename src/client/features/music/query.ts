@@ -57,7 +57,7 @@ export function useMusicQuery<T>(
       controller.abort()
     }
     // The caller owns the dependency list; the loader is intentionally excluded.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [enabled, reloadKey, ...deps])
 
   return { data, status, error, reload }

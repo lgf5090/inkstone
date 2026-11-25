@@ -41,6 +41,10 @@ const PAGE_LABEL_KEYS: Record<ImgbedPage, MessageKey> = {
 
 export function ImgbedApp(): ReactElement {
   if (IS_DEMO_MODE) return <div className="flex h-full items-center justify-center p-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('imgbed.demo_unavailable' as never)}</div>
+  return <ImgbedAppContent />
+}
+
+function ImgbedAppContent(): ReactElement {
   const pathname = usePathname()
   const page = pageFor(pathname)
   const user = useSession((state) => state.user)

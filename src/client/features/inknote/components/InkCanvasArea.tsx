@@ -221,7 +221,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
       onEngine(null)
     }
     // The engine is mounted once; page/tool changes are handled by the effects below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [])
 
   useEffect(() => {

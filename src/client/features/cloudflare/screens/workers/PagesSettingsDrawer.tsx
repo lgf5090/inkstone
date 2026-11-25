@@ -174,7 +174,7 @@ export function PagesSettingsDrawer({
       cancelled = true
     }
     // The loaders read accountId/name; reopening on another project is the only reason to reload.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [open, accountId, name])
 
   async function ensureZones(): Promise<void> {

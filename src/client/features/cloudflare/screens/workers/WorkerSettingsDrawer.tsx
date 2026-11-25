@@ -236,7 +236,7 @@ export function WorkerSettingsDrawer({
       cancelled = true
     }
     // The loaders are intentionally re-run only when the drawer opens on another worker.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [open, accountId, name])
 
   function openSecretModal(row?: SecretRow): void {
