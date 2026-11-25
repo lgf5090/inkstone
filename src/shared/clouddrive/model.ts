@@ -158,10 +158,9 @@ export function restoredName(name: string): string {
 }
 
 /**
- * The scopes an API key can carry. Only WebDAV consumes a key today, so the list names what works;
- * a bearer/REST surface brings its own scopes when it exists.
+ * Existing `webdav` keys stay read/write during migration. New keys should choose the narrower scopes.
  */
-export const CLOUDDRIVE_KEY_SCOPES = ['webdav'] as const
+export const CLOUDDRIVE_KEY_SCOPES = ['webdav', 'webdav:read', 'webdav:write'] as const
 export type CloudDriveKeyScope = (typeof CLOUDDRIVE_KEY_SCOPES)[number]
 
 export const CLOUDDRIVE_SORT_KEYS = ['name', 'size', 'uploaded', 'modified', 'type'] as const
