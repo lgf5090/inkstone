@@ -20,7 +20,7 @@
 - [ ] SEC-10 WebDAV 覆盖写与分布式 COPY 修复
 - [ ] SEC-11 文件夹上传父失败时跳过整个子树
 - [ ] SEC-12 API Key 增加只读 scope
-- [ ] SEC-13 驱动统一出站 SSRF 护栏
+- [x] SEC-13 驱动统一出站 SSRF 护栏
 - [ ] SEC-14 ACL 用户名枚举与通用错误响应
 - [ ] LOG-01 客户端正确处理 207 部分成功
 - [ ] LOG-02 可变内容缓存版本化
@@ -75,6 +75,7 @@
 | PLAN-00 | DONE | 本次提交 | worktree 已创建；`npm ci` 成功；计划文档纳入版本控制 |
 | PERF-02 | DONE | 本次提交 | `tests/clouddrive-upload.test.ts` ZIP 用例通过；最多 8 个对象预取 |
 | PERF-06 | DONE | 本次提交 | `clouddrive-files` + `clouddrive-mounts` 47 项通过；主挂载仅缺失时写 |
+| SEC-13 | DONE | 本次提交 | Google Drive、Dropbox、AutoIndex、external drivers 44 项通过 |
 
 ## 验证命令
 
