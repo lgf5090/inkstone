@@ -72,13 +72,13 @@
 
 | ID | 状态 | Commit | 验证证据 |
 |---|---|---|---|
-| PLAN-00 | DONE | 本次提交 | worktree 已创建；`npm ci` 成功；计划文档纳入版本控制 |
-| PERF-02 | DONE | 本次提交 | `tests/clouddrive-upload.test.ts` ZIP 用例通过；最多 8 个对象预取 |
-| PERF-06 | DONE | 本次提交 | `clouddrive-files` + `clouddrive-mounts` 47 项通过；主挂载仅缺失时写 |
-| SEC-13 | DONE | 本次提交 | Google Drive、Dropbox、AutoIndex、external drivers 44 项通过 |
-| LOG-11 | DONE | 本次提交 | OAuth tokens + driver resolver 17 项通过；解密失败显式报错 |
-| LOG-07 | DONE | 本次提交 | 新增 `clouddrive-jobs.test.ts` 2 项通过；owner 200/member 403 |
-| FEAT-08 | IN PROGRESS | 本次提交 | 后端配置导出与脱敏测试通过；设置页入口待接 |
+| PLAN-00 | DONE | 9df6f675 | worktree 已创建；`npm ci` 成功；计划文档纳入版本控制 |
+| PERF-02 | DONE | cfa0bfb7 + 本次提交 | ZIP 往返与有界预取测试通过；最多 8 个对象预取 |
+| PERF-06 | DONE | 9d283ddf | `clouddrive-files` + `clouddrive-mounts` 47 项通过；主挂载仅缺失时写 |
+| SEC-13 | DONE | 5301e9a9 | Google Drive、Dropbox、AutoIndex、external drivers 44 项通过 |
+| LOG-11 | DONE | 2b790bf3 | OAuth tokens + driver resolver 17 项通过；解密失败显式报错 |
+| LOG-07 | DONE | 81521917 | 新增 `clouddrive-jobs.test.ts` 2 项通过；owner 200/member 403 |
+| FEAT-08 | IN PROGRESS | f5de7cf1 | 后端配置导出与脱敏测试通过；设置页入口待接 |
 
 ## 验证命令
 
