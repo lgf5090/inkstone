@@ -1259,7 +1259,10 @@ projectRoutes.delete('/categories/:id', async (c) => {
 
 projectRoutes.put('/categories/:id/boards/order', async (c) => {
   const input = await projectBody(c, ProjectCategoryBoardOrderSchema, JSON_BODY_LIMITS.small)
-  await reorderCategoryBoards(c.env.DB, projectUserId(c), c.req.param('id'), input.boardIds, Date.now())
+  const userId = projectUserId(c)
+  const visible = new Set((await new ProjectStore(c.env.DB, userId).boards()).map((board) => board.id))
+  if (input.boardIds.some((boardId) => !visible.has(boardId))) throw ApiError.notFound('Board not found')
+  await reorderCategoryBoards(c.env.DB, userId, c.req.param('id'), input.boardIds, Date.now())
   return c.json({ ok: true })
 })
 
