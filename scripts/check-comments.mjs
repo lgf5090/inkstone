@@ -22424,9 +22424,6 @@ const allowed = new Map([
     "// Dropping the cached session on sign-out. The read side re-checks the stored user id before it trusts",
     "// this row, so a delete that fails leaves a record nothing will hand to a later boot; the sign-out the",
     "// reader asked for is already finished by the time this runs.",
-    "// The boot accelerator for notes, folders, tags and the sync cursor. The live copies of all four are",
-    "// in the store, and the next pull rewrites these keys from the server, so a write that fails costs a",
-    "// slower cold start rather than a wrong library.",
     "// The batch form is the one the editor's hot path fires without awaiting: these keys record what a note",
     "// looked like at last read, and every reader of them falls back to the server when the entry is missing",
     "// or fails the shape check above. Unsaved work is the outbox's, not this store's, so a refused batch",
@@ -22461,6 +22458,7 @@ const allowed = new Map([
     "// Map insertion order is the queue order: deleting and re-setting a key moves it to the tail,",
     "// exactly like the old remove-and-append loop, without re-scanning or cloning the queue per row.",
     "/** Clear one replay wave atomically; a newer write reusing an id must survive stale completion. */",
+    "// A missing or unreadable keyed manifest falls back to the legacy whole-array shell.",
   ]],
   ["src/client/lib/drop-state.ts", [
     "/**\n * Drop-indicator state that cannot get stuck.\n *\n * A drag that ends outside the window, or one the user cancels with Escape, never fires `drop` on the\n * element that was highlighting itself, so a plain `useState` would leave the ring or the line painted\n * until the next drag. Every surface that shows a drop target needs the same five bail-outs, and a\n * surface that forgets one of them looks like a broken hover rather than a missing listener.\n */",

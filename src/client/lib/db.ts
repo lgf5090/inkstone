@@ -17,6 +17,8 @@ const store = createStore(CLIENT_DATABASE_NAME, 'kv')
 
 const KEY = {
   notes: 'notes',
+  shellNoteIndex: 'shell-note-index-v2',
+  shellNote: (id: string) => `shell-note-v2:${id}`,
   folders: 'folders',
   tags: 'tags',
   cursor: 'cursor',
@@ -56,6 +58,10 @@ let shellSaveTimer = 0
 let pendingShell: (() => ShellSources) | null = null
 let pendingShellUserId: string | null = null
 let lastSavedShell: ShellSources | null = null
+let shellWriteChain: Promise<boolean> = Promise.resolve(true)
+let shellNoteCache = new Map<string, NoteSummary>()
+let shellNoteIds: string[] = []
+let shellNotesKeyed = false
 let activeUserId: string | null = null
 let localWritesDisabled = false
 const supportsUserNamespaces = typeof entries === 'function' && typeof delMany === 'function'
@@ -202,6 +208,16 @@ function userScopedKey(key: string, userId = activeUserId): string {
   return userId && (supportsUserNamespaces || forceUserNamespaces) ? `user:${userId}:${key}` : key
 }
 
+function resetShellNoteCache(): void {
+  shellNoteCache = new Map()
+  shellNoteIds = []
+  shellNotesKeyed = false
+}
+
+function sameStringArray(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index])
+}
+
 function isLegacyDataKey(key: unknown): key is string {
   return key === KEY.notes || key === KEY.folders || key === KEY.tags || key === KEY.cursor ||
     key === KEY.outbox || key === KEY.outboxReplayLease || key === KEY.templateLibrary ||
@@ -224,6 +240,10 @@ async function migrateLegacyData(userId: string): Promise<void> {
 }
 
 async function bindLocalUser(userId: string): Promise<void> {
+  if (activeUserId !== userId) {
+    resetShellNoteCache()
+    lastSavedShell = null
+  }
   if (activeUserId === userId) {
     if (forceUserNamespaces && !supportsUserNamespaces) {
       await clearLocalData()
@@ -294,7 +314,30 @@ export const localDb = {
     tags: Tag[]
     cursor: number
   } | null> {
-    const shellKeys = [KEY.notes, KEY.folders, KEY.tags, KEY.cursor].map((key) => userScopedKey(key))
+    const facetKeys = [KEY.folders, KEY.tags, KEY.cursor].map((key) => userScopedKey(key))
+    const keyed = await getMany([userScopedKey(KEY.shellNoteIndex), ...facetKeys], store).catch(() => null)
+    if (keyed) {
+      const [index, folders, tags, cursor] = keyed as [unknown, unknown, unknown, unknown]
+      if (
+        Array.isArray(index) && index.every((id) => typeof id === 'string' && id.length > 0) &&
+        new Set(index).size === index.length &&
+        Array.isArray(folders) && folders.every(isFolder) &&
+        Array.isArray(tags) && tags.every(isTag) &&
+        typeof cursor === 'number' && Number.isSafeInteger(cursor) && cursor >= 0
+      ) {
+        const values = await getMany(index.map((id) => userScopedKey(KEY.shellNote(id))), store).catch(() => null)
+        if (values && values.every(isNoteSummary)) {
+          const notes = values as NoteSummary[]
+          shellNoteCache = new Map(notes.map((note) => [note.id, note]))
+          shellNoteIds = [...index]
+          shellNotesKeyed = true
+          return { notes, folders, tags, cursor }
+        }
+      }
+    }
+
+    // A missing or unreadable keyed manifest falls back to the legacy whole-array shell.
+    const shellKeys = [KEY.notes, ...facetKeys].map((key) => userScopedKey(key))
     try {
       const values = await getMany(shellKeys, store)
       const [notes, folders, tags, cursor] = values as [
@@ -311,6 +354,9 @@ export const localDb = {
       ) {
         return null
       }
+      shellNoteCache = new Map(notes.map((note) => [note.id, note]))
+      shellNoteIds = notes.map((note) => note.id)
+      shellNotesKeyed = false
       return {
         notes,
         folders,
@@ -322,21 +368,31 @@ export const localDb = {
     }
   },
 
-  async saveShell(data: ShellData, userId = activeUserId) {
-    // The boot accelerator for notes, folders, tags and the sync cursor. The live copies of all four are
-    // in the store, and the next pull rewrites these keys from the server, so a write that fails costs a
-    // slower cold start rather than a wrong library.
+  async saveShell(data: ShellData, userId = activeUserId): Promise<boolean> {
+    if (localWritesDisabled || !userId) return false
     try {
-      await setMany(
-        [
-          [userScopedKey(KEY.notes, userId), data.notes],
-          [userScopedKey(KEY.folders, userId), data.folders],
-          [userScopedKey(KEY.tags, userId), data.tags],
-          [userScopedKey(KEY.cursor, userId), data.cursor],
-        ],
-        store,
+      const ids = data.notes.map((note) => note.id)
+      const idsChanged = !shellNotesKeyed || !sameStringArray(shellNoteIds, ids)
+      const entries: Array<[string, unknown]> = []
+      for (const note of data.notes) {
+        if (!shellNotesKeyed || shellNoteCache.get(note.id) !== note) {
+          entries.push([userScopedKey(KEY.shellNote(note.id), userId), note])
+        }
+      }
+      if (idsChanged) entries.push([userScopedKey(KEY.shellNoteIndex, userId), ids])
+      entries.push(
+        [userScopedKey(KEY.folders, userId), data.folders],
+        [userScopedKey(KEY.tags, userId), data.tags],
+        [userScopedKey(KEY.cursor, userId), data.cursor],
       )
-    } catch {
+      await setMany(entries, store)
+      shellNoteCache = new Map(data.notes.map((note) => [note.id, note]))
+      shellNoteIds = ids
+      shellNotesKeyed = true
+      return true
+    } catch (error) {
+      console.warn('[inkstone] The local note shell could not be written:', error)
+      return false
     }
   },
 
@@ -355,18 +411,23 @@ export const localDb = {
       pendingShellUserId = null
       if (!build || !userId) return
       const current = build()
-      if (lastSavedShell
-        && lastSavedShell.notes === current.notes
-        && lastSavedShell.folders === current.folders
-        && lastSavedShell.tags === current.tags
-        && lastSavedShell.cursor === current.cursor) return
-      lastSavedShell = current
-      void localDb.saveShell({
-        notes: Object.values(current.notes),
-        folders: current.folders,
-        tags: current.tags,
-        cursor: current.cursor,
-      }, userId)
+      const write = shellWriteChain.then(async () => {
+        if (lastSavedShell
+          && lastSavedShell.notes === current.notes
+          && lastSavedShell.folders === current.folders
+          && lastSavedShell.tags === current.tags
+          && lastSavedShell.cursor === current.cursor) return true
+        return localDb.saveShell({
+          notes: Object.values(current.notes),
+          folders: current.folders,
+          tags: current.tags,
+          cursor: current.cursor,
+        }, userId)
+      })
+      shellWriteChain = write
+      void write.then((saved) => {
+        if (saved) lastSavedShell = current
+      })
     }, 1200)
   },
 
@@ -865,6 +926,8 @@ async function clearLocalData(): Promise<void> {
   pendingShell = null
   pendingShellUserId = null
   lastSavedShell = null
+  shellWriteChain = Promise.resolve(true)
+  resetShellNoteCache()
   await clearStore(store)
 }
 
