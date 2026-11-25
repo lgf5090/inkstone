@@ -5,9 +5,8 @@ import { useMemo } from 'react';
 import { countText, deriveExcerpt, extractTags, normalizeLinkKey, notesCarryAnyTag, notesCarryEveryTag, sortTagNames } from '@shared/markdown-utils';
 import { duplicateNoteTitle, utf8ByteLength } from '@shared/text-utils';
 import { LIMITS } from '@shared/constants';
-import type { AppLocale, DateRangeFilter, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
+import type { AppLocale, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
 import { api, ApiError, CLIENT_ID } from '../lib/api';
-import { parseDateKey } from '../lib/time';
 import { isDeleted } from '../lib/note-visibility';
 import { randomLocalId } from '../lib/random-id';
 import { localDb, publishBroadcast, type BroadcastPayload, type OutboxItem, type CachedNoteContent } from '../lib/db';
@@ -38,7 +37,26 @@ import { useSession } from './session';
 import { isBlogPublished, useBlogNoteStatus } from '../features/blog/status';
 import { useUi, type WorkspacePane } from './ui';
 import { updateNoteSummaryRecord } from './note-summary-record';
+import {
+    applyOptimisticFolderPatch,
+    availableLocalFolderName,
+    insertionPositionForFolders,
+    removeFolderAndPromoteChildren,
+    replaceFolder,
+} from './notes-folders';
+import { consolidateFullSync, mergeById, reconcileList } from './notes-sync-utils';
+import {
+    adjustTagCountsForNoteEdit,
+    buildFolderTree,
+    dayWindow,
+    equalStringArrays,
+    inDayWindow,
+    type FolderNode,
+} from './notes-view-utils';
 import { getLocale, t, useLocale } from "../lib/i18n";
+
+export { adjustTagCountsForNoteEdit, buildFolderTree, dayWindow, inDayWindow } from './notes-view-utils';
+export type { DayWindow, FolderNode } from './notes-view-utils';
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'synced' | 'offline';
 interface NotesState {
     notes: Record<string, NoteSummary>;
@@ -1725,58 +1743,6 @@ async function collectFullSync(first: SyncResponse): Promise<SyncResponse> {
         serverTime: page.serverTime,
     };
 }
-function consolidateFullSync(snapshot: SyncResponse, increments: SyncResponse[]): SyncResponse {
-    const notes = new Map(snapshot.notes.map((note) => [note.id, note]));
-    let folders = new Map(snapshot.folders.map((folder) => [folder.id, folder]));
-    let tags = new Map(snapshot.tags.map((tag) => [tag.id, tag]));
-    let cursor = snapshot.cursor;
-    let serverTime = snapshot.serverTime;
-    let settingsChanged = snapshot.settingsChanged;
-    let profileChanged = snapshot.profileChanged;
-    let siteChanged = snapshot.siteChanged;
-    for (const update of increments) {
-        settingsChanged ||= update.settingsChanged;
-        profileChanged ||= update.profileChanged;
-        siteChanged ||= update.siteChanged;
-        for (const note of update.notes)
-            notes.set(note.id, note);
-        if (update.facetsFull) {
-            folders = new Map(update.folders.map((folder) => [folder.id, folder]));
-            tags = new Map(update.tags.map((tag) => [tag.id, tag]));
-        }
-        else {
-            for (const folder of update.folders)
-                folders.set(folder.id, folder);
-            for (const tag of update.tags)
-                tags.set(tag.id, tag);
-        }
-        for (const deletion of update.deletions) {
-            if (deletion.entity === 'note')
-                notes.delete(deletion.id);
-            else if (deletion.entity === 'folder')
-                folders.delete(deletion.id);
-            else if (deletion.entity === 'tag')
-                tags.delete(deletion.id);
-        }
-        cursor = update.cursor;
-        serverTime = update.serverTime;
-    }
-    return {
-        ...snapshot,
-        cursor,
-        hasMore: false,
-        nextKey: null,
-        facetsFull: true,
-        settingsChanged,
-        profileChanged,
-        siteChanged,
-        notes: [...notes.values()],
-        folders: [...folders.values()],
-        tags: [...tags.values()],
-        deletions: [],
-        serverTime,
-    };
-}
 function scheduleSummaryDerivation(id: string, content: string, updatedAt: number, set: SetNotesState, get: () => NotesState): void {
     const existing = pendingSummaryDerivations.get(id);
     if (existing)
@@ -1840,30 +1806,6 @@ function commitPendingSummaryDerivation(id: string): void {
     });
     if (shellChanged)
         scheduleShellSave(pending.get);
-}
-export function adjustTagCountsForNoteEdit(
-    tags: Tag[],
-    previous: readonly string[],
-    next: readonly string[],
-): Tag[] {
-    const before = new Set(previous.map(tagNameKey));
-    const after = new Set(next.map(tagNameKey));
-    let changed = false;
-    const out = tags.map((tag) => {
-        const key = tagNameKey(tag.name);
-        const delta = (after.has(key) ? 1 : 0) - (before.has(key) ? 1 : 0);
-        if (delta === 0)
-            return tag;
-        changed = true;
-        return { ...tag, count: Math.max(0, tag.count + delta) };
-    });
-    return changed ? out : tags;
-}
-function tagNameKey(name: string): string {
-    return name.normalize('NFKC').toLocaleLowerCase();
-}
-function equalStringArrays(a: readonly string[], b: readonly string[]): boolean {
-    return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 interface PendingOutboxEntry {
     item: OutboxItem;
@@ -2106,119 +2048,8 @@ function rollbackFolderMutation(mutation: PendingFolderMutation, set: SetNotesSt
     scheduleShellSave(get);
     reconcileFolderUi(get().folders);
 }
-function replaceFolder(folders: Folder[], saved: Folder): Folder[] {
-    const index = folders.findIndex((folder) => folder.id === saved.id);
-    if (index < 0)
-        return [...folders, saved];
-    const next = [...folders];
-    next[index] = saved;
-    return next;
-}
 function applyPendingFolderMutations(folders: Folder[]): Folder[] {
     return pendingFolderMutations.reduce((current, mutation) => mutation.apply(current), folders);
-}
-type FolderMutationPatch = {
-    name?: string;
-    parentId?: string | null;
-    beforeId?: string | null;
-    icon?: string | null;
-    color?: string | null;
-};
-function applyOptimisticFolderPatch(folders: Folder[], id: string, patch: FolderMutationPatch): Folder[] {
-    const current = folders.find((folder) => folder.id === id);
-    if (!current)
-        return folders;
-    const parentId = patch.parentId === undefined ? current.parentId : patch.parentId;
-    const shouldPlace = patch.beforeId !== undefined || parentId !== current.parentId;
-    const updated: Folder = {
-        ...current,
-        ...(patch.name !== undefined ? { name: patch.name } : {}),
-        ...(patch.icon !== undefined ? { icon: patch.icon } : {}),
-        ...(patch.color !== undefined ? { color: patch.color } : {}),
-        ...(patch.parentId !== undefined ? { parentId } : {}),
-        ...(shouldPlace ? { position: insertionPositionForFolders(folders, id, parentId, patch.beforeId ?? null) } : {}),
-        updatedAt: Math.max(Date.now(), current.updatedAt + 1),
-    };
-    return folders.map((folder) => folder.id === id ? updated : folder);
-}
-function insertionPositionForFolders(folders: Folder[], id: string, parentId: string | null, beforeId: string | null): number {
-    const siblings = folders
-        .filter((folder) => folder.id !== id && folder.parentId === parentId)
-        .sort(compareFolders);
-    const index = beforeId === null ? siblings.length : siblings.findIndex((folder) => folder.id === beforeId);
-    const target = index < 0 ? siblings.length : index;
-    const previous = siblings[target - 1]?.position;
-    const next = siblings[target]?.position;
-    if (previous === undefined && next === undefined)
-        return 1000;
-    if (previous === undefined)
-        return next! - 1000;
-    if (next === undefined)
-        return previous + 1000;
-    return previous + (next - previous) / 2;
-}
-function removeFolderAndPromoteChildren(folders: Folder[], id: string): Folder[] {
-    const removed = folders.find((folder) => folder.id === id);
-    if (!removed)
-        return folders;
-    const siblings = folders.filter((folder) => folder.parentId === removed.parentId).sort(compareFolders);
-    const children = folders.filter((folder) => folder.parentId === id).sort(compareFolders);
-    const removedIndex = siblings.findIndex((folder) => folder.id === id);
-    const previous = siblings[removedIndex - 1]?.position;
-    const next = siblings[removedIndex + 1]?.position;
-    const positions = positionsForPromotedFolders(previous, next, children.length);
-    if (positions) {
-        const promoted = new Map(children.map((child, index) => [child.id, positions[index]!]));
-        return folders.flatMap((folder) => {
-            if (folder.id === id)
-                return [];
-            const position = promoted.get(folder.id);
-            return position === undefined ? [folder] : [{ ...folder, parentId: removed.parentId, position, updatedAt: Date.now() }];
-        });
-    }
-    const desired = [...siblings];
-    desired.splice(removedIndex, 1, ...children);
-    const normalized = new Map(desired.map((folder, index) => [folder.id, (index + 1) * 1000]));
-    return folders.flatMap((folder) => {
-        if (folder.id === id)
-            return [];
-        const position = normalized.get(folder.id);
-        if (position === undefined)
-            return [folder];
-        return [{
-                ...folder,
-                ...(folder.parentId === id ? { parentId: removed.parentId, updatedAt: Date.now() } : {}),
-                position,
-            }];
-    });
-}
-function positionsForPromotedFolders(previous: number | undefined, next: number | undefined, count: number): number[] | null {
-    if (!count)
-        return [];
-    if (previous === undefined && next === undefined)
-        return Array.from({ length: count }, (_, index) => (index + 1) * 1000);
-    if (previous === undefined)
-        return Array.from({ length: count }, (_, index) => next! - (count - index) * 1000);
-    if (next === undefined)
-        return Array.from({ length: count }, (_, index) => previous + (index + 1) * 1000);
-    const step = (next - previous) / (count + 1);
-    return Number.isFinite(step) && step > 0
-        ? Array.from({ length: count }, (_, index) => previous + step * (index + 1))
-        : null;
-}
-function compareFolders(left: Folder, right: Folder): number {
-    return left.position - right.position || left.createdAt - right.createdAt || left.id.localeCompare(right.id);
-}
-function availableLocalFolderName(folders: Folder[], parentId: string | null, base: string): string {
-    const names = new Set(folders
-        .filter((folder) => folder.parentId === parentId)
-        .map((folder) => folder.name.toLocaleLowerCase()));
-    if (!names.has(base.toLocaleLowerCase()))
-        return base;
-    let suffix = 2;
-    while (names.has(`${base} ${suffix}`.toLocaleLowerCase()))
-        suffix++;
-    return `${base} ${suffix}`;
 }
 function compactOptimisticPatch(patch: OptimisticNotePatch): OptimisticNotePatch {
     const compact: OptimisticNotePatch = {};
@@ -3474,43 +3305,6 @@ function mergeDirtySummary(current: NoteSummary | undefined, incoming: NoteSumma
         updatedAt: current.updatedAt,
     };
 }
-function reconcileList<T extends {
-    id: string;
-}>(current: T[], incoming: T[], equal: (a: T, b: T) => boolean): T[] {
-    const byId = new Map(current.map((item) => [item.id, item]));
-    const next = incoming.map((item) => {
-        const existing = byId.get(item.id);
-        return existing && equal(existing, item) ? existing : item;
-    });
-    return next.length === current.length && next.every((item, index) => item === current[index])
-        ? current
-        : next;
-}
-function mergeById<T extends {
-    id: string;
-}>(current: T[], incoming: T[], deletions: {
-    entity: string;
-    id: string;
-}[], entity: string, equal: (a: T, b: T) => boolean): T[] {
-    const currentMap = new Map(current.map((item) => [item.id, item]));
-    let map: Map<string, T> | null = null;
-    for (const item of incoming) {
-        const existing = currentMap.get(item.id);
-        if (existing && equal(existing, item))
-            continue;
-        if (!map)
-            map = new Map(currentMap);
-        map.set(item.id, item);
-    }
-    for (const deletion of deletions) {
-        if (deletion.entity !== entity || !currentMap.has(deletion.id))
-            continue;
-        if (!map)
-            map = new Map(currentMap);
-        map.delete(deletion.id);
-    }
-    return map ? [...map.values()] : current;
-}
 function folderEqual(a: Folder, b: Folder): boolean {
     return (a.id === b.id &&
         a.parentId === b.parentId &&
@@ -3772,33 +3566,6 @@ function matchesView(note: NoteSummary, view: ViewKind, ctx: ViewContext): boole
             return true;
     }
 }
-// The window is resolved to two instants once per recompute rather than to a day key
-// per note: the old predicate built a Date and a `YYYY-MM-DD` string for every row.
-// The upper bound is the start of the day AFTER `end`, so a 23-hour DST day cannot
-// shave the closing hour off the range the way a fixed day length would.
-// Exported so the day-boundary contract is testable per time zone: a fixed day length
-// and the next local midnight only disagree where a day is not 24 hours long, and the
-// suite has to be able to visit such a zone explicitly.
-// The upper edge is asked of the Date constructor as `day + 1`, never read off a parsed
-// end-of-range Date and nudged with `setDate`: where a zone puts the clock forward at
-// midnight (America/Santiago 2026-09-06 has no 00:00), the parsed date has already
-// normalised to 01:00 and `setDate` carries that hour onto the next day, widening the
-// window by an hour the reader never selected.
-export interface DayWindow {
-    from: number;
-    to: number;
-}
-export function dayWindow(range: DateRangeFilter | null): DayWindow | null {
-    if (!range)
-        return null;
-    const [endYear, endMonth, endDay] = range.end.split('-').map(Number);
-    return { from: parseDateKey(range.start).getTime(), to: new Date(endYear, endMonth - 1, endDay + 1).getTime() };
-}
-export function inDayWindow(note: NoteSummary, days: DayWindow | null): boolean {
-    if (!days)
-        return true;
-    return note.updatedAt >= days.from && note.updatedAt < days.to;
-}
 function compare(a: NoteSummary, b: NoteSummary, sort: SortKey, order: SortOrder, locale: AppLocale): number {
     if (a.isPinned !== b.isPinned)
         return a.isPinned ? -1 : 1;
@@ -3876,59 +3643,10 @@ export function useVisibleNotes(): NoteSummary[] {
         return list.sort((a, b) => compare(a, b, sort, order, locale));
     }, [notes, scopedFolders, view, folderId, tags, excludedTags, dateFilter, sort, order, locale, todoTag, blogByNote]);
 }
-export interface FolderNode extends Folder {
-    children: FolderNode[];
-    depth: number;
-    directNotes: number;
-    totalNotes: number;
-}
 export function useFolderTree(): FolderNode[] {
     const folders = useNotes((s) => s.folders);
     const direct = useNotes((state) => selectNavigationProjection(state.notes, state.folders).folderCounts);
     return useMemo(() => buildFolderTree(folders, direct), [folders, direct]);
-}
-export function buildFolderTree(folders: Folder[], direct: ReadonlyMap<string, number>): FolderNode[] {
-    const byId = new Map(folders.map((folder) => [folder.id, folder]));
-    const byParent = new Map<string, Folder[]>();
-    const compare = (a: Folder, b: Folder) => a.position - b.position || a.createdAt - b.createdAt || a.id.localeCompare(b.id);
-    for (const folder of folders) {
-        const key = folder.parentId ?? '';
-        const list = byParent.get(key) ?? [];
-        list.push(folder);
-        byParent.set(key, list);
-    }
-    for (const list of byParent.values())
-        list.sort(compare);
-    const visited = new Set<string>();
-    const build = (folder: Folder, depth: number, parentId: string | null): FolderNode | null => {
-        if (visited.has(folder.id))
-            return null;
-        visited.add(folder.id);
-        const children = depth + 1 < LIMITS.folderDepthMax
-            ? (byParent.get(folder.id) ?? []).flatMap((child) => {
-                const node = build(child, depth + 1, folder.id);
-                return node ? [node] : [];
-            })
-            : [];
-        const directNotes = direct.get(folder.id) ?? 0;
-        const totalNotes = directNotes + children.reduce((sum, child) => sum + child.totalNotes, 0);
-        return { ...folder, parentId, children, depth, directNotes, totalNotes };
-    };
-    const roots = folders
-        .filter((folder) => folder.parentId === null || !byId.has(folder.parentId))
-        .sort(compare)
-        .flatMap((folder) => {
-        const node = build(folder, 0, null);
-        return node ? [node] : [];
-    });
-    for (const folder of folders.toSorted(compare)) {
-        if (visited.has(folder.id))
-            continue;
-        const node = build(folder, 0, null);
-        if (node)
-            roots.push(node);
-    }
-    return roots.sort(compare);
 }
 export function useActiveNote(pane: WorkspacePane | 'active' = 'active'): {
     note: NoteSummary | null;
