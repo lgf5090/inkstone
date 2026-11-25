@@ -34,7 +34,7 @@
 - [ ] LOG-10 隐藏项 total 修正
 - [ ] LOG-11 凭证解密错误带上下文
 - [ ] PERF-01 前端下载流式落盘
-- [ ] PERF-02 ZIP 按需打开对象流
+- [x] PERF-02 ZIP 按需打开对象流
 - [ ] PERF-03 服务端分片流式写入
 - [ ] PERF-04 单文件分片并发与自动重试
 - [ ] PERF-05 WebDAV 短期认证会话缓存
@@ -73,6 +73,7 @@
 | ID | 状态 | Commit | 验证证据 |
 |---|---|---|---|
 | PLAN-00 | DONE | 本次提交 | worktree 已创建；`npm ci` 成功；计划文档纳入版本控制 |
+| PERF-02 | DONE | 本次提交 | `tests/clouddrive-upload.test.ts` ZIP 用例通过；最多 8 个对象预取 |
 
 ## 验证命令
 
