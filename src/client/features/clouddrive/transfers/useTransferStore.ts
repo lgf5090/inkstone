@@ -372,21 +372,21 @@ async function runUpload(item: TransferItem, signal: AbortSignal): Promise<numbe
   return file.size
 }
 
-function saveBlob(blob: Blob, name: string): void {
-  const url = URL.createObjectURL(blob)
+function saveNativeDownload(url: string, name: string): void {
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = name
   anchor.rel = 'noopener'
   document.body.append(anchor)
-  anchor.click()
-  anchor.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  try {
+    anchor.click()
+  } finally {
+    anchor.remove()
+  }
 }
 
-async function runDownload(item: TransferItem, signal: AbortSignal): Promise<number> {
-  if (!item.entryId) throw new TransferError('clouddrive.error.not_found')
-  const response = await fetch(clouddriveApi.contentUrl(item.entryId, true), {
+async function downloadResponse(item: TransferItem, signal: AbortSignal): Promise<Response> {
+  const response = await fetch(clouddriveApi.contentUrl(item.entryId!, true), {
     credentials: 'same-origin',
     signal,
   })
@@ -398,31 +398,52 @@ async function runDownload(item: TransferItem, signal: AbortSignal): Promise<num
       response.status,
     )
   }
+  return response
+}
 
+async function runDownload(item: TransferItem, signal: AbortSignal): Promise<number> {
+  if (!item.entryId) throw new TransferError('clouddrive.error.not_found')
+  const url = clouddriveApi.contentUrl(item.entryId, true)
+  const picker = (window as Window & {
+    showSaveFilePicker?: (options: { suggestedName: string }) => Promise<FileSystemFileHandle>
+  }).showSaveFilePicker
+
+  // Safari, Firefox and mobile browsers hand the same-origin response straight to their native
+  // download manager. No fetch and no object URL means the browser, not this queue, owns the bytes.
+  if (!picker) {
+    saveNativeDownload(url, item.name)
+    return item.size
+  }
+
+  let handle: FileSystemFileHandle
+  try {
+    handle = await picker.call(window, { suggestedName: item.name })
+  } catch (error) {
+    if (isAbort(error)) throw abortError()
+    throw error
+  }
+  if (signal.aborted) throw abortError()
+  const response = await downloadResponse(item, signal)
   const total = Number(response.headers.get('content-length')) || item.size
   if (total > 0 && total !== item.size) patchItem(item.id, { size: total })
-  const reader = response.body?.getReader()
-  if (!reader) throw new CloudDriveApiError('internal', 'The download stream is unavailable', 0)
+  if (!response.body) throw new CloudDriveApiError('internal', 'The download stream is unavailable', 0)
 
-  const chunks: BlobPart[] = []
   let received = 0
   let lastReport = 0
-  for (;;) {
-    if (signal.aborted) throw abortError()
-    const { done, value } = await reader.read()
-    if (done) break
-    if (value) {
-      chunks.push(value)
-      received += value.byteLength
+  const progress = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      received += chunk.byteLength
       const now = Date.now()
       if (now - lastReport > 200) {
         lastReport = now
         patchItem(item.id, { transferred: received })
       }
-    }
-  }
+      controller.enqueue(chunk)
+    },
+  })
+  const writable = await handle.createWritable()
+  await response.body.pipeThrough(progress).pipeTo(writable, { signal })
   patchItem(item.id, { transferred: received })
-  saveBlob(new Blob(chunks, { type: response.headers.get('content-type') ?? item.mime }), item.name)
   return received
 }
 

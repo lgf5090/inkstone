@@ -3,6 +3,8 @@ export type UploadBody = ReadableStream<Uint8Array> | Uint8Array | null | undefi
 export interface ByteStreamLimits {
   maxBytes: number
   expectedBytes?: number
+  /** Absolute wall-clock deadline, covering time spent waiting for the next chunk as well. */
+  deadline?: number
   tooLarge: (received: number) => Error
   mismatched?: (received: number) => Error
   onSettled?: (error?: unknown) => void
@@ -29,15 +31,44 @@ export function byteStream(body: UploadBody, limits: ByteStreamLimits): Readable
   const reader = sourceOf(body).getReader()
   let received = 0
   let settled = false
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+  const clearDeadline = (): void => {
+    if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
+    deadlineTimer = undefined
+  }
   const settle = (error?: unknown): void => {
     if (settled) return
     settled = true
+    clearDeadline()
     limits.onSettled?.(error)
+  }
+  const fail = (controller: ReadableStreamDefaultController<Uint8Array>, error: Error): void => {
+    if (settled) return
+    settle(error)
+    controller.error(error)
+    void reader.cancel(error).catch((cancelError: unknown) => {
+      console.warn('[inkstone] A timed-out byte stream could not be cancelled', cancelError)
+    })
   }
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
+      if (limits.deadline !== undefined && Date.now() >= limits.deadline) {
+        const error = new Error('The byte stream timed out')
+        error.name = 'TimeoutError'
+        fail(controller, error)
+        return
+      }
+      if (limits.deadline !== undefined) {
+        deadlineTimer = setTimeout(() => {
+          const error = new Error('The byte stream timed out')
+          error.name = 'TimeoutError'
+          fail(controller, error)
+        }, Math.max(0, limits.deadline - Date.now()))
+      }
       try {
         const { done, value } = await reader.read()
+        clearDeadline()
+        if (settled) return
         if (done) {
           reader.releaseLock()
           if (limits.expectedBytes !== undefined && received !== limits.expectedBytes) {
@@ -53,21 +84,24 @@ export function byteStream(body: UploadBody, limits: ByteStreamLimits): Readable
         if (!value) return
         received += value.byteLength
         if (received > limits.maxBytes || (limits.expectedBytes !== undefined && received > limits.expectedBytes)) {
-          const error = limits.tooLarge(received)
-          settle(error)
-          await reader.cancel()
-          controller.error(error)
+          fail(controller, limits.tooLarge(received))
           return
         }
         controller.enqueue(value)
       } catch (error) {
+        clearDeadline()
+        if (settled) return
         settle(error)
         controller.error(error)
       }
     },
     async cancel(reason) {
       settle(reason ?? new Error('Upload stream cancelled'))
-      await reader.cancel(reason)
+      try {
+        await reader.cancel(reason)
+      } finally {
+        reader.releaseLock()
+      }
     },
   })
 }

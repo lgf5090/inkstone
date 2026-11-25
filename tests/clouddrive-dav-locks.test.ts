@@ -5,13 +5,14 @@ import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
 import { createUsersTable } from './doubles/users-table'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
-import { clouddriveDavRoutes } from '../src/worker/clouddrive/routes-dav'
+import { clouddriveDavRoutes, WEBDAV_AUTH_CACHE_TTL_MS } from '../src/worker/clouddrive/routes-dav'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { createLoginAttemptsTable } from './doubles/login-attempts'
 import { testBindings, testR2Bucket } from './doubles/bindings'
 import { lockCovers, presentedLockTokens, type DavLock } from '../src/worker/clouddrive/dav-locks'
+import * as password from '../src/worker/lib/password'
 
 const USER = '0123456789abcdefghjkmnpqrs'
 const CLOCK = Date.UTC(2026, 10, 3, 12, 0, 0)
@@ -99,6 +100,46 @@ async function setupWebdav() {
 async function put(path: string, body = 'bytes') {
   return dav('PUT', path, { 'content-type': 'text/plain' }, body)
 }
+
+describe('cloud drive WebDAV credential cache', () => {
+  it('reuses a successful password check without the per-PROPFIND throttle write', async () => {
+    await setupWebdav()
+    const verify = vi.spyOn(password, 'verifyPassword')
+    expect((await put('/Docs/cached.txt')).status).toBe(201)
+    const prepare = vi.spyOn(db, 'prepare')
+
+    expect((await dav('PROPFIND', '/Docs')).status).toBe(207)
+    expect((await dav('PROPFIND', '/Docs/cached.txt', { Depth: '0' })).status).toBe(207)
+
+    expect(verify).toHaveBeenCalledTimes(1)
+    expect(prepare.mock.calls.some(([sql]) => sql.includes('DELETE FROM login_attempts'))).toBe(false)
+  })
+
+  it('rejects the previous password immediately after rotation and accepts the new one', async () => {
+    await setupWebdav()
+    expect((await put('/Docs/rotated.txt')).status).toBe(201)
+    expect((await call('PATCH', '/api/clouddrive/settings', { webdavPassword: 'newdavpass' })).status).toBe(200)
+
+    expect((await dav('PROPFIND', '/Docs/rotated.txt', { Depth: '0' })).status).toBe(401)
+    const current = await dav('PROPFIND', '/Docs/rotated.txt', {
+      Depth: '0',
+      Authorization: `Basic ${btoa('owner:newdavpass')}`,
+    })
+    expect(current.status).toBe(207)
+  })
+
+  it('expires an idle cached session and verifies the password again', async () => {
+    await setupWebdav()
+    const verify = vi.spyOn(password, 'verifyPassword')
+    expect((await put('/Docs/expiring.txt')).status).toBe(201)
+    expect((await dav('PROPFIND', '/Docs/expiring.txt', { Depth: '0' })).status).toBe(207)
+    expect(verify).toHaveBeenCalledTimes(1)
+
+    setClock(CLOCK + WEBDAV_AUTH_CACHE_TTL_MS + 1)
+    expect((await dav('PROPFIND', '/Docs/expiring.txt', { Depth: '0' })).status).toBe(207)
+    expect(verify).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('cloud drive WebDAV write locks', () => {
   it('holds a lock over a second client and lets the holder through', async () => {

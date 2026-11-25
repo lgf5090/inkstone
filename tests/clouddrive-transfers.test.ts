@@ -5,6 +5,7 @@ import { useCloudDriveStore } from '../src/client/features/clouddrive/store'
 import { partRetryDelay, putPartWithRetry, useTransferStore, type TransferItem } from '../src/client/features/clouddrive/transfers/useTransferStore'
 
 const HISTORY_VERSION = 'v1'
+const originalCreateObjectURL = URL.createObjectURL
 
 function historyKey(userId: string): string {
   return `inkstone.clouddrive.transfers.${HISTORY_VERSION}.${userId}`
@@ -38,6 +39,8 @@ afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, writable: true, value: originalCreateObjectURL })
+  delete (window as Window & { showSaveFilePicker?: unknown }).showSaveFilePicker
 })
 
 describe('CloudDrive upload scheduling', () => {
@@ -146,6 +149,71 @@ describe('CloudDrive upload scheduling', () => {
     await upload
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(partRetryDelay(1)).toBe(partRetryDelay(0) * 2)
+  })
+})
+
+describe('CloudDrive download streaming', () => {
+  function downloadEntry(): CloudDriveEntry {
+    return {
+      id: 'file-download', kind: 'file', name: 'large.bin', mime: 'application/octet-stream', size: 6,
+      mountId: 'primary', path: '/large.bin',
+    } as CloudDriveEntry
+  }
+
+  it('pipes the response into a File System Access writable without building a Blob', async () => {
+    const chunks: Uint8Array[] = []
+    const writable = new WritableStream<Uint8Array>({
+      write(chunk) { chunks.push(chunk.slice()) },
+    })
+    const createWritable = vi.fn().mockResolvedValue(writable)
+    const picker = vi.fn().mockResolvedValue({ createWritable })
+    Object.defineProperty(window, 'showSaveFilePicker', { configurable: true, writable: true, value: picker })
+    const createObjectURL = vi.fn(() => 'blob:must-not-be-used')
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, writable: true, value: createObjectURL })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]))
+        controller.enqueue(new Uint8Array([4, 5, 6]))
+        controller.close()
+      },
+    }), { headers: { 'Content-Length': '6' } })))
+
+    useTransferStore.getState().enqueueDownload(downloadEntry())
+
+    await vi.waitFor(() => expect(useTransferStore.getState().items[0]?.status).toBe('success'))
+    expect(picker).toHaveBeenCalledWith({ suggestedName: 'large.bin' })
+    expect(createWritable).toHaveBeenCalledTimes(1)
+    expect(chunks.map((chunk) => [...chunk])).toEqual([[1, 2, 3], [4, 5, 6]])
+    expect(createObjectURL).not.toHaveBeenCalled()
+    expect(useTransferStore.getState().items[0]).toMatchObject({ transferred: 6, size: 6 })
+  })
+
+  it('uses the browser download manager when no save-file picker exists', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+
+    useTransferStore.getState().enqueueDownload(downloadEntry())
+
+    await vi.waitFor(() => expect(useTransferStore.getState().items[0]?.status).toBe('success'))
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(click).toHaveBeenCalledTimes(1)
+    const anchor = click.mock.instances[0] as HTMLAnchorElement
+    expect(anchor.getAttribute('href')).toBe('/api/clouddrive/files/file-download/content?download=1')
+    expect(anchor.download).toBe('large.bin')
+    expect(useTransferStore.getState().items[0]).toMatchObject({ transferred: 6, size: 6 })
+  })
+
+  it('treats cancelling the save dialog as a cancelled transfer without fetching', async () => {
+    const picker = vi.fn().mockRejectedValue(new DOMException('Cancelled', 'AbortError'))
+    Object.defineProperty(window, 'showSaveFilePicker', { configurable: true, writable: true, value: picker })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    useTransferStore.getState().enqueueDownload(downloadEntry())
+
+    await vi.waitFor(() => expect(useTransferStore.getState().items[0]?.status).toBe('cancelled'))
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 

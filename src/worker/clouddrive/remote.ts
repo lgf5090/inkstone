@@ -11,7 +11,7 @@
  * request, because a plain GET cannot be resumed.
  */
 import { checkTarget } from '../lib/outbound'
-import { knownLengthByteStream } from '../lib/body-stream'
+import { byteStream, knownLengthByteStream } from '../lib/body-stream'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import {
@@ -22,6 +22,11 @@ import {
 } from './upload-finalize'
 
 const MAX_REDIRECTS = 4
+/** The probe reads headers only; this is a ceiling on anything a caller accidentally pulls from it. */
+export const REMOTE_PROBE_MAX_BYTES = 64 * 1024
+export const REMOTE_PROBE_TIMEOUT_MS = 10_000
+/** One task invocation may stream for this long; the six-second soft budget still hands parts off. */
+export const REMOTE_TRANSFER_TIMEOUT_MS = 120_000
 const TIME_BUDGET_MS = 6_000
 const LOCK_MS = 90_000
 const USER_AGENT = 'inkstone-clouddrive'
@@ -37,38 +42,97 @@ export interface RemoteProbe {
   ranges: boolean
 }
 
-async function discard(response: Response): Promise<void> {
-  try {
-    await response.body?.cancel()
-  } catch (error) {
+function discard(response: Response): void {
+  // Cancellation is best-effort and must not become another place an unusable body can hold the
+  // request open. The catch is adjacent to the fire-and-forget operation and keeps failures visible.
+  void response.body?.cancel().catch((error: unknown) => {
     console.warn('[inkstone] CloudDrive could not cancel an unused remote response', error)
-  }
+  })
 }
 
-/** `fetch` with every redirect hop checked, so a public address cannot hand the worker a private one. */
-async function remoteFetch(rawUrl: string, init: RequestInit): Promise<{ response: Response; url: string }> {
-  let current = rawUrl
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const target = checkTarget(current)
-    if (!target.url) {
-      throw new ApiError(502, 'clouddrive_mount_unavailable', `The remote address is not reachable: ${target.error}`)
-    }
-    const response = await fetch(target.url.toString(), {
-      ...init,
-      redirect: 'manual',
-      headers: { 'User-Agent': USER_AGENT, ...(init.headers as Record<string, string> | undefined) },
-    })
-    if (![301, 302, 303, 307, 308].includes(response.status)) return { response, url: target.url.toString() }
-    const location = response.headers.get('location')
-    await discard(response)
-    if (!location) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote server redirected without a location')
-    try {
-      current = new URL(location, target.url).toString()
-    } catch {
-      throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote server redirected to an invalid address')
-    }
+function remoteTimeout(): ApiError {
+  return new ApiError(502, 'clouddrive_mount_unavailable', 'The remote request timed out')
+}
+
+interface RemoteFetchLimits {
+  timeoutMs: number
+  maxBytes: number
+}
+
+/**
+ * `fetch` with every redirect hop checked, under one deadline that remains active while the returned
+ * body is consumed. A header-only timeout would still let a server stall forever after sending 206.
+ */
+async function remoteFetch(
+  rawUrl: string,
+  init: RequestInit,
+  limits: RemoteFetchLimits,
+): Promise<{ response: Response; url: string }> {
+  const deadline = Date.now() + limits.timeoutMs
+  const controller = new AbortController()
+  let timedOut = false
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+  const abortFromCaller = () => controller.abort(init.signal?.reason)
+  if (init.signal?.aborted) abortFromCaller()
+  else init.signal?.addEventListener('abort', abortFromCaller, { once: true })
+  const cleanup = (): void => {
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle)
+    timeoutHandle = undefined
+    init.signal?.removeEventListener('abort', abortFromCaller)
   }
-  throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote server redirected too many times')
+  timeoutHandle = setTimeout(() => {
+    timedOut = true
+    const error = new Error('The remote request timed out')
+    error.name = 'TimeoutError'
+    controller.abort(error)
+  }, limits.timeoutMs)
+
+  let current = rawUrl
+  try {
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const target = checkTarget(current)
+      if (!target.url) {
+        throw new ApiError(502, 'clouddrive_mount_unavailable', `The remote address is not reachable: ${target.error}`)
+      }
+      const response = await fetch(target.url.toString(), {
+        ...init,
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: { 'User-Agent': USER_AGENT, ...(init.headers as Record<string, string> | undefined) },
+      })
+      if (![301, 302, 303, 307, 308].includes(response.status)) {
+        if (!response.body) {
+          cleanup()
+          return { response, url: target.url.toString() }
+        }
+        const body = byteStream(response.body, {
+          maxBytes: limits.maxBytes,
+          deadline,
+          tooLarge: (received) => new ApiError(502, 'clouddrive_mount_unavailable', `The remote response exceeded the ${limits.maxBytes}-byte limit at ${received} bytes`),
+          onSettled: cleanup,
+        })
+        return {
+          response: new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers }),
+          url: target.url.toString(),
+        }
+      }
+      const location = response.headers.get('location')
+      discard(response)
+      if (!location) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote server redirected without a location')
+      try {
+        current = new URL(location, target.url).toString()
+      } catch {
+        throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote server redirected to an invalid address')
+      }
+    }
+    throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote server redirected too many times')
+  } catch (error) {
+    cleanup()
+    if (timedOut) throw remoteTimeout()
+    if (init.signal?.aborted) throw error
+    if (error instanceof ApiError) throw error
+    throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote server could not be reached')
+  }
 }
 
 function filenameFrom(disposition: string | null, url: URL): string {
@@ -111,7 +175,7 @@ export async function probeRemote(rawUrl: string): Promise<RemoteProbe> {
   const { response, url } = await remoteFetch(rawUrl, {
     method: 'GET',
     headers: { Range: 'bytes=0-0', Accept: '*/*' },
-  })
+  }, { timeoutMs: REMOTE_PROBE_TIMEOUT_MS, maxBytes: REMOTE_PROBE_MAX_BYTES })
   const headers = response.headers
   let size: number | null = null
   let ranges = false
@@ -126,51 +190,72 @@ export async function probeRemote(rawUrl: string): Promise<RemoteProbe> {
     size = totalFromContentRange(headers.get('content-range')) ?? 0
     ranges = true
   } else {
-    await discard(response)
+    discard(response)
     throw new ApiError(502, 'clouddrive_mount_unavailable', `The remote server answered ${response.status}`)
   }
   const mime = (headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() || 'application/octet-stream'
   const filename = filenameFrom(headers.get('content-disposition'), new URL(url))
-  await discard(response)
+  discard(response)
   return { url, size, mime: mime.slice(0, MIME_MAX_LENGTH), filename, ranges }
 }
 
-async function fetchRange(url: string, start: number, end: number, expected: number): Promise<{ stream: ReadableStream<Uint8Array>; completed: Promise<void> }> {
+function transferDeadline(deadline: number): number {
+  const remaining = deadline - Date.now()
+  if (remaining <= 0) throw remoteTimeout()
+  return remaining
+}
+
+async function fetchRange(
+  url: string,
+  start: number,
+  end: number,
+  expected: number,
+  deadline: number,
+): Promise<{ stream: ReadableStream<Uint8Array>; completed: Promise<void> }> {
   const { response } = await remoteFetch(url, {
     method: 'GET',
     headers: { Range: `bytes=${start}-${end}` },
-  })
+  }, { timeoutMs: transferDeadline(deadline), maxBytes: expected })
   if (response.status !== 206) {
-    await discard(response)
+    discard(response)
     throw new ApiError(502, 'clouddrive_mount_unavailable', `The remote server stopped honouring ranges (${response.status})`)
   }
   const declared = Number(response.headers.get('content-length') ?? '')
   if (Number.isSafeInteger(declared) && declared >= 0 && declared !== expected) {
-    await discard(response)
+    discard(response)
     throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote part has an unexpected length')
   }
   return knownLengthByteStream(response.body, {
     maxBytes: expected,
     expectedBytes: expected,
+    deadline,
     tooLarge: () => new ApiError(502, 'clouddrive_mount_unavailable', 'The remote part is larger than the requested range'),
     mismatched: () => new ApiError(502, 'clouddrive_mount_unavailable', 'The remote part does not match the requested range'),
   }, expected)
 }
 
-async function fetchWhole(url: string, expected: number): Promise<{ stream: ReadableStream<Uint8Array>; completed: Promise<void> }> {
-  const { response } = await remoteFetch(url, { method: 'GET', headers: { Accept: '*/*' } })
+async function fetchWhole(
+  url: string,
+  expected: number,
+  deadline: number,
+): Promise<{ stream: ReadableStream<Uint8Array>; completed: Promise<void> }> {
+  const { response } = await remoteFetch(url, { method: 'GET', headers: { Accept: '*/*' } }, {
+    timeoutMs: transferDeadline(deadline),
+    maxBytes: expected,
+  })
   if (!response.ok) {
-    await discard(response)
+    discard(response)
     throw new ApiError(502, 'clouddrive_mount_unavailable', `The remote server answered ${response.status}`)
   }
   const declared = Number(response.headers.get('content-length') ?? '')
   if (Number.isSafeInteger(declared) && declared >= 0 && declared !== expected) {
-    await discard(response)
+    discard(response)
     throw new ApiError(502, 'clouddrive_mount_unavailable', 'The remote file changed length after it was inspected')
   }
   return knownLengthByteStream(response.body, {
     maxBytes: expected,
     expectedBytes: expected,
+    deadline,
     tooLarge: () => new ApiError(502, 'clouddrive_mount_unavailable', 'The remote file grew after it was inspected'),
     mismatched: () => new ApiError(502, 'clouddrive_mount_unavailable', 'The remote file changed length after it was inspected'),
   }, expected)
@@ -276,6 +361,7 @@ export async function runRemoteUploadTask(env: Env, task: RemoteTaskRow, now = D
     return 'cancelled'
   }
   const started = now
+  const deadline = now + REMOTE_TRANSFER_TIMEOUT_MS
   const progressOf = (done: number, bytes: number): Record<string, unknown> => ({
     done,
     total: session.total_parts,
@@ -283,7 +369,7 @@ export async function runRemoteUploadTask(env: Env, task: RemoteTaskRow, now = D
   })
 
   if (payload.mode === 'direct') {
-    const { stream, completed } = await fetchWhole(payload.url, payload.size)
+    const { stream, completed } = await fetchWhole(payload.url, payload.size, deadline)
     const status = await taskStatus(env.DB, task.user_id, task.id)
     if (status === 'cancelled') {
       await abandonSession(env, task, session, 'aborted')
@@ -305,6 +391,7 @@ export async function runRemoteUploadTask(env: Env, task: RemoteTaskRow, now = D
   const multipart = bucket.resumeMultipartUpload(session.storage_key, session.provider_upload_id)
 
   for (;;) {
+    transferDeadline(deadline)
     const status = await taskStatus(env.DB, task.user_id, task.id)
     // The reader may cancel while a part is in flight; the next step must not resume it.
     if (status === 'cancelled') {
@@ -325,7 +412,7 @@ export async function runRemoteUploadTask(env: Env, task: RemoteTaskRow, now = D
     const start = (partNumber - 1) * session.part_size
     const end = Math.min(start + session.part_size - 1, session.size - 1)
     const expected = end - start + 1
-    const { stream, completed } = await fetchRange(payload.url, start, end, expected)
+    const { stream, completed } = await fetchRange(payload.url, start, end, expected, deadline)
     const [part] = await Promise.all([
       multipart.uploadPart(partNumber, stream),
       completed,

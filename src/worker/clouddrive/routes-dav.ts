@@ -80,6 +80,8 @@ const MAX_COPY_ROWS = 5000
 const MAX_PROPFIND_CHILDREN = 5000
 const MAX_BUFFERED_EXTERNAL_WRITE = 64 * 1024 * 1024
 const AUTH_REALM = 'Basic realm="CloudDrive"'
+export const WEBDAV_AUTH_CACHE_TTL_MS = 5 * 60_000
+const WEBDAV_AUTH_CACHE_MAX_ENTRIES = 256
 
 interface DavActor {
   userId: string
@@ -142,6 +144,49 @@ async function usersWithWebdavUsername(db: D1Database, username: string): Promis
   return (results ?? []).map((row) => row.user_id)
 }
 
+interface DavCredentialCacheEntry {
+  userId: string
+  passwordHash: string
+  expiresAt: number
+}
+
+/**
+ * A DAV client sends the same Basic credentials on every PROPFIND. Remember only a digest of those
+ * credentials, never the password, and re-read the current hash before accepting a hit. That read is
+ * what makes a password rotation or WebDAV disable revoke the session immediately, including after
+ * another isolate handled the settings write.
+ */
+const davCredentialCache = new Map<string, DavCredentialCacheEntry>()
+
+async function davCredentialCacheKey(credentials: { username: string; password: string }): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${credentials.username}\0${credentials.password}`))
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('')
+}
+
+function cachedDavCredential(key: string): DavCredentialCacheEntry | null {
+  const entry = davCredentialCache.get(key)
+  if (!entry) return null
+  if (entry.expiresAt <= Date.now()) {
+    davCredentialCache.delete(key)
+    return null
+  }
+  return entry
+}
+
+function rememberDavCredential(key: string, userId: string, passwordHash: string): void {
+  davCredentialCache.delete(key)
+  davCredentialCache.set(key, {
+    userId,
+    passwordHash,
+    expiresAt: Date.now() + WEBDAV_AUTH_CACHE_TTL_MS,
+  })
+  while (davCredentialCache.size > WEBDAV_AUTH_CACHE_MAX_ENTRIES) {
+    const oldest = davCredentialCache.keys().next().value
+    if (oldest === undefined) break
+    davCredentialCache.delete(oldest)
+  }
+}
+
 async function authenticateDav(c: Context<AppBindings>, scope: CloudDriveKeyScope = 'webdav:read'): Promise<DavAuth> {
   const header = c.req.header('authorization')
   if (!header) {
@@ -194,11 +239,30 @@ async function davCredentials(
     }
   }
 
+  const cacheKey = await davCredentialCacheKey(credentials)
+  const cached = cachedDavCredential(cacheKey)
+  if (cached) {
+    const settings = await readCloudDriveSettings(c.env.DB, cached.userId)
+    if (
+      settings.webdavEnabled
+      && settings.webdavUsername === credentials.username
+      && settings.webdavPasswordHash === cached.passwordHash
+    ) {
+      rememberDavCredential(cacheKey, cached.userId, cached.passwordHash)
+      return {
+        actor: { userId: cached.userId, pathPrefix: '/', keyId: null },
+        settings,
+      }
+    }
+    davCredentialCache.delete(cacheKey)
+  }
+
   for (const userId of await usersWithWebdavUsername(c.env.DB, credentials.username)) {
     const settings = await readCloudDriveSettings(c.env.DB, userId)
     if (!settings.webdavEnabled || !settings.webdavPasswordHash) continue
     if (settings.webdavUsername !== credentials.username) continue
     if (!(await verifyPassword(credentials.password, settings.webdavPasswordHash))) continue
+    rememberDavCredential(cacheKey, userId, settings.webdavPasswordHash)
     await notePasscodeSuccess(c.env.DB, throttleKey)
     return {
       actor: { userId, pathPrefix: '/', keyId: null },
