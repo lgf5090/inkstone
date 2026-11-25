@@ -8,6 +8,7 @@ import { FileIcon } from './FileIcon'
 import { TagList } from './ColorTagMenus'
 import { entryKindLabel, formatEntryDate, formatEntrySize } from './format'
 import { selectModeFor, type FileViewProps } from './types'
+import './render-budget.css'
 
 export interface FileListProps extends FileViewProps {
   /** The column the server sorted by; `null` when the order is not a column's (a ranked search). */

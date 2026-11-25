@@ -80,7 +80,8 @@
 | LOG-07 | DONE | 81521917 | 新增 `clouddrive-jobs.test.ts` 2 项通过；owner 200/member 403 |
 | FEAT-08 | IN PROGRESS | f5de7cf1 | 后端配置导出与脱敏测试通过；设置页入口待接 |
 | FEAT-13 | IN PROGRESS | 16cd1663 | 音视频续播与账号隔离已实现；HEIC/转码仍待评估 |
-| FEAT-06 | IN PROGRESS | 本次提交 | 增量 SHA-256 工具与测试通过；上传去重协议待接 |
+| FEAT-06 | IN PROGRESS | 75215bf8 | 增量 SHA-256 工具与测试通过；上传去重协议待接 |
+| FEAT-14 | IN PROGRESS | 本次提交 | 列表/网格/相册启用 content-visibility；大列表性能实测待做 |
 
 ## 验证命令
 

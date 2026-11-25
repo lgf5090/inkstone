@@ -3,6 +3,7 @@ import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import { clouddriveApi } from '../api'
 import { FileIcon } from './FileIcon'
 import { selectModeFor, type FileViewProps } from './types'
+import './render-budget.css'
 
 function canShowThumbnail(entry: CloudDriveEntry): boolean {
   return entry.kind === 'file' && entry.hasThumbnail

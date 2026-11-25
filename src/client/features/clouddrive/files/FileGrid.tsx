@@ -6,6 +6,7 @@ import { FileIcon } from './FileIcon'
 import { TagDots } from './ColorTagMenus'
 import { splitExtension } from './format'
 import { selectModeFor, type FileViewProps } from './types'
+import './render-budget.css'
 
 export function FileGrid({
   entries,
