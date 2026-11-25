@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono'
 import { projectBoardToCsv } from '@shared/project/csv'
 import { isProjectId } from '@shared/project/limits'
+import type { ProjectRole } from '@shared/project/model'
 import {
   ProjectBoardCreateSchema,
   ProjectBoardFromTemplateSchema,
@@ -48,7 +49,15 @@ import { broadcastProjectChange } from './realtime'
 import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAccountArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireBoardOwner, requireCard, requireComment, requireContent, requireView } from './auth'
 import { projectWebhookEvent } from '@shared/project/integrations'
-import { readProjectWriteReceipt, storeProjectWriteReceipt } from './idempotency'
+import {
+  claimProjectWriteReceipt,
+  completeProjectWriteReceipt,
+  discardProjectWriteReceipt,
+  projectWriteFingerprint,
+  PROJECT_WRITE_CLAIM_TTL_MS,
+  readProjectWriteReceipt,
+  type ProjectWriteReceipt,
+} from './idempotency'
 import {
   createProjectApiToken, listProjectApiTokens, projectTokenFromAuthorization,
   revokeProjectApiToken, verifyProjectApiToken,
@@ -199,30 +208,140 @@ projectRoutes.use('*', async (c, next) => {
 
 projectRoutes.use('*', requireAuth)
 
+const WRITE_CHILD_TABLES = {
+  cards: 'project_cards',
+  views: 'project_views',
+  contents: 'project_card_contents',
+  comments: 'project_comments',
+  files: 'project_attachments',
+} as const
+
+async function projectWriteBoardId(c: Context<AppBindings>): Promise<string> {
+  const board = /^\/api\/project\/boards\/([^/]+)(?:\/|$)/.exec(c.req.path)?.[1]
+  if (board && board !== 'import' && board !== 'from-template') return board
+  const child = /^\/api\/project\/(cards|views|contents|comments|files)\/([^/]+)/.exec(c.req.path)
+  if (!child) return ''
+  const table = WRITE_CHILD_TABLES[child[1] as keyof typeof WRITE_CHILD_TABLES]
+  const row = await c.env.DB.prepare(`SELECT board_id FROM ${table} WHERE id = ?1`).bind(child[2]).first<{ board_id: string }>()
+  return row?.board_id ?? ''
+}
+
+function projectWriteOwnerRequired(c: Context<AppBindings>, body: string): boolean {
+  const method = c.req.method.toUpperCase()
+  if (method === 'DELETE' && /^\/api\/project\/boards\/[^/]+$/.test(c.req.path)) return true
+  if (method === 'POST' && c.req.path.endsWith('/save-as-template')) return true
+  if (c.req.path.endsWith('/share')) return true
+  if (method !== 'PATCH' || !/^\/api\/project\/boards\/[^/]+$/.test(c.req.path)) return false
+  try {
+    const patch = JSON.parse(body) as Record<string, unknown>
+    return ['type', 'minimumRole', 'archived', 'updatedCardProperties', 'deletedCardProperties']
+      .some((key) => patch[key] !== undefined)
+  } catch {
+    return false
+  }
+}
+
+function projectWriteRequiredRole(c: Context<AppBindings>, boardId: string): ProjectRole | '' {
+  if (!boardId) return ''
+  if (/\/(members|automations|webhooks)(\/|$)/.test(c.req.path)) return 'admin'
+  if (/\/(card-marks|default-view|duplicate|join|leave)$/.test(c.req.path)) return 'viewer'
+  return 'editor'
+}
+
+async function assertProjectReceiptAccess(c: Context<AppBindings>, receipt: ProjectWriteReceipt, body: string): Promise<void> {
+  const userId = projectUserId(c)
+  if (receipt.boardId) {
+    const access = await requireBoard(c, receipt.boardId, receipt.requiredRole || 'viewer')
+    if (receipt.ownerRequired && access.board.ownerId !== userId) throw ApiError.forbidden()
+  }
+  if (/^\/api\/project\/cards\/[^/]+\/move$/.test(c.req.path)) {
+    try {
+      const targetBoardId = (JSON.parse(body) as { targetBoardId?: unknown }).targetBoardId
+      if (typeof targetBoardId === 'string') await requireBoard(c, targetBoardId, 'editor')
+    } catch (error) {
+      if (error instanceof ApiError) throw error
+      throw ApiError.badRequest('Invalid move request')
+    }
+  }
+  try {
+    const payload = JSON.parse(receipt.body) as { board?: { id?: unknown }, card?: { boardId?: unknown }, boards?: { id?: unknown }[] }
+    const responseBoardIds = [
+      payload.board?.id,
+      payload.card?.boardId,
+      ...(payload.boards ?? []).map((board) => board.id),
+    ].filter((id): id is string => typeof id === 'string' && id !== receipt.boardId)
+    for (const boardId of responseBoardIds) await requireBoard(c, boardId, 'viewer')
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+  }
+}
+
 /**
- * A queued offline write replays under the key it was minted with. Returning the stored answer before
- * the route runs also keeps the cursor bump, activity row and webhook delivery from firing twice.
+ * A queued offline write replays under the key it was minted with. A pending claim prevents concurrent
+ * duplicate execution; a completed receipt is replayed only after its original resource role is checked
+ * again, and only for the same method, path and request body.
  */
 projectRoutes.use('*', async (c, next) => {
   const key = c.req.header('Idempotency-Key')
   const method = c.req.method.toUpperCase()
-  if (!key || !/^[A-Za-z0-9_-]{8,64}$/.test(key) || method === 'GET' || method === 'HEAD') {
+  if (!key || !/^[A-Za-z0-9_-]{8,64}$/.test(key) || method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
     await next()
     return
   }
   const userId = projectUserId(c)
-  const stored = await readProjectWriteReceipt(c.env.DB, userId, key)
-  if (stored) {
+  const bodyBytes = await c.req.raw.clone().arrayBuffer()
+  const body = new TextDecoder().decode(bodyBytes)
+  const bodyHash = await projectWriteFingerprint(bodyBytes)
+  const url = new URL(c.req.url)
+  const path = `${url.pathname}${url.search}`
+  const boardId = await projectWriteBoardId(c)
+  const ownerRequired = projectWriteOwnerRequired(c, body)
+  const requiredRole = projectWriteRequiredRole(c, boardId)
+
+  let claimed = false
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    claimed = await claimProjectWriteReceipt(c.env.DB, userId, key, {
+      method,
+      path,
+      bodyHash,
+      boardId,
+      requiredRole,
+      ownerRequired,
+    }, Date.now())
+    if (claimed) break
+    const stored = await readProjectWriteReceipt(c.env.DB, userId, key)
+    if (stored?.state === 'legacy' || (stored?.state === 'pending' && Date.now() - stored.createdAt > PROJECT_WRITE_CLAIM_TTL_MS)) {
+      await discardProjectWriteReceipt(c.env.DB, userId, key)
+      continue
+    }
+    if (!stored || stored.state !== 'complete') throw ApiError.conflict('Idempotency key is already in progress')
+    if (stored.method !== method || stored.path !== path || stored.bodyHash !== bodyHash) {
+      throw ApiError.conflict('Idempotency key was already used for a different request')
+    }
+    await assertProjectReceiptAccess(c, stored, body)
     return new Response(stored.body, {
       status: stored.status,
       headers: { 'Content-Type': 'application/json' },
     })
   }
-  await next()
-  if (!c.res.ok || !(c.res.headers.get('content-type') ?? '').includes('application/json')) return
-  const body = await c.res.clone().text()
-  if (body.length > 64 * 1024) return
-  await storeProjectWriteReceipt(c.env.DB, userId, key, c.res.status, body, Date.now())
+  if (!claimed) throw ApiError.conflict('Idempotency key is already in progress')
+
+  try {
+    await next()
+    if (!c.res.ok || !(c.res.headers.get('content-type') ?? '').includes('application/json')) {
+      await discardProjectWriteReceipt(c.env.DB, userId, key)
+      return
+    }
+    const responseBody = await c.res.clone().text()
+    if (responseBody.length > 64 * 1024) {
+      await discardProjectWriteReceipt(c.env.DB, userId, key)
+      return
+    }
+    await completeProjectWriteReceipt(c.env.DB, userId, key, c.res.status, responseBody, Date.now())
+  } catch (error) {
+    await discardProjectWriteReceipt(c.env.DB, userId, key)
+    throw error
+  }
 })
 
 /**

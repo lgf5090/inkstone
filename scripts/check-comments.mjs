@@ -43230,7 +43230,7 @@ const allowed = new Map([
     "/** Mimes safe to render inline in this origin; everything else downloads as an opaque blob. */",
   ]],
   ["src/worker/project/idempotency.ts", [
-    "/**\n * Receipts for writes carrying an `Idempotency-Key`. An offline client replays a queued write with\n * the key it minted before the network failed; if the first attempt reached the database but its\n * answer did not reach the browser, the replay must get that same answer rather than a second card.\n */",
+    "/**\n * Receipts for writes carrying an `Idempotency-Key`. A key is bound to one request fingerprint and the\n * resource role that created it, so replaying it cannot repeat a write or bypass a later permission\n * change. A pending row is a short-lived claim that prevents concurrent duplicate execution.\n */",
   ]],
   ["src/worker/project/insights.ts", [
     "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.\n */",
@@ -43285,9 +43285,9 @@ const allowed = new Map([
     "/** A reader's landing tab follows the account, so another device opens the same view. */",
     "/**\n * Machine clients authenticate with a hashed, board-scoped token instead of a cookie. Setting\n * `userId` lets every existing route reuse `requireBoard`; the scope and board checks below are the\n * extra boundaries a token needs, and the management endpoints stay session-only so a token can\n * never mint another token or add an outbound target.\n */",
     "/** Account-level machine credentials; the plaintext secret is returned once, at creation only. */",
-    "/**\n * A queued offline write replays under the key it was minted with. Returning the stored answer before\n * the route runs also keeps the cursor bump, activity row and webhook delivery from firing twice.\n */",
     "// Per-reader preferences are not board content: bumping the cursor would make every other tab",
     "// refetch, and recording them would fill the activity feed with the act of choosing a tab.",
+    "/**\n * A queued offline write replays under the key it was minted with. A pending claim prevents concurrent\n * duplicate execution; a completed receipt is replayed only after its original resource role is checked\n * again, and only for the same method, path and request body.\n */",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
