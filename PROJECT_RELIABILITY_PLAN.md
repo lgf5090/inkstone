@@ -10,7 +10,7 @@
 
 | ID | Status | Task | Acceptance | Commit |
 |---|---|---|---|---|
-| P0-01 | pending | F1 unify field visibility across card APIs, properties, search, rollup, move, exports and AI tools | viewer/editor/admin HTTP + AI + export tests; hidden values never leave server | - |
+| P0-01 | done | F1 unify field visibility across card APIs, properties, search, rollup, move, exports and AI tools | viewer/editor/admin HTTP + AI + export tests; hidden values never leave server | pending hash |
 | P0-02 | pending | F2 move idempotency replay after resource authorization; bind method/path/body hash; claim concurrent keys | revoked member replay fails; same key different request conflicts; concurrent key creates once | - |
 | P0-03 | pending | F3 enforce board token scope on body targets; narrow account-wide token scopes | board token cannot move/link across boards; high-risk routes session-only | - |
 | P0-04 | pending | F4 chunk every dynamic IN query to D1's 100-binding limit | 101/200/500 id requests paginate or reject cleanly, never 500 | - |

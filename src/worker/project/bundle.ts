@@ -14,7 +14,6 @@ import type {
   ProjectRole,
   ProjectView,
 } from '@shared/project/model'
-import { projectPropertyVisibleTo } from '@shared/project/property-config'
 import { evaluateProjectFormula } from '@shared/project/formula'
 import { evaluateProjectRollup, projectRollupCycleIds, projectRollupOrder } from '@shared/project/rollup'
 import { projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
@@ -22,6 +21,7 @@ import { PROJECT_LIMITS } from '@shared/project/limits'
 import { parseProjectRecurrence } from '@shared/project/recurrence'
 import { readBoardProperties } from './boards'
 import { listProjectMembers, listProjectPeople } from './members'
+import { projectCardForRole, projectPropertiesForRole, projectRoleForBoard } from './visibility'
 
 export interface CardRow {
   id: string
@@ -156,6 +156,7 @@ export async function readProjectBoardBundle(
   db: D1Database,
   board: ProjectBoard,
   role: ProjectRole,
+  viewerId?: string,
 ): Promise<ProjectBoardBundle> {
   const [properties, members, cardRows, valueRows, viewRows, contentRows, commentRows] = await Promise.all([
     readBoardProperties(db, board.id),
@@ -192,16 +193,12 @@ export async function readProjectBoardBundle(
     }
     values[row.property_id] = row.value
   }
-  const visibleProperties = properties.filter((property) => projectPropertyVisibleTo(property, role))
-  const visiblePropertyIds = new Set(visibleProperties.map((property) => property.id))
-  const cards = cardRows.results.map((row) => {
-    const values = valuesByCard.get(row.id) ?? {}
-    const kept: Record<string, string> = {}
-    for (const [propertyId, value] of Object.entries(values)) {
-      if (visiblePropertyIds.has(propertyId)) kept[propertyId] = value
-    }
-    return rowToCard(row, kept)
-  })
+  const visibleProperties = projectPropertiesForRole(properties, role)
+  const cards = cardRows.results.map((row) => projectCardForRole(
+    rowToCard(row, valuesByCard.get(row.id) ?? {}),
+    properties,
+    role,
+  ))
   const formulaProperties = visibleProperties.filter((property) => property.type === 'formula' && property.config?.expression)
   if (formulaProperties.length > 0) {
     for (const card of cards) {
@@ -264,15 +261,36 @@ export async function readProjectBoardBundle(
       edgesByKey.set(key, list)
       targetIds.add(edge.to_card_id)
     }
+    const relationIds = new Set(rollupProperties.map((property) => property.config!.rollup!.relationPropertyId))
+    const targetContexts = new Map<string, Set<string>>()
+    for (const relation of visibleProperties) {
+      if (!relationIds.has(relation.id) || relation.type !== 'relation' || !relation.config?.targetBoardId) continue
+      const targetBoardId = relation.config.targetBoardId
+      if (targetContexts.has(targetBoardId)) continue
+      if (targetBoardId === board.id) {
+        targetContexts.set(targetBoardId, new Set(visibleProperties.map((property) => property.id)))
+        continue
+      }
+      if (!viewerId) continue
+      const targetRole = await projectRoleForBoard(db, targetBoardId, viewerId)
+      if (!targetRole) continue
+      const targetProperties = await readBoardProperties(db, targetBoardId)
+      targetContexts.set(targetBoardId, new Set(projectPropertiesForRole(targetProperties, targetRole).map((property) => property.id)))
+    }
     const valuesByCardId = new Map<string, Record<string, string>>()
-    for (const card of cards) valuesByCardId.set(card.id, card.values)
+    for (const card of cards) valuesByCardId.set(card.id, { ...card.values })
     const targetIdList = [...targetIds]
-    if (targetIdList.length) {
-      const marks = targetIdList.map((_, index) => `?${index + 1}`).join(', ')
+    for (let at = 0; at < targetIdList.length; at += 90) {
+      const chunk = targetIdList.slice(at, at + 90)
+      const marks = chunk.map((_, index) => `?${index + 1}`).join(', ')
       const { results: targetRows } = await db.prepare(
-        `SELECT card_id, property_id, value FROM project_card_values WHERE card_id IN (${marks})`,
-      ).bind(...targetIdList).all<ValueRow>()
+        `SELECT v.card_id, v.property_id, v.value, c.board_id
+         FROM project_card_values v
+         JOIN project_cards c ON c.id = v.card_id AND c.delete_at = 0
+         WHERE v.card_id IN (${marks})`,
+      ).bind(...chunk).all<ValueRow & { board_id: string }>()
       for (const row of targetRows) {
+        if (!targetContexts.get(row.board_id)?.has(row.property_id)) continue
         const values = valuesByCardId.get(row.card_id) ?? {}
         values[row.property_id] = row.value
         valuesByCardId.set(row.card_id, values)

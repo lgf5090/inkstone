@@ -87,6 +87,40 @@ describe('field-level permissions', () => {
     expect(asViewer.properties.map((property) => property.id)).toEqual([pid(1)])
   })
 
+  it('redacts direct card, property, search, duplicate and patch responses for restricted readers', async () => {
+    const { board, card } = await setup()
+    const direct = await req('bob', 'GET', `/cards/${card.id}`)
+    expect(direct.status).toBe(200)
+    expect(((await direct.json()) as { card: ProjectCard }).card.values).toEqual({ [pid(1)]: 'visible' })
+
+    const properties = await req('bob', 'GET', `/boards/${board.id}/properties`)
+    expect(((await properties.json()) as { properties: { id: string }[] }).properties.map((property) => property.id)).toEqual([pid(1)])
+
+    const search = await req('bob', 'GET', '/search?q=100')
+    expect(((await search.json()) as { cards: { id: string }[] }).cards.map((entry) => entry.id)).not.toContain(card.id)
+
+    const patched = await req('bob', 'PATCH', `/cards/${card.id}`, { values: { [pid(1)]: 'changed' } })
+    expect(patched.status).toBe(200)
+    expect(((await patched.json()) as { card: ProjectCard }).card.values).toEqual({ [pid(1)]: 'changed' })
+
+    const duplicated = await req('bob', 'POST', `/cards/${card.id}/duplicate`)
+    expect(duplicated.status).toBe(201)
+    expect(((await duplicated.json()) as { card: ProjectCard }).card.values).toEqual({ [pid(1)]: 'changed' })
+  })
+
+  it('refuses to move a card carrying fields the editor cannot read', async () => {
+    const { board, card } = await setup()
+    const targetResponse = await req('alice', 'POST', '/boards', { title: 'Target' })
+    const targetBoard = ((await targetResponse.json()) as { board: ProjectBoard }).board
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(targetBoard.id, 'bob', 'editor')
+    expect((await req('bob', 'POST', `/cards/${card.id}/move`, { targetBoardId: targetBoard.id })).status).toBe(403)
+    const moved = await req('alice', 'POST', `/cards/${card.id}/move`, { targetBoardId: targetBoard.id })
+    expect(moved.status).toBe(200)
+    const targetBundle = await bundle('alice', targetBoard.id)
+    expect(Object.values(targetBundle.cards.find((entry) => entry.id === card.id)!.values)).toContain('100')
+  })
+
   it('refuses a write to a property the role may not edit, through one card and through a batch', async () => {
     const { board, card } = await setup()
     expect((await req('bob', 'PATCH', `/cards/${card.id}`, { values: { [pid(1)]: 'edited' } })).status).toBe(200)

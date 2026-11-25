@@ -7,13 +7,14 @@
  * without ever naming it — the model gets "not found", never "forbidden", exactly as the HTTP boundary
  * answers. Writes need editor; the roster and settings stay with the app.
  */
-import type { ProjectBoardSummary, ProjectCard, ProjectRole } from '@shared/project/model'
+import type { ProjectBoardSummary, ProjectCard, ProjectProperty, ProjectRole } from '@shared/project/model'
 import { projectRoleAtLeast } from '@shared/project/model'
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { projectInputToStamp } from '@shared/project/date'
 import { ProjectStore } from '../project/store'
 import { createProjectCard, getProjectCard, patchProjectCard, softDeleteProjectCard } from '../project/cards'
 import { getProjectBoardRow, readBoardProperties } from '../project/boards'
+import { projectCardForRole, projectPropertiesForRole } from '../project/visibility'
 import { ApiError } from '../lib/errors'
 import { ToolError, type PreparedTarget, type ToolContext, type ToolDefinition } from './tools'
 
@@ -57,8 +58,9 @@ async function boardRow(ctx: ToolContext, boardId: string) {
   return row
 }
 
-function presentCard(card: ProjectCard) {
-  return { id: card.id, title: card.title, board_id: card.boardId, parent_id: card.parentId || null, values: card.values }
+function presentCard(card: ProjectCard, properties?: readonly ProjectProperty[], role?: ProjectRole) {
+  const visible = properties && role ? projectCardForRole(card, properties, role) : card
+  return { id: visible.id, title: visible.title, board_id: visible.boardId, parent_id: visible.parentId || null, values: visible.values }
 }
 
 export const PROJECT_BOARD_TOOLS: readonly ToolDefinition[] = [
@@ -82,16 +84,16 @@ export const PROJECT_BOARD_TOOLS: readonly ToolDefinition[] = [
     },
     async run(args, ctx) {
       const boardId = text(args.boardId, 64)
-      await boardFor(ctx, boardId, 'viewer')
+      const board = await boardFor(ctx, boardId, 'viewer')
       const limit = typeof args.limit === 'number' ? Math.min(MAX_LISTED_CARDS, Math.max(1, args.limit)) : 50
       const { results } = await ctx.env.DB
         .prepare('SELECT id FROM project_cards WHERE board_id = ?1 AND delete_at = 0 ORDER BY create_at, id LIMIT ?2')
         .bind(boardId, limit).all<{ id: string }>()
       const cards = await Promise.all(results.map((row) => getProjectCard(ctx.env.DB, row.id)))
-      const properties = await ask(() => readBoardProperties(ctx.env.DB, boardId))
+      const properties = projectPropertiesForRole(await ask(() => readBoardProperties(ctx.env.DB, boardId)), board.role)
       return {
         properties: properties.map((property) => ({ id: property.id, name: property.name, type: property.type, options: property.options.map((option) => ({ id: option.id, value: option.value })) })),
-        cards: cards.filter((card): card is ProjectCard => card !== null).map(presentCard),
+        cards: cards.filter((card): card is ProjectCard => card !== null).map((card) => presentCard(card, properties, board.role)),
       }
     },
   },
@@ -128,11 +130,11 @@ export const PROJECT_BOARD_TOOLS: readonly ToolDefinition[] = [
       value: { type: 'string', description: 'Value for propertyId; an option id for a select. Empty clears it.', maxLength: 2000, optional: true },
     },
     async run(args, ctx) {
-      const { card } = await cardBoard(ctx, text(args.cardId, 64), 'editor')
+      const { card, board } = await cardBoard(ctx, text(args.cardId, 64), 'editor')
+      const properties = await ask(() => readBoardProperties(ctx.env.DB, card.boardId))
       const patch: { title?: string, values?: Record<string, string | null> } = {}
       if (typeof args.title === 'string' && args.title.trim()) patch.title = args.title.trim().slice(0, 500)
       if (typeof args.propertyId === 'string' && args.propertyId.trim()) {
-        const properties = await ask(() => readBoardProperties(ctx.env.DB, card.boardId))
         const propertyId = args.propertyId.trim().slice(0, 64)
         if (!properties.some((property) => property.id === propertyId)) throw new ToolError('That property is not on this board.')
         const raw = typeof args.value === 'string' ? args.value.slice(0, 2000) : ''
@@ -140,7 +142,7 @@ export const PROJECT_BOARD_TOOLS: readonly ToolDefinition[] = [
       }
       if (patch.title === undefined && patch.values === undefined) throw new ToolError('Nothing to change: pass a title or a property with a value.')
       const updated = await ask(() => patchProjectCard(ctx.env.DB, card, patch, ctx.store.userId, ctx.now ?? Date.now()))
-      return { updated: presentCard(updated) }
+      return { updated: presentCard(updated, properties, board.role) }
     },
   },
   {
@@ -154,7 +156,7 @@ export const PROJECT_BOARD_TOOLS: readonly ToolDefinition[] = [
       to: { type: 'string', description: 'Last day of the range, yyyy-mm-dd.', maxLength: 10, optional: true },
     },
     async run(args, ctx) {
-      const { card } = await cardBoard(ctx, text(args.cardId, 64), 'editor')
+      const { card, board } = await cardBoard(ctx, text(args.cardId, 64), 'editor')
       const propertyId = text(args.propertyId, 64)
       const properties = await ask(() => readBoardProperties(ctx.env.DB, card.boardId))
       if (!properties.some((property) => property.id === propertyId && property.type === 'date')) throw new ToolError('That property is not a date property on this board.')
@@ -164,7 +166,7 @@ export const PROJECT_BOARD_TOOLS: readonly ToolDefinition[] = [
       if (typeof args.to === 'string' && args.to.trim() && to === null) throw new ToolError('to must be a real calendar day written yyyy-mm-dd.')
       const value = to === null || to === from ? { from } : { from, to: Math.max(from, to) }
       const updated = await ask(() => patchProjectCard(ctx.env.DB, card, { values: { [propertyId]: JSON.stringify(value) } }, ctx.store.userId, ctx.now ?? Date.now()))
-      return { updated: presentCard(updated) }
+      return { updated: presentCard(updated, properties, board.role) }
     },
   },
   {

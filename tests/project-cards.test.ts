@@ -72,7 +72,7 @@ async function createCard(account: Account, boardId: string, body: Record<string
 
 describe('creating a card', () => {
   it('stores the card and its values for an editor', async () => {
-    const board = await createBoard('alice', {})
+    const board = await createBoard('alice', { cardProperties: [{ id: pid(1), name: 'Text', type: 'text', options: [] }] })
     addMember(board.id, 'bob', 'editor')
     const card = await createCard('bob', board.id, { title: 'Task', icon: '📌', values: { [pid(1)]: 'hello' } })
     expect(card).toMatchObject({ boardId: board.id, title: 'Task', icon: '📌', createdBy: 'bob', contentOrder: [], values: { [pid(1)]: 'hello' } })
@@ -102,7 +102,7 @@ describe('creating a card', () => {
 
 describe('reading a card', () => {
   it('lets a viewer member read with its values and hides it from a stranger', async () => {
-    const board = await createBoard('alice', {})
+    const board = await createBoard('alice', { cardProperties: [{ id: pid(1), name: 'Text', type: 'text', options: [] }] })
     const card = await createCard('alice', board.id, { title: 'Read me', values: { [pid(1)]: 'v' } })
     addMember(board.id, 'bob', 'viewer')
     const response = await req('bob', 'GET', `/cards/${card.id}`)
@@ -114,7 +114,9 @@ describe('reading a card', () => {
 
 describe('patching a card', () => {
   it('updates fields, upserts a value and deletes another with null', async () => {
-    const board = await createBoard('alice', {})
+    const board = await createBoard('alice', {
+      cardProperties: [1, 2, 3].map((index) => ({ id: pid(index), name: `Field ${index}`, type: 'text', options: [] })),
+    })
     const card = await createCard('alice', board.id, { title: 'Old', values: { [pid(1)]: 'a', [pid(2)]: 'b' } })
     const response = await req('alice', 'PATCH', `/cards/${card.id}`, {
       title: 'New', icon: '✅', contentOrder: [cid(1), [cid(2)]],
@@ -136,7 +138,7 @@ describe('patching a card', () => {
 
 describe('deleting and restoring a card', () => {
   it('soft-deletes for an editor, hides it from reads, and restores it with values intact', async () => {
-    const board = await createBoard('alice', {})
+    const board = await createBoard('alice', { cardProperties: [{ id: pid(1), name: 'Text', type: 'text', options: [] }] })
     addMember(board.id, 'bob', 'editor')
     const card = await createCard('alice', board.id, { title: 'Doomed', values: { [pid(1)]: 'keep' } })
     expect((await req('bob', 'DELETE', `/cards/${card.id}`)).status).toBe(200)

@@ -7,10 +7,10 @@
  * options over. Contents and comments travel with the card; the moved root detaches from any parent
  * left behind, and subtasks keep their place under it.
  */
-import type { ProjectCard, ProjectProperty, ProjectPropertyType } from '@shared/project/model'
+import type { ProjectCard, ProjectProperty, ProjectPropertyType, ProjectRole } from '@shared/project/model'
 import { projectMultiValueIds } from '@shared/project/model'
 import { PROJECT_LIMITS, newProjectId } from '@shared/project/limits'
-import { serializeProjectPropertyConfig } from '@shared/project/property-config'
+import { projectPropertyVisibleTo, serializeProjectPropertyConfig } from '@shared/project/property-config'
 import { ApiError } from '../lib/errors'
 import { readBoardProperties } from './boards'
 import { getProjectCard } from './cards'
@@ -79,6 +79,7 @@ export async function moveProjectCard(
   targetBoardId: string,
   userId: string,
   now: number,
+  role: ProjectRole,
 ): Promise<ProjectCard> {
   if (card.boardId === targetBoardId) throw ApiError.badRequest('The card is already on that board')
 
@@ -113,6 +114,9 @@ export async function moveProjectCard(
   const sourceProperties = await readBoardProperties(db, card.boardId)
   const targetProperties = await readBoardProperties(db, targetBoardId)
   const usedIds = new Set(valueRows.results.map((row) => row.property_id))
+  if (sourceProperties.some((property) => usedIds.has(property.id) && !projectPropertyVisibleTo(property, role))) {
+    throw ApiError.forbidden('Cannot move a card with fields this role cannot read')
+  }
   const used = sourceProperties.filter((property) => usedIds.has(property.id))
   const plan = planProperties(used, targetProperties)
   const sourceById = new Map(sourceProperties.map((property) => [property.id, property]))

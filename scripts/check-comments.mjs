@@ -43310,7 +43310,7 @@ const allowed = new Map([
     "/** A replayed offline write must not create a second card. The receipt is scoped to the account. */",
   ]],
   ["src/worker/project/search.ts", [
-    "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. Cards match on their title,\n * their content blocks, their comments and their property values. The scan is bounded by the number of\n * readable boards and the result limit, so no index table is needed to keep it correct.\n */",
+    "/**\n * Cross-board search. Results are filtered to the boards and properties the caller can read before\n * matching, so private board titles and restricted field values never leak through a search hit.\n */",
   ]],
   ["src/worker/project/shares.ts", [
     "/**\n * The passcode ledger, keyed per surface.\n *\n * The note share and the collection directory budget the same gate with the same numbers; a project's\n * public answer is wider than either — the whole board bundle — so an unbudgeted slug would be the\n * cheapest of the three to walk. The namespace is its own so probing a board can never lock a note's\n * reader out, and the budgets match so no surface is the soft one.\n */",

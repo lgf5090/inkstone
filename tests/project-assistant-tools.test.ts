@@ -88,6 +88,25 @@ describe('the project tool surface (R3-28)', () => {
     expect(listed.cards.map((card) => card.id)).toContain(created.created.id)
   })
 
+  it('redacts hidden properties and values from assistant list and update responses', async () => {
+    const publicId = 'p00000000000000000000000001'
+    const hiddenId = 'p00000000000000000000000002'
+    const board = ((await (await req('POST', '/boards', {
+      title: 'Hidden tool fields',
+      cardProperties: [
+        { id: publicId, name: 'Public', type: 'text', options: [] },
+        { id: hiddenId, name: 'Secret', type: 'text', options: [], config: { viewRoles: ['admin'], editRoles: ['admin'] } },
+      ],
+    })).json()) as { board: ProjectBoard }).board
+    await req('POST', `/boards/${board.id}/members`, { username: 'bob', role: 'viewer' })
+    const created = await runTool('project_create_card', { boardId: board.id, title: 'Visible card' }) as { created: { id: string } }
+    sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)')
+      .run(created.created.id, hiddenId, 'classified')
+    const listed = await runTool('project_list_cards', { boardId: board.id }, 'bob') as { properties: { id: string }[], cards: { values: Record<string, string> }[] }
+    expect(listed.properties.map((property) => property.id)).toEqual([publicId])
+    expect(listed.cards[0]!.values[hiddenId]).toBeUndefined()
+  })
+
   it('refuses a write from a viewer', async () => {
     const board = await makeBoard()
     await req('POST', `/boards/${board.id}/members`, { username: 'bob', role: 'viewer' })

@@ -120,7 +120,7 @@ export interface ProjectSprintDetail {
 
 /** Scope and both burndown lines come from the same bundle the other views were handed. */
 export async function readSprintDetail(
-  db: D1Database, board: ProjectBoard, role: ProjectRole, sprintId: string, now: number,
+  db: D1Database, board: ProjectBoard, role: ProjectRole, sprintId: string, now: number, viewerId?: string,
 ): Promise<ProjectSprintDetail | null> {
   const sprint = await getProjectSprint(db, board.id, sprintId)
   if (!sprint) return null
@@ -128,7 +128,7 @@ export async function readSprintDetail(
     'SELECT card_id FROM project_sprint_cards WHERE board_id = ?1 AND sprint_id = ?2',
   ).bind(board.id, sprintId).all<{ card_id: string }>()
   const ids = new Set(results.map((row) => row.card_id))
-  const bundle = await readProjectBoardBundle(db, board, role)
+  const bundle = await readProjectBoardBundle(db, board, role, viewerId)
   const cards = bundle.cards.filter((card) => ids.has(card.id))
   return { sprint, cards, burndown: projectSprintBurndown(cards, bundle.properties, sprint, now) }
 }

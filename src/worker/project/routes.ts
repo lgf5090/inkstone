@@ -155,6 +155,7 @@ import {
   softDeleteProjectView,
   undeleteProjectView,
 } from './views'
+import { projectCardForRole, projectPropertiesForRole } from './visibility'
 
 export const projectRoutes = new Hono<AppBindings>()
 
@@ -364,7 +365,7 @@ projectRoutes.get('/boards/:id/links', async (c) => {
 
 projectRoutes.get('/boards/:id/markdown', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c))
   const markdown = projectBoardToMarkdown(bundle, c.req.query('groupById'))
   return new Response(markdown, {
     headers: { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename="${projectExportFilename(board.id, 'md')}"` },
@@ -500,7 +501,7 @@ projectRoutes.post('/boards', async (c) => {
 
 projectRoutes.get('/boards/:id', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  return c.json({ board, properties: await readBoardProperties(c.env.DB, board.id), role })
+  return c.json({ board, properties: projectPropertiesForRole(await readBoardProperties(c.env.DB, board.id), role), role })
 })
 
 /** The cheap staleness question: a poller asks this before paying for the whole bundle. */
@@ -541,7 +542,7 @@ projectRoutes.get('/boards/:id/cursor', async (c) => {
 
 projectRoutes.get('/boards/:id/bundle', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c))
   await redactHiddenRelations(c.env.DB, bundle, projectUserId(c))
   return c.json(bundle)
 })
@@ -552,7 +553,7 @@ projectRoutes.post('/boards/:id/cards', async (c) => {
   const properties = await readBoardProperties(c.env.DB, board.id)
   await assertProjectValuesWritable(c.env.DB, board.id, role, input.values)
   await assertProjectRelationValues(c.env.DB, properties, input.values, userId)
-  return c.json({ card: await createProjectCard(c.env.DB, board, userId, input, Date.now(), projectRelationTargets(properties)) }, 201)
+  return c.json({ card: projectCardForRole(await createProjectCard(c.env.DB, board, userId, input, Date.now(), projectRelationTargets(properties)), properties, role) }, 201)
 })
 
 projectRoutes.post('/boards/:id/views', async (c) => {
@@ -603,7 +604,7 @@ projectRoutes.post('/boards/:id/undelete', async (c) => {
 projectRoutes.post('/boards/:id/duplicate', async (c) => {
   const { board, role, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
   await consumeAttemptBudget(c.env.DB, [{ key: `project-duplicate:${userId}`, maxAttempts: 30, windowMs: 60 * 60 * 1000 }])
-  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c))
   return c.json({ board: await duplicateProjectBoard(c.env.DB, bundle, userId, Date.now()) }, 201)
 })
 
@@ -713,7 +714,7 @@ projectRoutes.post('/boards/:id/sprints', async (c) => {
 
 projectRoutes.get('/boards/:id/sprints/:sprintId', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const detail = await readSprintDetail(c.env.DB, board, role, c.req.param('sprintId'), Date.now())
+  const detail = await readSprintDetail(c.env.DB, board, role, c.req.param('sprintId'), Date.now(), projectUserId(c))
   if (!detail) throw ApiError.notFound('Sprint not found')
   return c.json(detail)
 })
@@ -753,8 +754,8 @@ projectRoutes.delete('/boards/:id/sprints/:sprintId/cards/:cardId', async (c) =>
 })
 
 projectRoutes.get('/boards/:id/properties', async (c) => {
-  const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
-  return c.json({ properties: await readBoardProperties(c.env.DB, board.id) })
+  const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ properties: projectPropertiesForRole(await readBoardProperties(c.env.DB, board.id), role) })
 })
 
 projectRoutes.get('/boards/:id/metadata', async (c) => {
@@ -764,7 +765,7 @@ projectRoutes.get('/boards/:id/metadata', async (c) => {
 
 projectRoutes.get('/boards/:id/archive', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const bytes = await exportProjectBoardArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, board, role)
+  const bytes = await exportProjectBoardArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, board, role, projectUserId(c))
   return new Response(bytes, {
     headers: {
       'Content-Type': 'application/zip',
@@ -775,7 +776,7 @@ projectRoutes.get('/boards/:id/archive', async (c) => {
 
 projectRoutes.get('/boards/:id/csv', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c))
   return new Response(projectBoardToCsv(bundle), {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
@@ -854,17 +855,17 @@ projectRoutes.get('/cards/:id/detail', async (c) => {
 })
 
 projectRoutes.patch('/cards/:id', async (c) => {
-  const { card, board, userId, role } = await requireCard(c, c.req.param('id'), 'editor')
+  const { rawCard, board, userId, role } = await requireCard(c, c.req.param('id'), 'editor')
   const patch = await projectBody(c, ProjectCardPatchSchema)
-  const properties = await readBoardProperties(c.env.DB, card.boardId)
-  await assertProjectValuesWritable(c.env.DB, card.boardId, role, patch.values)
+  const properties = await readBoardProperties(c.env.DB, rawCard.boardId)
+  await assertProjectValuesWritable(c.env.DB, rawCard.boardId, role, patch.values)
   await assertProjectRelationValues(c.env.DB, properties, patch.values, userId)
   const now = Date.now()
-  const updated = await patchProjectCard(c.env.DB, card, patch, userId, now, projectRelationTargets(properties))
+  const updated = await patchProjectCard(c.env.DB, rawCard, patch, userId, now, projectRelationTargets(properties))
   if (patch.values !== undefined) {
-    await applyCardValueEffects(c.env.DB, c.env, board, card, updated, properties, userId, now)
+    await applyCardValueEffects(c.env.DB, c.env, board, rawCard, updated, properties, userId, now)
   }
-  return c.json({ card: updated })
+  return c.json({ card: projectCardForRole(updated, properties, role) })
 })
 
 projectRoutes.delete('/cards/:id', async (c) => {
@@ -874,11 +875,13 @@ projectRoutes.delete('/cards/:id', async (c) => {
 })
 
 projectRoutes.post('/cards/:id/undelete', async (c) => {
-  const { card, board, userId } = await requireCard(c, c.req.param('id'), 'editor', { allowDeleted: true })
+  const { card, board, userId, role } = await requireCard(c, c.req.param('id'), 'editor', { allowDeleted: true })
   const now = Date.now()
   await undeleteProjectCard(c.env.DB, card.id, userId, now)
   await rebuildBoardRelations(c.env.DB, board.id, await readBoardProperties(c.env.DB, board.id), now)
-  return c.json({ card: await getProjectCard(c.env.DB, card.id) })
+  const restored = await getProjectCard(c.env.DB, card.id)
+  const properties = await readBoardProperties(c.env.DB, board.id)
+  return c.json({ card: projectCardForRole(restored!, properties, role) })
 })
 
 projectRoutes.get('/boards/:id/relation-cards', async (c) => {
@@ -898,10 +901,12 @@ projectRoutes.post('/cards/:id/duplicate', async (c) => {
 })
 
 projectRoutes.post('/cards/:id/move', async (c) => {
-  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  const { card, userId, role } = await requireCard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectCardMoveSchema, JSON_BODY_LIMITS.small)
   await requireBoard(c, input.targetBoardId, 'editor')
-  return c.json({ card: await moveProjectCard(c.env.DB, card, input.targetBoardId, userId, Date.now()) })
+  const moved = await moveProjectCard(c.env.DB, card, input.targetBoardId, userId, Date.now(), role)
+  const properties = await readBoardProperties(c.env.DB, moved.boardId)
+  return c.json({ card: projectCardForRole(moved, properties, role) })
 })
 
 projectRoutes.post('/cards/:id/save-as-template', async (c) => {

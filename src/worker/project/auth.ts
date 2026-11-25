@@ -11,6 +11,8 @@ import { getProjectCommentRow } from './comments'
 import { getProjectContentRow } from './contents'
 import { rowToBoard, type ProjectBoardRow } from './permissions'
 import { getProjectViewRow } from './views'
+import { readBoardProperties } from './boards'
+import { projectCardForRole } from './visibility'
 
 export function projectUserId(c: Context<AppBindings>): string {
   const id = c.get('userId') ?? c.get('user')?.id
@@ -91,6 +93,7 @@ export async function requireBoardOwner(
 
 export interface ProjectCardAccess extends ProjectBoardAccess {
   card: ProjectCard
+  rawCard: ProjectCard
 }
 
 /**
@@ -107,8 +110,9 @@ export async function requireCard(
   const row = await getProjectCardRow(c.env.DB, cardId)
   if (!row || (!options.allowDeleted && row.delete_at !== 0)) throw ApiError.notFound('Card not found')
   const access = await requireBoard(c, row.board_id, required)
-  const card = rowToCard(row, await readCardValues(c.env.DB, cardId))
-  return { ...access, card }
+  const rawCard = rowToCard(row, await readCardValues(c.env.DB, cardId))
+  const properties = await readBoardProperties(c.env.DB, row.board_id)
+  return { ...access, card: projectCardForRole(rawCard, properties, access.role), rawCard }
 }
 
 export interface ProjectViewAccess extends ProjectBoardAccess {

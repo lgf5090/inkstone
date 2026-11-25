@@ -182,8 +182,9 @@ export async function exportProjectBoardArchive(
   storage: ProjectArchiveStorage,
   board: ProjectBoard,
   role: ProjectRole,
+  viewerId?: string,
 ): Promise<Uint8Array> {
-  const bundle = await readProjectBoardBundle(db, board, role)
+  const bundle = await readProjectBoardBundle(db, board, role, viewerId)
   const files: Record<string, Uint8Array> = {}
   const attachments = await collectArchiveAttachments(db, storage, board.id, files)
   const lines = projectBundleToArchiveLines(bundle, await listBoardLinks(db, board.id), attachments)
@@ -205,7 +206,7 @@ export async function exportProjectAccountArchive(
     'version.json': strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() })),
   }
   for (const board of boards) {
-    const bundle = await readProjectBoardBundle(db, board, board.role)
+    const bundle = await readProjectBoardBundle(db, board, board.role, userId)
     const links = await listBoardLinks(db, board.id)
     const attachments = await collectArchiveAttachments(db, storage, board.id, files)
     files[`${board.id}/board.jsonl`] = strToU8(serializeProjectArchiveLines(projectBundleToArchiveLines(bundle, links, attachments)))
