@@ -193,8 +193,8 @@ export async function createProjectView(boardId: string, viewType: ProjectViewTy
   return body.view
 }
 
-export async function patchProjectBoard(id: string, patch: ProjectBoardPatch): Promise<{ board: ProjectBoard, properties: ProjectBoardBundle['properties'] }> {
-  return request<{ board: ProjectBoard, properties: ProjectBoardBundle['properties'] }>(`/api/project/boards/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
+export async function patchProjectBoard(id: string, patch: ProjectBoardPatch): Promise<{ board: ProjectBoard, properties: ProjectBoardBundle['properties'], propertyRevision: number }> {
+  return request<{ board: ProjectBoard, properties: ProjectBoardBundle['properties'], propertyRevision: number }>(`/api/project/boards/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
 }
 
 export async function patchProjectView(id: string, patch: ProjectViewPatch): Promise<ProjectView> {

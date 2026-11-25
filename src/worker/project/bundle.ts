@@ -19,7 +19,7 @@ import { evaluateProjectRollup, projectRollupCycleIds, projectRollupOrder } from
 import { projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { parseProjectRecurrence } from '@shared/project/recurrence'
-import { readBoardProperties } from './boards'
+import { readBoardProperties, readProjectPropertyRevision } from './boards'
 import { listProjectMembers, listProjectPeople } from './members'
 import { projectCardForRole, projectPropertiesForRole, projectRoleForBoard } from './visibility'
 
@@ -158,9 +158,10 @@ export async function readProjectBoardBundle(
   role: ProjectRole,
   viewerId?: string,
 ): Promise<ProjectBoardBundle> {
-  const [properties, members, cardRows, valueRows, viewRows, contentRows, commentRows] = await Promise.all([
+  const [properties, members, propertyRevision, cardRows, valueRows, viewRows, contentRows, commentRows] = await Promise.all([
     readBoardProperties(db, board.id),
     listProjectMembers(db, board.id),
+    readProjectPropertyRevision(db, board.id),
     db.prepare('SELECT * FROM project_cards WHERE board_id = ?1 AND delete_at = 0 ORDER BY create_at, id')
       .bind(board.id).all<CardRow>(),
     // Values are keyed to a card, so a deleted card's values drop out with it rather than lingering.
@@ -350,7 +351,7 @@ export async function readProjectBoardBundle(
   for (const member of members) cursor = Math.max(cursor, member.updatedAt)
 
   return {
-    board, properties: visibleProperties, views, cards, contents, comments, members, people, role, cursor,
+    board, properties: visibleProperties, views, cards, contents, comments, members, people, role, cursor, propertyRevision,
     ...(contentsTruncated ? { contentsTruncated } : {}),
     ...(commentsTruncated ? { commentsTruncated } : {}),
   }

@@ -113,6 +113,7 @@ import {
   patchProjectBoard,
   projectBoardMetadata,
   readBoardProperties,
+  readProjectPropertyRevision,
   softDeleteProjectBoard,
   undeleteProjectBoard,
 } from './boards'
@@ -657,7 +658,7 @@ projectRoutes.post('/boards', async (c) => {
 
 projectRoutes.get('/boards/:id', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  return c.json({ board, properties: projectPropertiesForRole(await readBoardProperties(c.env.DB, board.id), role), role })
+  return c.json({ board, properties: projectPropertiesForRole(await readBoardProperties(c.env.DB, board.id), role), role, propertyRevision: await readProjectPropertyRevision(c.env.DB, board.id) })
 })
 
 /** The cheap staleness question: a poller asks this before paying for the whole bundle. */

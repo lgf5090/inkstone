@@ -160,7 +160,7 @@ describe('every way a board arrives reaches the sidebar list', () => {
 
 describe('a board edit reaches the list without a refetch', () => {
   it('swaps the icon in place', async () => {
-    vi.mocked(api.patchProjectBoard).mockResolvedValue({ board: { ...board, icon: '\u{1F680}' }, properties: [] })
+    vi.mocked(api.patchProjectBoard).mockResolvedValue({ board: { ...board, icon: '\u{1F680}' }, properties: [], propertyRevision: 1 })
     vi.mocked(api.fetchProjectBoards).mockClear()
     useProjectStore.setState({ boards: [board], boardsStatus: 'ready' })
     await useProjectStore.getState().setBoardIcon(board.id, '\u{1F680}')

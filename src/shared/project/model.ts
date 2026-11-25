@@ -386,6 +386,7 @@ export interface ProjectBoardPatch {
   minimumRole?: ProjectMinimumRole
   updatedCardProperties?: ProjectProperty[]
   deletedCardProperties?: string[]
+  propertyRevision?: number
 }
 
 export type ProjectRecurrenceFreq = 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -663,6 +664,7 @@ export interface ProjectBoardBundle {
   /** The caller's effective role, already resolved against the board's minimum role. */
   role: ProjectRole
   cursor: number
+  propertyRevision: number
 }
 
 const ROLE_RANK: Readonly<Record<ProjectMinimumRole, number>> = {

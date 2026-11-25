@@ -165,6 +165,11 @@ export const ProjectBoardPatchSchema = z.object({
   minimumRole: ProjectMinimumRoleSchema.optional(),
   updatedCardProperties: z.array(ProjectPropertySchema).max(PROJECT_LIMITS.propertiesPerBoard).optional(),
   deletedCardProperties: z.array(projectId).max(PROJECT_LIMITS.propertiesPerBoard).optional(),
+  propertyRevision: z.number().int().min(0).optional(),
+}).refine((patch) => patch.propertyRevision !== undefined
+  || (patch.updatedCardProperties === undefined && patch.deletedCardProperties === undefined), {
+  message: 'propertyRevision is required when changing board properties',
+  path: ['propertyRevision'],
 })
 export type ProjectBoardPatchInput = z.infer<typeof ProjectBoardPatchSchema>
 

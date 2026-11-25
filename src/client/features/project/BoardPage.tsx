@@ -281,8 +281,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     const properties = bundle.properties.map((property) => (property.id === propertyId
       ? { ...property, options: [...property.options, { id: newProjectId('property'), value, color: '' }] }
       : property))
-    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties })
-    setBundle((current) => (current ? { ...current, properties: result.properties } : current))
+    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, propertyRevision: bundle.propertyRevision })
+    setBundle((current) => (current ? { ...current, properties: result.properties, propertyRevision: result.propertyRevision } : current))
   }, [bundle, boardId])
 
   // Renaming a column renames the option, so every card wearing it and every other view of it agree.
@@ -291,8 +291,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     const properties = bundle.properties.map((property) => (property.id === propertyId
       ? { ...property, options: property.options.map((option) => (option.id === optionId ? { ...option, value } : option)) }
       : property))
-    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties })
-    setBundle((current) => (current ? { ...current, properties: result.properties } : current))
+    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, propertyRevision: bundle.propertyRevision })
+    setBundle((current) => (current ? { ...current, properties: result.properties, propertyRevision: result.propertyRevision } : current))
   }, [bundle, boardId])
 
   const setGroupOptionColor = useCallback(async (propertyId: string, optionId: string, color: string) => {
@@ -300,8 +300,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     const properties = bundle.properties.map((property) => (property.id === propertyId
       ? { ...property, options: property.options.map((option) => (option.id === optionId ? { ...option, color } : option)) }
       : property))
-    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties })
-    setBundle((current) => (current ? { ...current, properties: result.properties } : current))
+    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, propertyRevision: bundle.propertyRevision })
+    setBundle((current) => (current ? { ...current, properties: result.properties, propertyRevision: result.propertyRevision } : current))
   }, [bundle, boardId])
 
   const setIcon = useCallback(async (icon: string) => {
@@ -315,9 +315,10 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   }, [boardId])
 
   const saveProps = useCallback(async (properties: ProjectProperty[], deletedIds: string[]) => {
-    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, deletedCardProperties: deletedIds })
-    setBundle((current) => (current ? { ...current, properties: result.properties } : current))
-  }, [boardId])
+    if (!bundle) return
+    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, deletedCardProperties: deletedIds, propertyRevision: bundle.propertyRevision })
+    setBundle((current) => (current ? { ...current, properties: result.properties, propertyRevision: result.propertyRevision } : current))
+  }, [bundle, boardId])
 
   const patchView = useCallback(async (viewId: string, patch: ProjectViewPatch) => {
     const view = await patchProjectView(viewId, patch)

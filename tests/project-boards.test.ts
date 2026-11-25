@@ -32,7 +32,8 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  sqlite.exec('DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards')
+  sqlite.exec(`DELETE FROM project_property_configs; DELETE FROM project_card_relations; DELETE FROM project_card_values;
+    DELETE FROM project_cards; DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards`)
 })
 
 const pid = (n: number) => `p${String(n).padStart(26, '0')}`
@@ -68,13 +69,19 @@ async function createBoard(account: Account, body: Record<string, unknown> = {})
   return ((await response.json()) as { board: ProjectBoard }).board
 }
 
+async function propertyRevision(boardId: string): Promise<number> {
+  const response = await req('alice', 'GET', `/boards/${boardId}`)
+  expect(response.status).toBe(200)
+  return ((await response.json()) as { propertyRevision: number }).propertyRevision
+}
+
 describe('deleting a property', () => {
   it('takes the card values that belonged to it', async () => {
     const board = await createBoard('alice', { cardProperties: [prop(1)] })
     const created = await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'C', values: { [pid(1)]: 'hello' } })
     expect(created.status, await created.clone().text()).toBe(201)
     const card = ((await created.json()) as { card: { id: string } }).card
-    const patched = await req('alice', 'PATCH', `/boards/${board.id}`, { deletedCardProperties: [pid(1)] })
+    const patched = await req('alice', 'PATCH', `/boards/${board.id}`, { deletedCardProperties: [pid(1)], propertyRevision: await propertyRevision(board.id) })
     expect(patched.status).toBe(200)
     const left = sqlite.prepare('SELECT COUNT(*) AS n FROM project_card_values WHERE card_id = ?').get(card.id) as { n: number }
     expect(left.n).toBe(0)
@@ -147,19 +154,44 @@ describe('patching a board', () => {
     const first = await req('alice', 'PATCH', `/boards/${board.id}`, {
       updatedCardProperties: [prop(2, 'B-prime'), prop(4)],
       deletedCardProperties: [pid(1)],
+      propertyRevision: await propertyRevision(board.id),
     })
     expect(first.status).toBe(200)
     expect(((await first.json()) as { properties: ProjectProperty[] }).properties.map((p) => p.id)).toEqual([pid(2), pid(3), pid(4)])
-    const second = await req('alice', 'PATCH', `/boards/${board.id}`, { updatedCardProperties: [prop(3, 'C-prime')] })
+    const second = await req('alice', 'PATCH', `/boards/${board.id}`, { updatedCardProperties: [prop(3, 'C-prime')], propertyRevision: await propertyRevision(board.id) })
     const { properties } = (await second.json()) as { properties: ProjectProperty[] }
     expect(properties.map((p) => p.id)).toEqual([pid(2), pid(3), pid(4)])
     expect(properties[1]!.name).toBe('C-prime')
   })
 
+  it('does not delete relation edges from another board using the same property id', async () => {
+    const source = await createBoard('alice', { cardProperties: [prop(1)] })
+    const other = await createBoard('alice', { cardProperties: [prop(1)] })
+    const sourceCard = ((await (await req('alice', 'POST', `/boards/${source.id}/cards`, { title: 'Source' })).json()) as { card: { id: string } }).card
+    const otherCard = ((await (await req('alice', 'POST', `/boards/${other.id}/cards`, { title: 'Other' })).json()) as { card: { id: string } }).card
+    sqlite.prepare('INSERT INTO project_card_relations (board_id, from_card_id, to_card_id, property_id, created_at) VALUES (?, ?, ?, ?, 1)')
+      .run(other.id, otherCard.id, sourceCard.id, pid(1))
+    const response = await req('alice', 'PATCH', `/boards/${source.id}`, { deletedCardProperties: [pid(1)], propertyRevision: await propertyRevision(source.id) })
+    expect(response.status).toBe(200)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM project_card_relations WHERE board_id = ?').get(other.id)).toMatchObject({ n: 1 })
+  })
+
+  it('rejects a stale property revision and an accumulated property overrun', async () => {
+    const board = await createBoard('alice', { cardProperties: [prop(1)] })
+    const revision = await propertyRevision(board.id)
+    expect((await req('alice', 'PATCH', `/boards/${board.id}`, { updatedCardProperties: [prop(1, 'First')], propertyRevision: revision })).status).toBe(200)
+    expect((await req('alice', 'PATCH', `/boards/${board.id}`, { updatedCardProperties: [prop(1, 'Stale')], propertyRevision: revision })).status).toBe(409)
+
+    const full = await createBoard('alice', { cardProperties: Array.from({ length: 100 }, (_, index) => prop(index + 1)) })
+    expect((await req('alice', 'PATCH', `/boards/${full.id}`, {
+      updatedCardProperties: [prop(101)], propertyRevision: await propertyRevision(full.id),
+    })).status).toBe(409)
+  })
+
   it('refuses a viewer patching properties', async () => {
     const board = await createBoard('alice', { cardProperties: [prop(1)] })
     addMember(board.id, 'bob', 'viewer')
-    expect((await req('bob', 'PATCH', `/boards/${board.id}`, { deletedCardProperties: [pid(1)] })).status).toBe(403)
+    expect((await req('bob', 'PATCH', `/boards/${board.id}`, { deletedCardProperties: [pid(1)], propertyRevision: await propertyRevision(board.id) })).status).toBe(403)
   })
 })
 

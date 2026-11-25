@@ -47,6 +47,12 @@ describe('board input', () => {
     expect('updatedCardProperties' in parsed).toBe(false)
   })
 
+  it('requires a property revision for property replacements', () => {
+    const property = { id: newProjectId('property'), name: 'Status', type: 'select', options: [] }
+    expect(ProjectBoardPatchSchema.safeParse({ updatedCardProperties: [property] }).success).toBe(false)
+    expect(ProjectBoardPatchSchema.safeParse({ updatedCardProperties: [property], propertyRevision: 0 }).success).toBe(true)
+  })
+
   it('bounds the property list at the stated ceiling', () => {
     const property = { id: newProjectId('property'), name: 'Status', type: 'select', options: [] }
     const tooMany = Array.from({ length: PROJECT_LIMITS.propertiesPerBoard + 1 }, () => property)

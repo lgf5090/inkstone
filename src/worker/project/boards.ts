@@ -5,11 +5,12 @@ import type {
   ProjectProperty,
   ProjectPropertyType,
 } from '@shared/project/model'
-import { newProjectId } from '@shared/project/limits'
+import { newProjectId, PROJECT_LIMITS } from '@shared/project/limits'
 import { applyProjectPropertyPatch } from '@shared/project/property-patch'
 import { parseProjectPropertyConfig, serializeProjectPropertyConfig } from '@shared/project/property-config'
 import type { ProjectBoardCreateInput, ProjectBoardPatchInput } from '@shared/project/validation'
 import { rowToBoard, type ProjectBoardRow } from './permissions'
+import { ApiError } from '../lib/errors'
 
 interface PropertyRow {
   board_id: string
@@ -46,6 +47,16 @@ export async function readBoardProperties(db: D1Database, boardId: string): Prom
     const config = parseProjectPropertyConfig(byProperty.get(row.id))
     return config ? { ...property, config } : property
   })
+}
+
+export async function readProjectPropertyRevision(db: D1Database, boardId: string): Promise<number> {
+  const row = await db.prepare(
+    `SELECT MAX(
+       COALESCE((SELECT MAX(updated_at) FROM project_properties WHERE board_id = ?1), 0),
+       COALESCE((SELECT MAX(updated_at) FROM project_property_configs WHERE board_id = ?2), 0)
+     ) AS at`,
+  ).bind(boardId, boardId).first<{ at: number | null }>()
+  return row?.at ?? 0
 }
 
 function propertyStatements(
@@ -134,7 +145,7 @@ export async function patchProjectBoard(
   patch: ProjectBoardPatchInput,
   userId: string,
   now: number,
-): Promise<{ board: ProjectBoard; properties: ProjectProperty[] }> {
+): Promise<{ board: ProjectBoard; properties: ProjectProperty[]; propertyRevision: number }> {
   const sets: string[] = ['modified_by = ?', 'update_at = ?']
   const values: (string | number)[] = [userId, now]
   if (patch.title !== undefined) { sets.push('title = ?'); values.push(patch.title) }
@@ -150,10 +161,13 @@ export async function patchProjectBoard(
   ]
 
   const current = await readBoardProperties(db, board.id)
+  const propertyRevision = await readProjectPropertyRevision(db, board.id)
   let properties = current
   const changesProperties = (patch.updatedCardProperties?.length ?? 0) > 0 || (patch.deletedCardProperties?.length ?? 0) > 0
   if (changesProperties) {
+    if (patch.propertyRevision !== propertyRevision) throw ApiError.conflict('PROJECT_PROPERTY_REVISION_CONFLICT')
     properties = applyProjectPropertyPatch(current, patch.updatedCardProperties ?? [], patch.deletedCardProperties ?? [])
+    if (properties.length > PROJECT_LIMITS.propertiesPerBoard) throw ApiError.conflict('PROJECT_MAX_BOARD_PROPERTIES')
     const kept = new Set(properties.map((property) => property.id))
     for (const property of current) {
       if (kept.has(property.id)) continue
@@ -162,13 +176,13 @@ export async function patchProjectBoard(
       statements.push(db.prepare(
         'DELETE FROM project_card_values WHERE property_id = ?1 AND card_id IN (SELECT id FROM project_cards WHERE board_id = ?2)',
       ).bind(property.id, board.id))
-      statements.push(db.prepare('DELETE FROM project_card_relations WHERE property_id = ?1').bind(property.id))
+      statements.push(db.prepare('DELETE FROM project_card_relations WHERE board_id = ?1 AND property_id = ?2').bind(board.id, property.id))
     }
     statements.push(...propertyStatements(db, board.id, properties, now))
   }
   await db.batch(statements)
   const updated = await getProjectBoardRow(db, board.id)
-  return { board: updated!, properties }
+  return { board: updated!, properties, propertyRevision: changesProperties ? now : propertyRevision }
 }
 
 export async function softDeleteProjectBoard(db: D1Database, boardId: string, userId: string, now: number): Promise<void> {

@@ -266,7 +266,7 @@ export async function importProjectAccountArchive(
       cards: imported.cards.map((card) => ({ ...card, boardId: imported.board.id })),
       contents: imported.contents.map((content) => ({ ...content, boardId: imported.board.id })),
       comments: imported.comments.map((comment) => ({ ...comment, boardId: imported.board.id })),
-      members: [], links: imported.links, people: {}, role: 'admin', cursor: now,
+      members: [], links: imported.links, people: {}, role: 'admin', cursor: now, propertyRevision: now,
     }
     created.push(await duplicateProjectBoard(db, bundle, userId, now, {
       attachments: attachmentInputs,

@@ -31,7 +31,7 @@ function bundle(): ProjectBoardBundle {
       { id: 'c2', boardId: 'b1', parentId: '', title: 'Beta', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o2' }, ...stamps },
       { id: 'c3', boardId: 'b1', parentId: '', title: 'Gamma', icon: '', isTemplate: false, contentOrder: [], values: {}, ...stamps },
     ],
-    contents: [], comments: [], members: [], people: {}, role: 'admin', cursor: 1,
+    contents: [], comments: [], members: [], people: {}, role: 'admin', cursor: 1, propertyRevision: 1,
   }
 }
 
