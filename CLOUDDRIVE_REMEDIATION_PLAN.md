@@ -78,23 +78,23 @@
 | SEC-13 | DONE | 5301e9a9 | Google Drive、Dropbox、AutoIndex、external drivers 44 项通过 |
 | LOG-11 | DONE | 2b790bf3 | OAuth tokens + driver resolver 17 项通过；解密失败显式报错 |
 | LOG-07 | DONE | 81521917 | 新增 `clouddrive-jobs.test.ts` 2 项通过；owner 200/member 403 |
-| FEAT-08 | DONE | f5de7cf1 + 本次提交 | 后端脱敏导出与设置页入口完成；浏览器端点 200 |
+| FEAT-08 | DONE | f5de7cf1 + 05e2192d | 后端脱敏导出与设置页入口完成；浏览器端点 200 |
 | FEAT-13 | IN PROGRESS | 16cd1663 | 音视频续播与账号隔离已实现；HEIC/转码仍待评估 |
 | FEAT-06 | IN PROGRESS | 75215bf8 | 增量 SHA-256 工具与测试通过；上传去重协议待接 |
 | FEAT-14 | IN PROGRESS | 8b35bf97 | 列表/网格/相册启用 content-visibility；大列表性能实测待做 |
-| UX-01～06 | DONE | 本次提交 | 7 文件 16 项 UX 测试、i18n、ESLint、Stylelint 通过；构建通过 |
+| UX-01～06 | DONE | 05e2192d | 7 文件 16 项 UX 测试、i18n、ESLint、Stylelint 通过；构建通过 |
 | UX-09 | IN PROGRESS | 84248129 | 新增 gates:full；全量类型、测试与构建待跑 |
-| QA-02 | IN PROGRESS | - | 有头 Chrome 已进入 CloudDrive；配置导出 200；直传 FixedLengthStream 回归待修 |
-| SEC-01～07 | DONE | 本次提交 | 分享/Meta/ACL/缩略图 87 项回归通过；Key 前缀不随挂载路径漂移 |
-| SEC-14 | DONE | 本次提交 | ACL 用户名探测 5 次后 429 |
-| SEC-08 | DONE | 本次提交 | 公开请求 5 项通过；未知长度有界缓冲、已知长度 FixedLengthStream、额度预留与原子退款 |
-| SEC-09 | DONE | 本次提交 | 离线 store 8 项通过；同入口 ID 在不同账号数据库间隔离 |
-| SEC-10 | DONE | 本次提交 | WebDAV 覆盖保持 ID/标签/收藏/ACL/分享并生成版本；分布式 COPY 501 |
-| SEC-12 | DONE | 97b6acc0 + 本次提交 | 只读 Key PROPFIND 200、PUT 401；写 Key PUT 201 |
-| SEC-11 | DONE | 本次提交 | 文件夹上传 6 项通过；父失败时后代不落根目录 |
-| LOG-03 | DONE | 本次提交 | skip 不访问 session；分布式续传读取 part_objects |
-| PERF-03 | DONE | 本次提交 | R2 direct/multipart/驱动/远程任务使用已知长度流 |
-| PERF-04 | DONE | 本次提交 | 分片并发受全局信号量限制并支持指数退避重试 |
+| QA-02 | IN PROGRESS | - | 有头 Chrome 上传→列表通过；配置导出按钮通过；剩余链路待验 |
+| SEC-01～07 | DONE | ba025d0c | 分享/Meta/ACL/缩略图 87 项回归通过；Key 前缀不随挂载路径漂移 |
+| SEC-14 | DONE | ba025d0c | ACL 用户名探测 5 次后 429 |
+| SEC-08 | DONE | dc694940 | 公开请求 5 项通过；未知长度有界缓冲、已知长度 FixedLengthStream、额度预留与原子退款 |
+| SEC-09 | DONE | 1d3f3c4 | 离线 store 8 项通过；同入口 ID 在不同账号数据库间隔离 |
+| SEC-10 | DONE | 6f52d3ab | WebDAV 覆盖保持 ID/标签/收藏/ACL/分享并生成版本；分布式 COPY 501 |
+| SEC-12 | DONE | 97b6acc0 + 6f52d3ab | 只读 Key PROPFIND 200、PUT 401；写 Key PUT 201 |
+| SEC-11 | DONE | e308019e | 文件夹上传 6 项通过；父失败时后代不落根目录 |
+| LOG-03 | DONE | e308019e | skip 不访问 session；分布式续传读取 part_objects |
+| PERF-03 | DONE | e308019e | R2 direct/multipart/驱动/远程任务使用已知长度流 |
+| PERF-04 | DONE | e308019e | 分片并发受全局信号量限制并支持指数退避重试 |
 
 ## 验证命令
 
