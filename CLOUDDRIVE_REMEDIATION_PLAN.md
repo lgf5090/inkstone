@@ -73,13 +73,14 @@
 | ID | 状态 | Commit | 验证证据 |
 |---|---|---|---|
 | PLAN-00 | DONE | 9df6f675 | worktree 已创建；`npm ci` 成功；计划文档纳入版本控制 |
-| PERF-02 | DONE | cfa0bfb7 + 本次提交 | ZIP 往返与有界预取测试通过；最多 8 个对象预取 |
+| PERF-02 | DONE | cfa0bfb7 + 991fc70b | ZIP 往返与有界预取测试通过；最多 8 个对象预取 |
 | PERF-06 | DONE | 9d283ddf | `clouddrive-files` + `clouddrive-mounts` 47 项通过；主挂载仅缺失时写 |
 | SEC-13 | DONE | 5301e9a9 | Google Drive、Dropbox、AutoIndex、external drivers 44 项通过 |
 | LOG-11 | DONE | 2b790bf3 | OAuth tokens + driver resolver 17 项通过；解密失败显式报错 |
 | LOG-07 | DONE | 81521917 | 新增 `clouddrive-jobs.test.ts` 2 项通过；owner 200/member 403 |
 | FEAT-08 | IN PROGRESS | f5de7cf1 | 后端配置导出与脱敏测试通过；设置页入口待接 |
-| FEAT-13 | IN PROGRESS | 本次提交 | 音视频续播与账号隔离已实现；HEIC/转码仍待评估 |
+| FEAT-13 | IN PROGRESS | 16cd1663 | 音视频续播与账号隔离已实现；HEIC/转码仍待评估 |
+| FEAT-06 | IN PROGRESS | 本次提交 | 增量 SHA-256 工具与测试通过；上传去重协议待接 |
 
 ## 验证命令
 
