@@ -15,7 +15,7 @@
 - [x] SEC-05 外部缩略图统一授权、MIME、大小与安全头
 - [x] SEC-06 普通分享执行默认/最大有效期策略
 - [x] SEC-07 分享预算、Cookie 与路径隐私收口
-- [ ] SEC-08 公开请求上传流式限长与额度预留
+- [x] SEC-08 公开请求上传流式限长与额度预留
 - [ ] SEC-09 离线缓存按用户隔离
 - [ ] SEC-10 WebDAV 覆盖写与分布式 COPY 修复
 - [ ] SEC-11 文件夹上传父失败时跳过整个子树
@@ -88,6 +88,7 @@
 | QA-02 | IN PROGRESS | - | 有头 Chrome 已进入 CloudDrive；配置导出 200；直传 FixedLengthStream 回归待修 |
 | SEC-01～07 | DONE | 本次提交 | 分享/Meta/ACL/缩略图 87 项回归通过；Key 前缀不随挂载路径漂移 |
 | SEC-14 | DONE | 本次提交 | ACL 用户名探测 5 次后 429 |
+| SEC-08 | DONE | 本次提交 | 公开请求 5 项通过；未知长度有界缓冲、已知长度 FixedLengthStream、额度预留与原子退款 |
 
 ## 验证命令
 
