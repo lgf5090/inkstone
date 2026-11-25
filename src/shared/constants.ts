@@ -682,6 +682,7 @@ export const NOTE_SAVED_SEARCH_MAX = 20
 export const NOTE_SAVED_SEARCH_NAME_MAX = 60
 export const NOTE_SAVED_SEARCH_QUERY_MAX = 200
 export const OFFLINE_NOTES_MAX = 200
+export const NOTE_WEBHOOK_EVENTS = ['note.created', 'note.updated', 'note.deleted'] as const
 
 /**
  * The range a daily or weekly goal may name, in whole tasks.

@@ -4,6 +4,7 @@ import { runDueAssistantAutomations } from './assistant/scheduler'
 import { sweepTaskReminders } from './assistant/tasks'
 import { pruneProjectActivity, sweepProjectReminders } from './project/scheduler'
 import { drainProjectWebhookDeliveries } from './project/webhooks'
+import { drainNoteWebhookDeliveries } from './notes/webhooks'
 import { pruneProjectWriteReceipts } from './project/idempotency'
 import { runPushCatchUp } from './assistant/push-fanout'
 import { purgeExpiredEphemeralConversations, purgeExpiredTodoTrash } from './assistant/store'
@@ -131,6 +132,10 @@ export default {
         console.warn('[inkstone] project webhook drain failed:', (error as Error).message)
         return 0
       })
+      const noteWebhookTick = drainNoteWebhookDeliveries(env, event.scheduledTime).catch((error) => {
+        console.warn('[inkstone] note webhook drain failed:', (error as Error).message)
+        return 0
+      })
       const emailDraftTick = runEmailAutoDraftJobs(env, event.scheduledTime, 2)
       const emailSnoozeTick = runEmailSnoozeWake(env, event.scheduledTime)
       const emailFollowUpTick = runEmailFollowUpSweep(env, event.scheduledTime)
@@ -179,7 +184,7 @@ export default {
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectWebhookTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
+        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, projectReminderTick, projectWebhookTick, noteWebhookTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
         return
       }
       const drains: Promise<unknown>[] = [

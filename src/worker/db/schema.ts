@@ -505,6 +505,82 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_versions_note ON note_versions(note_id, created_at DESC, id DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_versions_user ON note_versions(user_id)`,
 
+  `CREATE TABLE IF NOT EXISTS note_webhooks (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT NOT NULL,
+    secret_ciphertext TEXT NOT NULL,
+    events TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id),
+    UNIQUE(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_note_webhooks_user ON note_webhooks(user_id, enabled)`,
+
+  `CREATE TABLE IF NOT EXISTS note_webhook_deliveries (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    webhook_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivered','failed')),
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id),
+    UNIQUE(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_note_webhook_deliveries_due
+     ON note_webhook_deliveries(status, next_attempt_at)`,
+
+  `CREATE TRIGGER IF NOT EXISTS trg_note_webhook_insert AFTER INSERT ON notes
+   WHEN NEW.deleted_at IS NULL
+   BEGIN
+     INSERT INTO note_webhook_deliveries
+       (id, webhook_id, user_id, event, payload, attempts, next_attempt_at, status, last_error, created_at)
+     SELECT 'nwd_' || lower(hex(randomblob(16))), w.id, w.user_id, 'note.created',
+            json_object('id', NEW.id, 'event', 'note.created',
+              'note', json_object('id', NEW.id, 'title', NEW.title, 'folderId', NEW.folder_id,
+                'rev', NEW.rev, 'deletedAt', NEW.deleted_at),
+              'at', CAST(unixepoch() * 1000 AS INTEGER)),
+            0, CAST(unixepoch() * 1000 AS INTEGER), 'pending', '', CAST(unixepoch() * 1000 AS INTEGER)
+       FROM note_webhooks w
+      WHERE w.user_id = NEW.user_id AND w.enabled = 1
+        AND (w.events = '["*"]' OR instr(w.events, '"note.created"') > 0);
+   END`,
+
+  `CREATE TRIGGER IF NOT EXISTS trg_note_webhook_update AFTER UPDATE OF rev, deleted_at ON notes
+   BEGIN
+     INSERT INTO note_webhook_deliveries
+       (id, webhook_id, user_id, event, payload, attempts, next_attempt_at, status, last_error, created_at)
+     SELECT 'nwd_' || lower(hex(randomblob(16))), w.id, w.user_id, 'note.deleted',
+            json_object('id', NEW.id, 'event', 'note.deleted',
+              'note', json_object('id', NEW.id, 'title', NEW.title, 'folderId', NEW.folder_id,
+                'rev', NEW.rev, 'deletedAt', NEW.deleted_at),
+              'at', CAST(unixepoch() * 1000 AS INTEGER)),
+            0, CAST(unixepoch() * 1000 AS INTEGER), 'pending', '', CAST(unixepoch() * 1000 AS INTEGER)
+       FROM note_webhooks w
+      WHERE w.user_id = NEW.user_id AND w.enabled = 1
+        AND OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL
+        AND (w.events = '["*"]' OR instr(w.events, '"note.deleted"') > 0);
+     INSERT INTO note_webhook_deliveries
+       (id, webhook_id, user_id, event, payload, attempts, next_attempt_at, status, last_error, created_at)
+     SELECT 'nwd_' || lower(hex(randomblob(16))), w.id, w.user_id, 'note.updated',
+            json_object('id', NEW.id, 'event', 'note.updated',
+              'note', json_object('id', NEW.id, 'title', NEW.title, 'folderId', NEW.folder_id,
+                'rev', NEW.rev, 'deletedAt', NEW.deleted_at),
+              'at', CAST(unixepoch() * 1000 AS INTEGER)),
+            0, CAST(unixepoch() * 1000 AS INTEGER), 'pending', '', CAST(unixepoch() * 1000 AS INTEGER)
+       FROM note_webhooks w
+      WHERE w.user_id = NEW.user_id AND w.enabled = 1
+        AND NEW.deleted_at IS NULL AND (OLD.rev <> NEW.rev OR OLD.deleted_at IS NOT NULL)
+        AND (w.events = '["*"]' OR instr(w.events, '"note.updated"') > 0);
+   END`,
+
   `CREATE TABLE IF NOT EXISTS attachments (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -4627,6 +4703,83 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'note_properties', column: 'is_array' },
     statements: [`ALTER TABLE note_properties ADD COLUMN is_array INTEGER NOT NULL DEFAULT 0`],
   },
+  {
+    version: 424,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS note_webhooks (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        url TEXT NOT NULL,
+        secret_ciphertext TEXT NOT NULL,
+        events TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id),
+        UNIQUE(id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_note_webhooks_user ON note_webhooks(user_id, enabled)`,
+      `CREATE TABLE IF NOT EXISTS note_webhook_deliveries (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        webhook_id TEXT NOT NULL,
+        event TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivered','failed')),
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id),
+        UNIQUE(id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_note_webhook_deliveries_due
+         ON note_webhook_deliveries(status, next_attempt_at)`,
+      `CREATE TRIGGER IF NOT EXISTS trg_note_webhook_insert AFTER INSERT ON notes
+       WHEN NEW.deleted_at IS NULL
+       BEGIN
+         INSERT INTO note_webhook_deliveries
+           (id, webhook_id, user_id, event, payload, attempts, next_attempt_at, status, last_error, created_at)
+         SELECT 'nwd_' || lower(hex(randomblob(16))), w.id, w.user_id, 'note.created',
+                json_object('id', NEW.id, 'event', 'note.created',
+                  'note', json_object('id', NEW.id, 'title', NEW.title, 'folderId', NEW.folder_id,
+                    'rev', NEW.rev, 'deletedAt', NEW.deleted_at),
+                  'at', CAST(unixepoch() * 1000 AS INTEGER)),
+                0, CAST(unixepoch() * 1000 AS INTEGER), 'pending', '', CAST(unixepoch() * 1000 AS INTEGER)
+           FROM note_webhooks w
+          WHERE w.user_id = NEW.user_id AND w.enabled = 1
+            AND (w.events = '["*"]' OR instr(w.events, '"note.created"') > 0);
+       END`,
+      `CREATE TRIGGER IF NOT EXISTS trg_note_webhook_update AFTER UPDATE OF rev, deleted_at ON notes
+       BEGIN
+         INSERT INTO note_webhook_deliveries
+           (id, webhook_id, user_id, event, payload, attempts, next_attempt_at, status, last_error, created_at)
+         SELECT 'nwd_' || lower(hex(randomblob(16))), w.id, w.user_id, 'note.deleted',
+                json_object('id', NEW.id, 'event', 'note.deleted',
+                  'note', json_object('id', NEW.id, 'title', NEW.title, 'folderId', NEW.folder_id,
+                    'rev', NEW.rev, 'deletedAt', NEW.deleted_at),
+                  'at', CAST(unixepoch() * 1000 AS INTEGER)),
+                0, CAST(unixepoch() * 1000 AS INTEGER), 'pending', '', CAST(unixepoch() * 1000 AS INTEGER)
+           FROM note_webhooks w
+          WHERE w.user_id = NEW.user_id AND w.enabled = 1
+            AND OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL
+            AND (w.events = '["*"]' OR instr(w.events, '"note.deleted"') > 0);
+         INSERT INTO note_webhook_deliveries
+           (id, webhook_id, user_id, event, payload, attempts, next_attempt_at, status, last_error, created_at)
+         SELECT 'nwd_' || lower(hex(randomblob(16))), w.id, w.user_id, 'note.updated',
+                json_object('id', NEW.id, 'event', 'note.updated',
+                  'note', json_object('id', NEW.id, 'title', NEW.title, 'folderId', NEW.folder_id,
+                    'rev', NEW.rev, 'deletedAt', NEW.deleted_at),
+                  'at', CAST(unixepoch() * 1000 AS INTEGER)),
+                0, CAST(unixepoch() * 1000 AS INTEGER), 'pending', '', CAST(unixepoch() * 1000 AS INTEGER)
+           FROM note_webhooks w
+          WHERE w.user_id = NEW.user_id AND w.enabled = 1
+            AND NEW.deleted_at IS NULL AND (OLD.rev <> NEW.rev OR OLD.deleted_at IS NOT NULL)
+            AND (w.events = '["*"]' OR instr(w.events, '"note.updated"') > 0);
+       END`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -4657,6 +4810,8 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   note_properties: ['user_id', 'note_id', 'key', 'key_key', 'ordinal', 'kind', 'is_array', 'value_text', 'value_number', 'value_boolean', 'value_date'],
   links: ['source_note_id', 'target_key', 'target_title', 'target_note_id', 'user_id'],
   note_versions: ['id', 'note_id', 'user_id', 'title', 'content', 'size', 'created_at'],
+  note_webhooks: ['id', 'user_id', 'title', 'url', 'secret_ciphertext', 'events', 'enabled', 'created_at', 'updated_at'],
+  note_webhook_deliveries: ['id', 'webhook_id', 'user_id', 'event', 'payload', 'attempts', 'next_attempt_at', 'status', 'last_error', 'created_at'],
   attachments: ['id', 'user_id', 'scope', 'note_id', 'folder_id', 'filename', 'mime', 'size', 'sha256', 'object_key', 'width', 'height', 'is_starred', 'is_pinned', 'tags', 'storage', 'created_at'],
   attachment_folders: ['user_id', 'id', 'scope', 'parent_id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at'],
   attachment_tags: ['user_id', 'id', 'scope', 'name', 'color', 'is_pinned', 'created_at'],
@@ -4732,6 +4887,8 @@ export const REQUIRED_TABLES = [
   'note_properties',
   'links',
   'note_versions',
+  'note_webhooks',
+  'note_webhook_deliveries',
   'attachments',
   'attachment_folders',
   'attachment_tags',
@@ -4827,6 +4984,8 @@ export const REQUIRED_INDEXES = [
   'idx_links_user_source',
   'idx_versions_note',
   'idx_versions_user',
+  'idx_note_webhooks_user',
+  'idx_note_webhook_deliveries_due',
   'idx_attachments_user',
   'idx_attachments_user_sha',
   'idx_attachments_note',

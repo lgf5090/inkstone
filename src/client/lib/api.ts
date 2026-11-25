@@ -1188,6 +1188,16 @@ export const api = {
       request<ListNotesResponse>(`/api/notes${toQuery(params)}`),
     propertyTable: (params: { cursor?: string; limit?: number; q?: string } = {}) =>
       request<import('@shared/types').NotePropertyTablePage>(`/api/notes/property-table${toQuery(params)}`),
+    webhooks: {
+      list: () => request<{ webhooks: import('@shared/types').NoteWebhook[] }>('/api/notes/webhooks'),
+      create: (body: { title: string; url: string; events?: string[]; enabled?: boolean }) =>
+        request<import('@shared/types').NoteWebhookCreateResult>('/api/notes/webhooks', { method: 'POST', body }),
+      update: (id: string, body: { title?: string; url?: string; events?: string[]; enabled?: boolean }) =>
+        request<{ webhook: import('@shared/types').NoteWebhook }>(`/api/notes/webhooks/${id}`, { method: 'PATCH', body }),
+      remove: (id: string) => request<{ ok: true }>(`/api/notes/webhooks/${id}`, { method: 'DELETE' }),
+      regenerateSecret: (id: string) =>
+        request<import('@shared/types').NoteWebhookCreateResult>(`/api/notes/webhooks/${id}/secret`, { method: 'POST' }),
+    },
     get: (id: string) => request<Note>(`/api/notes/${id}`),
     create: (body: { id?: string; content?: string; title?: string; folderId?: string | null; isStarred?: boolean }) =>
       request<Note>('/api/notes', { method: 'POST', body, timeoutMs: 30_000 }),

@@ -40,6 +40,13 @@ import { requireAuth } from '../middleware/auth'
 import { scheduleAiDrainForNote } from '../mcp/ai-search'
 import { blogOwnerUserId, findPostByNoteId, recordBlogAudit, syncBlogPostFromNote, unpublishPost } from '../blog/store'
 import { syncBlogPageFromNote } from '../blog/pages'
+import {
+  createNoteWebhook,
+  deleteNoteWebhook,
+  listNoteWebhooks,
+  regenerateNoteWebhookSecret,
+  updateNoteWebhook,
+} from '../notes/webhooks'
 import type { BlogNoteInput } from '../blog/store'
 
 /**
@@ -161,6 +168,38 @@ notesRoutes.post('/trash/empty', async (c) => {
   await pruneOrphanTags(c.env.DB, userId)
   await broadcastCursor(c, deletionCursor)
   return c.json({ purged })
+})
+
+notesRoutes.get('/webhooks', async (c) => c.json({ webhooks: await listNoteWebhooks(c.env.DB, c.get('userId')) }))
+
+notesRoutes.post('/webhooks', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const result = await createNoteWebhook(c.env, c.get('userId'), body)
+  return c.json(result, 201)
+})
+
+notesRoutes.patch('/webhooks/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!isValidId(id)) throw ApiError.badRequest('Webhook id is not valid')
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
+  const webhook = await updateNoteWebhook(c.env.DB, c.get('userId'), id, body)
+  if (!webhook) throw ApiError.notFound('Webhook not found')
+  return c.json({ webhook })
+})
+
+notesRoutes.delete('/webhooks/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!isValidId(id)) throw ApiError.badRequest('Webhook id is not valid')
+  if (!await deleteNoteWebhook(c.env.DB, c.get('userId'), id)) throw ApiError.notFound('Webhook not found')
+  return c.json({ ok: true })
+})
+
+notesRoutes.post('/webhooks/:id/secret', async (c) => {
+  const id = c.req.param('id')
+  if (!isValidId(id)) throw ApiError.badRequest('Webhook id is not valid')
+  const result = await regenerateNoteWebhookSecret(c.env, c.get('userId'), id)
+  if (!result) throw ApiError.notFound('Webhook not found')
+  return c.json(result)
 })
 
 notesRoutes.get('/property-table', async (c) => {

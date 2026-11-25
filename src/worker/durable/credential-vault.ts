@@ -26,7 +26,7 @@ const MAX_CIPHERTEXT_LENGTH = 1_400_000
  * `youtube:` carries the instance's YouTube Data API key. The instance id is a fixed sentinel because one
  * deployment has exactly one key, and the worker secret is the fallback when no key is stored here.
  */
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester|imgbed|youtube|nav|clouddrive|webssh|certhub-account|certhub-order|certhub-dns):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|note-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester|imgbed|youtube|nav|clouddrive|webssh|certhub-account|certhub-order|certhub-dns):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
@@ -260,7 +260,7 @@ function isCredentialRecord(scope: string, value: unknown): value is CredentialR
       ? AI_SECRET_FIELDS
       : scope.startsWith('mcp:')
         ? MCP_SECRET_FIELDS
-        : scope.startsWith('memo-webhook:')
+        : scope.startsWith('memo-webhook:') || scope.startsWith('note-webhook:')
           ? MEMO_WEBHOOK_SECRET_FIELDS
           : scope.startsWith('email:')
             ? EMAIL_SECRET_FIELDS

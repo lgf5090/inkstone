@@ -18,6 +18,7 @@ export type PanelName =
   | 'shortcuts'
   | 'graph'
   | 'notes-table'
+  | 'notes-webhooks'
   | 'folders'
   | 'templates'
   | 'versions'

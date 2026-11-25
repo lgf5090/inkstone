@@ -1076,6 +1076,23 @@ export interface PatchNoteBody {
   preserveVersion?: boolean
 }
 
+export interface NoteWebhook {
+  id: string
+  title: string
+  url: string
+  events: string[]
+  enabled: boolean
+  createdAt: number
+  updatedAt: number
+  pending: number
+  lastError: string
+}
+
+export interface NoteWebhookCreateResult {
+  webhook: NoteWebhook
+  signingSecret: string
+}
+
 export interface NotePropertyTableRow {
   note: NoteSummary
   properties: Record<string, unknown>

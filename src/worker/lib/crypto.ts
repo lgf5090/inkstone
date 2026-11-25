@@ -463,6 +463,23 @@ function isMemoWebhookSecret(value: unknown): value is string {
     && value.length <= 512
 }
 
+export async function encryptNoteWebhookSecret(env: Env, webhookId: string, secret: string): Promise<string> {
+  if (!isValidId(webhookId) || !isNoteWebhookSecret(secret)) throw new Error('invalid_note_webhook_credential')
+  return encryptCredential(env, `note-webhook:${webhookId}`, { secret })
+}
+
+export async function decryptNoteWebhookSecret(env: Env, webhookId: string, stored: string): Promise<string | null> {
+  if (!isValidId(webhookId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `note-webhook:${webhookId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const secret = (value as Record<string, unknown>).secret
+  return isNoteWebhookSecret(secret) ? secret : null
+}
+
+function isNoteWebhookSecret(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('whsec_') && value.length > 'whsec_'.length && value.length <= 512
+}
+
 export async function encryptCerthubAccountKey(env: Env, accountId: string, privateKey: string): Promise<string> {
   if (!isValidId(accountId) || !isPrivateKeyPem(privateKey)) throw new Error('invalid_certhub_credential')
   return encryptCredential(env, `certhub-account:${accountId}`, { privateKey })
