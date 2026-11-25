@@ -51,7 +51,7 @@ describe('CloudDrive ZIP streaming', () => {
       ).bind(`file-${index}`, USER, name, foldedName(name), initialsOf(name), `/${name}`, name.length, key).run()
     }
 
-    const env = { DB: db, FILES: bucket } as Env
+    const env = { DB: db, FILES: bucket } as unknown as Env
     const archive = await buildFolderZip(env, db, USER, mount, '/', () => false)
     expect(opened).toBeLessThanOrEqual(8)
     const reader = archive.stream.getReader()
