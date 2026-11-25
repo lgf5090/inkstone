@@ -2,6 +2,7 @@
 import { CLIENT_HEADER } from '@shared/constants'
 import { ApiError, request as baseRequest, type RequestOptions } from '../../lib/api'
 import { t } from '../../lib/i18n'
+import { randomLocalId } from '../../lib/random-id'
 import { enqueueProjectWrite } from './offline-outbox'
 import type {
   ProjectActivityEntry,
@@ -42,16 +43,17 @@ import type { ProjectBoardCreateInput, ProjectCardCreateInput } from '@shared/pr
  * first two have nothing to replay, and the third is a POST that reads rather than writes.
  */
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const method = (options.method ?? 'GET').toUpperCase()
+  const queueable = method !== 'GET' && method !== 'HEAD' && options.formData === undefined
+    && !path.includes('/public/')
+  const writeId = queueable ? randomLocalId('pw') : undefined
   try {
-    return await baseRequest<T>(path, options)
+    return await baseRequest<T>(path, writeId ? { ...options, idempotencyKey: writeId } : options)
   } catch (error) {
-    const method = (options.method ?? 'GET').toUpperCase()
-    const queueable = method !== 'GET' && method !== 'HEAD' && options.formData === undefined
-      && !path.includes('/public/')
-    if (queueable && error instanceof ApiError && (error.isOffline || error.status >= 500)) {
+    if (queueable && error instanceof ApiError && (error.isOffline || error.status === 429 || error.status >= 500)) {
       let queued = false
       try {
-        await enqueueProjectWrite(path, method, options.body)
+        await enqueueProjectWrite(path, method, options.body, writeId)
         queued = true
       } catch (cause) {
         console.warn('[inkstone] project offline queue enqueue failed:', cause)

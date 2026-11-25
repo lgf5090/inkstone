@@ -85,6 +85,18 @@ describe('the reason the route gave stays visible', () => {
     expect(error.serverMessage).toContain('non-whitespace')
   })
 
+  it('keeps the Retry-After delay on a throttling error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { code: 'rate_limited', message: 'Too many requests' } }), {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'Retry-After': '12' },
+    })))
+    const error = await api.assistant.updateModel('m1', { label: 'x' })
+      .then(() => null)
+      .catch((caught: unknown) => caught as ApiError)
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).retryAfterMs).toBe(12_000)
+  })
+
   it('carries the same line all the way to the form that prints it', async () => {
     const failure = await failureTheFormSees(fieldRefusal)
     expect(failure.headline).toBe(t('api.error.bad_request'))

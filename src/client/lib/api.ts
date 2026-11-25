@@ -258,6 +258,7 @@ export class ApiError extends Error {
      * out — a surface prints it as a child node, and nothing here builds markup.
      */
     readonly serverMessage?: string,
+    readonly retryAfterMs?: number,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -377,7 +378,7 @@ interface RouteErrorBody {
  * the streamed turn calls this, and `stream-refusal.test.ts` pins its output against the JSON path's for the
  * same body, which is the only way the rule stays one rule.
  */
-export function routeApiError(status: number, body: unknown): ApiError {
+export function routeApiError(status: number, body: unknown, retryAfterMs?: number): ApiError {
   const error = (body as { error?: RouteErrorBody } | null | undefined)?.error
   const code = error?.code ?? 'unknown'
   const fallback = error?.message ?? t('api.request_failed_status', { status })
@@ -387,7 +388,17 @@ export function routeApiError(status: number, body: unknown): ApiError {
     translateApiError(code, fallback),
     error?.details,
     serverReason(error?.message, error?.details),
+    retryAfterMs,
   )
+}
+
+function retryAfterMs(headers: Headers): number | undefined {
+  const raw = headers.get('Retry-After')
+  if (!raw) return undefined
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
+  const at = Date.parse(raw)
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : undefined
 }
 
 /** How much of a file's name a refusal line may hold; the chip beside it already carries the whole name. */
@@ -544,7 +555,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       }
     }
 
-    if (!response.ok) throw routeApiError(response.status, data)
+    if (!response.ok) throw routeApiError(response.status, data, retryAfterMs(response.headers))
 
     if (invalidJson) {
       throw new ApiError(502, 'invalid_response', t("api.invalid_server_response"))

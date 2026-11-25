@@ -59,8 +59,13 @@ export async function requestProjectOutboxSync(): Promise<void> {
   }
 }
 
-export async function enqueueProjectWrite(path: string, method: string, body: unknown): Promise<void> {
-  const writeId = randomLocalId('pw')
+let lastProjectWriteAt = 0
+
+export async function enqueueProjectWrite(path: string, method: string, body: unknown, writeId = randomLocalId('pw')): Promise<void> {
+  const existing = await localDb.getOutbox()
+  const latestExisting = existing.reduce((latest, item) => Math.max(latest, item.createdAt + 1), 0)
+  const createdAt = Math.max(Date.now(), lastProjectWriteAt + 1, latestExisting)
+  lastProjectWriteAt = createdAt
   const item: OutboxItem = {
     id: writeId,
     clientId: CLIENT_ID,
@@ -69,7 +74,7 @@ export async function enqueueProjectWrite(path: string, method: string, body: un
     entityId: boardIdOf(path),
     payload: { path, method, ...(body === undefined ? {} : { body }) },
     attempts: 0,
-    createdAt: Date.now(),
+    createdAt,
   }
   await localDb.enqueueOutbox(item)
   emit(PROJECT_OUTBOX_CHANGED_EVENT)
@@ -87,10 +92,11 @@ export async function pendingProjectWrites(): Promise<number> {
 export async function replayProjectOutboxItem(item: OutboxItem): Promise<ProjectOutboxOutcome> {
   const payload = item.payload
   if (!isProjectOutboxPayload(payload)) {
-    await localDb.markOutboxFailure(item.id, item.writeId, 'invalid offline project write').catch((error: unknown) => {
+    await localDb.markOutboxFailure(item.id, item.writeId, 'invalid offline project write', { permanent: true }).catch((error: unknown) => {
       console.warn('[inkstone] project outbox row could not be marked:', error)
     })
-    return { status: 'retry' }
+    useUi.getState().toast({ title: t('project.offline.replay_failed', { message: 'invalid offline project write' }), tone: 'danger' })
+    return { status: 'done' }
   }
   try {
     await baseRequest(payload.path, {
@@ -99,11 +105,17 @@ export async function replayProjectOutboxItem(item: OutboxItem): Promise<Project
       idempotencyKey: item.writeId,
     })
   } catch (error) {
-    if (error instanceof ApiError && (error.isOffline || error.status >= 500)) {
+    if (error instanceof ApiError && error.isOffline) {
       await localDb.markOutboxFailure(item.id, item.writeId, error.message).catch((cause: unknown) => {
         console.warn('[inkstone] project outbox retry could not be recorded:', cause)
       })
       return { status: 'offline' }
+    }
+    if (error instanceof ApiError && (error.status === 429 || error.status >= 500)) {
+      await localDb.markOutboxFailure(item.id, item.writeId, error.message, { retryAfterMs: error.retryAfterMs }).catch((cause: unknown) => {
+        console.warn('[inkstone] project outbox retry could not be recorded:', cause)
+      })
+      return { status: 'retry' }
     }
     useUi.getState().toast({
       title: t('project.offline.replay_failed', { message: error instanceof Error ? error.message : String(error) }),

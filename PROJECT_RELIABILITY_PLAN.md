@@ -23,7 +23,7 @@
 
 | ID | Status | Task | Acceptance | Commit |
 |---|---|---|---|---|
-| P1-01 | pending | F5 mint idempotency key before first write; retry 429 with Retry-After; sequence outbox; isolate 5xx | lost response does not duplicate; FIFO; one failure does not block shared queue | - |
+| P1-01 | done | F5 mint idempotency key before first write; retry 429 with Retry-After; sequence outbox; isolate 5xx | lost response does not duplicate; FIFO; one failure does not block shared queue | pending hash |
 | P1-02 | pending | F6 make move/copy/import/attachment delete recoverable and atomic | injected mid-batch/R2 failures leave no visible half-state or orphan bytes | - |
 | P1-03 | pending | F7 remap property config/formula/relation/permissions on move; rebuild copied relations; enforce quotas | moved/copy cards retain config and relation edges; target caps enforced | - |
 | P1-04 | pending | F10 make cross-category drag move and reorder atomically | source board appears only in target category at requested position | - |
@@ -89,3 +89,4 @@
 - 2026-11-25: P0-06 completed in `84a2c46f`; archive and same-batch parent cycles are rejected, and legacy cyclic subtrees cannot loop during move.
 - 2026-11-25: P0-07 completed in `c32790aa`; property relation deletion is board-scoped, stale property revisions conflict, and accumulated property count is capped.
 - 2026-11-25: P0-08 completed in `0897b0be`; empty password save is inert, removal is explicit and confirmed, and share expiry is editable.
+- 2026-11-25: P1-01 completed; first write and replay share an idempotency key, 429/5xx retry without stopping the shared queue, and queue timestamps are monotonic.

@@ -19,15 +19,19 @@ describe('the project request wrapper', () => {
   it('queues a write that failed because the network is gone', async () => {
     vi.mocked(request).mockRejectedValue(new ApiError(0, 'offline', 'offline'))
     await expect(patchProjectCard('c1', { title: 'Offline' })).rejects.toThrow(t('project.offline.queued'))
-    expect(offline.enqueueProjectWrite).toHaveBeenCalledWith('/api/project/cards/c1', 'PATCH', { title: 'Offline' })
+    const writeId = vi.mocked(request).mock.calls[0]![1]?.idempotencyKey
+    expect(writeId).toEqual(expect.any(String))
+    expect(offline.enqueueProjectWrite).toHaveBeenCalledWith('/api/project/cards/c1', 'PATCH', { title: 'Offline' }, writeId)
   })
 
-  it('queues a 5xx failure but not a refusal the server will repeat', async () => {
+  it('queues 429 and 5xx failures but not a refusal the server will repeat', async () => {
     vi.mocked(request).mockRejectedValueOnce(new ApiError(503, 'unavailable', 'Service unavailable'))
+    await expect(patchProjectCard('c1', {})).rejects.toThrow(t('project.offline.queued'))
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(429, 'rate_limited', 'Too many requests'))
     await expect(patchProjectCard('c1', {})).rejects.toThrow(t('project.offline.queued'))
     vi.mocked(request).mockRejectedValueOnce(new ApiError(403, 'forbidden', 'Permission denied'))
     await expect(patchProjectCard('c1', {})).rejects.toThrow('Permission denied')
-    expect(offline.enqueueProjectWrite).toHaveBeenCalledTimes(1)
+    expect(offline.enqueueProjectWrite).toHaveBeenCalledTimes(2)
   })
 
   it('leaves reads alone, including the POST-shaped anonymous share reader', async () => {

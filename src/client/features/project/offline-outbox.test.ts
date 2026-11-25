@@ -91,14 +91,29 @@ describe('the project offline outbox', () => {
     expect(localDb.markOutboxFailure).toHaveBeenCalled()
   })
 
+  it('retries 429 with the server delay and 5xx without stopping the shared queue', async () => {
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(429, 'rate_limited', 'Too many requests', undefined, undefined, 12_000))
+    expect((await replayProjectOutboxItem(item({ path: '/api/project/cards/c1', method: 'PATCH' }))).status).toBe('retry')
+    expect(localDb.markOutboxFailure).toHaveBeenCalledWith('pw_test', 'pw_test', 'Too many requests', { retryAfterMs: 12_000 })
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(503, 'unavailable', 'Unavailable'))
+    expect((await replayProjectOutboxItem(item({ path: '/api/project/cards/c1', method: 'PATCH' }))).status).toBe('retry')
+  })
+
   it('drops a permanently refused write after telling the reader', async () => {
     vi.mocked(request).mockRejectedValue(new ApiError(403, 'forbidden', 'Permission denied'))
     const outcome = await replayProjectOutboxItem(item({ path: '/api/project/cards/c1', method: 'DELETE' }))
     expect(outcome.status).toBe('done')
   })
 
-  it('refuses a payload that is not a project write', async () => {
-    expect((await replayProjectOutboxItem(item({ nonsense: true }))).status).toBe('retry')
+  it('finishes an invalid payload instead of leaving it pending forever', async () => {
+    expect((await replayProjectOutboxItem(item({ nonsense: true }))).status).toBe('done')
     expect(request).not.toHaveBeenCalled()
+  })
+
+  it('assigns monotonic queue timestamps for same-millisecond writes', async () => {
+    await enqueueProjectWrite('/api/project/cards/c1', 'PATCH', { title: 'A' }, 'pw_first')
+    await enqueueProjectWrite('/api/project/cards/c1', 'PATCH', { title: 'B' }, 'pw_second')
+    const queued = vi.mocked(localDb.enqueueOutbox).mock.calls.map(([entry]) => entry)
+    expect(queued[1]!.createdAt).toBeGreaterThan(queued[0]!.createdAt)
   })
 })
