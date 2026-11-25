@@ -32,7 +32,7 @@
 - [ ] LOG-08 外部写入冲突策略与 S3 MOVE 可恢复化
 - [ ] LOG-09 父子同选移动保持树结构
 - [ ] LOG-10 隐藏项 total 修正
-- [ ] LOG-11 凭证解密错误带上下文
+- [x] LOG-11 凭证解密错误带上下文
 - [ ] PERF-01 前端下载流式落盘
 - [x] PERF-02 ZIP 按需打开对象流
 - [ ] PERF-03 服务端分片流式写入
@@ -76,6 +76,7 @@
 | PERF-02 | DONE | 本次提交 | `tests/clouddrive-upload.test.ts` ZIP 用例通过；最多 8 个对象预取 |
 | PERF-06 | DONE | 本次提交 | `clouddrive-files` + `clouddrive-mounts` 47 项通过；主挂载仅缺失时写 |
 | SEC-13 | DONE | 本次提交 | Google Drive、Dropbox、AutoIndex、external drivers 44 项通过 |
+| LOG-11 | DONE | 本次提交 | OAuth tokens + driver resolver 17 项通过；解密失败显式报错 |
 
 ## 验证命令
 

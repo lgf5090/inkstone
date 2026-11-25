@@ -221,11 +221,12 @@ export async function createDriverContext(
     version = latest.updated_at ?? version
     if (latest.credentials) {
       const decrypted = await decryptCloudDriveCredentials(env, row.id, latest.credentials).catch(() => null)
-      if (decrypted) {
-        Object.assign(credentials, Object.fromEntries(
-          Object.entries(decrypted).map(([key, value]) => [key, String(value)]),
-        ))
+      if (!decrypted) {
+        throw DriverError.auth('The stored storage credentials could not be read')
       }
+      Object.assign(credentials, Object.fromEntries(
+        Object.entries(decrypted).map(([key, value]) => [key, String(value)]),
+      ))
     }
     return credentials
   }

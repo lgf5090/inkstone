@@ -51,6 +51,9 @@ async function storageCredentials(
   ).bind(userId, storageId).first<{ credentials: string }>()
   if (!row) return { credentials: {}, exists: false }
   const stored = await decryptCloudDriveCredentials(c.env, storageId, row.credentials).catch(() => null)
+  if (!stored && row.credentials) {
+    throw new ApiError(502, 'clouddrive_mount_unavailable', 'The stored storage credentials could not be read')
+  }
   const credentials = Object.fromEntries(
     Object.entries(stored ?? {}).map(([key, value]) => [key, String(value)]),
   )
