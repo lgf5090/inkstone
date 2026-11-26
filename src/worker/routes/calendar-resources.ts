@@ -66,7 +66,9 @@ calendarResourceRoutes.post('/resources', async (c) => {
   try {
     await insertResource(c.env.DB, c.get('userId'), { id, calendarId: calendar.id, name: resourceName, capacity: seats })
   } catch (error) {
-    await store.deleteCalendar(calendar.id, { mode: 'delete' }).catch(() => { /* The insert error is the one to report. */ })
+    await store.deleteCalendar(calendar.id, { mode: 'delete', allowLast: true }).catch((cleanupError: unknown) => {
+      console.warn('[inkstone] Resource calendar cleanup failed:', cleanupError instanceof Error ? cleanupError.message : cleanupError)
+    })
     throw error
   }
   return c.json({ resource: { id, calendarId: calendar.id, name: resourceName, capacity: seats } satisfies CalendarResourceDto })

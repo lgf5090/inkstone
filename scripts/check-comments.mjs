@@ -43954,7 +43954,6 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/calendar-resources.ts", [
     "/**\n * Bookable resources: a named calendar plus an optional capacity.\n *\n * A resource is deliberately not a second kind of calendar. Reservations are ordinary events in the\n * resource's calendar, so every existing range read, conflict prompt and permission check still\n * applies; this route only keeps the label and capacity row in step with it.\n */",
-    "/* The insert error is the one to report. */",
   ]],
   ["src/worker/routes/calendar-scheduling.ts", [
     "/**\n * Calendly-style booking links.\n *\n * The owner's session manages a link; a visitor reads only the slot window and the aggregate busy\n * stretches of the next two weeks, then books one slot. Nothing identifies an event: the public\n * answer carries milliseconds, never titles, calendars or attendees.\n */",

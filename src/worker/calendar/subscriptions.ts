@@ -112,7 +112,7 @@ export async function createIcsSubscription(
       warnings: parsed.warnings,
     }
   } catch (error) {
-    await store.deleteCalendar(calendar.id, { mode: 'delete' }).catch((cleanupError) => {
+    await store.deleteCalendar(calendar.id, { mode: 'delete', allowLast: true }).catch((cleanupError) => {
       console.warn('[inkstone] Calendar subscription cleanup failed:', cleanupError instanceof Error ? cleanupError.message : cleanupError)
     })
     throw error

@@ -14,7 +14,7 @@ import { requireAuth } from '../middleware/auth'
 import { CalendarStore } from '../calendar/store'
 import { createContact, deleteContact, listContacts, updateContact } from '../calendar/contacts'
 import { parseCalendarInput } from '../calendar/validation'
-import type { CalendarEventInput } from '@shared/calendar/model'
+import { MAX_EVENTS_PER_BATCH, type CalendarEventInput } from '@shared/calendar/model'
 
 
 const readBudget = createMinuteBudget(240, 'Too many calendar reads at once. Try again in a minute.')
@@ -92,7 +92,9 @@ calendarContactRoutes.post('/birthdays/sync', async (c) => {
       recurrenceRule: 'FREQ=YEARLY',
     })
   }
-  if (inputs.length > 0) await store.createEvents(inputs, 'upsert')
+  for (let index = 0; index < inputs.length; index += MAX_EVENTS_PER_BATCH) {
+    await store.createEvents(inputs.slice(index, index + MAX_EVENTS_PER_BATCH), 'upsert')
+  }
   const existing = await store.listEvents(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, [calendar.id])
   for (const event of existing.events) {
     if (event.id.startsWith('birthday-') && !wanted.has(event.id)) {
@@ -116,25 +118,42 @@ calendarContactRoutes.post('/holidays', async (c) => {
   if (raw.length === 0) throw ApiError.badRequest('holidays are required')
   if (raw.length > 100) throw ApiError.badRequest('too many holidays')
   const store = new CalendarStore(c.env.DB, userId)
-  const calendar = await store.createCalendar(parseCalendarInput({ name: calendarName, color: '#e5484d' }))
   const events: CalendarEventInput[] = []
-  for (const entry of raw) {
+  for (const [index, entry] of raw.entries()) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
     const record = entry as Record<string, unknown>
     if (typeof record.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(record.date)) continue
     if (typeof record.title !== 'string' || !record.title.trim()) continue
     events.push({
-      id: `holiday-${record.date}`,
+      id: `holiday-${index}`,
       title: record.title.trim().slice(0, 120),
       description: '',
       kind: 'event',
       start: { value: record.date, type: 'date' },
       end: { value: record.date, type: 'date' },
       allDay: true,
-      calendarIds: [calendar.id],
+      calendarIds: [],
       meta: {},
     })
   }
-  if (events.length > 0) await store.createEvents(events, 'create')
+  if (events.length === 0) throw ApiError.badRequest('holidays must contain valid dates and titles')
+  const calendars = await store.listCalendars()
+  let calendar = calendars.find(entry => entry.name.toLowerCase() === calendarName.toLowerCase())
+  const created = !calendar
+  if (!calendar) calendar = await store.createCalendar(parseCalendarInput({ name: calendarName, color: '#e5484d' }))
+  for (const event of events) {
+    event.id = `holiday-${calendar.id}-${event.id}`
+    event.calendarIds = [calendar.id]
+  }
+  try {
+    await store.createEvents(events, 'upsert')
+  } catch (error) {
+    if (created) {
+      await store.deleteCalendar(calendar.id, { mode: 'delete', allowLast: true }).catch((cleanupError: unknown) => {
+        console.warn('[inkstone] Holiday calendar cleanup failed:', cleanupError instanceof Error ? cleanupError.message : cleanupError)
+      })
+    }
+    throw error
+  }
   return c.json({ calendarId: calendar.id, imported: events.length })
 })

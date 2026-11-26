@@ -13,6 +13,7 @@ import { MAX_TEMPLATES, insertTemplateRow } from '../src/worker/calendar/templat
 import { MAX_SCHEDULING_LINKS } from '../src/worker/calendar/scheduling'
 import { calendarRoutes } from '../src/worker/routes/calendar'
 import { calendarMemberRoutes } from '../src/worker/routes/calendar-members'
+import { calendarContactRoutes } from '../src/worker/routes/calendar-contacts'
 import { calendarResourceRoutes } from '../src/worker/routes/calendar-resources'
 import { calendarBookingRoutes, calendarSchedulingRoutes } from '../src/worker/routes/calendar-scheduling'
 import type { AppBindings } from '../src/worker/env'
@@ -39,6 +40,7 @@ app.use('*', async (c, next) => {
   await next()
 })
 app.route('/api/calendar', calendarMemberRoutes)
+app.route('/api/calendar', calendarContactRoutes)
 app.route('/api/calendar', calendarResourceRoutes)
 app.route('/api/calendar', calendarSchedulingRoutes)
 app.route('/api/calendar', calendarRoutes)
@@ -439,6 +441,58 @@ function timedEvent(calendarId: string, startMs: number, overrides: Record<strin
     ...overrides,
   })
 }
+
+describe('holiday imports and birthday sync', () => {
+  it('reuses a holiday calendar and allows two holidays on the same date', async () => {
+    const body = {
+      calendarName: 'Company holidays',
+      holidays: [
+        { date: '2026-10-01', title: 'National day' },
+        { date: '2026-10-01', title: 'Company day' },
+      ],
+    }
+    const first = await json<{ calendarId: string; imported: number }>(await call('POST', '/api/calendar/holidays', body))
+    const second = await json<{ calendarId: string; imported: number }>(await call('POST', '/api/calendar/holidays', body))
+    expect(first).toMatchObject({ imported: 2 })
+    expect(second).toEqual(first)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_calendars WHERE user_id = ?').get(ALICE)).toEqual({ count: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events WHERE user_id = ?').get(ALICE)).toEqual({ count: 2 })
+    expect(sqlite.prepare('SELECT COUNT(DISTINCT id) AS count FROM calendar_events WHERE user_id = ?').get(ALICE)).toEqual({ count: 2 })
+  })
+
+  it('removes a newly created holiday calendar when the event batch fails', async () => {
+    sqlite.exec(`CREATE TRIGGER fail_holiday_insert
+      BEFORE INSERT ON calendar_events
+      WHEN NEW.title = 'National day'
+      BEGIN SELECT RAISE(ABORT, 'forced holiday failure'); END`)
+    const response = await call('POST', '/api/calendar/holidays', {
+      calendarName: 'Failed holidays',
+      holidays: [{ date: '2026-10-01', title: 'National day' }],
+    })
+    expect(response.status).toBe(500)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_calendars WHERE user_id = ?').get(ALICE)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events WHERE user_id = ?').get(ALICE)).toEqual({ count: 0 })
+  })
+
+  it('rejects an all-invalid holiday import without creating a calendar', async () => {
+    expect((await call('POST', '/api/calendar/holidays', {
+      calendarName: 'Invalid holidays', holidays: [{ date: 'not-a-date', title: 'Invalid' }],
+    })).status).toBe(400)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_calendars WHERE user_id = ?').get(ALICE)).toEqual({ count: 0 })
+  })
+
+  it('syncs more than two hundred birthdays in batches', async () => {
+    const insert = sqlite.prepare(
+      'INSERT INTO calendar_contacts (user_id, id, name, email, birthday, created_at, updated_at, rev) VALUES (?, ?, ?, ?, ?, 1, 1, 1)',
+    )
+    for (let index = 0; index < 201; index += 1) {
+      insert.run(ALICE, `birthday-contact-${index}`, `Person ${index}`, `person-${index}@example.com`, '1990-01-02')
+    }
+    const result = await json<{ imported: number }>(await call('POST', '/api/calendar/birthdays/sync', { calendarName: 'Birthdays' }))
+    expect(result.imported).toBe(201)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events WHERE user_id = ?').get(ALICE)).toEqual({ count: 201 })
+  })
+})
 
 describe('entity write quotas', () => {
   it('refuses contacts, templates, booking links and resources at their limits', async () => {

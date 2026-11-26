@@ -67,6 +67,11 @@ describe('the default calendar', () => {
     expect(calendars.find((entry) => entry.id === work.id)?.isDefault).toBe(true)
   })
 
+  it('allows internal cleanup to remove the only newly created calendar', async () => {
+    await store.deleteCalendar(calendar.id, { mode: 'delete', allowLast: true })
+    expect(await store.listCalendars()).toEqual([])
+  })
+
   it('is reassigned when the default calendar is deleted', async () => {
     const work = await store.createCalendar({ name: 'Work', isDefault: true })
     await store.deleteCalendar(work.id, { mode: 'delete' })

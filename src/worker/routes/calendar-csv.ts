@@ -174,7 +174,7 @@ calendarCsvRoutes.post('/csv/import', async (c) => {
     }
     if (created) {
       try {
-        await store.deleteCalendar(calendar.id, { mode: 'delete' })
+        await store.deleteCalendar(calendar.id, { mode: 'delete', allowLast: true })
       } catch (cleanupError) {
         rollbackErrors.push(`calendar: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`)
       }

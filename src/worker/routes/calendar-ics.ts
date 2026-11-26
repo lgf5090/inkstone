@@ -165,7 +165,7 @@ calendarIcsRoutes.post('/import', async (c) => {
     }
   } catch {
     if (created) {
-      await store.deleteCalendar(calendar.id, { mode: 'delete' }).catch((cleanupError) => {
+      await store.deleteCalendar(calendar.id, { mode: 'delete', allowLast: true }).catch((cleanupError) => {
         console.warn('[inkstone] Calendar import cleanup failed:', cleanupError instanceof Error ? cleanupError.message : cleanupError)
       })
     }

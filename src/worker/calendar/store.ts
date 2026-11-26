@@ -184,6 +184,7 @@ export interface CalendarDeleteOptions {
   mode: 'merge' | 'delete'
   targetId?: string | null
   rev?: number | null
+  allowLast?: boolean
 }
 
 interface CalendarRow {
@@ -877,7 +878,7 @@ export class CalendarStore {
       throw ApiError.conflict('The calendar changed elsewhere. Refresh and try again')
     }
     const calendars = await this.listCalendars()
-    if (calendars.length <= 1) throw ApiError.conflict('The last calendar cannot be deleted')
+    if (calendars.length <= 1 && options.allowLast !== true) throw ApiError.conflict('The last calendar cannot be deleted')
     let targetId: string | null = null
     if (options.mode === 'merge') {
       targetId = options.targetId ?? null
@@ -889,8 +890,8 @@ export class CalendarStore {
     }
     const remaining = calendars.filter((calendar) => calendar.id !== id)
     const nextDefault = source.is_default === 1
-      ? remaining[0]!.id
-      : (calendars.find((calendar) => calendar.isDefault)?.id ?? remaining[0]!.id)
+      ? remaining[0]?.id ?? null
+      : calendars.find(calendar => calendar.isDefault)?.id ?? remaining[0]?.id ?? null
     const guarded = options.rev !== null && options.rev !== undefined
     const revision = options.rev ?? 0
     const revisionGuard = guarded
@@ -976,6 +977,7 @@ export class CalendarStore {
     statements.push(this.db.prepare(
       `DELETE FROM calendar_provider_calendars WHERE user_id = ?1 AND local_calendar_id = ?2 ${revisionGuard}`,
     ).bind(this.userId, id, ...revisionValues))
+    const deleteIndex = statements.length
     statements.push(guarded
       ? this.db.prepare(
         `DELETE FROM calendar_calendars WHERE user_id = ?1 AND id = ?2 AND rev = ?3`,
@@ -983,13 +985,15 @@ export class CalendarStore {
       : this.db.prepare(
         `DELETE FROM calendar_calendars WHERE user_id = ?1 AND id = ?2`,
       ).bind(this.userId, id))
-    statements.push(this.db.prepare(
-      `UPDATE calendar_calendars SET is_default = CASE WHEN id = ?2 THEN 1 ELSE 0 END
-        WHERE user_id = ?1
-          AND NOT EXISTS (SELECT 1 FROM calendar_calendars WHERE user_id = ?1 AND id = ?3)`,
-    ).bind(this.userId, nextDefault, id))
+    if (nextDefault) {
+      statements.push(this.db.prepare(
+        `UPDATE calendar_calendars SET is_default = CASE WHEN id = ?2 THEN 1 ELSE 0 END
+          WHERE user_id = ?1
+            AND NOT EXISTS (SELECT 1 FROM calendar_calendars WHERE user_id = ?1 AND id = ?3)`,
+      ).bind(this.userId, nextDefault, id))
+    }
     const outcomes = await this.db.batch(statements)
-    if (!outcomes[statements.length - 2]?.meta.changes) {
+    if (!outcomes[deleteIndex]?.meta.changes) {
       throw ApiError.conflict('The calendar changed elsewhere. Refresh and try again')
     }
   }
