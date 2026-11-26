@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { CalendarStore, type CalendarEventWriteInput, type RecurrenceChangeWrite } from '../src/worker/calendar/store'
 import { parseEventInput, parsePreferences } from '../src/worker/calendar/validation'
-import type { CalendarDto } from '../src/shared/calendar/model'
+import { MAX_EVENTS_PER_QUERY, type CalendarDto } from '../src/shared/calendar/model'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const ALICE = 'user-alice'
@@ -350,6 +350,33 @@ describe('event ranges and revisions', () => {
     expect(revision).toMatchObject({ count: 1, revSum: firstEvent.rev })
     expect((await bob.listEvents(day('2026-10-01'), day('2026-11-01'), ['shared:other:calendar'])).events)
       .toEqual([])
+  })
+
+  it('keeps ordinary range events ahead of a full page of recurrence masters', async () => {
+    const masters = Array.from({ length: MAX_EVENTS_PER_QUERY + 1 }, (_, index) => eventInput({
+      id: `old-master-${index}`,
+      title: `Old master ${index}`,
+      start: { value: '2020-01-06T09:00:00', type: 'datetime' },
+      end: { value: '2020-01-06T10:00:00', type: 'datetime' },
+      recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO',
+    }))
+    for (let index = 0; index < masters.length; index += 200) {
+      await store.createEvents(masters.slice(index, index + 200), 'create')
+    }
+    const ordinary = await store.createEvent(eventInput({ title: 'Inside ordinary window' }))
+    const page = await store.listEvents(day('2026-10-01'), day('2026-11-01'))
+    expect(page.truncated).toBe(true)
+    expect(page.events[0]?.id).toBe(ordinary.id)
+    expect(page.events.some(event => event.id === ordinary.id)).toBe(true)
+    expect(await store.eventsRevision(day('2026-10-01'), day('2026-11-01')))
+      .toMatchObject({ count: MAX_EVENTS_PER_QUERY + 2, revSum: MAX_EVENTS_PER_QUERY + 2 })
+  })
+
+  it('keeps the split revision query inside the D1 bind ceiling', async () => {
+    const strict = new CalendarStore(makeD1(sqlite, { maxBoundParameters: 100 }), ALICE)
+    const ids = Array.from({ length: 90 }, (_, index) => `calendar-${index}`)
+    expect(await strict.eventsRevision(day('2026-10-01'), day('2026-11-01'), ids))
+      .toEqual({ count: 0, revSum: 0, maxUpdatedAt: 0 })
   })
 
   it('bumps rev on update and refuses a stale revision', async () => {

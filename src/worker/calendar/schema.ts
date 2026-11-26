@@ -89,6 +89,8 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_events_range
      ON calendar_events(user_id, start_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_calendar_events_range_end
+     ON calendar_events(user_id, end_ms, start_ms) WHERE recurrence_rule IS NULL`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_events_updated
      ON calendar_events(user_id, updated_at)`,
   // The activity heatmap counts events by the day they were created; the range index is ordered by
@@ -426,6 +428,7 @@ export const CALENDAR_REQUIRED_INDEXES: readonly string[] = [
   'idx_calendar_groups_name',
   'idx_calendar_groups_order',
   'idx_calendar_events_range',
+  'idx_calendar_events_range_end',
   'idx_calendar_events_updated',
   'idx_calendar_events_recurring',
   'idx_calendar_events_batch',
