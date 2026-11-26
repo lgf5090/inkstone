@@ -48,7 +48,7 @@
 |---|---|---|---|---|
 | P2-01 | pending | F27 paginate/on-demand bundle; FTS search; indexed reminders; streaming/multipart export | 5000-card board stays within response/time/memory budgets | - |
 | P2-02 | pending | F28 lazy views; virtualize board/list/gallery; stabilize derived props | large board interaction remains responsive; bundle size reduced | - |
-| P2-03 | pending | F29 route all refreshes through one stale-response queue | delayed old response never overwrites newer local patch | - |
+| P2-03 | done | F29 route all refreshes through one stale-response queue | delayed old response never overwrites newer local patch | b46e61fdd |
 | P2-04 | done | F30 clear hidden selections; refresh today; correct dashboard in-progress KPI | no invisible batch delete; midnight correct; KPI matches definition | c3153d1a0 |
 | P2-05 | pending | F31 recent-opened semantics, unique DOM ids, keyboard order and list metadata | sidebar has no duplicate ids; list shows count/update/category | - |
 | P2-06 | pending | F32 scope subscription cache by account; revalidate public share owner/archive state | account switch cannot leak watch state; archived/private share inaccessible | - |
