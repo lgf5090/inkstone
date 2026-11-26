@@ -132,11 +132,16 @@ describe('the relation property', () => {
     expect(relationRows()).toHaveLength(0)
   })
 
-  it('clears relation edges when a card is deleted', async () => {
+  it('preserves relation edges through soft delete and restores their visibility', async () => {
     const { boardA, relationId, target } = await setup()
     const card = await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
     expect((await req('alice', 'DELETE', `/cards/${card.id}`)).status).toBe(200)
-    expect(relationRows()).toHaveLength(0)
+    expect(relationRows()).toHaveLength(1)
+    const hidden = await req('alice', 'GET', `/cards/${target.id}/relations`)
+    expect(((await hidden.json()) as { references: unknown[] }).references).toEqual([])
+    expect((await req('alice', 'POST', `/cards/${card.id}/undelete`)).status).toBe(200)
+    const restored = await req('alice', 'GET', `/cards/${target.id}/relations`)
+    expect(((await restored.json()) as { references: unknown[] }).references).toHaveLength(1)
   })
 
   it('clears relation edges when the property is deleted', async () => {

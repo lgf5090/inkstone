@@ -149,6 +149,8 @@ export async function requireContent(
   const row = await getProjectContentRow(c.env.DB, contentId)
   if (!row || (!options.allowDeleted && row.delete_at !== 0)) throw ApiError.notFound('Content not found')
   const access = await requireBoard(c, row.board_id, required)
+  const card = await getProjectCardRow(c.env.DB, row.card_id)
+  if (!card || card.delete_at !== 0) throw ApiError.notFound('Content not found')
   return { ...access, content: rowToContent(row) }
 }
 
@@ -164,5 +166,7 @@ export async function requireComment(
   const row = await getProjectCommentRow(c.env.DB, commentId)
   if (!row || row.delete_at !== 0) throw ApiError.notFound('Comment not found')
   const access = await requireBoard(c, row.board_id, required)
+  const card = await getProjectCardRow(c.env.DB, row.card_id)
+  if (!card || card.delete_at !== 0) throw ApiError.notFound('Comment not found')
   return { ...access, comment: rowToComment(row) }
 }

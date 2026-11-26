@@ -141,13 +141,22 @@ export async function listRelationOptions(
   return results.map((row) => ({ id: row.id, title: row.title }))
 }
 
+export async function projectRelationBoardIds(db: D1Database, cardId: string): Promise<string[]> {
+  const { results } = await db.prepare(
+    'SELECT DISTINCT board_id FROM project_card_relations WHERE from_card_id = ?1 OR to_card_id = ?2',
+  ).bind(cardId, cardId).all<{ board_id: string }>()
+  return results.map((row) => row.board_id)
+}
+
 export async function listBackReferences(
   db: D1Database,
   toCardId: string,
   viewerId: string | undefined,
 ): Promise<ProjectRelationBackReference[]> {
   const { results } = await db.prepare(
-    'SELECT board_id, from_card_id, property_id FROM project_card_relations WHERE to_card_id = ?1 ORDER BY board_id, from_card_id, property_id',
+    `SELECT r.board_id, r.from_card_id, r.property_id FROM project_card_relations r
+     JOIN project_cards c ON c.id = r.from_card_id AND c.delete_at = 0
+     WHERE r.to_card_id = ?1 ORDER BY r.board_id, r.from_card_id, r.property_id`,
   ).bind(toCardId).all<{ board_id: string, from_card_id: string, property_id: string }>()
   const references: ProjectRelationBackReference[] = []
   for (const row of results) {

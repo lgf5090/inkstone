@@ -114,6 +114,8 @@ describe('batch patch', () => {
     })
     expect(cardResponse.status, await cardResponse.clone().text()).toBe(201)
     const card = ((await cardResponse.json()) as { card: ProjectCard }).card
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(board.id, 'bob', 'editor')
     const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, {
       cards: [{ id: card.id, patch: { values: { [pid(2)]: 'true', [pid(3)]: 'bob' } } }],
     })

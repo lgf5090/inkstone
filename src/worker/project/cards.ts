@@ -232,7 +232,6 @@ export async function softDeleteProjectCard(db: D1Database, cardId: string, user
     .prepare('UPDATE project_cards SET delete_at = ?1, modified_by = ?2, update_at = ?1 WHERE id = ?3 AND delete_at = 0')
     .bind(now, userId, cardId)
     .run()
-  await db.prepare('DELETE FROM project_card_relations WHERE from_card_id = ?1 OR to_card_id = ?1').bind(cardId).run()
 }
 
 export async function undeleteProjectCard(db: D1Database, cardId: string, userId: string, now: number): Promise<void> {

@@ -148,7 +148,6 @@ export async function batchDeleteProjectBoard(
     if (!card || card.boardId !== board.id || card.deleteAt !== 0) throw ApiError.notFound('Card not found')
     statements.push(db.prepare('UPDATE project_cards SET delete_at = ?1, modified_by = ?2, update_at = ?1 WHERE id = ?3')
       .bind(now, userId, cardId))
-    statements.push(db.prepare('DELETE FROM project_card_relations WHERE from_card_id = ?1 OR to_card_id = ?1').bind(cardId))
   }
   for (const viewId of input.viewIds) {
     const view = await getProjectView(db, viewId)

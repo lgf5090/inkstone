@@ -95,6 +95,16 @@ describe('project sprints', () => {
     expect((await detail(board.id, sprint.id)).cards).toEqual([])
   })
 
+  it('refuses to unlink a card that is not in the sprint', async () => {
+    const board = await createBoard()
+    const sprint = await createSprint(board.id)
+    const member = await createCard('alice', board.id)
+    const outsider = await createCard('alice', board.id)
+    await call('alice', 'PUT', `/boards/${board.id}/sprints/${sprint.id}/cards/${member.id}`)
+    expect((await call('alice', 'DELETE', `/boards/${board.id}/sprints/${sprint.id}/cards/${outsider.id}`)).status).toBe(404)
+    expect((await detail(board.id, sprint.id)).cards.map((card) => card.id)).toEqual([member.id])
+  })
+
   it('refuses a card or sprint from another board', async () => {
     const board = await createBoard()
     const other = await createBoard()

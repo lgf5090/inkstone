@@ -146,6 +146,7 @@ import {
   listBackReferences,
   listRelationOptions,
   projectRelationTargets,
+  projectRelationBoardIds,
   rebuildBoardRelations,
   redactHiddenRelations,
 } from './relations'
@@ -912,9 +913,15 @@ projectRoutes.put('/boards/:id/sprints/:sprintId/cards/:cardId', async (c) => {
 
 projectRoutes.delete('/boards/:id/sprints/:sprintId/cards/:cardId', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'editor')
-  const sprint = await getProjectSprint(c.env.DB, board.id, c.req.param('sprintId'))
+  const sprintId = c.req.param('sprintId')
+  const sprint = await getProjectSprint(c.env.DB, board.id, sprintId)
   if (!sprint) throw ApiError.notFound('Sprint not found')
-  await setCardSprint(c.env.DB, board.id, c.req.param('cardId'), null, Date.now())
+  const cardId = c.req.param('cardId')
+  const edge = await c.env.DB.prepare(
+    'SELECT 1 FROM project_sprint_cards WHERE board_id = ?1 AND sprint_id = ?2 AND card_id = ?3',
+  ).bind(board.id, sprintId, cardId).first()
+  if (!edge) throw ApiError.notFound('Card is not in this sprint')
+  await setCardSprint(c.env.DB, board.id, cardId, null, Date.now())
   return c.json({ ok: true })
 })
 
@@ -1043,7 +1050,10 @@ projectRoutes.post('/cards/:id/undelete', async (c) => {
   const { card, board, userId, role } = await requireCard(c, c.req.param('id'), 'editor', { allowDeleted: true })
   const now = Date.now()
   await undeleteProjectCard(c.env.DB, card.id, userId, now)
-  await rebuildBoardRelations(c.env.DB, board.id, await readBoardProperties(c.env.DB, board.id), now)
+  const relatedBoardIds = new Set([board.id, ...await projectRelationBoardIds(c.env.DB, card.id)])
+  for (const relatedBoardId of relatedBoardIds) {
+    await rebuildBoardRelations(c.env.DB, relatedBoardId, await readBoardProperties(c.env.DB, relatedBoardId), now)
+  }
   const restored = await getProjectCard(c.env.DB, card.id)
   const properties = await readBoardProperties(c.env.DB, board.id)
   return c.json({ card: projectCardForRole(restored!, properties, role) })

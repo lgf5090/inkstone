@@ -119,6 +119,19 @@ describe('content blocks', () => {
     expect(cardOrder(card.id)).toEqual([b.id, a.id])
   })
 
+  it('hides content and comments when their parent card is soft-deleted', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id)
+    const block = await createContent('alice', card.id, { type: 'text', title: 'Body' })
+    const posted = await req('alice', 'POST', `/cards/${card.id}/comments`, { body: 'Comment' })
+    const comment = ((await posted.json()) as { comment: ProjectComment }).comment
+    expect((await req('alice', 'DELETE', `/cards/${card.id}`)).status).toBe(200)
+    expect((await req('alice', 'GET', `/contents/${block.id}`)).status).toBe(404)
+    expect((await req('alice', 'PATCH', `/contents/${block.id}`, { title: 'Changed' })).status).toBe(404)
+    expect((await req('alice', 'GET', `/comments/${comment.id}`)).status).toBe(404)
+    expect((await req('alice', 'PATCH', `/comments/${comment.id}`, { body: 'Changed' })).status).toBe(404)
+  })
+
   it('patches a block title and fields', async () => {
     const board = await createBoard('alice')
     const card = await createCard('alice', board.id)
