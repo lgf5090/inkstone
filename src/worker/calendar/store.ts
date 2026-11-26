@@ -816,22 +816,32 @@ export class CalendarStore {
     const nextDefault = source.is_default === 1
       ? remaining[0]!.id
       : (calendars.find((calendar) => calendar.isDefault)?.id ?? remaining[0]!.id)
+    const guarded = options.rev !== null && options.rev !== undefined
+    const revision = options.rev ?? 0
+    const revisionGuard = guarded
+      ? 'AND EXISTS (SELECT 1 FROM calendar_calendars c WHERE c.user_id = ?1 AND c.id = ?2 AND c.rev = ?3)'
+      : ''
+    const revisionValues = guarded ? [revision] : []
     const statements: D1PreparedStatement[] = []
     if (options.mode === 'merge') {
+      const mergeGuard = guarded
+        ? 'AND EXISTS (SELECT 1 FROM calendar_calendars c WHERE c.user_id = ?1 AND c.id = ?2 AND c.rev = ?4)'
+        : ''
       statements.push(this.db.prepare(
         `INSERT OR IGNORE INTO calendar_event_calendars (user_id, event_id, calendar_id, position)
          SELECT user_id, event_id, ?3, position
            FROM calendar_event_calendars
-          WHERE user_id = ?1 AND calendar_id = ?2`,
-      ).bind(this.userId, id, targetId))
+          WHERE user_id = ?1 AND calendar_id = ?2 ${mergeGuard}`,
+      ).bind(this.userId, id, targetId, ...revisionValues))
       statements.push(this.db.prepare(
-        `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2`,
-      ).bind(this.userId, id))
+        `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2 ${mergeGuard}`,
+      ).bind(this.userId, id, ...revisionValues))
     } else {
       // The events this delete really removes: the ones that live in no other calendar. Every statement
       // below reads the same set, so a file cannot be reclaimed while an event that survives still shows it.
       const doomedEvents = `SELECT ec.event_id FROM calendar_event_calendars ec
              WHERE ec.user_id = ?1 AND ec.calendar_id = ?2
+               ${revisionGuard}
                AND NOT EXISTS (
                  SELECT 1 FROM calendar_event_calendars other
                   WHERE other.user_id = ?1 AND other.event_id = ec.event_id AND other.calendar_id <> ?2
@@ -840,56 +850,57 @@ export class CalendarStore {
       // links, and only then the events themselves.
       statements.push(this.db.prepare(
         `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
-         SELECT ${attachmentCleanupTargetSql('a.storage', 'a.object_key')}, ?1, ?3
+         SELECT ${attachmentCleanupTargetSql('a.storage', 'a.object_key')}, ?1, ${guarded ? '?4' : '?3'}
            FROM attachments a
            JOIN calendar_event_attachments l ON l.user_id = a.user_id AND l.attachment_id = a.id
           WHERE a.user_id = ?1 AND a.object_key IS NOT NULL AND a.scope = 'calendar'
             AND l.event_id IN (${doomedEvents})`,
-      ).bind(this.userId, id, Date.now()))
+      ).bind(this.userId, id, ...revisionValues, Date.now()))
       statements.push(this.db.prepare(
         `DELETE FROM attachments
           WHERE user_id = ?1 AND scope = 'calendar' AND id IN (
             SELECT l.attachment_id FROM calendar_event_attachments l WHERE l.user_id = ?1 AND l.event_id IN (${doomedEvents})
           )`,
-      ).bind(this.userId, id))
+      ).bind(this.userId, id, ...revisionValues))
       statements.push(this.db.prepare(
         `DELETE FROM calendar_event_attachments WHERE user_id = ?1 AND event_id IN (${doomedEvents})`,
-      ).bind(this.userId, id))
+      ).bind(this.userId, id, ...revisionValues))
       statements.push(this.db.prepare(
         `DELETE FROM calendar_events
           WHERE user_id = ?1 AND id IN (${doomedEvents})`,
-      ).bind(this.userId, id))
+      ).bind(this.userId, id, ...revisionValues))
       statements.push(this.db.prepare(
         `DELETE FROM calendar_event_attendees
           WHERE user_id = ?1 AND event_id IN (${doomedEvents})`,
-      ).bind(this.userId, id))
+      ).bind(this.userId, id, ...revisionValues))
       statements.push(this.db.prepare(
         `DELETE FROM calendar_event_reminders
           WHERE user_id = ?1 AND event_id IN (${doomedEvents})`,
-      ).bind(this.userId, id))
+      ).bind(this.userId, id, ...revisionValues))
       statements.push(this.db.prepare(
-        `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2`,
-      ).bind(this.userId, id))
+        `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+      ).bind(this.userId, id, ...revisionValues))
     }
     statements.push(this.db.prepare(
-      `DELETE FROM calendar_subscriptions WHERE user_id = ?1 AND calendar_id = ?2`,
-    ).bind(this.userId, id))
+      `DELETE FROM calendar_subscriptions WHERE user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
     // A published link to a calendar that no longer exists must stop answering in the same statement
     // batch, so the delete cannot leave a public address behind.
     statements.push(this.db.prepare(
-      `DELETE FROM calendar_shares WHERE user_id = ?1 AND calendar_id = ?2`,
-    ).bind(this.userId, id))
-    const guarded = options.rev !== null && options.rev !== undefined
+      `DELETE FROM calendar_shares WHERE user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
     statements.push(guarded
       ? this.db.prepare(
         `DELETE FROM calendar_calendars WHERE user_id = ?1 AND id = ?2 AND rev = ?3`,
-      ).bind(this.userId, id, options.rev)
+      ).bind(this.userId, id, revision)
       : this.db.prepare(
         `DELETE FROM calendar_calendars WHERE user_id = ?1 AND id = ?2`,
       ).bind(this.userId, id))
     statements.push(this.db.prepare(
-      `UPDATE calendar_calendars SET is_default = CASE WHEN id = ?2 THEN 1 ELSE 0 END WHERE user_id = ?1`,
-    ).bind(this.userId, nextDefault))
+      `UPDATE calendar_calendars SET is_default = CASE WHEN id = ?2 THEN 1 ELSE 0 END
+        WHERE user_id = ?1
+          AND NOT EXISTS (SELECT 1 FROM calendar_calendars WHERE user_id = ?1 AND id = ?3)`,
+    ).bind(this.userId, nextDefault, id))
     const outcomes = await this.db.batch(statements)
     if (!outcomes[statements.length - 2]?.meta.changes) {
       throw ApiError.conflict('The calendar changed elsewhere. Refresh and try again')

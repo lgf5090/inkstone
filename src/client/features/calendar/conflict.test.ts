@@ -128,7 +128,7 @@ describe('conflictFields', () => {
 describe('mergeConflict', () => {
   it('starts from the server copy and swaps only the picked parts', () => {
     const theirs = value({ title: 'Standup moved', description: 'Server note', ...moved })
-    const merged = mergeConflict(inputOf(value()), theirs, { title: 'mine', time: 'mine' })
+    const merged = mergeConflict(inputOf(value()), theirs, { title: 'mine', time: 'mine', description: 'theirs' })
 
     expect(merged.title).toBe('Standup')
     expect(merged.start).toEqual(value().start)
@@ -146,7 +146,7 @@ describe('mergeConflict', () => {
       caldav: { href: '/c/1.ics' },
     })
     expect(mergeConflict(mine, theirs, {}).meta).toEqual({
-      location: 'Room 9',
+      location: 'Room 2',
       caldav: { href: '/c/1.ics' },
     })
   })
@@ -155,7 +155,7 @@ describe('mergeConflict', () => {
     const mine = inputOf(value(allDay))
 
     expect(mergeConflict(mine, value(), { time: 'mine' }).allDay).toBe(true)
-    expect(mergeConflict(mine, value(), {}).allDay).toBe(false)
+    expect(mergeConflict(mine, value(), {}).allDay).toBe(true)
   })
 
   it('pairs the calendar list with a primary calendar that is in it', () => {
@@ -182,6 +182,6 @@ describe('mergeConflict', () => {
 
     expect(conflictFields(mine, theirs, view).filter((entry) => entry.differs).map((entry) => entry.key))
       .toEqual(['title', 'description'])
-    expect(mergeConflict(mine, theirs, {}).description).toBe(value().description)
+    expect(mergeConflict(mine, theirs, {}).description).toBe('Mine only')
   })
 })

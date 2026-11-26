@@ -313,7 +313,7 @@ export const EN_US_CALENDAR = {
   'calendar.settings.reminder_minutes': '{minutes} minutes before',
   'calendar.settings.reminder_day': '1 day before',
   'calendar.settings.working_hours': 'Working hours',
-  'calendar.settings.working_hours_hint': 'Day and week views show only these hours',
+  'calendar.settings.working_hours_hint': 'Shade these hours in day and week views; all events stay visible',
   'calendar.settings.working_hours_range': 'Working hours range',
   'calendar.settings.working_hours_start': 'First visible hour',
   'calendar.settings.working_hours_end': 'Last visible hour',

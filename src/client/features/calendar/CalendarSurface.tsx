@@ -97,7 +97,7 @@ import {
   MONTH_EVENT_HEIGHT,
   RANGE_PADDING_DAYS,
   eventCalendarIds,
-  hourWindow,
+  FULL_DAY_HOURS,
   isRecurrenceOccurrence,
   missingRangeEventIds,
   toCalendarType,
@@ -169,9 +169,6 @@ function toViews(
 ): CalendarView[] {
   const secondary = preferences.secondaryTimeZone ?? undefined
   const weekStart = preferences.weekStart
-  // Working hours are the ruler the timed views open with; off means the whole day stays on show.
-  // A crop that cannot fill the viewport is dropped for the whole day instead of leaving empty bands.
-  const hours = hourWindow(preferences, typeof window === 'undefined' ? 0 : window.innerHeight) ?? {}
   return [
     createDayView({
       hourHeight: preferences.dayHourHeight,
@@ -183,7 +180,7 @@ function toViews(
       showEventDots: preferences.showEventDots,
       // The runtime day view reads this callback even though its declaration omits it.
       gridDateDoubleClick: onGridDoubleClick,
-      ...hours,
+      ...FULL_DAY_HOURS,
     } as Parameters<typeof createDayView>[0] & { gridDateDoubleClick: (date: Date) => void }),
     createWeekView({
       hourHeight: preferences.dayHourHeight,
@@ -195,7 +192,7 @@ function toViews(
       secondaryTimeZone: secondary,
       showEventDots: preferences.showEventDots,
       gridDateDoubleClick: onGridDoubleClick,
-      ...hours,
+      ...FULL_DAY_HOURS,
     }),
     createMonthView({
       startOfWeek: weekStart,
@@ -346,11 +343,6 @@ function buildConfig(input: {
     onCalendarUpdate: calendar => actions.current.onCalendarUpdate?.(calendar),
     onCalendarDelete: calendarId => actions.current.onCalendarDelete?.(calendarId),
     onCalendarReorder: (from, to) => actions.current.onCalendarReorder?.(from, to),
-    onEventDoubleClick: event => {
-      if (!isRecurrenceOccurrence(event)) return undefined
-      useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' })
-      return false
-    },
   }
   return {
     views: toViews(preferences, date => actions.current.onGridDoubleClick?.(date)),
@@ -373,10 +365,6 @@ function buildConfig(input: {
           },
           delete: async (app, event) => {
             if (!event) return
-            if (isRecurrenceOccurrence(event)) {
-              useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' })
-              return
-            }
             const calendarIds = eventCalendarIds(event)
             if (calendarIds.length > 0 && !calendarIds.some(id => app.canMutateFromUI(id))) {
               useUi.getState().toast({ title: t('calendar.event.delete_read_only'), tone: 'warning' })
@@ -857,12 +845,18 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       locale: appLocale,
       weekStart: meta.preferences.weekStart,
       detailTrigger: meta.preferences.eventDetailTrigger,
+      timeFormat: meta.preferences.timeFormat,
+      workingHours: meta.preferences.workingHours,
       addLabel: t('calendar.event.new'),
       untitledLabel: t('calendar.event.untitled'),
       allDayLabel: t('calendar.event.all_day'),
       interceptEvents: wide,
       onAdd: () => setQuickAddOpen(true),
-      onRecurring: () => useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' }),
+      onRecurring: id => {
+        app.selectEvent(id)
+        app.highlightEvent(id)
+        app.onEventDetailToggle(id)
+      },
       onSelect: id => {
         const event = app.getEvents().find(item => item.id === id)
         setExtrasReadOnly(event ? eventCalendarIds(event).some(calendarId => !app.canMutateFromUI(calendarId)) : false)
@@ -872,7 +866,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       },
       onOpenDetail: id => app.onEventDetailToggle(id),
     })
-  }, [app, appLocale, meta.preferences.weekStart, meta.preferences.eventDetailTrigger, wide])
+  }, [app, appLocale, meta.preferences.weekStart, meta.preferences.eventDetailTrigger, meta.preferences.timeFormat, meta.preferences.workingHours, wide])
 
   /**
    * The almanac line inside the month cells.
@@ -1394,29 +1388,6 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       eventDetailTrigger: meta.preferences.eventDetailTrigger,
     })
   }, [app, meta.preferences, preferencesSignature])
-
-  /**
-   * Crossing a viewport height can change whether working hours fill the grid, and the view list
-   * carries that decision. Only a meaningful height change rebuilds it, debounced so a window drag
-   * does not reinstall five views on every pixel.
-   */
-  useEffect(() => {
-    let timer: number | undefined
-    let lastHeight = window.innerHeight
-    const onResize = (): void => {
-      if (Math.abs(window.innerHeight - lastHeight) < 80) return
-      lastHeight = window.innerHeight
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        app.updateConfig({ views: toViews(preferencesRef.current, date => actions.current.onGridDoubleClick?.(date)) })
-      }, 180)
-    }
-    window.addEventListener('resize', onResize)
-    return () => {
-      window.clearTimeout(timer)
-      window.removeEventListener('resize', onResize)
-    }
-  }, [app])
 
   useEffect(() => app.subscribe(() => {
     const view = app.getCurrentView().type

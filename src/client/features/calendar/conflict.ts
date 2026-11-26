@@ -245,7 +245,7 @@ export function mergeConflict(
 ): CalendarEventInput {
   const serverCopy = fromDto(theirs)
   const side = (key: ConflictFieldKey): CalendarEventInput =>
-    picks[key] === 'mine' ? mine : serverCopy
+    picks[key] === 'theirs' ? serverCopy : mine
   const meta: Record<string, unknown> = { ...serverCopy.meta }
   const merged: CalendarEventInput = { ...serverCopy, meta }
 

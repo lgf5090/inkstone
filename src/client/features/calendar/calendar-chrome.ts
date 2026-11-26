@@ -11,6 +11,7 @@
  * attributes and text it does not read, so the mirror cannot fight its render.
  */
 import { getCalendarColorsForHex, type ICalendarApp } from '@dayflow/react'
+import type { CalendarWorkingHours } from '@shared/calendar/model'
 import { narrowWeekdayLabel, narrowWeekdayLabels, type WeekStartDay } from '../../lib/time'
 
 const EVENT_SELECTOR = '.df-event'
@@ -25,13 +26,15 @@ export interface CalendarChromeOptions {
   weekStart: number
   /** The gesture that opens the library's editor. */
   detailTrigger: 'click' | 'dbClick'
+  timeFormat?: '12h' | '24h'
+  workingHours?: CalendarWorkingHours
   addLabel: string
   untitledLabel: string
   allDayLabel: string
   /** Desktop only: on a touch layout the library's sheet is the right editor. */
   interceptEvents: boolean
   onAdd: () => void
-  onRecurring: () => void
+  onRecurring: (id: string) => void
   /** The reader pointed at this event; the surface owns the extras card and its dismissed state. */
   onSelect: (id: string) => void
   onOpenDetail: (id: string) => void
@@ -146,9 +149,29 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
     })
   }
 
+  const syncTimedGrid = (): void => {
+    const workingHours = options.workingHours ?? { enabled: false, startHour: 9, endHour: 18 }
+    const markWorking = (element: HTMLElement, index: number): void => {
+      const working = !workingHours.enabled || (index >= workingHours.startHour && index < workingHours.endHour)
+      if (element.dataset.inkstoneWorking !== String(working)) element.dataset.inkstoneWorking = String(working)
+    }
+    options.root.querySelectorAll<HTMLElement>('.df-time-grid-row').forEach(markWorking)
+    options.root.querySelectorAll<HTMLElement>('.df-time-slot').forEach(markWorking)
+    if (options.timeFormat !== '24h') return
+    options.root.querySelectorAll<HTMLElement>(
+      '.df-week-time-grid-boundary-tail .df-time-label, '
+      + '.df-week-time-grid-boundary-tail .df-time-column-tz-value:last-child, '
+      + '.df-day-content-bottom .df-midnight-label, '
+      + '.df-day-content-bottom-tz-row span:last-child',
+    ).forEach(element => {
+      if (element.textContent !== '24:00') element.textContent = '24:00'
+    })
+  }
+
   const decorate = (): void => {
     if (disposed) return
     syncCompactHeader()
+    syncTimedGrid()
     const header = options.root.querySelector<HTMLElement>('.df-compact-header')
     if (header?.dataset.inkstoneRolling !== '1') {
       const labels = narrowWeekdayLabels(options.locale, options.weekStart as WeekStartDay)
@@ -220,7 +243,7 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
     nativeEvent.preventDefault()
     nativeEvent.stopImmediatePropagation()
     if (id.includes(REPEAT_MARKER)) {
-      options.onRecurring()
+      options.onRecurring(id)
       return
     }
     options.app.selectEvent(id)
@@ -251,7 +274,7 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
       nativeEvent.preventDefault()
       nativeEvent.stopImmediatePropagation()
       if (id.includes(REPEAT_MARKER)) {
-        options.onRecurring()
+        options.onRecurring(id)
         return
       }
       options.app.selectEvent(id)

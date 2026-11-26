@@ -315,7 +315,7 @@ export const ZH_CN_CALENDAR = {
   'calendar.settings.reminder_minutes': '提前 {minutes} 分钟',
   'calendar.settings.reminder_day': '提前 1 天',
   'calendar.settings.working_hours': '工作时段',
-  'calendar.settings.working_hours_hint': '日视图与周视图只显示这段时间',
+  'calendar.settings.working_hours_hint': '在日视图与周视图中高亮这段时间，所有事件仍保持可见',
   'calendar.settings.working_hours_range': '工作时段范围',
   'calendar.settings.working_hours_start': '开始时间',
   'calendar.settings.working_hours_end': '结束时间',

@@ -69,11 +69,9 @@
   z-index: var(--z-pop);
 }
 
-/* Occurrences are a rendered view of a series, never rows of their own: every interaction is refused,
- * so make that visible by keeping the pointer off them instead of letting a click open a dead panel. */
-.inkstone-calendar .df-event[data-event-id*="::repeat-"],
-.inkstone-calendar .df-event[id*="::repeat-"] {
-  pointer-events: none;
+.inkstone-calendar .df-time-grid-row[data-inkstone-working="false"],
+.inkstone-calendar .df-time-slot[data-inkstone-working="false"] {
+  background-color: color-mix(in oklab, var(--bg-sunken) 72%, transparent);
 }
 
 /* The library's event blocks are divs; calendar-chrome gives them a keyboard stop, so the shell's

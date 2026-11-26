@@ -300,7 +300,7 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
                   }}
                 >
                   {HOURS_END.map(hour => (
-                    <option key={hour} value={hour}>{t('calendar.settings.hour', { hour: hour % 24 })}</option>
+                    <option key={hour} value={hour}>{t('calendar.settings.hour', { hour })}</option>
                   ))}
                 </Select>
               </div>

@@ -71,7 +71,7 @@ export function CalendarConnections({ open, onClose, connections, onChanged }: C
       setError(t('calendar.connections.credentials_required'))
       return
     }
-    if (preset === 'custom' && !serverUrl.trim()) {
+    if (preset !== 'icloud' && !serverUrl.trim()) {
       setError(t('calendar.connections.server_required'))
       return
     }
@@ -80,7 +80,7 @@ export function CalendarConnections({ open, onClose, connections, onChanged }: C
     try {
       await api.createCalDavConnection({
         preset,
-        ...(preset === 'custom' ? { serverUrl: serverUrl.trim() } : {}),
+        serverUrl: serverUrl.trim(),
         username: username.trim(),
         password,
         ...(label.trim() ? { label: label.trim() } : {}),
@@ -188,7 +188,7 @@ export function CalendarConnections({ open, onClose, connections, onChanged }: C
               />
             </Field>
           </div>
-          {preset === 'custom' && (
+          {preset !== 'icloud' && (
             <Field label={t('calendar.connections.server')} hint={t('calendar.connections.server_hint')}>
               <Input
                 type="url"

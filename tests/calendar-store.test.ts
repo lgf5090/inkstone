@@ -106,6 +106,28 @@ describe('calendar CRUD', () => {
     expect(await store.listCalendars()).toHaveLength(1)
   })
 
+  it('leaves events and the default flag untouched when the revision changes before deletion', async () => {
+    const work = await store.createCalendar({ name: 'Work', isDefault: true })
+    const event = await store.createEvent(eventInput({ calendarId: work.id }))
+    const batch = db.batch.bind(db)
+    const mutableDb = db as unknown as { batch: typeof db.batch }
+    let changed = false
+    mutableDb.batch = async (statements) => {
+      if (!changed) {
+        changed = true
+        sqlite.prepare('UPDATE calendar_calendars SET rev = rev + 1 WHERE user_id = ? AND id = ?')
+          .run(ALICE, work.id)
+      }
+      return batch(statements)
+    }
+
+    await expect(store.deleteCalendar(work.id, { mode: 'delete', rev: work.rev }))
+      .rejects.toMatchObject({ status: 409 })
+    expect(await store.getEvent(event.id)).not.toBeNull()
+    expect(count('SELECT COUNT(*) AS count FROM calendar_event_calendars WHERE user_id = ? AND event_id = ?', ALICE, event.id)).toBe(1)
+    expect((await store.listCalendars()).find(entry => entry.id === work.id)?.isDefault).toBe(true)
+  })
+
   it('reorders every calendar exactly once', async () => {
     const work = await store.createCalendar({ name: 'Work' })
     const home = await store.createCalendar({ name: 'Home' })

@@ -1564,7 +1564,6 @@ const allowed = new Map([
   ["src/client/features/calendar/CalendarSurface.tsx", [
     "/**\n * The live calendar surface: DayFlow, the plugins, the native sidebar and the write queue.\n *\n * Configuration is created once, because `useCalendarApp` builds its app from the first config. Later\n * preference changes go through `app.updateConfig`, which re-installs views without rebuilding the\n * app or losing the current selection. Range loading and persistence both apply server state with\n * `source: 'remote'` and a skip set, so a refresh never echoes back as a write.\n */",
     "/** The fingerprint the app shell's first read carried; null when that answer had none. */",
-    "// Working hours are the ruler the timed views open with; off means the whole day stays on show.",
     "// A browser that refuses storage gets the expanded sidebar; the choice is a convenience.",
     "// Same as above: the sidebar still collapses for this visit.",
     "// The bridge is installed for the header's reference quick-create behavior; the default",
@@ -1619,8 +1618,6 @@ const allowed = new Map([
     "/**\n   * The almanac line inside the month cells.\n   *\n   * The month map is resolved once per render pass and cached for the months a reader actually\n   * visited, so the library's re-renders cost a lookup rather than forty-two lunar conversions.\n   * `auto` follows the language: a Han interface expects an almanac, others do not.\n   */",
     "// The library's own week number is drawn inside the first cell of every row, where it collides",
     "// with the lunar line; the reader's switch now draws a gutter column instead, in our chrome.",
-    "// A crop that cannot fill the viewport is dropped for the whole day instead of leaving empty bands.",
-    "/**\n   * Crossing a viewport height can change whether working hours fill the grid, and the view list\n   * carries that decision. Only a meaningful height change rebuilds it, debounced so a window drag\n   * does not reinstall five views on every pixel.\n   */",
   ]],
   ["src/client/features/calendar/CalendarTasksPanel.tsx", [
     "/**\n * The task events for the range the calendar has loaded, as a checklist.\n *\n * Tasks are ordinary events with `kind: 'task'`; this panel is a second view over the same rows, not\n * a second store. A checkbox writes the task field and asks the surface to refresh the range.\n */",
@@ -1726,7 +1723,6 @@ const allowed = new Map([
   ["src/client/features/calendar/calendar.css", [
     "/*\n * DayFlow component styles arrive from the library; this file only maps its `--df-*` variables onto\n * Inkstone's semantic tokens and gives the calendar the height its flex parent promises.\n *\n * The mapping lives on `:root` because DayFlow portals menus and dialogs to the body, outside the\n * calendar element but still inside the document that reads these variables.\n */",
     "/* DayFlow's menu is positioned fixed at z-index 50 from inside the calendar; raise it to the shell's\n * popover band so it clears the app frame and the sidebar drawer without outranking public dialogs. */",
-    "/* Occurrences are a rendered view of a series, never rows of their own: every interaction is refused,\n * so make that visible by keeping the pointer off them instead of letting a click open a dead panel. */",
     "/* The printed sheet. It exists only for paper: on screen it is not there at all, and in print it is\n   the only body child left, so none of the app's own layout has to be unwound to get a clean page. */",
     "/* Dark mode repaints the app with tokens; paper gets its own set so the sheet is ink on white. */",
     "/*\n * Year grids.\n *\n * DayFlow formats a day cell with `toLocaleDateString(locale, { day: 'numeric' })`, which in zh-CN\n * appends the day character (U+65E5); the fixed-week cell is about 34px wide, so the numeral and its\n * suffix broke onto two lines. The column header already names the weekday, so the cell only has to\n * keep this string on one line.\n */",
@@ -1814,10 +1810,10 @@ const allowed = new Map([
     "/** A search hit gets DayFlow's result colour, which is the owning calendar's line colour. */",
     "/** The plain date an event falls on in the account's display timezone. */",
     "/** A stored rule temporarily taken off a series that has exceptions; put back before any write. */",
-    "/**\n * The hour window the timed views should crop to, or null for the whole day.\n *\n * Cropping is a convenience rather than a rule: when the account's working hours cannot fill the\n * viewport at the chosen density, honouring them would leave wide bands of empty grid above and\n * below (and leave scroll-to-now with nothing to scroll to). The whole day wins in that case.\n */",
     "// Unlike DayFlow's other render-only fields, this is the stored rule temporarily hidden while",
     "// exceptions exist. In-memory refreshes, rollbacks and history replays must all carry it forward.",
     "/** Conference host controls and passwords must never enter localStorage snapshots or write queues. */",
+    "/** Timed views always keep the complete day; working hours never hide an event. */",
   ]],
   ["src/client/features/calendar/offline-outbox.ts", [
     "/** One pending write per event: the newest intent replaces the older one. */",
