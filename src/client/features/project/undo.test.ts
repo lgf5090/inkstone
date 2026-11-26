@@ -43,6 +43,66 @@ describe('undo/redo command stack (E-14)', () => {
     expect(stack.canUndo()).toBe(false)
   })
 
+  it('keeps a failed undo on the stack so it can be retried', async () => {
+    const stack = createUndoStack()
+    const cmd = { undo: vi.fn().mockRejectedValueOnce(new Error('failed')).mockResolvedValue(undefined), redo: vi.fn().mockResolvedValue(undefined) }
+    stack.push(cmd)
+    await expect(stack.undo()).rejects.toThrow('failed')
+    expect(stack.canUndo()).toBe(true)
+    expect(stack.canRedo()).toBe(false)
+    await expect(stack.undo()).resolves.toBe(true)
+    expect(cmd.undo).toHaveBeenCalledTimes(2)
+    expect(stack.canRedo()).toBe(true)
+  })
+
+  it('serializes repeated undo commands', async () => {
+    const stack = createUndoStack()
+    const log: string[] = []
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    stack.push({ undo: async () => { log.push('second') }, redo: async () => {} })
+    stack.push({ undo: async () => { log.push('first:start'); await gate; log.push('first:end') }, redo: async () => {} })
+    const first = stack.undo()
+    const second = stack.undo()
+    await Promise.resolve()
+    expect(log).toEqual(['first:start'])
+    release()
+    await Promise.all([first, second])
+    expect(log).toEqual(['first:start', 'first:end', 'second'])
+  })
+
+  it('does not restore an in-flight command after clear or a new push', async () => {
+    const stack = createUndoStack()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    stack.push({ undo: async () => { await gate }, redo: async () => {} })
+    const pending = stack.undo()
+    stack.clear()
+    release()
+    await expect(pending).resolves.toBe(false)
+    expect(stack.canUndo()).toBe(false)
+    expect(stack.canRedo()).toBe(false)
+  })
+
+  it('removes an executed command when a new push invalidates its in-flight undo', async () => {
+    const stack = createUndoStack()
+    let release!: () => void
+    let started!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const began = new Promise<void>((resolve) => { started = resolve })
+    const oldCommand = { undo: vi.fn(async () => { started(); await gate }), redo: vi.fn() }
+    const newCommand = command([])
+    stack.push(oldCommand)
+    const pending = stack.undo()
+    await began
+    stack.push(newCommand)
+    release()
+    await expect(pending).resolves.toBe(false)
+    await expect(stack.undo()).resolves.toBe(true)
+    expect(oldCommand.undo).toHaveBeenCalledTimes(1)
+    expect(newCommand.undo).toHaveBeenCalledTimes(1)
+  })
+
   it('honors the depth limit', async () => {
     const stack = createUndoStack(2)
     const first = command([])

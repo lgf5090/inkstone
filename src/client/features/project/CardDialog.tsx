@@ -2,14 +2,14 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Clipb
 import { Archive, AtSign, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, Repeat, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectPeople, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone, projectDonePatch, projectPersonLabel } from '@shared/project/model'
-import { moveContentOrder } from '@shared/project/content-order'
+import { moveContentOrder, type ProjectContentOrder } from '@shared/project/content-order'
 import { t, useLocale } from '../../lib/i18n'
 import { Avatar, Button, IconButton } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input, Textarea } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { confirm, Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
 import { sendForAnswerDetailed } from '../chat/editor-ai'
-import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardDetail, fetchCardLinks, listBoardFiles, moveCardContent, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, uploadBoardFile } from './api'
+import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardDetail, fetchCardLinks, listBoardFiles, moveCardContent, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, undeleteCardContent, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
 import { RecurrenceEditor } from './RecurrenceEditor'
 import { CardTimeTracker } from './CardTimeTracker'
@@ -17,6 +17,7 @@ import { useBandDrag } from './views/use-band-drag'
 import { useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
 import { useProjectWatch } from './use-watch'
+import type { UndoCommand } from './undo'
 
 interface CardDialogProps {
   card: ProjectCard
@@ -32,6 +33,8 @@ interface CardDialogProps {
   onRefresh: () => void
   onDelete: (id: string) => void
   onOpenCard?: (id: string) => void
+  onPatchCard?: (id: string, patch: Record<string, unknown>) => Promise<ProjectCard | void>
+  onCommand?: (command: UndoCommand) => void
 }
 
 function SectionHeading({ icon: Icon, label }: { icon: LucideIcon, label: string }): ReactElement {
@@ -50,7 +53,9 @@ function ArchivedFile(): ReactElement {
   )
 }
 
-export function CardDialog({ card, properties, members, people, contents, siblings, canEdit, detailTruncated, onClose, onUpdated, onRefresh, onDelete, onOpenCard }: CardDialogProps): ReactElement {
+export function CardDialog({ card, properties, members, people, contents, siblings, canEdit, detailTruncated, onClose, onUpdated, onRefresh, onDelete, onOpenCard, onPatchCard, onCommand }: CardDialogProps): ReactElement {
+  const cardRef = useRef(card)
+  cardRef.current = card
   const [title, setTitle] = useState(card.title)
   const [comments, setComments] = useState<ProjectComment[] | null>(null)
   const [commentsError, setCommentsError] = useState(false)
@@ -237,9 +242,11 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   }, [card.id, detailTruncated, detailAttempt])
 
   const patch = useCallback(async (body: Record<string, unknown>) => {
-    const updated = await patchProjectCard(card.id, body)
-    onUpdated(updated)
-  }, [card.id, onUpdated])
+    const updated = onPatchCard
+      ? await onPatchCard(card.id, body)
+      : await patchProjectCard(card.id, body)
+    if (updated) onUpdated(updated)
+  }, [card.id, onPatchCard, onUpdated])
 
   const commitTitle = () => {
     if (title !== card.title) void run(() => patch({ title }))
@@ -300,15 +307,27 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       title = entered
     }
     await run(async () => {
-      const block = await createCardContent(card.id, { type, title, fields: type === 'checkbox' ? { checked: false } : {} })
+      const input = { type, title, fields: type === 'checkbox' ? { checked: false } : {} }
+      const block = await createCardContent(card.id, input)
+      let targetId = block.id
       setBlocks((current) => [...current, block])
+      onCommand?.({
+        undo: async () => { await deleteCardContent(targetId); setBlocks((current) => current.filter((entry) => entry.id !== targetId)); onRefresh() },
+        redo: async () => { const restored = await createCardContent(card.id, input); targetId = restored.id; setBlocks((current) => [...current, restored]); onRefresh() },
+      })
     })
   }
 
   const toggleBlock = async (block: ProjectContent, checked: boolean) => {
+    const previous = block.fields
+    const next = { ...block.fields, checked }
     await run(async () => {
-      const updated = await patchCardContent(block.id, { fields: { ...block.fields, checked } })
+      const updated = await patchCardContent(block.id, { fields: next })
       setBlocks((current) => current.map((entry) => (entry.id === block.id ? updated : entry)))
+      onCommand?.({
+        undo: async () => { const restored = await patchCardContent(block.id, { fields: previous }); setBlocks((current) => current.map((entry) => (entry.id === block.id ? restored : entry))) },
+        redo: async () => { const reapplied = await patchCardContent(block.id, { fields: next }); setBlocks((current) => current.map((entry) => (entry.id === block.id ? reapplied : entry))) },
+      })
     })
   }
 
@@ -319,10 +338,15 @@ export function CardDialog({ card, properties, members, people, contents, siblin
 
   const saveBlockEdit = async (block: ProjectContent) => {
     const title = blockDraft
+    const previous = block.title
     setEditingBlockId(null)
     await run(async () => {
       const updated = await patchCardContent(block.id, { title })
       setBlocks((current) => current.map((entry) => (entry.id === block.id ? updated : entry)))
+      onCommand?.({
+        undo: async () => { const restored = await patchCardContent(block.id, { title: previous }); setBlocks((current) => current.map((entry) => (entry.id === block.id ? restored : entry))) },
+        redo: async () => { const reapplied = await patchCardContent(block.id, { title }); setBlocks((current) => current.map((entry) => (entry.id === block.id ? reapplied : entry))) },
+      })
     })
   }
 
@@ -330,17 +354,37 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     const ok = await confirm({ title: t('project.card.delete_block'), tone: 'danger', confirmLabel: t('common.delete') })
     if (!ok) return
     await run(async () => {
+      const previousOrder = cardRef.current.contentOrder
       await deleteCardContent(block.id)
       setBlocks((current) => current.filter((entry) => entry.id !== block.id))
+      onCommand?.({
+        undo: async () => {
+          await undeleteCardContent(block.id)
+          await patchProjectCard(card.id, { contentOrder: previousOrder })
+          setBlocks((current) => [...current.filter((entry) => entry.id !== block.id), block]
+            .toSorted((a, b) => previousOrder.flat().indexOf(a.id) - previousOrder.flat().indexOf(b.id)))
+          onUpdated({ ...cardRef.current, contentOrder: previousOrder })
+          onRefresh()
+        },
+        redo: async () => { await deleteCardContent(block.id); setBlocks((current) => current.filter((entry) => entry.id !== block.id)); onRefresh() },
+      })
     })
   }
   const reorderBlock = async (id: string, targetId: string, where: 'before' | 'after') => {
     await run(async () => {
       const order = moveContentOrder(card.contentOrder, id, targetId, where)
+      const previousOrder = card.contentOrder
       await moveCardContent(id, targetId, where)
-      onUpdated({ ...card, contentOrder: order })
-      const flat = order.flat()
-      setBlocks((current) => current.toSorted((a, b) => flat.indexOf(a.id) - flat.indexOf(b.id)))
+      onUpdated({ ...cardRef.current, contentOrder: order })
+      const applyOrder = (next: ProjectContentOrder): void => {
+        const flat = next.flat()
+        setBlocks((current) => current.toSorted((a, b) => flat.indexOf(a.id) - flat.indexOf(b.id)))
+        onUpdated({ ...cardRef.current, contentOrder: next })
+      }
+      onCommand?.({
+        undo: async () => { await patchProjectCard(card.id, { contentOrder: previousOrder }); applyOrder(previousOrder) },
+        redo: async () => { await patchProjectCard(card.id, { contentOrder: order }); applyOrder(order) },
+      })
     })
   }
   const blocksRef = useRef<HTMLDivElement>(null)
@@ -389,7 +433,8 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     const values = projectDonePatch(properties, checked)
     if (!values) return
     await run(async () => {
-      await patchProjectCard(subtask.id, { values })
+      if (onPatchCard) await onPatchCard(subtask.id, { values })
+      else await patchProjectCard(subtask.id, { values })
       onRefresh()
     })
   }

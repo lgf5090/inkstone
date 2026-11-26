@@ -14,6 +14,14 @@ vi.mock('./api', async (importOriginal) => ({
   ...await importOriginal<typeof import('./api')>(),
   fetchProjectBoardBundle: vi.fn(),
   patchProjectCard: vi.fn(),
+  patchProjectBoard: vi.fn(),
+  batchPatchProjectBoard: vi.fn().mockResolvedValue(undefined),
+  createProjectView: vi.fn(),
+  deleteProjectView: vi.fn().mockResolvedValue(undefined),
+  undeleteProjectView: vi.fn().mockResolvedValue(undefined),
+  deleteProjectCard: vi.fn().mockResolvedValue(undefined),
+  undeleteProjectCard: vi.fn().mockResolvedValue(undefined),
+  duplicateProjectCard: vi.fn(),
   fetchBoardLinks: vi.fn().mockResolvedValue([]),
   fetchBoardCursor: vi.fn(),
   fetchBoardActivity: vi.fn(),
@@ -100,6 +108,142 @@ describe('board read failures', () => {
     expect(dialog.querySelector('[role="alert"]')?.textContent).toContain(t('project.boards.load_failed'))
     await act(async () => { [...dialog.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
     expect(api.fetchBoardActivity).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('keyboard commands', () => {
+  it('redoes an added view by restoring the same id instead of creating a duplicate', async () => {
+    const created = { id: 'v3', boardId: BOARD_ID, title: 'Dashboard', viewType: 'dashboard' as const, fields: emptyProjectViewFields(), position: 2, ...stamps }
+    vi.mocked(api.createProjectView).mockResolvedValue(created)
+    await mount()
+    await act(async () => { view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.view.add')}"]`)!.click() })
+    await act(async () => { [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"], [role="menuitemcheckbox"]')].find((button) => button.textContent === t('project.view.dashboard'))!.click() })
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })) })
+    expect(api.deleteProjectView).toHaveBeenCalledWith('v3')
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true, bubbles: true })) })
+    expect(api.undeleteProjectView).toHaveBeenCalledWith('v3')
+    expect(api.createProjectView).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not push an old board card edit into the new board undo stack', async () => {
+    const nextBoardId = 'c'.repeat(27)
+    vi.mocked(api.fetchProjectBoardBundle).mockImplementation(async (boardId) => {
+      const next = bundle()
+      next.board.id = boardId
+      if (boardId === nextBoardId) {
+        next.board.title = 'New board'
+        next.cards = next.cards.map((card) => ({ ...card, boardId, title: 'New card' }))
+      }
+      return next
+    })
+    let resolvePatch!: (value: ProjectBoardBundle['cards'][number]) => void
+    const pending = new Promise<ProjectBoardBundle['cards'][number]>((resolve) => { resolvePatch = resolve })
+    vi.mocked(api.patchProjectCard).mockReturnValueOnce(pending)
+    await mount()
+    await act(async () => { navigateToAddress(`/project/boards/${BOARD_ID}`, 'card=c1') })
+    const title = document.body.querySelector<HTMLInputElement>(`[role="dialog"] input[aria-label="${t('project.board.title_column')}"]`)!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(title, 'Old renamed'); title.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { title.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    await act(async () => { view.rerender(createElement(BoardPage, { boardId: nextBoardId })) })
+    await act(async () => { resolvePatch({ ...bundle().cards[0]!, title: 'Old renamed' }); await pending })
+    expect(document.body.textContent).toContain('New board')
+    expect(document.body.textContent).not.toContain('Old renamed')
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })) })
+    expect(api.patchProjectCard).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a failed undo available for a second attempt', async () => {
+    const previous = bundle().cards[0]!
+    const updated = { ...previous, title: 'Renamed', updateAt: 100 }
+    vi.mocked(api.patchProjectCard).mockResolvedValueOnce(updated)
+    await mount()
+    await act(async () => { navigateToAddress(`/project/boards/${BOARD_ID}`, 'card=c1') })
+    const title = document.body.querySelector<HTMLInputElement>(`[role="dialog"] input[aria-label="${t('project.board.title_column')}"]`)!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(title, 'Renamed'); title.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { title.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    vi.mocked(api.patchProjectCard).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(previous)
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })) })
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })) })
+    expect(api.patchProjectCard).toHaveBeenCalledTimes(3)
+    expect(api.patchProjectCard).toHaveBeenLastCalledWith('c1', expect.objectContaining({ title: 'Alpha' }))
+  })
+
+  it('clears a newly added property value when undo restores a card that had none', async () => {
+    const base = bundle()
+    const previous = base.cards[0]!
+    vi.mocked(api.fetchProjectBoardBundle).mockResolvedValue({
+      ...base,
+      properties: [...base.properties, { id: 'pt', name: 'Notes', type: 'text', options: [] }],
+    })
+    const updated = { ...previous, values: { ...previous.values, pt: 'new' }, updateAt: 100 }
+    vi.mocked(api.patchProjectCard).mockResolvedValueOnce(updated)
+    await mount()
+    await act(async () => { navigateToAddress(`/project/boards/${BOARD_ID}`, 'card=c1') })
+    const notes = document.body.querySelector<HTMLInputElement>(`[role="dialog"] input[aria-label="Notes"]`)!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(notes, 'new'); notes.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { notes.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    vi.mocked(api.patchProjectCard).mockResolvedValueOnce(previous)
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })) })
+    expect(api.patchProjectCard).toHaveBeenLastCalledWith('c1', expect.objectContaining({ values: { ps: 'o1', pt: null } }))
+  })
+
+  it('undoes a newly added property by deleting it with the next property revision', async () => {
+    vi.mocked(api.patchProjectBoard).mockImplementation(async (_boardId, patch) => ({
+      board: bundle().board,
+      properties: patch.updatedCardProperties ?? [],
+      propertyRevision: 2,
+    }))
+    await mount()
+    await act(async () => { view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.props.title')}"]`)!.click() })
+    const dialog = document.body.querySelector('[role="dialog"]')!
+    const name = dialog.querySelector<HTMLInputElement>(`input[placeholder="${t('project.props.name')}"]`)!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(name, 'Priority'); name.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { [...dialog.querySelectorAll('button')].find((button) => button.textContent === t('project.props.add'))!.click() })
+    await act(async () => { [...dialog.querySelectorAll('button')].find((button) => button.textContent === t('common.save'))!.click() })
+    const firstPatch = vi.mocked(api.patchProjectBoard).mock.calls[0]![1]
+    const addedId = (firstPatch.updatedCardProperties ?? []).find((property) => property.name === 'Priority')!.id
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })) })
+    expect(api.patchProjectBoard).toHaveBeenCalledTimes(2)
+    expect(api.patchProjectBoard).toHaveBeenLastCalledWith(BOARD_ID, expect.objectContaining({
+      propertyRevision: 2,
+      deletedCardProperties: [addedId],
+      updatedCardProperties: [expect.objectContaining({ id: 'ps' })],
+    }))
+  })
+
+  it('restores deleted property values after undoing the property definition', async () => {
+    vi.mocked(api.patchProjectBoard).mockImplementation(async (_boardId, patch) => ({
+      board: bundle().board,
+      properties: patch.updatedCardProperties ?? [],
+      propertyRevision: 2,
+    }))
+    await mount()
+    await act(async () => { view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.props.title')}"]`)!.click() })
+    const dialog = document.body.querySelector('[role="dialog"]')!
+    const statusRow = [...dialog.querySelectorAll('input')].find((input) => input.getAttribute('aria-label') === t('project.props.name'))!.closest('.space-y-2')!
+    await act(async () => { statusRow.querySelector<HTMLButtonElement>(`button[aria-label="${t('common.delete')}"]`)!.click() })
+    await act(async () => { [...dialog.querySelectorAll('button')].find((button) => button.textContent === t('common.save'))!.click() })
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })) })
+    expect(api.batchPatchProjectBoard).toHaveBeenCalledWith(BOARD_ID, {
+      cards: [
+        { id: 'c1', patch: { values: { ps: 'o1' } } },
+      ],
+    })
+  })
+
+  it('does not delete from an open dialog and clears a stale card id without requesting', async () => {
+    vi.mocked(api.deleteProjectCard).mockClear()
+    await mount()
+    await act(async () => { navigateToAddress(`/project/boards/${BOARD_ID}`, 'card=c1') })
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true })) })
+    expect(api.deleteProjectCard).not.toHaveBeenCalled()
+    await act(async () => { navigateToAddress(`/project/boards/${BOARD_ID}`, 'card=missing') })
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true })) })
+    expect(api.deleteProjectCard).not.toHaveBeenCalled()
   })
 })
 

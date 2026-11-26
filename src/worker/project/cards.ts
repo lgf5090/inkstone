@@ -146,6 +146,17 @@ export function cardPatchStatements(
       statements.push(...valueStatements(db, card.id, card.boardId, { [propertyId]: value }, relationTargets, now))
     }
   }
+  if (patch.contentOrder !== undefined) {
+    let position = 0
+    for (const entry of patch.contentOrder) {
+      if (typeof entry !== 'string') continue
+      statements.push(
+        db.prepare('UPDATE project_card_contents SET position = ?1, modified_by = ?2, update_at = ?3 WHERE id = ?4 AND card_id = ?5')
+          .bind(position, userId, now, entry, card.id),
+      )
+      position += 1
+    }
+  }
   return statements
 }
 

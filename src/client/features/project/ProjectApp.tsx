@@ -42,7 +42,7 @@ export function ProjectApp(): ReactElement {
   useEffect(() => { if (sessionStatus === 'authed') migrateProjectBoardMarks() }, [sessionStatus])
   if (pathname === '/project/my-tasks') return <MyTasksPage />
   const match = /^\/project\/boards\/([^/]+)/.exec(pathname)
-  if (match) return <BoardPage boardId={decodeURIComponent(match[1]!)} />
+  if (match) return <BoardPage key={decodeURIComponent(match[1]!)} boardId={decodeURIComponent(match[1]!)} />
   return <BoardList />
 }
 

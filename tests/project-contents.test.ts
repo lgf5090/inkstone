@@ -151,6 +151,19 @@ describe('content blocks', () => {
     expect(positions.map((p) => p.position)).toEqual([0, 1, 2])
   })
 
+  it('reindexes content positions when a card patch restores a full reading order', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id)
+    const a = await createContent('alice', card.id, { type: 'text', title: 'A' })
+    const b = await createContent('alice', card.id, { type: 'text', title: 'B' })
+    const c = await createContent('alice', card.id, { type: 'text', title: 'C' })
+    const response = await req('alice', 'PATCH', `/cards/${card.id}`, { contentOrder: [c.id, a.id, b.id] })
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(cardOrder(card.id)).toEqual([c.id, a.id, b.id])
+    const positions = sqlite.prepare('SELECT id, position FROM project_card_contents WHERE card_id = ? ORDER BY position').all(card.id) as { id: string; position: number }[]
+    expect(positions).toEqual([{ id: c.id, position: 0 }, { id: a.id, position: 1 }, { id: b.id, position: 2 }])
+  })
+
   it('deletes a block out of the reading order and restores it on undelete', async () => {
     const board = await createBoard('alice')
     const card = await createCard('alice', board.id)

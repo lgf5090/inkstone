@@ -117,6 +117,7 @@ interface BoardViewsProps {
   onActiveViewChange: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onPatchCardsBatch?: (patches: { id: string, patch: Record<string, unknown> }[]) => Promise<void>
+  onDragCards?: (patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]) => Promise<void>
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
   onRenameGroupOption: (propertyId: string, optionId: string, value: string) => Promise<void>
   onSetGroupOptionColor: (propertyId: string, optionId: string, color: string) => Promise<void>
@@ -126,7 +127,7 @@ interface BoardViewsProps {
   publicView?: boolean
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onPatchCardsBatch, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onCardCreated, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onPatchCardsBatch, onDragCards, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onCardCreated, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
   const userPickedView = useRef(false)
   const defaultViewQueue = useRef<Promise<unknown>>(Promise.resolve())
@@ -337,6 +338,10 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const dragCards = useEvent(async (patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]): Promise<void> => {
     if (!active) return
     try {
+      if (onDragCards) {
+        await onDragCards(patches, cardOrder)
+        return
+      }
       await batchPatchProjectBoard(bundle.board.id, {
         cards: patches,
         views: [{ id: active.id, patch: { fields: { cardOrder } } }],

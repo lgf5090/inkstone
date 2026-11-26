@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { ArrowLeft, Bell, FileDown, History, PanelLeft, Plus, Settings2, Share2, Sparkles, SquareKanban, Trash2, Users } from 'lucide-react'
-import type { ProjectActivityEntry, ProjectBoardBundle, ProjectProperty, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
+import type { ProjectActivityEntry, ProjectBoardBundle, ProjectCard, ProjectProperty, ProjectView, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { projectRoleAtLeast, emptyProjectViewFields } from '@shared/project/model'
 import { projectFilterPrefill } from '@shared/project/view-eval'
 import { buildProjectAssistantFacts } from '@shared/project/assistant-context'
@@ -18,9 +18,9 @@ import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Modal } from '../../components/overlay'
-import { batchPatchProjectBoard, createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchBoardCursor, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard } from './api'
+import { batchPatchProjectBoard, createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchBoardCursor, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard, undeleteProjectView } from './api'
 import { createUndoStack } from './undo'
-import { newProjectId } from '@shared/project/limits'
+import { newProjectId, PROJECT_LIMITS } from '@shared/project/limits'
 import type { SkinTone } from '@shared/types'
 import { EmojiPicker } from '../emoji/EmojiPicker'
 import { randomProjectIcon, readRandomIconPref } from './project-icon'
@@ -48,6 +48,26 @@ const ACTIVITY_VERB: Record<string, Parameters<typeof t>[0]> = {
   reminder: 'project.dashboard.act_reminder',
 }
 
+function viewPatchSnapshot(view: ProjectView): ProjectViewPatch {
+  return { title: view.title, viewType: view.viewType, fields: view.fields, position: view.position }
+}
+
+function cardPatchSnapshot(card: ProjectCard, valuePatch?: Record<string, unknown>): Record<string, unknown> {
+  const values: Record<string, string | null> = { ...card.values }
+  const touched = valuePatch?.values
+  if (touched && typeof touched === 'object') {
+    for (const propertyId of Object.keys(touched)) if (!(propertyId in values)) values[propertyId] = null
+  }
+  return {
+    title: card.title,
+    values,
+    icon: card.icon,
+    parentId: card.parentId,
+    contentOrder: card.contentOrder,
+    recurrence: card.recurrence ?? null,
+  }
+}
+
 export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const search = useSearch()
   const [bundle, setBundle] = useState<ProjectBoardBundle | null>(null)
@@ -64,6 +84,12 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [undoStack] = useState(() => createUndoStack())
   const refreshBoard = useRef(boardId)
   refreshBoard.current = boardId
+  const renderedBoard = useRef(boardId)
+  const boardEpoch = useRef(0)
+  if (renderedBoard.current !== boardId) {
+    renderedBoard.current = boardId
+    boardEpoch.current += 1
+  }
   const loadGeneration = useRef(0)
   const activityBoard = useRef(boardId)
   activityBoard.current = boardId
@@ -230,17 +256,23 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     }
   }, [boardId, refresh])
 
+  const refreshAfterCommand = useCallback(() => refresh().catch((reason: unknown) => {
+    useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
+  }), [refresh])
+
   const addCard = useCallback(async () => {
     const trimmed = title.trim()
     if (!trimmed || busy || !bundle) return
     setBusy(true)
+    const epoch = boardEpoch.current
     try {
       const values = projectFilterPrefill(bundle.views.find((view) => view.id === activeViewId)?.fields.filter)
       const card = await createProjectCard(boardId, readRandomIconPref() ? { title: trimmed, values, icon: await randomProjectIcon() } : { title: trimmed, values })
+      if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
       setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, card.createAt), cards: [...current.cards, card] } : current)
       undoStack.push({
-        undo: async () => { await deleteProjectCard(card.id); await refresh() },
-        redo: async () => { await undeleteProjectCard(card.id); await refresh() },
+        undo: async () => { await deleteProjectCard(card.id); await refreshAfterCommand() },
+        redo: async () => { await undeleteProjectCard(card.id); await refreshAfterCommand() },
       })
       setTitle('')
     } catch (reason) {
@@ -248,34 +280,40 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     } finally {
       setBusy(false)
     }
-  }, [title, busy, bundle, boardId, activeViewId])
+  }, [title, busy, bundle, boardId, activeViewId, refreshAfterCommand])
 
   const removeCard = useCallback(async (cardId: string) => {
     const ok = await confirm({ title: t('project.board.delete_card'), tone: 'danger', confirmLabel: t('project.boards.delete_confirm') })
     if (!ok) return
+    const epoch = boardEpoch.current
     await deleteProjectCard(cardId)
+    if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
     setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, Date.now()), cards: current.cards.filter((card) => card.id !== cardId) } : current)
     undoStack.push({
-      undo: async () => { await undeleteProjectCard(cardId); await refresh() },
-      redo: async () => { await deleteProjectCard(cardId); await refresh() },
+      undo: async () => { await undeleteProjectCard(cardId); await refreshAfterCommand() },
+      redo: async () => { await deleteProjectCard(cardId); await refreshAfterCommand() },
     })
-  }, [undoStack, refresh])
+  }, [boardId, undoStack, refreshAfterCommand])
 
   const patchCard = useCallback(async (id: string, patch: Record<string, unknown>) => {
     const previous = bundle?.cards.find((card) => card.id === id)
+    const epoch = boardEpoch.current
     const updated = await patchProjectCard(id, patch)
+    if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
     setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, updated.updateAt), cards: current.cards.map((card) => (card.id === id ? updated : card)) } : current)
     if (previous) {
       undoStack.push({
-        undo: async () => { await patchProjectCard(id, { title: previous.title, values: previous.values, icon: previous.icon, parentId: previous.parentId, contentOrder: previous.contentOrder, recurrence: previous.recurrence ?? null }); await refresh() },
-        redo: async () => { await patchProjectCard(id, patch); await refresh() },
+        undo: async () => { await patchProjectCard(id, cardPatchSnapshot(previous, patch)); await refreshAfterCommand() },
+        redo: async () => { await patchProjectCard(id, patch); await refreshAfterCommand() },
       })
     }
-  }, [bundle, undoStack, refresh])
+  }, [bundle, boardId, undoStack, refreshAfterCommand])
 
   const patchCardsBatch = useCallback(async (patches: { id: string, patch: Record<string, unknown> }[]): Promise<void> => {
     const previous = bundle?.cards.filter((card) => patches.some((entry) => entry.id === card.id)) ?? []
+    const epoch = boardEpoch.current
     await batchPatchProjectBoard(boardId, { cards: patches })
+    if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
     setBundle((current) => current ? {
       ...current,
       cursor: Math.max(current.cursor, Date.now()),
@@ -293,25 +331,98 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     if (previous.length) {
       undoStack.push({
         undo: async () => {
-          await batchPatchProjectBoard(boardId, { cards: previous.map((card) => ({ id: card.id, patch: { values: { ...card.values } } })) })
-          await refresh()
+          await batchPatchProjectBoard(boardId, { cards: previous.map((card) => ({
+            id: card.id,
+            patch: cardPatchSnapshot(card, patches.find((entry) => entry.id === card.id)?.patch),
+          })) })
+          await refreshAfterCommand()
         },
         redo: async () => {
           await batchPatchProjectBoard(boardId, { cards: patches })
-          await refresh()
+          await refreshAfterCommand()
         },
       })
     }
-  }, [bundle, boardId, undoStack, refresh])
+  }, [bundle, boardId, undoStack, refreshAfterCommand])
+
+  const dragCards = useCallback(async (patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]) => {
+    if (!bundle || !activeViewId) return
+    const view = bundle.views.find((entry) => entry.id === activeViewId)
+    if (!view) return
+    const previous = bundle.cards.filter((card) => patches.some((entry) => entry.id === card.id))
+    const epoch = boardEpoch.current
+    await batchPatchProjectBoard(boardId, {
+      cards: patches,
+      views: [{ id: view.id, patch: { fields: { cardOrder } } }],
+    })
+    if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
+    undoStack.push({
+      undo: async () => {
+        await batchPatchProjectBoard(boardId, {
+          cards: previous.map((card) => ({
+            id: card.id,
+            patch: cardPatchSnapshot(card, patches.find((entry) => entry.id === card.id)?.patch),
+          })),
+          views: [{ id: view.id, patch: { fields: { cardOrder: view.fields.cardOrder } } }],
+        })
+        await refreshAfterCommand()
+      },
+      redo: async () => {
+        await batchPatchProjectBoard(boardId, {
+          cards: patches,
+          views: [{ id: view.id, patch: { fields: { cardOrder } } }],
+        })
+        await refreshAfterCommand()
+      },
+    })
+    await refreshAfterCommand()
+  }, [bundle, boardId, activeViewId, undoStack, refreshAfterCommand])
+
+  const applyProperties = useCallback(async (properties: ProjectProperty[], deletedIds: string[] = []) => {
+    if (!bundle) return
+    const previous = bundle.properties
+    const epoch = boardEpoch.current
+    const nextIds = new Set(properties.map((property) => property.id))
+    const removedIds = [...new Set([
+      ...previous.filter((property) => !nextIds.has(property.id)).map((property) => property.id),
+      ...deletedIds,
+    ])]
+    const deletedValuePatches = removedIds.length
+      ? bundle.cards.flatMap((card) => {
+          const values = Object.fromEntries(removedIds.flatMap((id) => id in card.values ? [[id, card.values[id]!] as const] : []))
+          return Object.keys(values).length ? [{ id: card.id, patch: { values } }] : []
+        })
+      : []
+    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, deletedCardProperties: removedIds, propertyRevision: bundle.propertyRevision })
+    if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, result.propertyRevision), properties: result.properties, propertyRevision: result.propertyRevision } : current)
+    let revision = result.propertyRevision
+    const previousIds = new Set(previous.map((property) => property.id))
+    const undoDeletedIds = result.properties.filter((property) => !previousIds.has(property.id)).map((property) => property.id)
+    undoStack.push({
+      undo: async () => {
+        const restored = await patchProjectBoard(boardId, { updatedCardProperties: previous, deletedCardProperties: undoDeletedIds, propertyRevision: revision })
+        revision = restored.propertyRevision
+        for (let at = 0; at < deletedValuePatches.length; at += PROJECT_LIMITS.batchOperations) {
+          await batchPatchProjectBoard(boardId, { cards: deletedValuePatches.slice(at, at + PROJECT_LIMITS.batchOperations) })
+        }
+        await refreshAfterCommand()
+      },
+      redo: async () => {
+        const reapplied = await patchProjectBoard(boardId, { updatedCardProperties: properties, deletedCardProperties: removedIds, propertyRevision: revision })
+        revision = reapplied.propertyRevision
+        await refreshAfterCommand()
+      },
+    })
+  }, [bundle, boardId, undoStack, refreshAfterCommand])
 
   const addGroupOption = useCallback(async (propertyId: string, value: string) => {
     if (!bundle) return
     const properties = bundle.properties.map((property) => (property.id === propertyId
       ? { ...property, options: [...property.options, { id: newProjectId('property'), value, color: '' }] }
       : property))
-    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, propertyRevision: bundle.propertyRevision })
-    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, result.propertyRevision), properties: result.properties, propertyRevision: result.propertyRevision } : current)
-  }, [bundle, boardId])
+    await applyProperties(properties)
+  }, [bundle, applyProperties])
 
   // Renaming a column renames the option, so every card wearing it and every other view of it agree.
   const renameGroupOption = useCallback(async (propertyId: string, optionId: string, value: string) => {
@@ -319,51 +430,84 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     const properties = bundle.properties.map((property) => (property.id === propertyId
       ? { ...property, options: property.options.map((option) => (option.id === optionId ? { ...option, value } : option)) }
       : property))
-    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, propertyRevision: bundle.propertyRevision })
-    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, result.propertyRevision), properties: result.properties, propertyRevision: result.propertyRevision } : current)
-  }, [bundle, boardId])
+    await applyProperties(properties)
+  }, [bundle, applyProperties])
 
   const setGroupOptionColor = useCallback(async (propertyId: string, optionId: string, color: string) => {
     if (!bundle) return
     const properties = bundle.properties.map((property) => (property.id === propertyId
       ? { ...property, options: property.options.map((option) => (option.id === optionId ? { ...option, color } : option)) }
       : property))
-    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, propertyRevision: bundle.propertyRevision })
-    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, result.propertyRevision), properties: result.properties, propertyRevision: result.propertyRevision } : current)
-  }, [bundle, boardId])
+    await applyProperties(properties)
+  }, [bundle, applyProperties])
 
   const setIcon = useCallback(async (icon: string) => {
+    const previous = bundle?.board.icon ?? ''
+    const epoch = boardEpoch.current
     await useProjectStore.getState().setBoardIcon(boardId, icon)
+    if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
     setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, Date.now()), board: { ...current.board, icon } } : current)
-  }, [boardId])
+    undoStack.push({
+      undo: async () => { await useProjectStore.getState().setBoardIcon(boardId, previous); await refreshAfterCommand() },
+      redo: async () => { await useProjectStore.getState().setBoardIcon(boardId, icon); await refreshAfterCommand() },
+    })
+  }, [boardId, bundle, undoStack, refreshAfterCommand])
 
   const addView = useCallback(async (viewType: ProjectViewType) => {
+    const epoch = boardEpoch.current
     const view = await createProjectView(boardId, viewType)
+    if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
     setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, view.createAt), views: [...current.views, view] } : current)
-  }, [boardId])
+    undoStack.push({
+      undo: async () => { await deleteProjectView(view.id); await refreshAfterCommand() },
+      redo: async () => { await undeleteProjectView(view.id); await refreshAfterCommand() },
+    })
+  }, [boardId, undoStack, refreshAfterCommand])
 
   const saveProps = useCallback(async (properties: ProjectProperty[], deletedIds: string[]) => {
-    if (!bundle) return
-    const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, deletedCardProperties: deletedIds, propertyRevision: bundle.propertyRevision })
-    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, result.propertyRevision), properties: result.properties, propertyRevision: result.propertyRevision } : current)
-  }, [bundle, boardId])
+    await applyProperties(properties, deletedIds)
+  }, [applyProperties])
 
   const patchView = useCallback(async (viewId: string, patch: ProjectViewPatch) => {
+    const previous = bundle?.views.find((view) => view.id === viewId)
+    const epoch = boardEpoch.current
     const view = await patchProjectView(viewId, patch)
+    if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
     setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, view.updateAt), views: current.views.map((entry) => (entry.id === viewId ? view : entry)) } : current)
-  }, [])
+    if (previous) {
+      undoStack.push({
+        undo: async () => { await patchProjectView(viewId, viewPatchSnapshot(previous)); await refreshAfterCommand() },
+        redo: async () => { await patchProjectView(viewId, patch); await refreshAfterCommand() },
+      })
+    }
+  }, [bundle, boardId, undoStack, refreshAfterCommand])
 
   const removeView = useCallback(async (viewId: string) => {
     const ok = await confirm({ title: t('project.view.delete'), tone: 'danger', confirmLabel: t('common.delete') })
     if (!ok) return
+    const previous = bundle?.views.find((view) => view.id === viewId)
+    const epoch = boardEpoch.current
     await deleteProjectView(viewId)
+    if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
     setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, Date.now()), views: current.views.filter((entry) => entry.id !== viewId) } : current)
-  }, [])
+    if (previous) {
+      undoStack.push({
+        undo: async () => { await undeleteProjectView(viewId); await refreshAfterCommand() },
+        redo: async () => { await deleteProjectView(viewId); await refreshAfterCommand() },
+      })
+    }
+  }, [bundle, boardId, undoStack, refreshAfterCommand])
 
   const copyView = useCallback(async (viewId: string) => {
+    const epoch = boardEpoch.current
     const view = await duplicateProjectView(viewId)
+    if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
     setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, view.createAt), views: [...current.views, view] } : current)
-  }, [])
+    undoStack.push({
+      undo: async () => { await deleteProjectView(view.id); await refreshAfterCommand() },
+      redo: async () => { await undeleteProjectView(view.id); await refreshAfterCommand() },
+    })
+  }, [boardId, undoStack, refreshAfterCommand])
 
   const guard = useCallback((action: () => Promise<void>): Promise<void> => {
     return action().catch((reason: unknown) => {
@@ -373,6 +517,19 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const guardedPatchCard = useCallback((id: string, patch: Record<string, unknown>) => guard(() => patchCard(id, patch)), [guard, patchCard])
   const guardedPatchCardsBatch = useCallback((patches: { id: string, patch: Record<string, unknown> }[]) => guard(() => patchCardsBatch(patches)), [guard, patchCardsBatch])
   const guardedDeleteCard = useCallback((id: string) => guard(() => removeCard(id)), [guard, removeCard])
+  const runUndo = useCallback(() => guard(async () => { await undoStack.undo() }), [guard, undoStack])
+  const runRedo = useCallback(() => guard(async () => { await undoStack.redo() }), [guard, undoStack])
+  const duplicateOpenCard = useCallback(() => guard(async () => {
+    if (!openCardId) return
+    const epoch = boardEpoch.current
+    const copy = await duplicateProjectCard(openCardId)
+    if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
+    undoStack.push({
+      undo: async () => { await deleteProjectCard(copy.id); await refreshAfterCommand() },
+      redo: async () => { await undeleteProjectCard(copy.id); await refreshAfterCommand() },
+    })
+    await refreshAfterCommand()
+  }), [guard, boardId, openCardId, undoStack, refreshAfterCommand])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -380,17 +537,19 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable) return
       const mod = event.ctrlKey || event.metaKey
       const key = event.key.toLowerCase()
-      if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) void undoStack.redo(); else void undoStack.undo() }
-      else if (mod && key === 'y') { event.preventDefault(); void undoStack.redo() }
-      else if (mod && key === 'd' && openCardId) { event.preventDefault(); void duplicateProjectCard(openCardId).then(refresh) }
-      else if ((event.key === 'Delete' || event.key === 'Backspace') && openCardId && !document.querySelector('[role="dialog"]')) {
+      const currentCard = bundle?.cards.find((card) => card.id === openCardId)
+      if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) void runRedo(); else void runUndo() }
+      else if (mod && key === 'y') { event.preventDefault(); void runRedo() }
+      else if (mod && key === 'd' && openCardId && !document.querySelector('[role="dialog"], [role="menu"]')) { event.preventDefault(); void duplicateOpenCard() }
+      else if ((event.key === 'Delete' || event.key === 'Backspace') && openCardId) {
         event.preventDefault()
-        void removeCard(openCardId)
+        if (currentCard && !document.querySelector('[role="dialog"], [role="menu"]')) void removeCard(openCardId)
+        else if (!currentCard) setOpenCardId(null)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [openCardId, undoStack, refresh, removeCard])
+  }, [openCardId, bundle, removeCard, runUndo, runRedo, duplicateOpenCard])
 
   if (status === 'loading') return <LoadingBlock />
   if (status === 'notfound') return <Empty art="select" title={t('project.board.not_found')} action={<Button onClick={() => navigateToPath('/project')}>{t('project.board.back')}</Button>} />
@@ -515,6 +674,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         onActiveViewChange={setActiveViewId}
         onPatchCard={guardedPatchCard}
         onPatchCardsBatch={guardedPatchCardsBatch}
+        onDragCards={dragCards}
         onAddGroupOption={addGroupOption}
         onRenameGroupOption={renameGroupOption}
         onSetGroupOptionColor={setGroupOptionColor}
@@ -605,6 +765,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           onUpdated={(updated) => setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, updated.updateAt), cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current)}
           onRefresh={() => { void refresh().catch((reason: unknown) => { useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' }) }) }}
           onOpenCard={setOpenCardId}
+          onPatchCard={patchCard}
+          onCommand={(command) => undoStack.push(command)}
         />
       )}
     </div>

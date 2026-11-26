@@ -188,11 +188,11 @@ describe('view tab labels', () => {
 })
 
 describe('board column hide and cross-column drag (C-2)', () => {
-  async function mountBoard(onPatch: ReturnType<typeof vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>>, onPatchCard: ReturnType<typeof vi.fn<(id: string, patch: Record<string, unknown>) => Promise<void>>>) {
+  async function mountBoard(onPatch: ReturnType<typeof vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>>, onPatchCard: ReturnType<typeof vi.fn<(id: string, patch: Record<string, unknown>) => Promise<void>>>, onDragCards?: (patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]) => Promise<void>) {
     const base = bundle()
     base.views = [base.views[1]!]
     await act(async () => {
-      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: onPatch, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard, onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+      view = renderElement(createElement(BoardViews, { bundle: base, canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: onPatch, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard, onDragCards, onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
     })
   }
 
@@ -211,7 +211,8 @@ describe('board column hide and cross-column drag (C-2)', () => {
   it('dragging a card into another column commits group value and manual order together', async () => {
     const onPatchCard = vi.fn<(id: string, patch: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined)
     const onPatch = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>().mockResolvedValue(undefined)
-    await mountBoard(onPatch, onPatchCard)
+    const onDragCards = vi.fn<(patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]) => Promise<void>>().mockResolvedValue(undefined)
+    await mountBoard(onPatch, onPatchCard, onDragCards)
     // jsdom lays nothing out, so the drag engine is given the geometry a real board would have.
     const zones = [...view.container.querySelectorAll<HTMLElement>('[data-drag-zone]')]
     zones.forEach((zone, index) => {
@@ -233,10 +234,11 @@ describe('board column hide and cross-column drag (C-2)', () => {
     await act(async () => { window.dispatchEvent(new Event('pointerup')) })
     expect(onPatchCard).not.toHaveBeenCalled()
     expect(onPatch).not.toHaveBeenCalled()
-    expect(api.batchPatchProjectBoard).toHaveBeenCalledWith('b1', {
-      cards: [{ id: 'c1', patch: { values: { ps: 'o2' } } }],
-      views: [{ id: 'v2', patch: { fields: { cardOrder: ['c2', 'c1', 'c3'] } } }],
-    })
+    expect(onDragCards).toHaveBeenCalledWith(
+      [{ id: 'c1', patch: { values: { ps: 'o2' } } }],
+      ['c2', 'c1', 'c3'],
+    )
+    expect(api.batchPatchProjectBoard).not.toHaveBeenCalled()
   })
 })
 

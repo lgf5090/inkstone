@@ -212,6 +212,10 @@ export async function deleteProjectView(id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/views/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
+export async function undeleteProjectView(id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/views/${encodeURIComponent(id)}/undelete`, { method: 'POST', body: {} })
+}
+
 export async function duplicateProjectView(id: string): Promise<ProjectView> {
   const body = await request<{ view: ProjectView }>(`/api/project/views/${encodeURIComponent(id)}/duplicate`, { method: 'POST', body: {} })
   return body.view
@@ -270,6 +274,10 @@ export async function moveCardContent(id: string, targetId: string, where: 'befo
 
 export async function deleteCardContent(id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/contents/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function undeleteCardContent(id: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/contents/${encodeURIComponent(id)}/undelete`, { method: 'POST', body: {} })
 }
 
 export interface ProjectTemplateSummary {
