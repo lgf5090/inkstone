@@ -95,15 +95,30 @@
 | LOG-03 | DONE | e308019e | skip 不访问 session；分布式续传读取 part_objects |
 | PERF-03 | DONE | e308019e | R2 direct/multipart/驱动/远程任务使用已知长度流 |
 | PERF-04 | DONE | e308019e | 分片并发受全局信号量限制并支持指数退避重试 |
-| LOG-01 | DONE | 本次提交 | 207 仅移除成功项，部分失败可见 |
-| LOG-02 | DONE | 本次提交 | 实时内容 no-store，匹配 modifiedAt 的版本 URL 使用 immutable |
-| LOG-08 | DONE | 本次提交 | 外部 rename/skip/overwrite 与 S3 复制失败回滚测试通过 |
-| FEAT-12 | DONE | 本次提交 | 评论 5 项通过；owner/ACL/目录锁隔离、@提及与通知记录可用 |
-| LOG-06 | DONE | 本次提交 | allowList 创建/PATCH/返回/公开列表拒绝已接通 |
-| UX-08 | DONE | 本次提交 | 工具栏分组、列显隐、搜索范围说明与条目状态徽标已接入 |
-| PERF-01 | DONE | 本次提交 | File System Access 流式写盘；无 picker 时交给浏览器下载管理器 |
-| PERF-05 | DONE | 本次提交 | DAV 认证缓存 3 项通过；密码轮换立即失效 |
-| PERF-08 | IN PROGRESS | - | 超时/限长代码已接入，专项超时测试未保留，需后续补验 |
+| LOG-01 | DONE | c8fc7aff | 207 仅移除成功项，部分失败可见 |
+| LOG-02 | DONE | c8fc7aff | 实时内容 no-store，匹配 modifiedAt 的版本 URL 使用 immutable |
+| LOG-08 | DONE | c8fc7aff | 外部 rename/skip/overwrite 与 S3 复制失败回滚测试通过 |
+| FEAT-12 | DONE | 91819265 | 评论 5 项通过；owner/ACL/目录锁隔离、@提及与通知记录可用 |
+| LOG-06 | DONE | f06c1e0f | allowList 创建/PATCH/返回/公开列表拒绝已接通 |
+| UX-08 | DONE | f06c1e0f | 工具栏分组、列显隐、搜索范围说明与条目状态徽标已接入 |
+| PERF-01 | DONE | 13018245 | File System Access 流式写盘；无 picker 时交给浏览器下载管理器 |
+| PERF-05 | DONE | 13018245 | DAV 认证缓存 3 项通过；密码轮换立即失效 |
+| PERF-08 | IN PROGRESS | 13018245 | 超时/限长代码已接入，专项超时测试未保留，需后续补验 |
+
+## 剩余未完成项
+
+以下任务未标记 DONE，不能在本次合并中表述为已完成：
+
+- LOG-04、LOG-05、LOG-09、LOG-10：分享下载去重、列表分页、父子树归并、隐藏项总数。
+- PERF-07、PERF-08：配额计数表；URL 上传超时/限长专项验证。
+- UX-07：FilesPage 与 store-files 职责拆分。
+- FEAT-01～05：跨挂载迁移、全局搜索、公开分享转存、文件夹分享 ZIP、ACL 角色/到期。
+- FEAT-06、FEAT-07：秒传去重协议、文件活动审计。
+- FEAT-09～11：自动备份、整盘快照、私密保险箱。
+- FEAT-13～14：HEIC/转码评估、大列表性能基线。
+- QA-03：真实外部驱动冒烟。
+
+这些项目需要独立批次继续，不能通过删除测试或修改状态伪装完成。
 
 ## 验证命令
 
