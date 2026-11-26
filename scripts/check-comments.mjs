@@ -42144,6 +42144,11 @@ const allowed = new Map([
     "/**\n * The key one delivery is deduplicated by: its Message-ID, or a digest of its bytes when the header\n * is missing or implausibly long. A header is sender-controlled text, so it is normalized and\n * bounded before it is stored; the digest is the fallback that still makes a retry idempotent.\n */",
     "/** Read at most the declared ceiling; null means the stream went past it and was cancelled. */",
     "// The ceiling already decided the outcome; failing to cancel adds nothing to report.",
+    "/** Hourly ceilings for one token, one sender on that token, and one IP on that token. */",
+    "/** The fixed window shared by every inbound-mail budget. */",
+    "/** Hashed budget keys keep the capability token and sender metadata out of the shared throttle table. */",
+    "/** Only the optional edge address is eligible; sender-supplied forwarding and Received headers are not. */",
+    "/** Release a claim after a failed attempt so Email Routing can retry the same Message-ID. */",
   ]],
   ["src/worker/email/mailbox-store.ts", [
     "/** What one draft save did: the row it wrote, or why it wrote nothing. */",
