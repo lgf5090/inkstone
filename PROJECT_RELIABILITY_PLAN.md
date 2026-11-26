@@ -32,7 +32,7 @@
 | P1-07 | done | F14 preserve relation edges on soft delete; prevent same-batch parent cycles; validate Sprint ownership | restore rebuilds references; A→B/B→A rejected; wrong Sprint card rejected | f85d8e79 |
 | P1-08 | done | F15 validate imported schema and rewrite actor/author ids | unknown property/type/oversized metadata rejected; importer is author | 473881c3 |
 | P1-09 | done | F16 materialize reminders and create real notifications; filter notified/deleted/archived rows | due reminder arrives once; later cards are not starved | 74409397 |
-| P1-10 | pending | F17 add explicit status categories; make recurrence generation idempotent | Incomplete/Not done/待完成 are not done; each instance spawns once | - |
+| P1-10 | done | F17 add explicit status categories; make recurrence generation idempotent | Incomplete/Not done/待完成 are not done; each instance spawns once | 7a11b8785 |
 | P1-11 | pending | F18 formula display values, dependency order and visible errors; enable formula/multiPerson/file creation | formulas match UI semantics; errors visible; new types creatable | - |
 | P1-12 | pending | F19 unify date timezone/range/DST semantics; preserve includeTime/timeZone on drag | same-day filters match; inclusive end; DST has no duplicate/missing day | - |
 | P1-13 | pending | F21 fix Gantt Delete/person lanes, table subtasks and author swimlanes | dialog keypress does not mutate; person cards render; filtered children do not leak | - |
