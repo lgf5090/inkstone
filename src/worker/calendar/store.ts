@@ -1557,7 +1557,7 @@ export class CalendarStore {
   async createEvents(
     inputs: readonly CalendarEventWriteInput[],
     mode: 'create' | 'upsert',
-    options: { allowReadOnly?: boolean } = {},
+    options: { allowReadOnly?: boolean; requireRevision?: boolean } = {},
   ): Promise<CalendarEventDto[]> {
     if (inputs.length === 0) throw ApiError.badRequest('A batch needs at least one event')
     if (inputs.length > MAX_EVENTS_PER_BATCH) {
@@ -1574,6 +1574,10 @@ export class CalendarStore {
     const readOnlySources = timelineInputs.length > 0
       && timelineInputs.every((input) => input.source !== 'local' && input.externalId !== null)
     await this.assertCalendarsForWrite(calendarIds, options.allowReadOnly === true || readOnlySources)
+    if (mode === 'upsert' && options.requireRevision === true
+      && timelineInputs.some((input) => input.rev === undefined)) {
+      throw ApiError.badRequest('Every upsert event must include the revision it replaces')
+    }
 
     const existingIds = new Set<string>()
     for (const chunk of chunks(timelineInputs.map((input) => input.id).filter((id): id is string => Boolean(id)), SQL_CHUNK)) {
@@ -1629,6 +1633,9 @@ export class CalendarStore {
       for (const entry of resolved) {
         const row = existingById.get(entry.id)
         if (!row) continue
+        if (entry.input.rev !== undefined && entry.input.rev !== row.rev) {
+          throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
+        }
         entry.input = {
           ...entry.input,
           source: entry.input.source === 'local' && row.calendar_source !== 'local'
@@ -1640,18 +1647,31 @@ export class CalendarStore {
     }
 
     const statements: D1PreparedStatement[][] = []
+    const guardedUpdates = new Set<D1PreparedStatement>()
     for (const { input, id } of resolved) {
       const group: D1PreparedStatement[] = []
       const exists = existingIds.has(id) || externalMatch.get(externalKey(input)) === id
       if (exists && mode === 'upsert') {
-        group.push(this.upsertEventStatement(input, id, now))
+        const update = this.upsertEventStatement(input, id, now)
+        group.push(update)
+        if (input.rev !== undefined) guardedUpdates.add(update)
+        const replacedRev = input.rev === undefined ? undefined : input.rev + 1
         group.push(this.db.prepare(
-          `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND event_id = ?2`,
-        ).bind(this.userId, id))
+          replacedRev === undefined
+            ? `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND event_id = ?2`
+            : `DELETE FROM calendar_event_calendars
+                WHERE user_id = ?1 AND event_id = ?2
+                  AND EXISTS (SELECT 1 FROM calendar_events
+                               WHERE user_id = ?1 AND id = ?2 AND rev = ?3 AND updated_at = ?4)`,
+        ).bind(this.userId, id, ...(replacedRev === undefined ? [] : [replacedRev, now])))
       } else {
         group.push(this.insertEventStatement(input, id, now, batchKey))
       }
-      group.push(...this.membershipInsertStatements(id, input.calendarIds))
+      group.push(...this.membershipInsertStatements(
+        id,
+        input.calendarIds,
+        exists && mode === 'upsert' && input.rev !== undefined ? input.rev + 1 : undefined,
+      ))
       statements.push(group)
     }
 
@@ -1668,7 +1688,12 @@ export class CalendarStore {
         current.push(...group)
       }
       if (current.length > 0) chunksOfStatements.push(current)
-      for (const chunk of chunksOfStatements) await this.db.batch(chunk)
+      for (const chunk of chunksOfStatements) {
+        const outcomes = await this.db.batch(chunk)
+        if (outcomes.some((outcome, index) => guardedUpdates.has(chunk[index]!) && Number(outcome.meta.changes) !== 1)) {
+          throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
+        }
+      }
     } catch (error) {
       // Best-effort cleanup: failing to remove the staging rows must not mask the write error that
       // sent us here, but it is worth a log line because a retry would collide with them.
@@ -2378,13 +2403,15 @@ export class CalendarStore {
 
   private upsertEventStatement(input: TimelineEventWrite, id: string, now: number): D1PreparedStatement {
     const updates = EVENT_WRITE_COLUMNS.map((column) => `${column} = excluded.${column}`).join(', ')
+    const revGuard = input.rev === undefined ? '' : 'WHERE calendar_events.rev = ?'
     return this.db.prepare(
       `INSERT INTO calendar_events (
          user_id, id, ${EVENT_WRITE_COLUMNS.join(', ')}, batch_key, created_at, updated_at, rev
        ) VALUES (?, ?, ${placeholders(EVENT_WRITE_COLUMNS.length)}, NULL, ?, ?, 1)
        ON CONFLICT(user_id, id) DO UPDATE SET
-         ${updates}, updated_at = excluded.updated_at, rev = calendar_events.rev + 1`,
-    ).bind(this.userId, id, ...this.eventWriteValues(input), now, now)
+         ${updates}, updated_at = excluded.updated_at, rev = calendar_events.rev + 1
+         ${revGuard}`,
+    ).bind(this.userId, id, ...this.eventWriteValues(input), now, now, ...(input.rev === undefined ? [] : [input.rev]))
   }
 
   private updateEventStatement(input: TimelineEventWrite, rev: number, now: number): D1PreparedStatement {

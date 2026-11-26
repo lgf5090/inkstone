@@ -403,6 +403,28 @@ describe('batch writes', () => {
     await expect(store.createEvents(tooMany, 'create')).rejects.toMatchObject({ status: 400 })
   })
 
+  it('honors the revision on guarded upserts without rewriting memberships on a stale write', async () => {
+    const created = await store.createEvent(eventInput({ id: 'guarded-upsert' }))
+    const second = await store.createCalendar({ name: 'Second' })
+    const updated = await store.createEvents([eventInput({
+      id: created.id,
+      title: 'Guarded',
+      calendarIds: [second.id],
+      rev: created.rev,
+    })], 'upsert')
+    expect(updated[0]).toMatchObject({ title: 'Guarded', rev: created.rev + 1, calendarIds: [second.id] })
+
+    await expect(store.createEvents([eventInput({
+      id: created.id,
+      title: 'Stale',
+      calendarIds: [calendar.id],
+      rev: created.rev,
+    })], 'upsert')).rejects.toMatchObject({ status: 409 })
+    expect(await store.getEvent(created.id)).toMatchObject({
+      title: 'Guarded', rev: created.rev + 1, calendarIds: [second.id],
+    })
+  })
+
   it('upserts by id and by external id', async () => {
     const created = await store.createEvent(eventInput({ id: 'remote-1', externalId: 'remote-1', source: 'caldav' }))
     const byId = await store.createEvents([eventInput({ id: created.id, title: 'By id' })], 'upsert')

@@ -337,7 +337,9 @@ calendarRoutes.post('/events/batch', async (c) => {
   }
   const inputs = prepared.map((event) => publicEventInput(event, timeZone))
   if (shared && body.mode === 'upsert') await assertSharedBatchUpsertWritable(c, shared, inputs)
-  const events = await (shared ? shared.store.createEvents(inputs, body.mode) : s.createEvents(inputs, body.mode))
+  const events = await (shared
+    ? shared.store.createEvents(inputs, body.mode, { requireRevision: body.mode === 'upsert' })
+    : s.createEvents(inputs, body.mode, { requireRevision: body.mode === 'upsert' }))
   return c.json({ events: shared ? events.map(event => sharedEventDto(shared!.ownerId, event)) : events })
 })
 

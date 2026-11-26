@@ -402,6 +402,7 @@ export function parseEventInput(value: unknown, options: ParseEventOptions = {})
     recurrenceRule,
     source: options.allowSourceIdentity === false ? 'local' : source,
     externalId: options.allowSourceIdentity === false ? null : externalId,
+    ...(record.rev === undefined ? {} : { rev: integerValue(record.rev, 'rev', 1, Number.MAX_SAFE_INTEGER) }),
   }
 }
 

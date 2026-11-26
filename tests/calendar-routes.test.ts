@@ -241,6 +241,33 @@ describe('event routes', () => {
     expect(found.truncated).toBe(false)
   })
 
+  it('requires and enforces revisions on public batch upserts', async () => {
+    const home = (await meta()).calendars[0]!
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, {
+      id: 'guarded-event', title: 'Original',
+    })))
+    const missing = await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [eventBody(home.id, { id: created.event.id, title: 'Missing revision' })],
+    })
+    expect(missing.status).toBe(400)
+
+    const updated = await json<{ events: CalendarEventDto[] }>(await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [eventBody(home.id, { id: created.event.id, title: 'Current', rev: created.event.rev })],
+    }))
+    expect(updated.events[0]).toMatchObject({ title: 'Current', rev: created.event.rev + 1 })
+
+    const stale = await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [eventBody(home.id, { id: created.event.id, title: 'Stale', rev: created.event.rev })],
+    })
+    expect(stale.status).toBe(409)
+
+    const reread = await json<{ event: CalendarEventDto }>(await call('GET', `/events/${created.event.id}`))
+    expect(reread.event).toMatchObject({ title: 'Current', rev: created.event.rev + 1 })
+  })
+
   it('refuses a shared batch upsert that would remove a private membership', async () => {
     const sharedCalendar = (await meta()).calendars[0]!
     const privateCalendar = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {
@@ -302,7 +329,7 @@ describe('event routes', () => {
     })))
     const updated = await json<{ events: CalendarEventDto[] }>(await call('POST', '/events/batch', {
       mode: 'upsert',
-      events: [eventBody(sharedId, { id: created.event.id.split(':').at(-1), title: 'Shared update' })],
+      events: [eventBody(sharedId, { id: created.event.id.split(':').at(-1), title: 'Shared update', rev: created.event.rev })],
     }))
     expect(updated.events[0]).toMatchObject({
       id: created.event.id,
