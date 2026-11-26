@@ -27,7 +27,7 @@ function rowToEntry(row: TimeRow): ProjectTimeEntry {
 
 export async function listCardTime(db: D1Database, cardId: string): Promise<ProjectTimeEntry[]> {
   const { results } = await db
-    .prepare('SELECT * FROM project_time_entries WHERE card_id = ?1 ORDER BY started_at DESC LIMIT 200')
+    .prepare('SELECT * FROM project_time_entries WHERE card_id = ?1 ORDER BY started_at DESC')
     .bind(cardId)
     .all<TimeRow>()
   return results.map(rowToEntry)
@@ -47,10 +47,17 @@ export async function startCardTime(
     id: newProjectId('time'), boardId: input.boardId, cardId: input.cardId, userId: input.userId,
     note: (input.note ?? '').slice(0, 500), startedAt: now, endedAt: null, createdAt: now,
   }
-  await db.prepare(
-    `INSERT INTO project_time_entries (id, board_id, card_id, user_id, note, started_at, ended_at, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)`,
-  ).bind(entry.id, entry.boardId, entry.cardId, entry.userId, entry.note, entry.startedAt, entry.createdAt).run()
+  try {
+    await db.prepare(
+      `INSERT INTO project_time_entries (id, board_id, card_id, user_id, note, started_at, ended_at, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)`,
+    ).bind(entry.id, entry.boardId, entry.cardId, entry.userId, entry.note, entry.startedAt, entry.createdAt).run()
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+      throw ApiError.conflict('a timer is already running on this card')
+    }
+    throw error
+  }
   return entry
 }
 

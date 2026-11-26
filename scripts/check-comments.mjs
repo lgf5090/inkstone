@@ -43164,7 +43164,6 @@ const allowed = new Map([
   ]],
   ["src/worker/project/batch.ts", [
     "/**\n * Atomic multi-entity writes (§6.3). A drag that moves three cards across a column, or a multi-select\n * delete, must land as one transaction so a half-applied gesture cannot survive. Every target is read\n * and checked for board membership before any statement runs, then all statements commit in a single\n * D1 batch; the statement count is bounded because D1 caps a batch.\n */",
-    "// Contents of one card share a reading order, so scrub them together rather than re-reading per block.",
   ]],
   ["src/worker/project/boards.ts", [
     "/**\n * A new board belongs to its creator, who gets an admin membership row so the member picker and the\n * last-admin count both see them. Properties are written in the order given, position = index.\n */",

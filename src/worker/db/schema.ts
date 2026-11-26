@@ -4849,6 +4849,25 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON project_cards(recurrence_source_id) WHERE recurrence_source_id IS NOT NULL AND recurrence_source_id <> ''`,
     ],
   },
+  {
+    version: 430,
+    statements: [
+      `UPDATE project_time_entries SET ended_at = started_at
+       WHERE ended_at IS NULL AND id NOT IN (
+         SELECT id FROM (
+           SELECT id, ROW_NUMBER() OVER (PARTITION BY card_id, user_id ORDER BY started_at DESC, id DESC) AS position
+           FROM project_time_entries WHERE ended_at IS NULL
+         ) WHERE position = 1
+       )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_time_running
+         ON project_time_entries(card_id, user_id) WHERE ended_at IS NULL`,
+    ],
+  },
+  {
+    version: 431,
+    skipIfColumnExists: { table: 'project_cards', column: 'content_order_revision' },
+    statements: ['ALTER TABLE project_cards ADD COLUMN content_order_revision INTEGER NOT NULL DEFAULT 0'],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

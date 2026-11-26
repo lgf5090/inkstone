@@ -9,7 +9,7 @@ import { appendContentOrder, removeContentOrder } from '@shared/project/content-
 import { newProjectId } from '@shared/project/limits'
 import type { ProjectCommentCreateInput } from '@shared/project/validation'
 import { rowToComment, type CommentRow } from './bundle'
-import { getProjectCardRow } from './cards'
+import { mutateProjectCardOrder } from './contents'
 
 export async function getProjectCommentRow(db: D1Database, commentId: string): Promise<CommentRow | null> {
   return db.prepare('SELECT * FROM project_comments WHERE id = ?1').bind(commentId).first<CommentRow>()
@@ -36,18 +36,11 @@ export async function createProjectComment(
   now: number,
 ): Promise<ProjectComment> {
   const id = input.id ?? newProjectId('comment')
-  const cardRow = await getProjectCardRow(db, card.id)
-  const order = appendContentOrder(
-    cardRow ? (JSON.parse(cardRow.content_order) as (string | string[])[]) : [],
-    id,
-  )
-  await db.batch([
+  await mutateProjectCardOrder(db, card.id, userId, now, (order) => appendContentOrder(order, id), [
     db.prepare(
       `INSERT INTO project_comments (id, card_id, board_id, author_id, body, create_at, update_at, delete_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 0)`,
     ).bind(id, card.id, card.boardId, userId, input.body, now),
-    db.prepare('UPDATE project_cards SET content_order = ?1, modified_by = ?2, update_at = ?3 WHERE id = ?4')
-      .bind(JSON.stringify(order), userId, now, card.id),
   ])
   return {
     id, cardId: card.id, boardId: card.boardId, authorId: userId, body: input.body,
@@ -71,14 +64,7 @@ export async function softDeleteProjectComment(
   userId: string,
   now: number,
 ): Promise<void> {
-  const cardRow = await getProjectCardRow(db, comment.cardId)
-  const order = removeContentOrder(
-    cardRow ? (JSON.parse(cardRow.content_order) as (string | string[])[]) : [],
-    comment.id,
-  )
-  await db.batch([
+  await mutateProjectCardOrder(db, comment.cardId, userId, now, (order) => removeContentOrder(order, comment.id), [
     db.prepare('UPDATE project_comments SET delete_at = ?1, update_at = ?1 WHERE id = ?2 AND delete_at = 0').bind(now, comment.id),
-    db.prepare('UPDATE project_cards SET content_order = ?1, modified_by = ?2, update_at = ?3 WHERE id = ?4')
-      .bind(JSON.stringify(order), userId, now, comment.cardId),
   ])
 }

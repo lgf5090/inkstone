@@ -130,7 +130,7 @@ export function cardPatchStatements(
   if (patch.title !== undefined) { sets.push('title = ?'); values.push(patch.title) }
   if (patch.icon !== undefined) { sets.push('icon = ?'); values.push(patch.icon) }
   if (patch.parentId !== undefined) { sets.push('parent_id = ?'); values.push(patch.parentId) }
-  if (patch.contentOrder !== undefined) { sets.push('content_order = ?'); values.push(JSON.stringify(patch.contentOrder)) }
+  if (patch.contentOrder !== undefined) { sets.push('content_order = ?', 'content_order_revision = content_order_revision + 1'); values.push(JSON.stringify(patch.contentOrder)) }
   if (patch.recurrence !== undefined) { sets.push('recurrence = ?'); values.push(patch.recurrence ? serializeProjectRecurrence(patch.recurrence) : null) }
   values.push(card.id)
   const statements: D1PreparedStatement[] = [

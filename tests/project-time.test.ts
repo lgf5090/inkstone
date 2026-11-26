@@ -8,6 +8,7 @@ import type { Env } from '../src/worker/env'
 import type { ProjectBoard, ProjectCard, ProjectTimeEntry } from '../src/shared/project/model'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
+import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
 
 const app = createApp()
 let sqlite: DatabaseSync
@@ -50,6 +51,21 @@ async function boardWithCard(): Promise<{ board: ProjectBoard, card: ProjectCard
 }
 
 describe('time tracking', () => {
+  it('migration 430 closes duplicate running timers before adding the unique index', () => {
+    const legacy = new DatabaseSync(':memory:')
+    legacy.exec('CREATE TABLE project_time_entries (id TEXT PRIMARY KEY, card_id TEXT, user_id TEXT, started_at INTEGER, ended_at INTEGER)')
+    legacy.prepare('INSERT INTO project_time_entries VALUES (?, ?, ?, ?, NULL)').run('old', 'card', 'alice', 1)
+    legacy.prepare('INSERT INTO project_time_entries VALUES (?, ?, ?, ?, NULL)').run('new', 'card', 'alice', 2)
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 430)
+    expect(migration).toBeDefined()
+    for (const statement of migration!.statements) legacy.exec(statement)
+    expect(legacy.prepare('SELECT id, ended_at FROM project_time_entries ORDER BY id').all()).toEqual([
+      { id: 'new', ended_at: null }, { id: 'old', ended_at: 1 },
+    ])
+    expect(() => legacy.prepare('INSERT INTO project_time_entries VALUES (?, ?, ?, ?, NULL)').run('third', 'card', 'alice', 3)).toThrow()
+    legacy.close()
+  })
+
   it('starts once, stops the same interval and lists it', async () => {
     const { card } = await boardWithCard()
     const started = await req('alice', 'POST', `/cards/${card.id}/time/start`)
@@ -68,6 +84,26 @@ describe('time tracking', () => {
     expect(listed).toHaveLength(1)
     expect(listed[0]!.endedAt).toBe(closed.endedAt)
     expect((await req('alice', 'POST', `/cards/${card.id}/time/stop`)).status).toBe(200)
+  })
+
+  it('rejects a concurrent second start through the database constraint', async () => {
+    const { card } = await boardWithCard()
+    const responses = await Promise.all([
+      req('alice', 'POST', `/cards/${card.id}/time/start`),
+      req('alice', 'POST', `/cards/${card.id}/time/start`),
+    ])
+    expect(responses.map((response) => response.status).toSorted()).toEqual([201, 409])
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM project_time_entries WHERE card_id = ? AND ended_at IS NULL').get(card.id)).toMatchObject({ count: 1 })
+  })
+
+  it('returns every entry so the displayed total is not capped at 200', async () => {
+    const { card } = await boardWithCard()
+    const insert = sqlite.prepare(`INSERT INTO project_time_entries (id, board_id, card_id, user_id, note, started_at, ended_at, created_at)
+      VALUES (?, ?, ?, 'alice', '', ?, ?, 1)`)
+    for (let index = 0; index < 205; index += 1) insert.run(`t${index}`, card.boardId, card.id, index * 1000, index * 1000 + 500)
+    const listed = ((await (await req('alice', 'GET', `/cards/${card.id}/time`)).json()) as { entries: ProjectTimeEntry[] }).entries
+    expect(listed).toHaveLength(205)
+    expect(listed.reduce((sum, entry) => sum + entry.endedAt! - entry.startedAt, 0)).toBe(205 * 500)
   })
 
   it('refuses a viewer and deletes an entry through the card route', async () => {

@@ -13,8 +13,8 @@ import { ApiError } from '../lib/errors'
 import type { AppBindings } from '../env'
 import { readBoardProperties } from './boards'
 import { rowToCard, rowToContent, rowToView, type CardRow, type ContentRow, type ValueRow, type ViewRow } from './bundle'
-import { assertProjectParent, cardPatchStatements, getProjectCard } from './cards'
-import { cardOrderStatement, contentPatchStatements, getProjectContent, readCardOrder } from './contents'
+import { assertProjectParent, cardPatchStatements, getProjectCard, getProjectCardRow } from './cards'
+import { cardOrderStatement, contentPatchStatements, getProjectContent } from './contents'
 import { applyCardValueEffects } from './enhance'
 import { assertProjectRelationValues, projectRelationTargets } from './relations'
 import { getProjectView, viewPatchStatements } from './views'
@@ -24,9 +24,10 @@ import { projectParentMapHasCycle } from '@shared/project/hierarchy'
 type ProjectBatchInput = z.infer<typeof ProjectBatchSchema>
 type ProjectBatchDeleteInput = z.infer<typeof ProjectBatchDeleteSchema>
 
-async function commit(db: D1Database, statements: D1PreparedStatement[]): Promise<void> {
+async function commit(db: D1Database, statements: D1PreparedStatement[]): Promise<D1Result[]> {
   assertProjectBatchStatementLimit(statements.length)
-  if (statements.length) await db.batch(statements)
+  if (statements.length) return db.batch(statements)
+  return []
 }
 
 async function readCardsByIds(db: D1Database, ids: readonly string[]): Promise<Map<string, ProjectCard>> {
@@ -156,16 +157,30 @@ export async function batchDeleteProjectBoard(
     statements.push(db.prepare('UPDATE project_views SET delete_at = ?1, modified_by = ?2, update_at = ?1 WHERE id = ?3')
       .bind(now, userId, viewId))
   }
-  // Contents of one card share a reading order, so scrub them together rather than re-reading per block.
-  const orders = new Map<string, ProjectContentOrder>()
+  const contentIdsByCard = new Map<string, string[]>()
   for (const contentId of input.contentIds) {
     const content = await getProjectContent(db, contentId)
     if (!content || content.boardId !== board.id || content.deleteAt !== 0) throw ApiError.notFound('Content not found')
     statements.push(db.prepare('UPDATE project_card_contents SET delete_at = ?1, modified_by = ?2, update_at = ?1 WHERE id = ?3')
       .bind(now, userId, contentId))
-    const current = orders.get(content.cardId) ?? await readCardOrder(db, content.cardId)
-    orders.set(content.cardId, removeContentOrder(current, contentId))
+    const ids = contentIdsByCard.get(content.cardId) ?? []
+    ids.push(contentId)
+    contentIdsByCard.set(content.cardId, ids)
   }
-  for (const [cardId, order] of orders) statements.push(cardOrderStatement(db, cardId, order, userId, now))
-  await commit(db, statements)
+  const baseStatementCount = statements.length
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const orderResultIndexes: number[] = []
+    for (const [cardId, contentIds] of contentIdsByCard) {
+      const row = await getProjectCardRow(db, cardId)
+      if (!row) throw ApiError.notFound('Card not found')
+      let order = JSON.parse(row.content_order) as ProjectContentOrder
+      for (const contentId of contentIds) order = removeContentOrder(order, contentId)
+      orderResultIndexes.push(statements.length)
+      statements.push(cardOrderStatement(db, cardId, order, userId, now, row.content_order_revision))
+    }
+    const results = await commit(db, statements)
+    if (orderResultIndexes.every((index) => (results[index]?.meta.changes ?? 0) > 0)) return
+    statements.splice(baseStatementCount)
+  }
+  throw ApiError.conflict('Card content order changed concurrently; retry the edit')
 }

@@ -69,6 +69,7 @@ export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
     icon TEXT NOT NULL DEFAULT '',
     is_template INTEGER NOT NULL DEFAULT 0,
     content_order TEXT NOT NULL DEFAULT '[]',
+    content_order_revision INTEGER NOT NULL DEFAULT 0,
     recurrence TEXT,
     recurrence_source_id TEXT,
     completed_at INTEGER,
@@ -273,6 +274,8 @@ export const PROJECT_TIME_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_time_entries(card_id, started_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_project_time_user
      ON project_time_entries(user_id, ended_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_time_running
+     ON project_time_entries(card_id, user_id) WHERE ended_at IS NULL`,
 ]
 
 export const PROJECT_ENHANCE_SCHEMA_STATEMENTS: readonly string[] = [
@@ -610,6 +613,7 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_sprint_cards_sprint',
   'idx_project_write_receipts_created',
   'idx_project_reminders_due',
+  'idx_project_time_running',
 ]
 
 export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -623,7 +627,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
     'board_id', 'id', 'name', 'type', 'options', 'position', 'created_at', 'updated_at',
   ],
   project_cards: [
-    'id', 'board_id', 'parent_id', 'title', 'icon', 'is_template', 'content_order', 'recurrence',
+    'id', 'board_id', 'parent_id', 'title', 'icon', 'is_template', 'content_order', 'content_order_revision', 'recurrence',
     'recurrence_source_id', 'completed_at', 'created_by', 'modified_by', 'create_at', 'update_at', 'delete_at',
   ],
   project_card_values: ['card_id', 'property_id', 'value', 'updated_at'],
