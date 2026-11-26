@@ -880,6 +880,17 @@ export interface TodoCsvImportSlice {
 /** What a whole CSV import cost, added up over its slices. */
 export type TodoCsvImportResult = Omit<TodoCsvImportSlice, 'nextOffset'>
 
+export interface TodoJsonImportResult {
+  total: number
+  created: number
+  skipped: number
+  failed: number
+  partial: boolean
+  imported: Array<{ row: number, sourceId: string, taskId: string }>
+  errors: Array<{ row: number, sourceId: string | null, reason: string, taskId?: string }>
+  warnings: Array<{ row: number, sourceId: string, reason: string }>
+}
+
 export const api = {
   session: () => request<SessionInfo>('/api/auth/session'),
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
@@ -2105,6 +2116,19 @@ export const api = {
         onProgress?.(slice.nextOffset, slice.total)
         offset = slice.nextOffset
       }
+    },
+
+    importJson: async (
+      file: File,
+      conflict: 'skip' | 'duplicate',
+      idempotencyKey: string,
+    ): Promise<TodoJsonImportResult> => {
+      const document = JSON.parse(await file.text()) as unknown
+      return await request<TodoJsonImportResult>(`/api/todos/import-json?conflict=${conflict}`, {
+        method: 'POST',
+        body: document,
+        idempotencyKey,
+      })
     },
 
     /**

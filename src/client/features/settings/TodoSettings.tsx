@@ -460,6 +460,7 @@ export function TodoSettings() {
       <FeedSettings />
       <MailToTaskSettings />
       <TodoImportRow />
+      <TodoJsonImportRow />
     </div>
   )
 }
@@ -764,6 +765,90 @@ function TodoImportRow() {
           <option value="duplicate">{t('settings.todo_import_conflict_duplicate')}</option>
         </Select>
         <Button size="sm" disabled={busy} onClick={() => void run()}>{t('settings.todo_import_action')}</Button>
+      </div>
+    </SettingRow>
+  )
+}
+
+function TodoJsonImportRow() {
+  const fileId = useId()
+  const [file, setFile] = useState<File | null>(null)
+  const [operationKey, setOperationKey] = useState('')
+  const [conflict, setConflict] = useState<'skip' | 'duplicate'>('skip')
+  const [busy, setBusy] = useState(false)
+  const [answer, setAnswer] = useState<Awaited<ReturnType<typeof api.todos.importJson>> | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  const run = async (): Promise<void> => {
+    if (!file) {
+      setProblem(t('settings.todo_import_json_choose'))
+      return
+    }
+    setBusy(true)
+    setProblem(null)
+    setAnswer(null)
+    try {
+      const result = await api.todos.importJson(file, conflict, operationKey)
+      setAnswer(result)
+      setFile(null)
+      setOperationKey('')
+    } catch (cause) {
+      setProblem(describeError(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <SettingRow
+      title={t('settings.todo_import_json')}
+      description={(
+        <div className="flex flex-col gap-1">
+          <span id={fileId}>{t('settings.todo_import_json_hint')}</span>
+          {problem && <span role="alert" className="text-[var(--danger)]">{problem}</span>}
+          {answer && (
+            <>
+              <span role="status" className="text-[var(--text-secondary)]">
+                {t('settings.todo_import_json_result', { created: answer.created, skipped: answer.skipped, failed: answer.failed })}
+              </span>
+              <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+                {[...answer.errors, ...answer.warnings].map((entry) => (
+                  <li key={`${entry.row}-${entry.reason}`} className="break-words text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                    {t('settings.todo_import_json_row', { row: entry.row, reason: entry.reason })}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+      controlId={fileId}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          id={fileId}
+          type="file"
+          accept=".json,application/json"
+          disabled={busy}
+          onChange={(event) => {
+            setFile(event.target.files?.[0] ?? null)
+            setOperationKey(`todo-json-${randomLocalId()}`)
+            setAnswer(null)
+            setProblem(null)
+          }}
+          className="min-h-9 max-w-[240px] text-[length:var(--text-11-5)] text-[var(--text-secondary)] file:mr-2 file:rounded-[var(--r-sm)] file:border-0 file:bg-[var(--bg-hover)] file:px-2 file:py-1 file:text-[var(--text-secondary)]"
+        />
+        <Select
+          aria-label={t('settings.todo_import_conflict')}
+          value={conflict}
+          disabled={busy}
+          onChange={(event) => setConflict(event.target.value as 'skip' | 'duplicate')}
+          className="max-w-[170px]"
+        >
+          <option value="skip">{t('settings.todo_import_conflict_skip')}</option>
+          <option value="duplicate">{t('settings.todo_import_conflict_duplicate')}</option>
+        </Select>
+        <Button size="sm" loading={busy} disabled={busy} onClick={() => void run()}>{t('settings.todo_import_action')}</Button>
       </div>
     </SettingRow>
   )

@@ -531,6 +531,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'todo', titleKey: 'settings.todo_finish_day', detailKey: 'settings.todo_finish_day_hint' },
   { section: 'todo', titleKey: 'settings.todo_saved_filters', detailKey: 'settings.todo_saved_filters_hint', termKeys: ['settings.todo_saved_filters_syntax'] },
   { section: 'todo', titleKey: 'settings.todo_import', detailKey: 'settings.todo_import_hint', termKeys: ['settings.todo_import_conflict'] },
+  { section: 'todo', titleKey: 'settings.todo_import_json', detailKey: 'settings.todo_import_json_hint', termKeys: ['settings.todo_import_conflict'] },
   { section: 'todo', titleKey: 'settings.todo_feed', detailKey: 'settings.todo_feed_hint' },
 ]
 

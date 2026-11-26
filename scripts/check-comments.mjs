@@ -36121,6 +36121,7 @@ const allowed = new Map([
     "// ones that do not, and the API has always been no-store for the same reason.",
     "// Public gateway first: it authenticates with its own `gw_` bearer key, so the session middleware",
     "// on `/api/cloudflare` must never see it.",
+    "// The JSON restore is another named path under the task namespace and must be claimed before `/:id`.",
   ]],
   ["src/worker/assistant/attachments.ts", [
     "/**\n * The token each attachment line starts with.\n *\n * It is English on purpose: this block is model-facing prompt text, never the reader's UI, and the\n * reader's own labels come from the locale catalog the composer draws.\n */",
@@ -53893,6 +53894,22 @@ const allowed = new Map([
   ["src/client/features/todos/timeline-view.test.tsx", [
     "/**\n * The timeline's date arithmetic and the edits its bars offer.\n *\n * The cases pin the facts a painted grid can get wrong while still looking plausible: an estimate fills\n * only a missing end, a missing estimate stays visibly unknown, and both pointer and keyboard edits go\n * through the store's guarded task writer rather than a second timeline-only API path.\n */",
     "// The start cannot cross the due date; the clamp is part of the edit rather than a backwards bar.",
+  ]],
+  ["src/worker/routes/todo-import-json.ts", [
+    "/**\n * `POST /api/todos/import-json` restores the document written by the JSON to-do export.\n *\n * The envelope is checked before anything is written. A truncated export is refused outright, and the\n * task and byte ceilings are refusals rather than slices: neither a short import nor a silently clipped\n * field may look like a restore. Rows are then validated independently so one bad task does not discard\n * the usable rows beside it.\n *\n * Source ids are used only to resolve parent/dependency references inside the document. New task ids are\n * minted by AssistantStore, as are creation timestamps. Lists must already exist in the importing\n * account; tags are resolved by name and created in that account. This prevents a document from linking\n * one account to another account's list or tag rows.\n *\n * `conflict=skip` (the default) recognises an existing task by its normalised title, note, list and\n * start/due instants. `conflict=duplicate` always creates a new row. An `Idempotency-Key` is stronger: a\n * retry of the same key and document replays the first answer, while reusing the key for another\n * document is a 409. The key intentionally does not retry failed rows; fix the document and use a new\n * key for that new operation.\n *\n * A row failure is reported in `errors` with its one-based row number. If failure happens after the task\n * row was created (for example while applying dependencies), `taskId` says so explicitly. Earlier rows\n * stay committed: this endpoint has partial-success semantics, not an all-or-nothing transaction.\n */",
+    "/** A bounded write unit: large exports are refused rather than partially walked without saying so. */",
+    "/** Room for the same compact JSON export at the task ceiling, including escaped text and metadata. */",
+    "/** Each call spends one of the account's import requests for the current minute. */",
+    "// These timestamps are not writable through AssistantStore, but validating them keeps a corrupt",
+    "// document from being accepted merely because the fields happen to be ignored on restore.",
+    "/** Bounded like the import itself; an Idempotency-Key remains the exact retry contract beyond this scan. */",
+    "// A reference to a row that failed validation cannot be restored. Repeat because rejecting one row",
+    "// may reject its children and dependents, but each source row is still answered only once.",
+    "// A failed post-create step must not leave a supposedly usable parent/dependency target behind.",
+  ]],
+  ["tests/todo-import-json.test.ts", [
+    "// The current TodoExportDocument carries step counts, not step rows. The importer also accepts the",
+    "// lossless step extension so a caller that has the rows can preserve their text and completion.",
   ]],
 ])
 const found = new Map()

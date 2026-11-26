@@ -34,6 +34,7 @@ const {
   updateMock,
   feedListMock,
   importCsvMock,
+  importJsonMock,
   updateSettingsMock,
 } = vi.hoisted(() => ({
   settingsMock: vi.fn(),
@@ -43,6 +44,7 @@ const {
   updateMock: vi.fn(),
   feedListMock: vi.fn(),
   importCsvMock: vi.fn(),
+  importJsonMock: vi.fn(),
   updateSettingsMock: vi.fn(),
 }))
 
@@ -59,7 +61,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
         updateAutomation: updateMock,
       },
       // The calendar block loads with the page; a case about the plan row must not trip over it.
-      todos: { feed: { list: feedListMock, create: vi.fn(), remove: vi.fn() }, importCsv: importCsvMock },
+      todos: { feed: { list: feedListMock, create: vi.fn(), remove: vi.fn() }, importCsv: importCsvMock, importJson: importJsonMock },
     },
   }
 })
@@ -269,6 +271,38 @@ describe('the daily-plan row', () => {
 
     expect(importCsvMock).toHaveBeenCalledWith(file, 'skip', expect.any(Function))
     expect(view?.container.textContent).toContain(t('settings.todo_import_result', { created: 2, updated: 1, skipped: 3 }))
+  })
+
+  it('imports a picked JSON document with a stable retry key and prints row problems', async () => {
+    importJsonMock.mockResolvedValue({
+      total: 2,
+      created: 1,
+      skipped: 0,
+      failed: 1,
+      partial: true,
+      imported: [{ row: 1, sourceId: 'source-1', taskId: 'task-1' }],
+      errors: [{ row: 2, sourceId: 'source-2', reason: 'task.status is invalid' }],
+      warnings: [],
+    })
+    await render()
+    const row = rowByTitle(t('settings.todo_import_json'))!
+    const input = row.querySelector<HTMLInputElement>('input[type="file"]')!
+    const file = new File(['{"format":"inkstone-todos"}'], 'tasks.json', { type: 'application/json' })
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+    const select = row.querySelector<HTMLSelectElement>('select')!
+    await act(async () => {
+      select.value = 'duplicate'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const button = [...row.querySelectorAll<HTMLButtonElement>('button')]
+      .find((node) => node.textContent?.trim() === t('settings.todo_import_action'))!
+    await act(async () => { button.click() })
+    await settle()
+
+    expect(importJsonMock).toHaveBeenCalledWith(file, 'duplicate', expect.stringMatching(/^todo-json-/))
+    expect(row.textContent).toContain(t('settings.todo_import_json_result', { created: 1, skipped: 0, failed: 1 }))
+    expect(row.textContent).toContain(t('settings.todo_import_json_row', { row: 2, reason: 'task.status is invalid' }))
   })
 })
 
