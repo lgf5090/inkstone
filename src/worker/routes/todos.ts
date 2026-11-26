@@ -19,7 +19,8 @@ import { ApiError } from '../lib/errors'
 import { isValidId, isValidSlug, newSlug } from '../lib/id'
 import { hashPassword } from '../lib/password'
 import { storedObject } from '../lib/json'
-import { createMinuteBudget } from '../lib/rate-limit'
+import { spendTodoReadBudget, spendTodoWriteBudget } from './todo-budget'
+import { registerTodoTimeRoutes } from './todo-time'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { mergeSettings } from '@shared/constants'
@@ -38,16 +39,13 @@ import {
   type WorklogDimension,
   MAX_LIST_NAME_CHARS,
   MAX_REMINDERS_PER_TASK,
-  MAX_SINGLE_TIME_ENTRY_MS,
   MAX_SNOOZE_MINUTES,
   MAX_STEPS_PER_TASK,
   MAX_STEP_TEXT_CHARS,
   MAX_TAGS_PER_TASK,
   MAX_TAG_NAME_CHARS,
   MAX_TASKS_PER_QUERY,
-  MAX_TIME_ENTRY_AGE_DAYS,
   MAX_TIME_ESTIMATE_MS,
-  MAX_TIMER_START_FUTURE_MS,
   MIN_SNOOZE_MINUTES,
   REMIND_OFFSETS,
   isTaskBatchRequestOp,
@@ -84,7 +82,7 @@ import {
   stopCounterTimer,
   updateCounter,
 } from '../todos/counters'
-import { addDays, countStatBuckets, isStatsDay, loadTodoStats, MAX_STATS_BUCKETS } from '../todos/stats'
+import { addDays, countStatBuckets, isStatsDay, loadTodoStats, MAX_STATS_BUCKETS, MAX_STATS_RANGE_DAYS } from '../todos/stats'
 import { buildTodoExportCsv, buildTodoExportJson, collectExportTasks, TodoExportTooLarge } from '../todos/export-tasks'
 import { listTaskEvents } from '../todos/events'
 import { loadTrackedTotals, loadWorklog } from '../todos/worklog'
@@ -111,9 +109,7 @@ const FEED_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000
  * a person. Reads are unmetered because the app reloads the list whenever it comes back to the
  * foreground, and a limit there would only break the reader's own view.
  */
-export const WRITE_BUDGET_PER_MINUTE = 60
-
-const writeBudget = createMinuteBudget(WRITE_BUDGET_PER_MINUTE, 'Too many changes at once. Try again in a minute.')
+export { WRITE_BUDGET_PER_MINUTE } from './todo-budget'
 
 type Ctx = Context<AppBindings>
 
@@ -130,7 +126,7 @@ todoRoutes.use('*', requireAuth)
  */
 todoRoutes.use('*', async (c, next) => {
   const method = c.req.method.toUpperCase()
-  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') writeBudget(c.get('userId'))
+  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') spendTodoWriteBudget(c.get('userId'))
   await next()
 })
 
@@ -635,13 +631,10 @@ function listingQuery(c: Ctx, timezone: string, dayEnd: number, today: string): 
  * grows with the window, and the worklog, which reads one row per account day at most, is bounded by the
  * `eachDay` ceiling inside its own module.
  */
-/** The widest span a statistics, worklog or time read may ask for. */
-export const MAX_STATS_RANGE_DAYS = 366
+export { MAX_STATS_RANGE_DAYS } from '../todos/stats'
 
 /** Reads one of the statistics screens may spend in a minute. */
-export const READ_BUDGET_PER_MINUTE = 120
-
-const readBudget = createMinuteBudget(READ_BUDGET_PER_MINUTE, 'Too many reads at once. Try again in a minute.')
+export { READ_BUDGET_PER_MINUTE } from './todo-budget'
 
 function statsWindow(c: Ctx, timezone: string): { from: string; to: string; bucket: TaskStatsBucket } {
   const today = localDate(Date.now(), timezone)
@@ -801,7 +794,7 @@ todoRoutes.get('/export', async (c) => {
 todoRoutes.get('/stats', async (c) => {
   // A read this wide spends the read budget: it is unmetered otherwise, and a loop over a
   // deliberately wide range is a way to make one account's screen slow for everyone on the isolate.
-  readBudget(c.get('userId'))
+  spendTodoReadBudget(c.get('userId'))
   const settings = await store(c).getSettings()
   const range = statsRange(c, settings.timezone)
   const stats = await loadTodoStats(c.env.DB, c.get('userId'), {
@@ -827,7 +820,7 @@ todoRoutes.get('/stats', async (c) => {
 todoRoutes.get('/worklog', async (c) => {
   // A read this wide spends the read budget: it is unmetered otherwise, and a loop over a
   // deliberately wide range is a way to make one account's screen slow for everyone on the isolate.
-  readBudget(c.get('userId'))
+  spendTodoReadBudget(c.get('userId'))
   const settings = await store(c).getSettings()
   const range = statsWindow(c, settings.timezone)
   const asked = c.req.query('group')
@@ -901,7 +894,7 @@ todoRoutes.post('/focus', async (c) => {
 todoRoutes.get('/finish-day', async (c) => {
   // A read this wide spends the read budget: it is unmetered otherwise, and a loop over a
   // deliberately wide range is a way to make one account's screen slow for everyone on the isolate.
-  readBudget(c.get('userId'))
+  spendTodoReadBudget(c.get('userId'))
   const s = store(c)
   const settings = await s.getSettings()
   const day = finishDayQuery(c, settings.timezone)
@@ -951,150 +944,7 @@ async function finishBucket(s: AssistantStore, query: TaskQuery, limit: number):
   return { rows, more: Math.max(0, total - rows.length) }
 }
 
-// --------------------------------------------------------------- time ledger
-
-const DAY_MS = 24 * 60 * 60 * 1000
-
-/**
- * An instant the ledger may be written at, as the request names it — or a refusal with a reason.
- *
- * The server clock is the final trust boundary (AGENTS.md rule 1), and every guard here refuses
- * out loud rather than clamping (rule 2): a silently trimmed timestamp is a wrong fact the worklog
- * can never distinguish from real overtime. A client clock rebuilt from sleep, set by hand, or filed
- * from a wrong zone can therefore only produce three honest outcomes — a number inside the window,
- * a 400 naming what was wrong, or nothing. The five-minute future tolerance covers the drift the
- * platform admits; the lower bound is the harsher of the account's own birth and a remembered year,
- * because anything older is not a back-fill but a clock nobody set.
- */
-function ledgerInstant(c: Ctx, value: unknown, field: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw ApiError.badRequest(`${field} must be a millisecond timestamp.`)
-  }
-  const at = Math.trunc(value)
-  const now = Date.now()
-  if (at > now + MAX_TIMER_START_FUTURE_MS) {
-    throw ApiError.badRequest(`${field} is in the future; the server clock decides when work happened.`)
-  }
-  const accountCreatedAt = c.get('user')?.createdAt ?? 0
-  const floor = Math.max(accountCreatedAt, now - MAX_TIME_ENTRY_AGE_DAYS * DAY_MS)
-  if (at < floor) {
-    throw ApiError.badRequest(`${field} is before the oldest instant this account may record.`)
-  }
-  return at
-}
-
-/**
- * The window and grouping a ledger read asks for.
- *
- * The same day grammar, the same default 30 days and the same refusals the statistics window
- * already uses — a second reading of `from`/`to` would eventually disagree with the first. `group`
- * is the bucket the answer is cut by: by day for a worklog, by task for "where did the hours go".
- */
-function timeRange(c: Ctx, timezone: string): { from: string, to: string, group: 'day' | 'task' } {
-  const today = localDate(Date.now(), timezone)
-  const to = c.req.query('to') || today
-  if (!isStatsDay(to)) throw ApiError.badRequest('A time range must end on a date like 2026-01-31.')
-  const from = c.req.query('from') || addDays(to, -29)
-  if (!isStatsDay(from)) throw ApiError.badRequest('A time range must start on a date like 2026-01-31.')
-  if (from > to) throw ApiError.badRequest('A time range cannot start after it ends.')
-  assertStatsSpan(from, to)
-  const group = c.req.query('group') ?? 'day'
-  if (group !== 'day' && group !== 'task') {
-    throw ApiError.badRequest('A time group must be day or task.')
-  }
-  return { from, to, group }
-}
-
-/**
- * The grouped hours over one window, in the one read the group needs.
- *
- * Registered above `/:id` or "time" reads as a task id. A running interval is deliberately absent
- * from every bucket: it is not yet a fact, and counting the open slot is how "yesterday" starts
- * growing while nobody watches.
- */
-todoRoutes.get('/time', async (c) => {
-  // A read this wide spends the read budget: it is unmetered otherwise, and a loop over a
-  // deliberately wide range is a way to make one account's screen slow for everyone on the isolate.
-  readBudget(c.get('userId'))
-  const s = store(c)
-  const settings = await s.getSettings()
-  const { from, to, group } = timeRange(c, settings.timezone)
-  const totals = group === 'day' ? await s.timeByDay(from, to) : await s.timeByTask(from, to)
-  return c.json({ from, to, group, totals, totalMs: totals.reduce((total, row) => total + row.ms, 0) })
-})
-
-todoRoutes.get('/:id/time', async (c) => {
-  readBudget(c.get('userId'))
-  const s = store(c)
-  const id = requiredId(c.req.param('id'))
-  if (!await s.getTask(id)) throw ApiError.notFound('Task not found')
-  return c.json({ entries: await s.listTimeEntries({ taskId: id }) })
-})
-
-/**
- * Start the one timer this account may run.
- *
- * `startAt` is optional because the common gesture has no timestamp to name — "now" is the server's
- * own clock. A client that does name one (an offline replay) is read through the ledger's window.
- * Starting is idempotent by the store's rule: the row that is already running comes back, and
- * another task's timer is stopped where this one begins rather than refused.
- */
-todoRoutes.post('/:id/timer/start', async (c) => {
-  const s = store(c)
-  const id = requiredId(c.req.param('id'))
-  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
-  const startAt = body.startAt === undefined ? Date.now() : ledgerInstant(c, body.startAt, 'startAt')
-  const entry = await s.openTimeEntry(id, startAt)
-  if (!entry) throw ApiError.notFound('Task not found')
-  return c.json({ entry })
-})
-
-/**
- * Stop this task's running timer, split at the account midnights it crossed.
- *
- * A stop names no instant unless the caller does: the default is the server's now, and a client that
- * was asleep checks in with its own reading of the stop instant, which passes the same window as a
- * start does. Nothing running for this task is the 404 the other task gestures already give.
- */
-todoRoutes.post('/:id/timer/stop', async (c) => {
-  const s = store(c)
-  const id = requiredId(c.req.param('id'))
-  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
-  const endAt = body.endAt === undefined ? Date.now() : ledgerInstant(c, body.endAt, 'endAt')
-  const entries = await s.closeTimeEntry(id, endAt)
-  if (!entries) throw ApiError.notFound('No timer is running for this task.')
-  return c.json({ entries })
-})
-
-/**
- * Back-fill one span by hand — the answer to "I worked on this and never started the timer".
- *
- * The span is refused past the per-entry ceiling rather than trimmed: four hours is the longest a
- * real session runs, and what is longer is either a mistake or a period the reader should have
- * broken up — the refusal names both, and the day ceiling inside the store refuses the pile-up.
- */
-todoRoutes.post('/:id/time', async (c) => {
-  const s = store(c)
-  const id = requiredId(c.req.param('id'))
-  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
-  const startAt = ledgerInstant(c, body.startAt, 'startAt')
-  const endAt = ledgerInstant(c, body.endAt, 'endAt')
-  if (endAt - startAt > MAX_SINGLE_TIME_ENTRY_MS) {
-    throw ApiError.badRequest(
-      `A single time entry cannot be longer than ${MAX_SINGLE_TIME_ENTRY_MS / 3_600_000} hours — add it in shorter spans.`,
-    )
-  }
-  const entries = await s.addManualTime(id, startAt, endAt)
-  if (!entries) throw ApiError.notFound('Task not found')
-  return c.json({ entries }, 201)
-})
-
-/** Take one ledger row back out: the back-space key of a mistaken span, or a timer nobody wants kept. */
-todoRoutes.delete('/time/:entryId', async (c) => {
-  const removed = await store(c).removeTimeEntry(requiredId(c.req.param('entryId')))
-  if (!removed) throw ApiError.notFound('Time entry not found')
-  return c.json({ deleted: true })
-})
+registerTodoTimeRoutes(todoRoutes)
 
 /** One page of the trash, newest deletion first; `total` counts the whole trash, not the page. */
 function trashPageQuery(c: Ctx): { limit?: number; offset?: number } {

@@ -45208,14 +45208,6 @@ const allowed = new Map([
     "/** The day a close-out reads: the one the address names, or the account's own today. */",
     "/**\n * How many rows one bucket carries.\n *\n * A close-out is a screen of decisions, not a report, so the ceiling is the listing's own. What a reader\n * cannot see here is counted into `more` beside it: fifty of ninety finished tasks would otherwise read\n * as a day that held fifty.\n */",
     "/** One bucket: the rows the page carries, and how many the account held behind them. */",
-    "// --------------------------------------------------------------- time ledger",
-    "/**\n * An instant the ledger may be written at, as the request names it — or a refusal with a reason.\n *\n * The server clock is the final trust boundary (AGENTS.md rule 1), and every guard here refuses\n * out loud rather than clamping (rule 2): a silently trimmed timestamp is a wrong fact the worklog\n * can never distinguish from real overtime. A client clock rebuilt from sleep, set by hand, or filed\n * from a wrong zone can therefore only produce three honest outcomes — a number inside the window,\n * a 400 naming what was wrong, or nothing. The five-minute future tolerance covers the drift the\n * platform admits; the lower bound is the harsher of the account's own birth and a remembered year,\n * because anything older is not a back-fill but a clock nobody set.\n */",
-    "/**\n * The window and grouping a ledger read asks for.\n *\n * The same day grammar, the same default 30 days and the same refusals the statistics window\n * already uses — a second reading of `from`/`to` would eventually disagree with the first. `group`\n * is the bucket the answer is cut by: by day for a worklog, by task for \"where did the hours go\".\n */",
-    "/**\n * The grouped hours over one window, in the one read the group needs.\n *\n * Registered above `/:id` or \"time\" reads as a task id. A running interval is deliberately absent\n * from every bucket: it is not yet a fact, and counting the open slot is how \"yesterday\" starts\n * growing while nobody watches.\n */",
-    "/**\n * Start the one timer this account may run.\n *\n * `startAt` is optional because the common gesture has no timestamp to name — \"now\" is the server's\n * own clock. A client that does name one (an offline replay) is read through the ledger's window.\n * Starting is idempotent by the store's rule: the row that is already running comes back, and\n * another task's timer is stopped where this one begins rather than refused.\n */",
-    "/**\n * Stop this task's running timer, split at the account midnights it crossed.\n *\n * A stop names no instant unless the caller does: the default is the server's now, and a client that\n * was asleep checks in with its own reading of the stop instant, which passes the same window as a\n * start does. Nothing running for this task is the 404 the other task gestures already give.\n */",
-    "/**\n * Back-fill one span by hand — the answer to \"I worked on this and never started the timer\".\n *\n * The span is refused past the per-entry ceiling rather than trimmed: four hours is the longest a\n * real session runs, and what is longer is either a mistake or a period the reader should have\n * broken up — the refusal names both, and the day ceiling inside the store refuses the pile-up.\n */",
-    "/** Take one ledger row back out: the back-space key of a mistaken span, or a timer nobody wants kept. */",
     "// The day's close files rows away; the same door with `false` is the way back, which is what makes",
     "// a result toast that offers undo a real offer rather than a one-way write.",
     "// The occurrence a completion files, answered beside the id so the caller does not have to reload",
@@ -45281,7 +45273,6 @@ const allowed = new Map([
     "// the completion does not read it a second time, and the revision the caller named still",
     "// rides along — a row that moved between the read above and this press is refused per row",
     "// rather than finished over whoever changed it.",
-    "/** The widest span a statistics, worklog or time read may ask for. */",
     "/** Reads one of the statistics screens may spend in a minute. */",
     "/** The span two days may hold, counted in the account's own calendar rather than in hours. */",
     "// A read this wide spends the read budget: it is unmetered otherwise, and a loop over a",
@@ -53919,6 +53910,9 @@ const allowed = new Map([
   ["tests/todo-import-json.test.ts", [
     "// The current TodoExportDocument carries step counts, not step rows. The importer also accepts the",
     "// lossless step extension so a caller that has the rows can preserve their text and completion.",
+  ]],
+  ["src/worker/routes/todo-time.ts", [
+    "/**\n * An instant the ledger may be written at, as the request names it — or a refusal with a reason.\n *\n * The server clock is the final trust boundary (AGENTS.md rule 1), and every guard here refuses\n * out loud rather than clamping (rule 2): a silently trimmed timestamp is a wrong fact the worklog\n * can never distinguish from real overtime. A client clock rebuilt from sleep, set by hand, or filed\n * from a wrong zone can therefore only produce three honest outcomes — a number inside the window,\n * a 400 naming what was wrong, or nothing. The five-minute future tolerance covers the drift the\n * platform admits; the lower bound is the harsher of the account's own birth and a remembered year,\n * because anything older is not a back-fill but a clock nobody set.\n */",
   ]],
 ])
 const found = new Map()
