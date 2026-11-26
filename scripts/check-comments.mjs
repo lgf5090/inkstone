@@ -38533,7 +38533,6 @@ const allowed = new Map([
     "/**\n   * The dependency list this task may be given, or the reason it may not.\n   *\n   * Public because the HTTP route is the one that has to answer a refusal with a 400 and a sentence; the\n   * store's own write calls this too, so an MCP or assistant caller that goes straight to the store is\n   * refused by the same rule rather than by a weaker copy of it.\n   */",
     "// One sentence for all of them, and it does not say whether the id exists somewhere else: an id",
     "// belonging to another account is the same \"not yours to wait on\" as one nobody has ever written.",
-    "/** Whether `start` already waits on `target`, walking forward to a depth no real graph reaches. */",
     "// The dependency set is written after the row exists, because the walk that refuses a cycle has to",
     "// be able to see this task as a node. A create names a set or names none; it never replaces one.",
     "// Absent leaves the graph alone; a list — empty included — is the reader's new answer about what",
@@ -38675,6 +38674,7 @@ const allowed = new Map([
     "// the account sorted by whatever the query happens to read first. Nullable, so a file written before",
     "// the column was carried still lands, and the row it restores is simply unplaced.",
     "/**\n   * Where the notice is about, as `<app>:<id>` — `todo:<task id>` first.\n   *\n   * Not a URL, and not the caller's to shape: the client resolves the pair inside its own origin, so a\n   * writer cannot aim a reader's press somewhere this deployment never chose. Absent or blank is a notice\n   * that points nowhere — a digest, a finished run — which the notification centre expands instead of\n   * navigating on. Clamped like the title, because the column is a pointer and not a place to park text.\n   */",
+    "/** Whether `start` already waits on `target`, walking the whole reachable graph once. */",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",

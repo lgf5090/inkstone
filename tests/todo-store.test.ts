@@ -8,6 +8,7 @@ import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 import { isTaskDone, isTaskOpen } from '../src/shared/todos/status'
+import { MAX_STEPS_PER_TASK } from '../src/shared/todos/model'
 
 const USER = 'user-alice'
 const OTHER = 'user-bob'
@@ -73,6 +74,23 @@ describe('writing a task', () => {
     const steps = await store.listSteps(task.id)
     expect(steps.map((step) => step.text)).toEqual(['Collect receipts', 'Fill the form'])
     expect(steps.every((step) => !step.done)).toBe(true)
+  })
+
+  it('enforces the step ceiling under concurrent inserts', async () => {
+    const task = await store.createTask({ title: 'Many steps' })
+    const results = await Promise.all(Array.from({ length: MAX_STEPS_PER_TASK + 10 }, (_, index) =>
+      store.addStep(task.id, `Step ${index}`)))
+
+    expect(results.filter((step) => step !== null)).toHaveLength(MAX_STEPS_PER_TASK)
+    expect(await store.listSteps(task.id)).toHaveLength(MAX_STEPS_PER_TASK)
+  })
+
+  it('returns the same list and tag when concurrent creates race on a name', async () => {
+    const lists = await Promise.all(Array.from({ length: 10 }, () => store.createTaskList({ name: 'Raced list' })))
+    const tags = await Promise.all(Array.from({ length: 10 }, () => store.createTaskTag({ name: 'Raced tag' })))
+
+    expect(new Set(lists.map((list) => list.id)).size).toBe(1)
+    expect(new Set(tags.map((tag) => tag.id)).size).toBe(1)
   })
 
   it('does not clear the columns a patch did not name', async () => {

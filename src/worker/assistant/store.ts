@@ -5783,11 +5783,11 @@ export class AssistantStore {
     return wanted
   }
 
-  /** Whether `start` already waits on `target`, walking forward to a depth no real graph reaches. */
+  /** Whether `start` already waits on `target`, walking the whole reachable graph once. */
   private async dependsReaches(start: string, target: string): Promise<boolean> {
     const seen = new Set<string>([start])
     let frontier = [start]
-    for (let depth = 0; depth < 12 && frontier.length; depth += 1) {
+    while (frontier.length) {
       const next: string[] = []
       for (const chunk of idChunks(frontier)) {
         const rows = await this.rows<{ depends_on_id: string }>(
@@ -6933,11 +6933,15 @@ export class AssistantStore {
     const id = newId()
     const at = Date.now()
     const position = await this.nextListPosition()
-    await this.write(
-      `INSERT INTO todos_lists (id, user_id, name, icon, color, position, created_at, updated_at)
+    const changed = await this.write(
+      `INSERT OR IGNORE INTO todos_lists (id, user_id, name, icon, color, position, created_at, updated_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
       id, name, input.icon ?? null, input.color ?? defaultColorFor(name), position, at, at,
     )
+    if (!changed) {
+      const raced = await this.findTaskListByName(name)
+      if (raced) return raced
+    }
     const created = await this.getTaskList(id)
     if (!created) throw new Error(`The list ${id} was written but could not be read back.`)
     return created
@@ -7027,11 +7031,15 @@ export class AssistantStore {
     if (existing) return existing
     const id = newId()
     const at = Date.now()
-    await this.write(
-      `INSERT INTO todos_tags (id, user_id, name, color, created_at, updated_at)
+    const changed = await this.write(
+      `INSERT OR IGNORE INTO todos_tags (id, user_id, name, color, created_at, updated_at)
        VALUES (?2, ?1, ?3, ?4, ?5, ?6)`,
       id, name, input.color ?? defaultColorFor(name), at, at,
     )
+    if (!changed) {
+      const raced = await this.findTaskTagByName(name)
+      if (raced) return raced
+    }
     const created = await this.getTaskTag(id)
     if (!created) throw new Error(`The tag ${id} was written but could not be read back.`)
     return created
@@ -7218,14 +7226,19 @@ export class AssistantStore {
     if ((count?.n ?? 0) >= MAX_STEPS_PER_TASK) return null
     const id = newId()
     const at = Date.now()
-    await this.db.batch([
-      this.db.prepare(
-        `INSERT INTO todos_steps (id, user_id, task_id, text, done, position, created_at)
-         VALUES (?2, ?1, ?3, ?4, 0,
-           (SELECT COALESCE(MAX(position), -1) + 1 FROM todos_steps WHERE user_id = ?1 AND task_id = ?3), ?5)`,
-      ).bind(this.userId, id, taskId, clean, at),
-      this.touchTaskStatement(taskId, at),
-    ])
+    const insert = this.db.prepare(
+      `INSERT INTO todos_steps (id, user_id, task_id, text, done, position, created_at)
+       SELECT ?2, ?1, ?3, ?4, 0,
+              (SELECT COALESCE(MAX(position), -1) + 1 FROM todos_steps WHERE user_id = ?1 AND task_id = ?3), ?5
+        WHERE (SELECT COUNT(*) FROM todos_steps WHERE user_id = ?1 AND task_id = ?3) < ?6`,
+    ).bind(this.userId, id, taskId, clean, at, MAX_STEPS_PER_TASK)
+    const touch = this.db.prepare(
+      `UPDATE todos_tasks SET updated_at = ?2, rev = rev + 1
+        WHERE user_id = ?1 AND id = ?3
+          AND EXISTS (SELECT 1 FROM todos_steps WHERE user_id = ?1 AND id = ?4)`,
+    ).bind(this.userId, at, taskId, id)
+    const results = await this.db.batch([insert, touch])
+    if (!Number(results[0]?.meta?.changes ?? 0)) return null
     const row = await this.one<TaskStepRow>(`SELECT * FROM todos_steps WHERE user_id = ?1 AND id = ?2`, this.userId, id)
     return row ? toTaskStep(row) : null
   }
