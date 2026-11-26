@@ -96,6 +96,7 @@ import {
   YOUTUBE_SCHEMA_STATEMENTS,
 } from '../youtube/schema'
 import {
+  CLOUDDRIVE_FTS_SCHEMA_STATEMENTS,
   CLOUDDRIVE_REQUIRED_COLUMNS,
   CLOUDDRIVE_REQUIRED_INDEXES,
   CLOUDDRIVE_REQUIRED_TABLES,
@@ -4832,6 +4833,39 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: [
       `ALTER TABLE attachments ADD COLUMN plaintext_size INTEGER`,
     ],
+  },
+  {
+    // Before roles existed every grant could comment; preserve that capability for old rows.
+    version: 428,
+    skipIfColumnExists: { table: 'CloudDrive_acl', column: 'role' },
+    statements: [`ALTER TABLE CloudDrive_acl ADD COLUMN role TEXT NOT NULL DEFAULT 'commenter'`],
+  },
+  {
+    version: 429,
+    skipIfColumnExists: { table: 'CloudDrive_acl', column: 'expires_at' },
+    statements: [`ALTER TABLE CloudDrive_acl ADD COLUMN expires_at INTEGER`],
+  },
+  {
+    version: 430,
+    statements: [`CREATE INDEX IF NOT EXISTS idx_clouddrive_acl_expiry ON CloudDrive_acl(owner_id, expires_at)`],
+  },
+  {
+    // Backfill once; later isolate boots create the table and triggers without rebuilding the index.
+    version: 431,
+    statements: [
+      ...CLOUDDRIVE_FTS_SCHEMA_STATEMENTS,
+      `INSERT INTO CloudDrive_files_fts(CloudDrive_files_fts) VALUES('rebuild')`,
+    ],
+  },
+  {
+    version: 432,
+    skipIfColumnExists: { table: 'CloudDrive_upload_sessions', column: 'sha256' },
+    statements: [`ALTER TABLE CloudDrive_upload_sessions ADD COLUMN sha256 TEXT`],
+  },
+  {
+    version: 433,
+    skipIfColumnExists: { table: 'CloudDrive_meta', column: 'vault' },
+    statements: [`ALTER TABLE CloudDrive_meta ADD COLUMN vault INTEGER NOT NULL DEFAULT 0`],
   },
 ]
 

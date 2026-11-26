@@ -26,6 +26,7 @@ import { newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { knownLengthByteStream, readBoundedBytes } from '../lib/body-stream'
 import { assertMetaAccess } from './routes-meta'
+import { recordActivity } from './activity'
 import { PRIMARY_MOUNT_ID, ensurePrimaryMount, readCloudDriveSettings } from './store'
 import { assignParts, deletePartObject, deleteUploadPartObjects, partMounts, writePartObject } from './distributed'
 import {
@@ -36,7 +37,9 @@ import {
   discardDirectObject,
   entryOf,
   findLiveSibling,
+  findChecksumFile,
   findParent,
+  hashUploadStream,
   mountNameFor,
   parseUploadConflict,
   sessionConflictValue,
@@ -58,6 +61,7 @@ interface UploadInitBody {
   size?: unknown
   mime?: unknown
   conflict?: unknown
+  sha256?: unknown
 }
 
 function requireUserId(c: Context<AppBindings>): string {
@@ -98,7 +102,7 @@ async function sessionById(
   return await db.prepare(
     `SELECT id, user_id, mount_id, parent_id, path, name, name_folded, mime, category, size,
             strategy, part_size, total_parts, provider_upload_id, storage_key, parts_uploaded,
-            bytes_uploaded, status, error, created_at, updated_at, expires_at
+            bytes_uploaded, status, error, sha256, created_at, updated_at, expires_at
        FROM CloudDrive_upload_sessions
       WHERE user_id = ?1 AND id = ?2`,
   ).bind(userId, id).first<UploadSessionRow>()
@@ -184,11 +188,20 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
     throw ApiError.conflict('A folder with that name already exists')
   }
 
+  const checksum = body.sha256 === undefined ? null : body.sha256
+  if (checksum !== null && (typeof checksum !== 'string' || !/^[0-9a-f]{64}$/.test(checksum))) {
+    throw ApiError.badRequest('sha256 must be a lowercase hexadecimal SHA-256 digest')
+  }
+  const duplicate = checksum ? await findChecksumFile(c.env.DB, userId, checksum, size) : null
+  if (duplicate && existing?.id === duplicate.id && conflict === 'overwrite') {
+    return c.json({ skipped: true, deduped: true, existing: entryOf(duplicate, mountId, mountName, hasThumbnail), entryPath: duplicate.path })
+  }
+
   const settings = await readCloudDriveSettings(c.env.DB, userId)
   if (size > settings.uploadMaxFileBytes) {
     throw ApiError.tooLarge(`The file is larger than the ${settings.uploadMaxFileBytes}-byte limit`)
   }
-  if (settings.quotaDefaultBytes !== null) {
+  if (!duplicate && settings.quotaDefaultBytes !== null) {
     const used = await usedPrimaryBytes(c.env.DB, userId)
     // An overwrite replaces those bytes and the predecessor is kept only as a version, which the quota
     // does not count; charging both would refuse a same-size update on a nearly full drive.
@@ -206,15 +219,15 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
     : name
   const category = categoryFor(finalName, mime)
   const fileId = newId()
-  const storageKey: string | null = `CloudDrive/${category}/${fileId}`
+  const storageKey: string | null = duplicate?.storage_key ?? `CloudDrive/${category}/${fileId}`
   const entryPath = childPath(parentPath, finalName)
 
-  let strategy: 'direct' | 'multipart' | 'distributed' = 'direct'
+  let strategy: 'direct' | 'multipart' | 'distributed' | 'dedupe' = duplicate ? 'dedupe' : 'direct'
   let partSize = 0
   let totalParts = 0
   let distributedMounts: Awaited<ReturnType<typeof partMounts>> = []
   const distributedPartSize = Math.min(Math.max(32 * 1024 * 1024, settings.uploadPartSizeBytes), CLOUDDRIVE_LIMITS.partSizeMaxBytes)
-  if (size >= settings.uploadDistributedMinBytes) {
+  if (!duplicate && size >= settings.uploadDistributedMinBytes) {
     distributedMounts = await partMounts(c.env.DB, userId, distributedPartSize)
   }
   if (distributedMounts.length >= 2) {
@@ -225,7 +238,7 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
     if (totalParts > CLOUDDRIVE_LIMITS.partsMax) {
       throw ApiError.tooLarge('The file needs more parts than the multipart limit allows')
     }
-  } else if (size > CLOUDDRIVE_LIMITS.directUploadMaxBytes) {
+  } else if (!duplicate && size > CLOUDDRIVE_LIMITS.directUploadMaxBytes) {
     strategy = 'multipart'
     partSize = Math.max(settings.uploadPartSizeBytes, Math.ceil(size / CLOUDDRIVE_LIMITS.partsMax))
     partSize = Math.min(partSize, CLOUDDRIVE_LIMITS.partSizeMaxBytes)
@@ -251,14 +264,14 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
         `INSERT INTO CloudDrive_upload_sessions
            (id, user_id, mount_id, parent_id, path, name, name_folded, mime, category, size, strategy,
             part_size, total_parts, provider_upload_id, storage_key, parts_uploaded, bytes_uploaded,
-            status, error, created_at, updated_at, expires_at)
+            status, error, sha256, created_at, updated_at, expires_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 0, 0,
-                 'active', ?16, ?17, ?17, ?18)`,
+                 'active', ?16, ?17, ?18, ?18, ?19)`,
       ).bind(
         sessionId, userId, mountId, parentId, entryPath, finalName, foldedName(finalName), mime,
         category, size, strategy, partSize, totalParts, multipart?.uploadId ?? null, sessionKey,
         conflict === 'overwrite' ? sessionConflictValue(conflict) : null,
-        now, now + SESSION_TTL_MS,
+        checksum, now, now + SESSION_TTL_MS,
       ),
       ...assignments.map((part) => c.env.DB.prepare(
         `INSERT INTO CloudDrive_upload_part_objects
@@ -303,10 +316,16 @@ clouddriveUploadRoutes.put('/uploads/:id/content', async (c) => {
     tooLarge: (received) => ApiError.tooLarge(`The request body was ${received} bytes but the session declared ${session.size}`),
     mismatched: (received) => ApiError.badRequest(`The request body was ${received} bytes but the session declared ${session.size}`),
   }, session.size)
+  const hashed = session.sha256 ? hashUploadStream(stream) : { stream, digest: () => null }
   const [object] = await Promise.all([
-    bucket.put(key, stream, { httpMetadata: { contentType: session.mime } }),
+    bucket.put(key, hashed.stream, { httpMetadata: { contentType: session.mime } }),
     completed,
   ])
+  const actual = hashed.digest()
+  if (session.sha256 && actual !== session.sha256) {
+    await bucket.delete(key)
+    throw ApiError.badRequest('The uploaded bytes do not match the declared SHA-256 digest')
+  }
 
   const now = Date.now()
   await c.env.DB.prepare(
@@ -452,7 +471,12 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
   const conflict = body.conflict === undefined
     ? decodeSessionConflict(session.error)
     : parseUploadConflict(body.conflict)
-  return c.json(await completeUploadSession(c.env, userId, session, conflict))
+  const result = await completeUploadSession(c.env, userId, session, conflict)
+  await recordActivity(c.env.DB, userId, {
+    action: 'skipped' in result ? 'upload_skip' : session.strategy === 'dedupe' ? 'upload_dedupe' : 'upload',
+    targetPath: 'skipped' in result ? result.entryPath : result.entry.path,
+  })
+  return c.json(result)
 })
 
 clouddriveUploadRoutes.post('/uploads/:id/abort', async (c) => {

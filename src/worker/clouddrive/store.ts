@@ -79,10 +79,43 @@ export async function readCloudDriveSettings(db: D1Database, userId: string): Pr
   return parseCloudDriveSettings(rows)
 }
 
-export async function cloudDriveUsage(db: D1Database, userId: string, env: Env): Promise<CloudDriveUsage> {
+export interface CloudDriveUsageCounts {
+  liveBytes: number
+  trashBytes: number
+  usedBytes: number
+}
+
+interface UsageRow {
+  live_bytes: number
+  trash_bytes: number
+  used_bytes: number
+  calibrated_at: number
+}
+
+const USAGE_CACHE_MS = 5 * 60 * 1000
+
+/**
+ * Exact object-byte counts, cached per user. Triggers invalidate the row on every file, version or
+ * distributed-part mutation; the TTL and the scheduled refresh are the safety net for older writers.
+ */
+export async function readCloudDriveUsageCounts(
+  db: D1Database,
+  userId: string,
+  options: { force?: boolean; now?: number } = {},
+): Promise<CloudDriveUsageCounts> {
+  const now = options.now ?? Date.now()
+  if (!options.force) {
+    const cached = await db.prepare(
+      `SELECT live_bytes, trash_bytes, used_bytes, calibrated_at FROM CloudDrive_usage WHERE user_id = ?1`,
+    ).bind(userId).first<UsageRow>()
+    if (cached && cached.calibrated_at > now - USAGE_CACHE_MS) {
+      return { liveBytes: cached.live_bytes, trashBytes: cached.trash_bytes, usedBytes: cached.used_bytes }
+    }
+  }
+
   // A stored version is bytes in the bucket just like the file it came from, so each side of the card
   // counts its file's versions too — otherwise a quota looks half empty while ten revisions sit in it.
-  const [live, trash, liveParts, trashParts] = await Promise.all([
+  const [live, trash, liveParts, trashParts, total] = await Promise.all([
     db.prepare(
       `SELECT COALESCE(SUM(size), 0) AS bytes FROM (
          SELECT storage_key, MAX(size) AS size FROM (
@@ -119,11 +152,56 @@ export async function cloudDriveUsage(db: D1Database, userId: string, env: Env):
         JOIN CloudDrive_files f ON f.user_id = p.user_id AND f.id = p.file_id
        WHERE p.user_id = ?1 AND p.mount_id = 'primary' AND f.deleted_at IS NOT NULL`,
     ).bind(userId).first<{ bytes: number }>(),
+    db.prepare(
+      `SELECT COALESCE(SUM(size), 0) AS bytes FROM (
+         SELECT storage_key, MAX(size) AS size FROM (
+           SELECT storage_key, size FROM CloudDrive_files
+            WHERE user_id = ?1 AND storage_key IS NOT NULL
+           UNION ALL
+           SELECT storage_key, size FROM CloudDrive_file_versions
+            WHERE user_id = ?1 AND storage_key IS NOT NULL
+           UNION ALL
+           SELECT json_extract(payload, '$.file.storage_key') AS storage_key,
+                  json_extract(payload, '$.file.size') AS size
+             FROM CloudDrive_snapshot_items
+            WHERE user_id = ?1 AND json_extract(payload, '$.file.storage_key') IS NOT NULL
+         )
+         GROUP BY storage_key
+       )`,
+    ).bind(userId).first<{ bytes: number }>(),
   ])
+  const liveBytes = Number(live?.bytes ?? 0) + Number(liveParts?.bytes ?? 0)
+  const trashBytes = Number(trash?.bytes ?? 0) + Number(trashParts?.bytes ?? 0)
+  const counts = {
+    liveBytes,
+    trashBytes,
+    // Quota checks include trash, snapshot-held objects and every primary distributed part. Shared
+    // storage keys are grouped above so a deduplicated file or saved snapshot is charged only once.
+    usedBytes: Number(total?.bytes ?? 0) + Number(liveParts?.bytes ?? 0) + Number(trashParts?.bytes ?? 0),
+  }
+  await db.prepare(
+    `INSERT INTO CloudDrive_usage (user_id, live_bytes, trash_bytes, used_bytes, calibrated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5)
+     ON CONFLICT(user_id) DO UPDATE SET
+       live_bytes = excluded.live_bytes, trash_bytes = excluded.trash_bytes,
+       used_bytes = excluded.used_bytes, calibrated_at = excluded.calibrated_at`,
+  ).bind(userId, counts.liveBytes, counts.trashBytes, counts.usedBytes, now).run()
+  return counts
+}
+
+export async function cloudDriveUsage(
+  db: D1Database,
+  userId: string,
+  env: Env,
+  options: { force?: boolean } = {},
+): Promise<CloudDriveUsage> {
+  const counts = await readCloudDriveUsageCounts(db, userId, options)
   const settings = await readCloudDriveSettings(db, userId)
   return {
-    usedBytes: (live?.bytes ?? 0) + (liveParts?.bytes ?? 0),
-    trashBytes: (trash?.bytes ?? 0) + (trashParts?.bytes ?? 0),
+    // Upload guards and quota checks share this counter, so trash and live distributed parts count
+    // against the same ceiling instead of depending on which endpoint performed the check.
+    usedBytes: counts.usedBytes,
+    trashBytes: counts.trashBytes,
     // A deployment that does not enforce a quota can still publish a display ceiling; otherwise the
     // capacity card would read "unlimited" for every account on a quota-less install.
     quotaBytes: settings.quotaDefaultBytes ?? settings.storageDisplayQuotaBytes,

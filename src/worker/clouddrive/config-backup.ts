@@ -38,7 +38,7 @@ export async function buildCloudDriveConfigBackup(
     ).bind(userId).all(),
     db.prepare(
       `SELECT mount_id, path, header_md, footer_md, hide_patterns, inherit_header,
-              inherit_footer, inherit_hide, inherit_password, created_at, updated_at
+              inherit_footer, inherit_hide, inherit_password, vault, created_at, updated_at
          FROM CloudDrive_meta WHERE user_id = ? ORDER BY mount_id, path`,
     ).bind(userId).all(),
     db.prepare(

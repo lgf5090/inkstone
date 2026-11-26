@@ -4,6 +4,45 @@
  * `TABLE_SCHEMA_STATEMENTS` on the next boot. No numbered migration is needed until a column has
  * to be added to a table that already exists in the ledger.
  */
+/** FTS5 mirrors live file names; the content table remains the source of truth. */
+export const CLOUDDRIVE_FTS_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE VIRTUAL TABLE IF NOT EXISTS CloudDrive_files_fts USING fts5(
+    name,
+    name_initials,
+    content = 'CloudDrive_files',
+    content_rowid = 'rowid',
+    tokenize = 'unicode61 remove_diacritics 2'
+  )`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_files_fts_insert AFTER INSERT ON CloudDrive_files
+   WHEN NEW.deleted_at IS NULL
+   BEGIN
+     INSERT INTO CloudDrive_files_fts(rowid, name, name_initials) VALUES (NEW.rowid, NEW.name, NEW.name_initials);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_files_fts_delete AFTER DELETE ON CloudDrive_files
+   WHEN OLD.deleted_at IS NULL
+   BEGIN
+     INSERT INTO CloudDrive_files_fts(CloudDrive_files_fts, rowid, name, name_initials)
+     VALUES ('delete', OLD.rowid, OLD.name, OLD.name_initials);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_files_fts_rename AFTER UPDATE OF name, name_initials ON CloudDrive_files
+   BEGIN
+     INSERT INTO CloudDrive_files_fts(CloudDrive_files_fts, rowid, name, name_initials)
+     VALUES ('delete', OLD.rowid, OLD.name, OLD.name_initials);
+     INSERT INTO CloudDrive_files_fts(rowid, name, name_initials) VALUES (NEW.rowid, NEW.name, NEW.name_initials);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_files_fts_trash AFTER UPDATE OF deleted_at ON CloudDrive_files
+   WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL
+   BEGIN
+     INSERT INTO CloudDrive_files_fts(CloudDrive_files_fts, rowid, name, name_initials)
+     VALUES ('delete', OLD.rowid, OLD.name, OLD.name_initials);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_files_fts_restore AFTER UPDATE OF deleted_at ON CloudDrive_files
+   WHEN OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL
+   BEGIN
+     INSERT INTO CloudDrive_files_fts(rowid, name, name_initials) VALUES (NEW.rowid, NEW.name, NEW.name_initials);
+   END`,
+]
+
 export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS CloudDrive_storages (
     user_id TEXT NOT NULL,
@@ -105,6 +144,16 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
      ON CloudDrive_files(user_id, category, uploaded_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_clouddrive_files_storage_key
      ON CloudDrive_files(storage_key)`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_files_checksum
+     ON CloudDrive_files(user_id, checksum, size) WHERE deleted_at IS NULL`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_usage (
+    user_id TEXT NOT NULL PRIMARY KEY,
+    live_bytes INTEGER NOT NULL DEFAULT 0,
+    trash_bytes INTEGER NOT NULL DEFAULT 0,
+    used_bytes INTEGER NOT NULL DEFAULT 0,
+    calibrated_at INTEGER NOT NULL
+  )`,
 
   `CREATE TABLE IF NOT EXISTS CloudDrive_file_tags (
     user_id TEXT NOT NULL,
@@ -191,6 +240,8 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
      ON CloudDrive_share_visits(slug, at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_clouddrive_share_visits_at
      ON CloudDrive_share_visits(at)`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_share_visits_download_dedupe
+     ON CloudDrive_share_visits(user_id, slug, kind, path, ip_hash, at)`,
 
   `CREATE TABLE IF NOT EXISTS CloudDrive_upload_sessions (
     id TEXT NOT NULL UNIQUE,
@@ -212,6 +263,7 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
     bytes_uploaded INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'active',
     error TEXT,
+    sha256 TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
@@ -339,6 +391,8 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
     owner_id TEXT NOT NULL,
     file_id TEXT NOT NULL,
     grantee_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('viewer', 'commenter', 'editor')),
+    expires_at INTEGER,
     created_at INTEGER NOT NULL,
     revoked_at INTEGER,
     PRIMARY KEY (owner_id, file_id, grantee_id)
@@ -347,6 +401,8 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
      ON CloudDrive_acl(grantee_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_clouddrive_acl_file
      ON CloudDrive_acl(owner_id, file_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_acl_expiry
+     ON CloudDrive_acl(owner_id, expires_at)`,
 
   `CREATE TABLE IF NOT EXISTS CloudDrive_file_requests (
     slug TEXT NOT NULL UNIQUE,
@@ -447,6 +503,7 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
     inherit_footer INTEGER NOT NULL DEFAULT 0,
     inherit_hide INTEGER NOT NULL DEFAULT 0,
     inherit_password INTEGER NOT NULL DEFAULT 0,
+    vault INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, mount_id, path)
@@ -480,12 +537,97 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_clouddrive_dav_locks_mount
      ON CloudDrive_dav_locks(user_id, mount_id, expires_at)`,
+
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_files_usage_insert
+     AFTER INSERT ON CloudDrive_files BEGIN
+       DELETE FROM CloudDrive_usage WHERE user_id = NEW.user_id;
+     END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_files_usage_update
+     AFTER UPDATE OF user_id, storage_key, size, deleted_at ON CloudDrive_files BEGIN
+       DELETE FROM CloudDrive_usage WHERE user_id IN (OLD.user_id, NEW.user_id);
+     END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_files_usage_delete
+     AFTER DELETE ON CloudDrive_files BEGIN
+       DELETE FROM CloudDrive_usage WHERE user_id = OLD.user_id;
+     END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_versions_usage_insert
+     AFTER INSERT ON CloudDrive_file_versions BEGIN
+       DELETE FROM CloudDrive_usage WHERE user_id = NEW.user_id;
+     END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_versions_usage_update
+     AFTER UPDATE OF user_id, storage_key, size ON CloudDrive_file_versions BEGIN
+       DELETE FROM CloudDrive_usage WHERE user_id IN (OLD.user_id, NEW.user_id);
+     END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_versions_usage_delete
+     AFTER DELETE ON CloudDrive_file_versions BEGIN
+       DELETE FROM CloudDrive_usage WHERE user_id = OLD.user_id;
+     END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_parts_usage_insert
+     AFTER INSERT ON CloudDrive_file_parts BEGIN
+       DELETE FROM CloudDrive_usage WHERE user_id = NEW.user_id;
+     END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_parts_usage_update
+     AFTER UPDATE OF user_id, size ON CloudDrive_file_parts BEGIN
+       DELETE FROM CloudDrive_usage WHERE user_id IN (OLD.user_id, NEW.user_id);
+     END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_clouddrive_parts_usage_delete
+     AFTER DELETE ON CloudDrive_file_parts BEGIN
+       DELETE FROM CloudDrive_usage WHERE user_id = OLD.user_id;
+     END`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_activities (
+    id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_path TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info',
+    detail TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_activities_user
+     ON CloudDrive_activities(user_id, created_at DESC, id DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_snapshots (
+    id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    mount_id TEXT NOT NULL,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    total_bytes INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_snapshots_user
+     ON CloudDrive_snapshots(user_id, created_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_snapshot_items (
+    snapshot_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY (user_id, snapshot_id, payload)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_vault_unlocks (
+    token_hash TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    mount_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, token_hash)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_vault_unlocks_lookup
+     ON CloudDrive_vault_unlocks(user_id, mount_id, path, expires_at)`,
+  ...CLOUDDRIVE_FTS_SCHEMA_STATEMENTS,
 ]
 
 export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_storages',
   'CloudDrive_mounts',
   'CloudDrive_files',
+  'CloudDrive_files_fts',
+  'CloudDrive_usage',
   'CloudDrive_file_tags',
   'CloudDrive_file_comments',
   'CloudDrive_shares',
@@ -509,6 +651,10 @@ export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_meta',
   'CloudDrive_meta_unlocks',
   'CloudDrive_dav_locks',
+  'CloudDrive_activities',
+  'CloudDrive_snapshots',
+  'CloudDrive_snapshot_items',
+  'CloudDrive_vault_unlocks',
 ] as const
 
 export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -541,7 +687,7 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
     'id', 'user_id', 'mount_id', 'parent_id', 'path', 'name', 'name_folded', 'mime',
     'category', 'size', 'strategy', 'part_size', 'total_parts', 'provider_upload_id',
     'storage_key', 'parts_uploaded', 'bytes_uploaded', 'status', 'error', 'created_at',
-    'updated_at', 'expires_at',
+    'updated_at', 'expires_at', 'sha256',
   ],
   CloudDrive_upload_parts: ['session_id', 'part_number', 'etag', 'size', 'uploaded_at'],
   CloudDrive_upload_part_objects: ['session_id', 'part_number', 'mount_id', 'storage_key', 'size', 'etag', 'uploaded_at'],
@@ -568,7 +714,7 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
     'max_files', 'max_bytes', 'max_file_bytes', 'received_files', 'received_bytes', 'is_enabled',
     'created_at', 'last_upload_at', 'revoked_at',
   ],
-  CloudDrive_acl: ['owner_id', 'file_id', 'grantee_id', 'created_at', 'revoked_at'],
+  CloudDrive_acl: ['owner_id', 'file_id', 'grantee_id', 'role', 'expires_at', 'created_at', 'revoked_at'],
   CloudDrive_index_state: ['user_id', 'mount_id', 'last_indexed_at', 'status', 'error', 'updated_at'],
   CloudDrive_scheduled_jobs: [
     'user_id', 'id', 'name', 'handler', 'schedule_type', 'interval_sec', 'cron', 'enabled',
@@ -577,7 +723,7 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
   CloudDrive_meta: [
     'user_id', 'mount_id', 'path', 'header_md', 'footer_md', 'hide_patterns',
     'password_hash', 'inherit_header', 'inherit_footer', 'inherit_hide', 'inherit_password',
-    'created_at', 'updated_at',
+    'vault', 'created_at', 'updated_at',
   ],
   CloudDrive_meta_unlocks: [
     'token_hash', 'user_id', 'mount_id', 'path', 'expires_at', 'created_at',
@@ -588,6 +734,10 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
   CloudDrive_job_runs: [
     'id', 'user_id', 'job_id', 'status', 'result', 'error', 'started_at', 'finished_at', 'duration_ms',
   ],
+  CloudDrive_activities: ['id', 'user_id', 'action', 'target_path', 'severity', 'detail', 'created_at'],
+  CloudDrive_snapshots: ['id', 'user_id', 'name', 'mount_id', 'item_count', 'total_bytes', 'created_at'],
+  CloudDrive_snapshot_items: ['snapshot_id', 'user_id', 'payload'],
+  CloudDrive_vault_unlocks: ['token_hash', 'user_id', 'mount_id', 'path', 'expires_at', 'created_at'],
 }
 
 export const CLOUDDRIVE_REQUIRED_INDEXES = [
@@ -605,6 +755,7 @@ export const CLOUDDRIVE_REQUIRED_INDEXES = [
   'idx_clouddrive_files_trash',
   'idx_clouddrive_files_category',
   'idx_clouddrive_files_storage_key',
+  'idx_clouddrive_files_checksum',
   'idx_clouddrive_file_tags_tag',
   'idx_clouddrive_file_tags_file',
   'idx_clouddrive_file_comments_file',
@@ -614,6 +765,7 @@ export const CLOUDDRIVE_REQUIRED_INDEXES = [
   'idx_clouddrive_share_sessions_expiry',
   'idx_clouddrive_share_visits_slug',
   'idx_clouddrive_share_visits_at',
+  'idx_clouddrive_share_visits_download_dedupe',
   'idx_clouddrive_upload_user',
   'idx_clouddrive_upload_expiry',
   'idx_clouddrive_upload_part_key',
@@ -628,10 +780,14 @@ export const CLOUDDRIVE_REQUIRED_INDEXES = [
   'idx_clouddrive_requests_user',
   'idx_clouddrive_acl_grantee',
   'idx_clouddrive_acl_file',
+  'idx_clouddrive_acl_expiry',
   'idx_clouddrive_jobs_user',
   'idx_clouddrive_jobs_due',
   'idx_clouddrive_job_runs_job',
   'idx_clouddrive_meta_mount',
   'idx_clouddrive_meta_unlocks_lookup',
   'idx_clouddrive_dav_locks_mount',
+  'idx_clouddrive_activities_user',
+  'idx_clouddrive_snapshots_user',
+  'idx_clouddrive_vault_unlocks_lookup',
 ] as const

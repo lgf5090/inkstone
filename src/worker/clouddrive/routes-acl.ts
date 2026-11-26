@@ -1,5 +1,5 @@
 import { Hono, type Context } from 'hono'
-import { autoSuffixName, childPath, foldedName, parentPathOf } from '@shared/clouddrive/model'
+import { autoSuffixName, categoryFor, childPath, foldedName, parentPathOf } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
@@ -9,21 +9,28 @@ import {
   assertWritable,
   buildEntry,
   chunkedBatch,
+  deleteObjectQuietly,
   initialsOf,
   notePasscodeFailure,
   parseFolderMeta,
   passcodeThrottleKey,
   parsePath,
+  parseName,
+  requireBucket,
   resolveEntry,
   resolveMount,
   type CloudDriveFileRow,
+  decodeCursor,
+  encodeCursor,
 } from './lib'
 import { distributedStream, fileParts } from './distributed'
-import { folderHiddenPatterns } from './store-files'
-import { effectiveMeta, effectiveMetas, hiddenByPatterns } from './meta'
+import { createFile, createFolder, folderHiddenPatterns, renameEntry, setEntryFlags } from './store-files'
+import { hiddenPatternToLike } from './store-files-list'
+import { effectiveMeta, effectiveMetas, hiddenByPatterns, normalizeMetaPatterns } from './meta'
 import { cloudDriveUsage } from './store'
 import { planContentResponse, headResponse } from './content-response'
 import { assertMetaAccess } from './routes-meta'
+import { aclFileForRole, parseAclExpiry, parseAclRole } from './acl-access'
 
 export const clouddriveAclRoutes = new Hono<AppBindings>()
 
@@ -33,6 +40,7 @@ clouddriveAclRoutes.use('*', async (c, next) => {
 })
 
 const BODY_LIMIT = 16 * 1024
+const ACL_PAGE_SIZE = 100
 
 interface AclFileRow {
   id: string
@@ -42,6 +50,7 @@ interface AclFileRow {
   path: string
   kind: string
   name: string
+  name_folded: string
   category: string
   mime: string
   size: number
@@ -217,37 +226,55 @@ async function aclAllows(
     `SELECT 1 AS hit FROM CloudDrive_acl a
        JOIN CloudDrive_files f ON f.user_id = a.owner_id AND f.id = a.file_id
       WHERE a.owner_id = ?1 AND a.grantee_id = ?2 AND a.revoked_at IS NULL
+        AND (a.expires_at IS NULL OR a.expires_at > ?6)
         AND f.deleted_at IS NULL AND f.mount_id = ?5
         AND (f.id = ?3 OR (f.kind = 'folder'
           AND (f.path = ?4 OR (f.path <> '/' AND substr(?4, 1, length(f.path) + 1) = f.path || '/'))))
       LIMIT 1`,
-  ).bind(ownerId, granteeId, fileId, target.path, target.mount_id).first<{ hit: number }>()
+  ).bind(ownerId, granteeId, fileId, target.path, target.mount_id, Date.now()).first<{ hit: number }>()
   return grant ? target : null
 }
 
 clouddriveAclRoutes.get('/acl/grants', async (c) => {
   const fileId = c.req.query('fileId') ?? ''
   const file = await ownerFile(c, fileId)
+  const clauses = ['a.owner_id = ?1', 'a.file_id = ?2', 'a.revoked_at IS NULL']
+  const params: unknown[] = [userIdOf(c), file.id]
+  const cursor = c.req.query('cursor')
+  if (cursor) {
+    const decoded = decodeCursor(cursor, 'uploaded')
+    if (typeof decoded.v !== 'number') throw ApiError.badRequest('The cursor is invalid')
+    clauses.push('(a.created_at > ?3 OR (a.created_at = ?4 AND a.grantee_id > ?5))')
+    params.push(decoded.v, decoded.v, decoded.id)
+  }
   const { results } = await c.env.DB.prepare(
-    `SELECT a.grantee_id, a.created_at, u.username, u.name
+    `SELECT a.grantee_id, a.role, a.expires_at, a.created_at, u.username, u.name
        FROM CloudDrive_acl a
        JOIN users u ON u.id = a.grantee_id
-      WHERE a.owner_id = ? AND a.file_id = ? AND a.revoked_at IS NULL
-      ORDER BY a.created_at`,
-  ).bind(userIdOf(c), file.id).all<{ grantee_id: string; created_at: number; username: string; name: string }>()
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY a.created_at, a.grantee_id LIMIT ?${params.length + 1}`,
+  ).bind(...params, ACL_PAGE_SIZE + 1).all<{ grantee_id: string; role: string; expires_at: number | null; created_at: number; username: string; name: string }>()
+  const rows = results ?? []
+  const page = rows.slice(0, ACL_PAGE_SIZE)
+  const last = page[page.length - 1]
   return c.json({
-    grants: (results ?? []).map((row) => ({
+    grants: page.map((row) => ({
       granteeId: row.grantee_id,
       username: row.username,
       name: row.name,
+      role: parseAclRole(row.role),
+      expiresAt: row.expires_at,
       createdAt: row.created_at,
     })),
+    cursor: rows.length > ACL_PAGE_SIZE && last
+      ? encodeCursor('uploaded', last.created_at, last.grantee_id)
+      : null,
   })
 })
 
 clouddriveAclRoutes.post('/acl/grants', async (c) => {
   const ownerId = userIdOf(c)
-  const body = await readJson<{ fileId?: unknown; username?: unknown }>(c, BODY_LIMIT)
+  const body = await readJson<{ fileId?: unknown; username?: unknown; role?: unknown; expiresAt?: unknown }>(c, BODY_LIMIT)
   if (typeof body.fileId !== 'string') throw ApiError.badRequest('fileId is required')
   const file = await ownerFile(c, body.fileId)
   const username = typeof body.username === 'string' ? body.username.trim() : ''
@@ -265,13 +292,60 @@ clouddriveAclRoutes.post('/acl/grants', async (c) => {
   }
   if (grantee.id === ownerId) throw ApiError.badRequest('You already own this item')
   const now = Date.now()
+  const role = body.role === undefined ? 'viewer' : parseAclRole(body.role)
+  const expiresAt = parseAclExpiry(body.expiresAt, now)
   await c.env.DB.prepare(
-    `INSERT INTO CloudDrive_acl (owner_id, file_id, grantee_id, created_at, revoked_at)
-     VALUES (?1, ?2, ?3, ?4, NULL)
-     ON CONFLICT(owner_id, file_id, grantee_id) DO UPDATE SET created_at = excluded.created_at, revoked_at = NULL`,
-  ).bind(ownerId, file.id, grantee.id, now).run()
+    `INSERT INTO CloudDrive_acl (owner_id, file_id, grantee_id, role, expires_at, created_at, revoked_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)
+     ON CONFLICT(owner_id, file_id, grantee_id) DO UPDATE SET
+       role = excluded.role, expires_at = excluded.expires_at, created_at = excluded.created_at, revoked_at = NULL`,
+  ).bind(ownerId, file.id, grantee.id, role, expiresAt, now).run()
   return c.json({
-    grant: { granteeId: grantee.id, username: grantee.username, name: grantee.name, createdAt: now },
+    grant: { granteeId: grantee.id, username: grantee.username, name: grantee.name, role, expiresAt, createdAt: now },
+  })
+})
+
+clouddriveAclRoutes.patch('/acl/grants', async (c) => {
+  const ownerId = userIdOf(c)
+  const body = await readJson<{ fileId?: unknown; granteeId?: unknown; role?: unknown; expiresAt?: unknown }>(c, BODY_LIMIT)
+  if (typeof body.fileId !== 'string' || typeof body.granteeId !== 'string' || !isValidId(body.granteeId)) {
+    throw ApiError.badRequest('fileId and granteeId are required')
+  }
+  await ownerFile(c, body.fileId)
+  const sets: string[] = []
+  const values: unknown[] = []
+  if (body.role !== undefined) {
+    sets.push('role = ?')
+    values.push(parseAclRole(body.role))
+  }
+  if (body.expiresAt !== undefined) {
+    sets.push('expires_at = ?')
+    values.push(parseAclExpiry(body.expiresAt))
+  }
+  if (sets.length === 0) throw ApiError.badRequest('role or expiresAt is required')
+  values.push(ownerId, body.fileId, body.granteeId)
+  const updated = await c.env.DB.prepare(
+    `UPDATE CloudDrive_acl SET ${sets.join(', ')}
+      WHERE owner_id = ? AND file_id = ? AND grantee_id = ? AND revoked_at IS NULL`,
+  ).bind(...values).run()
+  if (!updated.meta.changes) throw ApiError.notFound('Grant not found')
+  const grant = await c.env.DB.prepare(
+    `SELECT a.grantee_id, a.role, a.expires_at, a.created_at, u.username, u.name
+       FROM CloudDrive_acl a JOIN users u ON u.id = a.grantee_id
+      WHERE a.owner_id = ? AND a.file_id = ? AND a.grantee_id = ? AND a.revoked_at IS NULL`,
+  ).bind(ownerId, body.fileId, body.granteeId).first<{
+    grantee_id: string; role: string; expires_at: number | null; created_at: number; username: string; name: string
+  }>()
+  if (!grant) throw ApiError.notFound('Grant not found')
+  return c.json({
+    grant: {
+      granteeId: grant.grantee_id,
+      username: grant.username,
+      name: grant.name,
+      role: parseAclRole(grant.role),
+      expiresAt: grant.expires_at,
+      createdAt: grant.created_at,
+    },
   })
 })
 
@@ -290,17 +364,32 @@ clouddriveAclRoutes.delete('/acl/grants', async (c) => {
 })
 
 clouddriveAclRoutes.get('/acl/shared', async (c) => {
+  const clauses = ['a.grantee_id = ?1', 'a.revoked_at IS NULL', '(a.expires_at IS NULL OR a.expires_at > ?2)']
+  const params: unknown[] = [userIdOf(c), Date.now()]
+  const cursor = c.req.query('cursor')
+  if (cursor) {
+    const decoded = decodeCursor(cursor, 'uploaded')
+    if (typeof decoded.v !== 'number') throw ApiError.badRequest('The cursor is invalid')
+    const separator = decoded.id.indexOf('\u0000')
+    const ownerId = decoded.id.slice(0, separator)
+    const fileId = decoded.id.slice(separator + 1)
+    if (separator < 0 || !ownerId || !fileId) throw ApiError.badRequest('The cursor is invalid')
+    clauses.push('(a.created_at < ?3 OR (a.created_at = ?4 AND (a.owner_id < ?5 OR (a.owner_id = ?6 AND a.file_id < ?7))))')
+    params.push(decoded.v, decoded.v, ownerId, ownerId, fileId)
+  }
   const { results } = await c.env.DB.prepare(
-    `SELECT a.owner_id, a.file_id, a.created_at, f.name, f.path, f.kind, f.size, f.mime,
+    `SELECT a.owner_id, a.file_id, a.role, a.expires_at, a.created_at, f.name, f.path, f.kind, f.size, f.mime,
             f.modified_at, u.username AS owner_username, u.name AS owner_name
        FROM CloudDrive_acl a
        JOIN CloudDrive_files f ON f.user_id = a.owner_id AND f.id = a.file_id AND f.deleted_at IS NULL
        JOIN users u ON u.id = a.owner_id
-      WHERE a.grantee_id = ? AND a.revoked_at IS NULL
-      ORDER BY a.created_at DESC`,
-  ).bind(userIdOf(c)).all<{
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY a.created_at DESC, a.owner_id DESC, a.file_id DESC LIMIT ?${params.length + 1}`,
+  ).bind(...params, ACL_PAGE_SIZE + 1).all<{
     owner_id: string
     file_id: string
+    role: string
+    expires_at: number | null
     created_at: number
     name: string
     path: string
@@ -311,8 +400,11 @@ clouddriveAclRoutes.get('/acl/shared', async (c) => {
     owner_username: string
     owner_name: string
   }>()
+  const rows = results ?? []
+  const page = rows.slice(0, ACL_PAGE_SIZE)
+  const last = page[page.length - 1]
   return c.json({
-    shared: (results ?? []).map((row) => ({
+    shared: page.map((row) => ({
       ownerId: row.owner_id,
       ownerUsername: row.owner_username,
       ownerName: row.owner_name,
@@ -323,8 +415,13 @@ clouddriveAclRoutes.get('/acl/shared', async (c) => {
       size: row.size,
       mime: row.mime,
       modifiedAt: row.modified_at,
+      role: parseAclRole(row.role),
+      expiresAt: row.expires_at,
       sharedAt: row.created_at,
     })),
+    cursor: rows.length > ACL_PAGE_SIZE && last
+      ? encodeCursor('uploaded', last.created_at, `${last.owner_id}\u0000${last.file_id}`)
+      : null,
   })
 })
 
@@ -351,27 +448,49 @@ clouddriveAclRoutes.get('/acl/shared/:ownerId/:fileId/list', async (c) => {
   await assertMetaAccess(c, ownerId, folder.mount_id, requested)
   const meta = await effectiveMeta(c.env.DB, ownerId, folder.mount_id, requested)
   const folderMeta = parseFolderMeta(folder.metadata)
+  const clauses = ['user_id = ?', 'mount_id = ?', 'parent_id = ?', 'deleted_at IS NULL']
+  const params: unknown[] = [ownerId, folder.mount_id, folder.id]
+  const hidden = [...meta.hidePatterns, ...folderMeta.hiddenPatterns]
+  if (hidden.length > 0) {
+    clauses.push(`(${hidden.map(() => "name_folded NOT LIKE ? ESCAPE '\\'").join(' AND ')})`)
+    params.push(...hidden.map(hiddenPatternToLike))
+  }
+  const cursor = c.req.query('cursor')
+  if (cursor) {
+    const decoded = decodeCursor(cursor, 'name')
+    if (typeof decoded.v !== 'string') throw ApiError.badRequest('The cursor is invalid')
+    const separator = decoded.v.indexOf('\u0000')
+    const kind = decoded.v.slice(0, separator)
+    const name = decoded.v.slice(separator + 1)
+    if (separator < 0 || !['folder', 'file'].includes(kind)) throw ApiError.badRequest('The cursor is invalid')
+    clauses.push('(kind < ? OR (kind = ? AND (name_folded > ? OR (name_folded = ? AND id > ?))))')
+    params.push(kind, kind, name, name, decoded.id)
+  }
   const { results } = await c.env.DB.prepare(
-    `SELECT id, user_id, path, kind, name, mime, size, etag, storage_kind, storage_key, metadata,
+    `SELECT id, user_id, path, kind, name, name_folded, mime, size, etag, storage_kind, storage_key, metadata,
             uploaded_at, modified_at
-       FROM CloudDrive_files WHERE user_id = ? AND mount_id = ? AND parent_id = ? AND deleted_at IS NULL
-       ORDER BY kind DESC, name_folded LIMIT 500`,
-  ).bind(ownerId, folder.mount_id, folder.id).all<AclFileRow>()
+       FROM CloudDrive_files WHERE ${clauses.join(' AND ')}
+       ORDER BY kind DESC, name_folded, id LIMIT ?`,
+  ).bind(...params, ACL_PAGE_SIZE + 1).all<AclFileRow>()
+  const rows = results ?? []
+  const page = rows.slice(0, ACL_PAGE_SIZE)
+  const last = page[page.length - 1]
   return c.json({
     ownerId,
     path: requested,
-    entries: (results ?? [])
-      .filter((row) => !hiddenByPatterns(row.name, [...meta.hidePatterns, ...folderMeta.hiddenPatterns]))
-      .map((row) => ({
-        ownerId,
-        fileId: row.id,
-        name: row.name,
-        path: row.path,
-        kind: row.kind,
-        size: row.size,
-        mime: row.mime,
-        modifiedAt: row.modified_at,
-      })),
+    entries: page.map((row) => ({
+      ownerId,
+      fileId: row.id,
+      name: row.name,
+      path: row.path,
+      kind: row.kind,
+      size: row.size,
+      mime: row.mime,
+      modifiedAt: row.modified_at,
+    })),
+    cursor: rows.length > ACL_PAGE_SIZE && last
+      ? encodeCursor('name', `${last.kind}\u0000${last.name_folded}`, last.id)
+      : null,
   })
 })
 
@@ -413,4 +532,87 @@ clouddriveAclRoutes.on(['GET', 'HEAD'], '/acl/shared/:ownerId/:fileId/content', 
   )
   if (!object) throw ApiError.notFound('File not found')
   return new Response(object.body, { status: planned.status, headers: planned.headers })
+})
+
+async function editableSharedFolder(c: Context<AppBindings>, ownerId: string, folderId: string) {
+  const { file } = await aclFileForRole(c, ownerId, folderId, userIdOf(c), 'editor')
+  if (file.kind !== 'folder') throw ApiError.badRequest('This item is not a folder')
+  const mount = await resolveMount(c.env.DB, ownerId, file.mount_id)
+  assertWritable(mount)
+  await assertMetaAccess(c, ownerId, mount.id, file.path)
+  return { file, mount }
+}
+
+clouddriveAclRoutes.post('/acl/shared/:ownerId/:folderId/folders', async (c) => {
+  const ownerId = c.req.param('ownerId')
+  const { file, mount } = await editableSharedFolder(c, ownerId, c.req.param('folderId'))
+  const body = await readJson<{ name?: unknown }>(c, BODY_LIMIT)
+  const created = await createFolder(c.env.DB, ownerId, mount.id, file, parseName(body.name), Date.now())
+  if (!created.entry) throw ApiError.conflict('A file with this name already exists', { suggestedName: created.conflict })
+  return c.json({ entry: buildEntry(created.entry, mount, []) }, 201)
+})
+
+clouddriveAclRoutes.post('/acl/shared/:ownerId/:folderId/files', async (c) => {
+  const ownerId = c.req.param('ownerId')
+  const { file, mount } = await editableSharedFolder(c, ownerId, c.req.param('folderId'))
+  const body = await readJson<{ name?: unknown }>(c, BODY_LIMIT)
+  const name = parseName(body.name)
+  const category = categoryFor(name)
+  const mime = category === 'txt' || category === 'code' ? 'text/plain' : 'application/octet-stream'
+  const bucket = await requireBucket(c)
+  const id = newId()
+  const storageKey = `CloudDrive/${category}/${id}`
+  const object = await bucket.put(storageKey, new Uint8Array(0), {
+    httpMetadata: { contentType: mime },
+    customMetadata: { fileId: id, category },
+  })
+  const created = await createFile(c.env.DB, ownerId, mount.id, file, name, {
+    id, category, mime, storageKey, etag: object.etag,
+  }, Date.now())
+  if (!created.entry) {
+    await deleteObjectQuietly(bucket, storageKey)
+    throw ApiError.conflict('A file with this name already exists', { suggestedName: created.conflict })
+  }
+  return c.json({ entry: buildEntry(created.entry, mount, []) }, 201)
+})
+
+clouddriveAclRoutes.patch('/acl/shared/:ownerId/:fileId', async (c) => {
+  const ownerId = c.req.param('ownerId')
+  const { file } = await aclFileForRole(c, ownerId, c.req.param('fileId'), userIdOf(c), 'editor')
+  const mount = await resolveMount(c.env.DB, ownerId, file.mount_id)
+  assertWritable(mount)
+  await assertMetaAccess(c, ownerId, mount.id, file.kind === 'folder' ? file.path : parentPathOf(file.path))
+  const body = await readJson<{ name?: unknown; note?: unknown; hidePatterns?: unknown }>(c, BODY_LIMIT)
+  let current = file
+  if (body.name !== undefined) {
+    const renamed = await renameEntry(c.env.DB, ownerId, mount.id, current, parseName(body.name), Date.now())
+    if (renamed.tooLarge) throw ApiError.tooLarge('The folder is too large to rename synchronously')
+    if (!renamed.entry) throw ApiError.conflict('A file with this name already exists', { suggestedName: renamed.conflict })
+    current = renamed.entry
+  }
+  if (body.note !== undefined || body.hidePatterns !== undefined) {
+    if (current.kind !== 'folder') throw ApiError.badRequest('Only folders can have a note or hidden patterns')
+    let metadata: Record<string, unknown>
+    try {
+      const parsed = JSON.parse(current.metadata) as unknown
+      metadata = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+    } catch {
+      metadata = {}
+    }
+    if (body.note !== undefined) {
+      if (typeof body.note !== 'string' || body.note.length > 4000) throw ApiError.badRequest('note must be a string of at most 4000 characters')
+      const note = body.note.trim()
+      if (note) metadata.note = note
+      else delete metadata.note
+    }
+    if (body.hidePatterns !== undefined) {
+      try {
+        metadata.hidePatterns = normalizeMetaPatterns(body.hidePatterns)
+      } catch (error) {
+        throw ApiError.badRequest(error instanceof Error ? error.message : 'hidePatterns holds * and ? wildcards')
+      }
+    }
+    current = await setEntryFlags(c.env.DB, ownerId, mount.id, current, { metadata }, Date.now())
+  }
+  return c.json({ entry: buildEntry(current, mount, []) })
 })

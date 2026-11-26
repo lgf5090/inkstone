@@ -174,6 +174,24 @@ describe('clouddrive file API', () => {
     expect(byName.body.files.map((entry) => entry.name)).toEqual(['alpha.txt', 'beta.txt', 'gamma.txt'])
   })
 
+  it('counts only visible files when row and metadata hide patterns both apply', async () => {
+    const folder = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Docs',
+    })
+    const folderId = folder.body.entry.id
+    await call(USER, 'PATCH', `/api/clouddrive/files/${folderId}`, { hidePatterns: ['row-hidden-*'] })
+    await call(USER, 'PUT', '/api/clouddrive/meta', { mountId: 'primary', path: '/Docs', hidePatterns: ['meta-hidden-*'] })
+    await insertEntry({ path: '/Docs/row-hidden-a.txt', name: 'row-hidden-a.txt', parentId: folderId })
+    await insertEntry({ path: '/Docs/meta-hidden-a.txt', name: 'meta-hidden-a.txt', parentId: folderId })
+    await insertEntry({ path: '/Docs/visible-a.txt', name: 'visible-a.txt', parentId: folderId })
+    await insertEntry({ path: '/Docs/visible-b.txt', name: 'visible-b.txt', parentId: folderId })
+
+    const listing = await call<{ files: { name: string }[]; total: number | null }>(USER, 'GET', '/api/clouddrive/files?path=%2FDocs')
+    expect(listing.status).toBe(200)
+    expect(listing.body.files.map((file) => file.name)).toEqual(['visible-a.txt', 'visible-b.txt'])
+    expect(listing.body.total).toBe(2)
+  })
+
   it('returns 409 with a suggested name when a folder already exists', async () => {
     const first = await call(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'Docs' })
     expect(first.status).toBe(201)
@@ -298,6 +316,29 @@ describe('clouddrive file API', () => {
     const child = await call<{ files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/files?path=/Notes')
     expect(child.status).toBe(200)
     expect(child.body.files.map((entry) => entry.path)).toEqual(['/Notes/a.txt'])
+  })
+
+  it('merges a selected parent and child into one move root', async () => {
+    const parent = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Parent',
+    })
+    const child = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/Parent', name: 'Child',
+    })
+    const file = await insertEntry({ path: '/Parent/Child/note.txt', name: 'note.txt', parentId: child.body.entry.id })
+    const target = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Target',
+    })
+
+    const moved = await call<{ results: { id: string; ok: boolean; toPath?: string }[] }>(
+      USER, 'POST', '/api/clouddrive/files/move',
+      { ids: [child.body.entry.id, parent.body.entry.id], toPath: '/Target' },
+    )
+    expect(moved.status).toBe(200)
+    expect(moved.body.results).toEqual([{ id: parent.body.entry.id, ok: true, toPath: '/Target/Parent' }])
+    expect(await rowByPath(USER, '/Target/Parent/Child')).toMatchObject({ id: child.body.entry.id })
+    expect(await rowByPath(USER, '/Target/Parent/Child/note.txt')).toMatchObject({ id: file })
+    expect((await db.prepare(`SELECT id FROM CloudDrive_files WHERE user_id = ? AND path = '/Target/Child'`).bind(USER).first())).toBeNull()
   })
 
   it('migrates path-bound state in the same batch as rename and move', async () => {
@@ -534,6 +575,25 @@ describe('clouddrive file API', () => {
     expect(removed.body.entry.tags).toEqual([])
     const empty = await call<{ tags: unknown[] }>(USER, 'GET', '/api/clouddrive/tags')
     expect(empty.body.tags).toEqual([])
+  })
+
+  it('pages the recent list and binds its cursor to the selected kind', async () => {
+    const now = Date.now()
+    for (let index = 0; index < 101; index++) {
+      await insertEntry({ path: `/recent-${String(index).padStart(3, '0')}.txt`, name: `recent-${String(index).padStart(3, '0')}.txt`, uploadedAt: now + index })
+    }
+    const first = await call<{ files: { id: string }[]; cursor: string | null }>(
+      USER, 'GET', '/api/clouddrive/recent?kind=uploaded&limit=100',
+    )
+    expect(first.body.files).toHaveLength(100)
+    expect(first.body.cursor).toBeTypeOf('string')
+    const second = await call<{ files: { id: string }[]; cursor: string | null }>(
+      USER, 'GET', `/api/clouddrive/recent?kind=uploaded&limit=100&cursor=${encodeURIComponent(first.body.cursor!)}`,
+    )
+    expect(second.body.files).toHaveLength(1)
+    expect(second.body.cursor).toBeNull()
+    expect(new Set([...first.body.files, ...second.body.files].map((file) => file.id)).size).toBe(101)
+    expect((await call(USER, 'GET', `/api/clouddrive/recent?kind=viewed&cursor=${encodeURIComponent(first.body.cursor!)}`)).status).toBe(400)
   })
 
   it('stars a file for the starred page and records a view for the recent page', async () => {

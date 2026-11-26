@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../src/worker/app'
 import { hashToken } from '../src/worker/lib/session-store'
+import { newId } from '../src/worker/lib/id'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings, testR2Bucket } from './doubles/bindings'
 import type { Env } from '../src/worker/env'
@@ -86,6 +87,19 @@ async function upload(h: Harness, parentPath: string, name: string, content: str
   return await uploadAs(h, OWNER, parentPath, name, content)
 }
 
+function insertFile(ownerId: string, parentId: string, path: string, name: string, createdAt = Date.now()): string {
+  const id = newId()
+  h.sqlite.prepare(
+    `INSERT INTO CloudDrive_files
+       (id,user_id,mount_id,parent_id,kind,name,name_folded,name_initials,path,category,mime,size,
+        etag,checksum,storage_kind,storage_key,metadata,color,starred_at,last_viewed_at,deleted_at,
+        trash_batch,created_at,updated_at,uploaded_at,modified_at)
+     VALUES (?, ?, 'primary', ?, 'file', ?, ?, '', ?, 'txt', 'text/plain', 1,
+             NULL, NULL, 'r2', NULL, '{}', '', NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
+  ).run(id, ownerId, parentId, name, name.toLowerCase(), path, createdAt, createdAt, createdAt, createdAt)
+  return id
+}
+
 let h: Harness
 
 beforeEach(async () => {
@@ -128,6 +142,67 @@ describe('CloudDrive account ACL', () => {
     })).status).toBe(200)
     expect((await request(h, MEMBER, 'GET', '/api/clouddrive/acl/shared')).status).toBe(200)
     expect(((await (await request(h, MEMBER, 'GET', '/api/clouddrive/acl/shared')).json()) as { shared: unknown[] }).shared).toHaveLength(0)
+  })
+
+  it('pages shared folder children without repeating or skipping a row', async () => {
+    const folder = (await (await request(h, OWNER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'pages' })).json()) as { entry: { id: string } }
+    const now = Date.now()
+    for (let index = 0; index < 101; index++) {
+      const name = `f-${String(index).padStart(3, '0')}.txt`
+      insertFile(OWNER, folder.entry.id, `/pages/${name}`, name, now + index)
+    }
+    expect((await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', {
+      fileId: folder.entry.id, username: 'member',
+    })).status).toBe(200)
+
+    const first = await request(h, MEMBER, 'GET', `/api/clouddrive/acl/shared/${OWNER}/${folder.entry.id}/list?path=%2Fpages`)
+    expect(first.status).toBe(200)
+    const firstBody = await first.json() as { entries: { fileId: string }[]; cursor: string | null }
+    expect(firstBody.entries).toHaveLength(100)
+    expect(firstBody.cursor).toBeTypeOf('string')
+    const second = await request(h, MEMBER, 'GET', `/api/clouddrive/acl/shared/${OWNER}/${folder.entry.id}/list?path=%2Fpages&cursor=${encodeURIComponent(firstBody.cursor!)}`)
+    const secondBody = await second.json() as { entries: { fileId: string }[]; cursor: string | null }
+    expect(secondBody.entries).toHaveLength(1)
+    expect(secondBody.cursor).toBeNull()
+    expect(new Set([...firstBody.entries, ...secondBody.entries].map((entry) => entry.fileId)).size).toBe(101)
+  })
+
+  it('pages both the shared-with-me list and per-file grants', async () => {
+    const now = Date.now()
+    const rootId = insertFile(OWNER, '', '/grant-root.txt', 'grant-root.txt', now)
+    for (let index = 0; index < 101; index++) {
+      const name = `shared-${String(index).padStart(3, '0')}.txt`
+      const fileId = insertFile(OWNER, '', `/${name}`, name, now + index)
+      h.sqlite.prepare(
+        `INSERT INTO CloudDrive_acl (owner_id,file_id,grantee_id,created_at,revoked_at) VALUES (?, ?, ?, ?, NULL)`,
+      ).run(OWNER, fileId, MEMBER, now + index)
+      const granteeId = `grantee-${String(index).padStart(3, '0')}`
+      h.sqlite.prepare(
+        `INSERT INTO users (id,username,password_hash,login,name,avatar_url,role,settings,created_at,last_seen_at)
+         VALUES (?, ?, 'hash', ?, '', '', 'member', '{}', ?, ?)`,
+      ).run(granteeId, granteeId, granteeId, now, now)
+      h.sqlite.prepare(
+        `INSERT INTO CloudDrive_acl (owner_id,file_id,grantee_id,created_at,revoked_at) VALUES (?, ?, ?, ?, NULL)`,
+      ).run(OWNER, rootId, granteeId, now + index)
+    }
+
+    const firstShared = await request(h, MEMBER, 'GET', '/api/clouddrive/acl/shared')
+    const sharedPage = await firstShared.json() as { shared: { fileId: string }[]; cursor: string | null }
+    expect(sharedPage.shared).toHaveLength(100)
+    const secondShared = await request(h, MEMBER, 'GET', `/api/clouddrive/acl/shared?cursor=${encodeURIComponent(sharedPage.cursor!)}`)
+    const sharedRest = await secondShared.json() as { shared: { fileId: string }[]; cursor: string | null }
+    expect(sharedRest.shared).toHaveLength(1)
+    expect(sharedRest.cursor).toBeNull()
+    expect(new Set([...sharedPage.shared, ...sharedRest.shared].map((item) => item.fileId)).size).toBe(101)
+
+    const firstGrants = await request(h, OWNER, 'GET', `/api/clouddrive/acl/grants?fileId=${rootId}`)
+    const grantsPage = await firstGrants.json() as { grants: { granteeId: string }[]; cursor: string | null }
+    expect(grantsPage.grants).toHaveLength(100)
+    const secondGrants = await request(h, OWNER, 'GET', `/api/clouddrive/acl/grants?fileId=${rootId}&cursor=${encodeURIComponent(grantsPage.cursor!)}`)
+    const grantsRest = await secondGrants.json() as { grants: { granteeId: string }[]; cursor: string | null }
+    expect(grantsRest.grants).toHaveLength(1)
+    expect(grantsRest.cursor).toBeNull()
+    expect(new Set([...grantsPage.grants, ...grantsRest.grants].map((grant) => grant.granteeId)).size).toBe(101)
   })
 
   it('keeps a shared password folder closed to the grantee', async () => {

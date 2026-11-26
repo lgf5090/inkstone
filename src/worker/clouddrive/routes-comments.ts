@@ -6,6 +6,7 @@ import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import type { CloudDriveFileRow } from './lib'
 import { assertMetaAccess } from './routes-meta'
+import { aclFileForRole } from './acl-access'
 
 export const clouddriveCommentRoutes = new Hono<AppBindings>()
 
@@ -72,18 +73,7 @@ async function visibleFile(c: Context<AppBindings>, ownerId: string, fileId: str
   if (!file) throw ApiError.notFound('File not found')
 
   const viewerId = userIdOf(c)
-  if (viewerId !== ownerId) {
-    const grant = await c.env.DB.prepare(
-      `SELECT 1 AS hit FROM CloudDrive_acl a
-         JOIN CloudDrive_files f ON f.user_id = a.owner_id AND f.id = a.file_id
-        WHERE a.owner_id = ?1 AND a.grantee_id = ?2 AND a.revoked_at IS NULL
-          AND f.deleted_at IS NULL AND f.mount_id = ?5
-          AND (f.id = ?3 OR (f.kind = 'folder'
-            AND (f.path = ?4 OR (f.path <> '/' AND substr(?4, 1, length(f.path) + 1) = f.path || '/'))))
-        LIMIT 1`,
-    ).bind(ownerId, viewerId, file.id, file.path, file.mount_id).first<{ hit: number }>()
-    if (!grant) throw ApiError.notFound('File not found')
-  }
+  if (viewerId !== ownerId) await aclFileForRole(c, ownerId, file.id, viewerId, 'viewer')
 
   await assertMetaAccess(c, ownerId, file.mount_id, file.kind === 'folder' ? file.path : parentPathOf(file.path))
   return file
@@ -179,6 +169,7 @@ clouddriveCommentRoutes.get('/files/:id/comments', async (c) => {
 
 clouddriveCommentRoutes.post('/files/:id/comments', async (c) => {
   const ownerId = ownerIdOf(c)
+  if (ownerId !== userIdOf(c)) await aclFileForRole(c, ownerId, c.req.param('id'), userIdOf(c), 'commenter')
   const file = await visibleFile(c, ownerId, c.req.param('id'))
   const body = await readJson<{ body?: unknown }>(c, COMMENT_BODY_LIMIT)
   if (typeof body.body !== 'string') throw ApiError.badRequest('A comment body is required')
@@ -252,11 +243,12 @@ clouddriveCommentRoutes.get('/files/:id/comments/people', async (c) => {
          JOIN CloudDrive_files f ON f.user_id = a.owner_id AND f.id = a.file_id
          JOIN users u ON u.id = a.grantee_id
         WHERE a.owner_id = ?1 AND a.revoked_at IS NULL AND a.grantee_id <> ?2
+          AND (a.expires_at IS NULL OR a.expires_at > ?6)
           AND f.deleted_at IS NULL AND f.mount_id = ?5
           AND (f.id = ?3 OR (f.kind = 'folder'
             AND (f.path = ?4 OR (f.path <> '/' AND substr(?4, 1, length(f.path) + 1) = f.path || '/'))))
         ORDER BY u.username LIMIT 100`,
-    ).bind(ownerId, userIdOf(c), file.id, file.path, file.mount_id).all<CommentUserRow>(),
+    ).bind(ownerId, userIdOf(c), file.id, file.path, file.mount_id, Date.now()).all<CommentUserRow>(),
   ])
   const people = new Map<string, CommentUserRow>()
   if (owner) people.set(owner.id, owner)

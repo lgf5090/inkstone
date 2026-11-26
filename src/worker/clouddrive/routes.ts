@@ -25,6 +25,10 @@ import { clouddriveJobRoutes } from './routes-jobs'
 import { clouddriveMetaRoutes } from './routes-meta'
 import { clouddriveOAuthRoutes } from './routes-oauth'
 import { cloudDriveUsage, ensurePrimaryMount, listMounts, readCloudDriveSettings } from './store'
+import { clouddriveActivityRoutes } from './routes-activity'
+import { clouddriveSnapshotRoutes } from './routes-snapshots'
+import { clouddriveBackupRoutes } from './routes-backups'
+import { clouddriveVaultRoutes } from './routes-vault'
 
 export const clouddriveRoutes = new Hono<AppBindings>()
 
@@ -80,6 +84,10 @@ clouddriveRoutes.route('/', clouddriveAdminRoutes)
 clouddriveRoutes.route('/', clouddriveJobRoutes)
 clouddriveRoutes.route('/', clouddriveMetaRoutes)
 clouddriveRoutes.route('/', clouddriveOAuthRoutes)
+clouddriveRoutes.route('/', clouddriveActivityRoutes)
+clouddriveRoutes.route('/', clouddriveSnapshotRoutes)
+clouddriveRoutes.route('/', clouddriveBackupRoutes)
+clouddriveRoutes.route('/', clouddriveVaultRoutes)
 
 clouddriveRoutes.all('*', () => {
   throw ApiError.notFound('CloudDrive endpoint not found')

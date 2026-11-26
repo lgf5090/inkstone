@@ -4,6 +4,8 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { readJson } from '../lib/request'
 import { requireOwner } from '../middleware/auth'
+import { requireCurrentPassword } from '../lib/reauth'
+import { assertVaultHeader } from './routes-vault'
 import {
   parsePath,
   resolveMount,
@@ -86,6 +88,8 @@ clouddriveMetaRoutes.put('/meta', requireOwner, async (c) => {
   const body = await readJson<Record<string, unknown>>(c, META_BODY_LIMIT)
   const mount = await mountFor(c, body.mountId)
   const path = parsePath(body.path ?? '/')
+  const existing = await getMetaRow(c.env.DB, c.get('userId'), mount.id, path)
+  if (existing?.vault) throw ApiError.badRequest('Use the vault controls to change a vault password')
   let hidePatterns: string[]
   try {
     hidePatterns = normalizeMetaPatterns(body.hidePatterns)
@@ -112,6 +116,11 @@ clouddriveMetaRoutes.delete('/meta', requireOwner, async (c) => {
   const body = await readJson<Record<string, unknown>>(c, META_BODY_LIMIT)
   const mount = await mountFor(c, body.mountId)
   const path = parsePath(body.path ?? '/')
+  const existing = await getMetaRow(c.env.DB, c.get('userId'), mount.id, path)
+  if (existing?.vault) {
+    await requireCurrentPassword(c.env.DB, c.get('userId'), body.currentPassword)
+    throw ApiError.badRequest('Disable the vault through the vault controls before deleting its metadata')
+  }
   const deleted = await deleteMetaRow(c.env.DB, c.get('userId'), mount.id, path)
   return c.json({ ok: deleted })
 })
@@ -158,6 +167,7 @@ export async function assertUnlockedMeta(
   mountId: string,
   meta: EffectiveCloudDriveMeta,
 ): Promise<void> {
+  await assertVaultHeader(c, userId, mountId, meta.vaultPath)
   if (!meta.passwordHash || !meta.passwordPath) return
   const cookieName = await metaCookieName(mountId, meta.passwordPath)
   const token = getCookie(c, cookieName)

@@ -82,7 +82,7 @@ function insertFile(ownerId: string, id: string, path: string, kind: 'file' | 'f
 
 function grant(ownerId: string, fileId: string, granteeId: string): void {
   sqlite.prepare(
-    `INSERT INTO CloudDrive_acl (owner_id, file_id, grantee_id, created_at, revoked_at) VALUES (?, ?, ?, ?, NULL)`,
+    `INSERT INTO CloudDrive_acl (owner_id, file_id, grantee_id, role, created_at, revoked_at) VALUES (?, ?, ?, 'commenter', ?, NULL)`,
   ).run(ownerId, fileId, granteeId, 1)
 }
 

@@ -72,9 +72,11 @@ async function call(method: string, path: string, body?: unknown, cookie = '', e
   if (method !== 'GET' && method !== 'HEAD') headers.set('X-Inkstone-Client', '1')
   if (cookie) headers.set('cookie', cookie)
   for (const [name, value] of Object.entries(extraHeaders)) headers.set(name, value)
-  const response = await app().fetch(new Request(`http://localhost${path}`, {
+  const request = new Request(`http://localhost${path}`, {
     method, headers, body: body === undefined ? undefined : JSON.stringify(body),
-  }), env)
+  })
+  Object.defineProperty(request, 'cf', { value: {} })
+  const response = await app().fetch(request, env)
   const text = await response.text()
   let parsed: any = {}
   try { parsed = text ? JSON.parse(text) : {} } catch { parsed = { text } }
@@ -367,6 +369,66 @@ describe('cloud drive shares', () => {
     expect(escaping.status).toBe(400)
   })
 
+  it('pages the owner share list with a stable keyset cursor', async () => {
+    const id = await file()
+    const now = Date.now()
+    for (let index = 0; index < 101; index++) {
+      const slug = `share-${String(index).padStart(3, '0')}`
+      await db.prepare(
+        `INSERT INTO CloudDrive_shares
+           (slug,user_id,target_kind,file_id,mount_id,path,name,size,mime,password_hash,expires_at,
+            max_views,views,max_downloads,downloads,allow_download,allow_list,is_enabled,created_at)
+         VALUES (?1,?2,'file',?3,'primary','/notes.txt','notes.txt',17,'text/plain',NULL,NULL,
+                 NULL,0,NULL,0,1,1,1,?4)`,
+      ).bind(slug, USER, id, now + index).run()
+    }
+
+    const first = await call('GET', '/api/clouddrive/shares')
+    expect(first.status).toBe(200)
+    expect(first.body.shares).toHaveLength(100)
+    expect(first.body.shares[0].slug).toBe('share-100')
+    expect(typeof first.body.cursor).toBe('string')
+
+    const second = await call('GET', `/api/clouddrive/shares?cursor=${encodeURIComponent(first.body.cursor)}`)
+    expect(second.status).toBe(200)
+    expect(second.body.shares.map((share: { slug: string }) => share.slug)).toEqual(['share-000'])
+    expect(second.body.cursor).toBeNull()
+    expect(new Set([...first.body.shares, ...second.body.shares].map((share: { slug: string }) => share.slug)).size).toBe(101)
+    expect((await call('GET', '/api/clouddrive/shares?cursor=not-a-cursor')).status).toBe(400)
+  })
+
+  it('deduplicates downloads by visitor, file and time window', async () => {
+    const folder = newId()
+    const first = await file()
+    const second = await mediaFile('second.txt', 'text/plain', 'second')
+    const now = Date.now()
+    await db.prepare(
+      `INSERT INTO CloudDrive_files (id,user_id,mount_id,parent_id,kind,name,name_folded,name_initials,path,category,mime,size,etag,checksum,storage_kind,storage_key,metadata,color,starred_at,last_viewed_at,deleted_at,trash_batch,created_at,updated_at,uploaded_at,modified_at)
+       VALUES (?1,?2,'primary','','folder','docs',?3,'','/docs','other','application/octet-stream',0,NULL,NULL,'r2',NULL,'{}','',NULL,NULL,NULL,NULL,?4,?4,?4,?4)`,
+    ).bind(folder, USER, foldedName('docs'), now).run()
+    await db.prepare(`UPDATE CloudDrive_files SET parent_id = ?1, path = '/docs/notes.txt' WHERE id = ?2`).bind(folder, first).run()
+    await db.prepare(`UPDATE CloudDrive_files SET parent_id = ?1, path = '/docs/second.txt' WHERE id = ?2`).bind(folder, second).run()
+    const slug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'folder', fileId: folder, path: '/docs',
+    })).body.share.slug as string
+
+    expect((await call('GET', `/api/public/clouddrive/shares/${slug}/download?path=%2Fnotes.txt`)).status).toBe(200)
+    expect((await call('GET', `/api/public/clouddrive/shares/${slug}/download?path=%2Fnotes.txt`)).status).toBe(200)
+    expect((await call('GET', `/api/public/clouddrive/shares/${slug}/download?path=%2Fsecond.txt`)).status).toBe(200)
+    expect((await call('GET', `/api/public/clouddrive/shares/${slug}/download?path=%2Fnotes.txt`, undefined, '', { 'CF-Connecting-IP': '203.0.113.11' })).status).toBe(200)
+    let share = await db.prepare(`SELECT downloads FROM CloudDrive_shares WHERE slug = ?1`).bind(slug).first<{ downloads: number }>()
+    expect(share?.downloads).toBe(3)
+
+    await db.prepare(
+      `UPDATE CloudDrive_share_visits SET at = ?1 WHERE slug = ?2 AND kind = 'download' AND path = ?3 AND ip_hash = (
+         SELECT ip_hash FROM CloudDrive_share_visits WHERE slug = ?2 AND kind = 'download' AND path = ?3 ORDER BY at LIMIT 1
+       )`,
+    ).bind(Date.now() - 2 * 60 * 60 * 1000, slug, '/notes.txt').run()
+    expect((await call('GET', `/api/public/clouddrive/shares/${slug}/download?path=%2Fnotes.txt`)).status).toBe(200)
+    share = await db.prepare(`SELECT downloads FROM CloudDrive_shares WHERE slug = ?1`).bind(slug).first<{ downloads: number }>()
+    expect(share?.downloads).toBe(4)
+  })
+
   it('pages a public folder listing and reports the whole count', async () => {
     const folder = newId()
     const now = Date.now()
@@ -396,8 +458,7 @@ describe('cloud drive shares', () => {
     expect(names.size).toBe(250)
 
     const garbage = await call('GET', `/api/public/clouddrive/shares/${slug}/list?cursor=not-a-cursor`)
-    expect(garbage.status).toBe(200)
-    expect(garbage.body.entries).toHaveLength(200)
+    expect(garbage.status).toBe(400)
   })
 
   it('draws a shared pdf in place but still downloads a shared html', async () => {
