@@ -288,6 +288,15 @@ describe('event routes', () => {
     expect(reread.event).toMatchObject({ title: 'Current', rev: created.event.rev + 1 })
   })
 
+  it('rejects the unsupported resource id instead of persisting a fake reservation', async () => {
+    const home = (await meta()).calendars[0]!
+    expect((await call('POST', '/events', eventBody(home.id, { meta: { resourceId: 'room-1' } }))).status).toBe(400)
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, { id: 'normal-event' })))
+    expect((await call('PATCH', `/events/${created.event.id}`, { rev: created.event.rev, meta: { resourceId: 'room-1' } })).status).toBe(400)
+    expect(sqlite.prepare('SELECT resource_id FROM calendar_events WHERE user_id = ? AND id = ?').get(ALICE, created.event.id))
+      .toEqual({ resource_id: null })
+  })
+
   it('rejects recurrence rules with more than twenty-four times per day', async () => {
     const home = (await meta()).calendars[0]!
     const minutes = Array.from({ length: 25 }, (_, index) => index).join(',')

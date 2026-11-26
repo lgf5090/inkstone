@@ -117,7 +117,6 @@ type TimelineEventWrite = CalendarEventWriteInput & {
   recurrenceParentId: string | null
   recurrenceId: string | null
   recurrenceCancelled: boolean
-  resourceId: string | null
   source: CalendarSource
   externalId: string | null
 }
@@ -241,7 +240,6 @@ interface EventRow {
   recurrence_parent_id: string | null
   recurrence_id: string | null
   recurrence_cancelled: number
-  resource_id: string | null
   calendar_source: string
   external_scope: string
   external_id: string | null
@@ -544,7 +542,7 @@ const EVENT_WRITE_COLUMNS = [
   'task_completed_at_value', 'task_priority', 'conference_json', 'start_value', 'start_type',
   'time_zone', 'start_ms', 'end_value', 'end_type', 'end_ms', 'all_day', 'icon_json',
   'color', 'meta_json', 'recurrence_rule', 'recurrence_parent_id', 'recurrence_id',
-  'recurrence_cancelled', 'resource_id', 'calendar_source', 'external_scope', 'external_id',
+  'recurrence_cancelled', 'calendar_source', 'external_scope', 'external_id',
 ] as const
 
 export class CalendarStore {
@@ -1563,7 +1561,6 @@ export class CalendarStore {
         recurrenceParentId: input.recurrenceParentId ?? null,
         recurrenceId: input.recurrenceId ?? null,
         recurrenceCancelled: input.recurrenceCancelled === true,
-        resourceId: typeof meta.resourceId === 'string' ? meta.resourceId : null,
         source: input.source ?? 'local',
         externalId: input.externalId ?? null,
       }
@@ -1856,7 +1853,6 @@ export class CalendarStore {
       recurrenceParentId: row.recurrence_parent_id,
       recurrenceId: row.recurrence_id,
       recurrenceCancelled: patch.recurrenceCancelled ?? row.recurrence_cancelled === 1,
-      resourceId: row.resource_id,
       source: isCalendarSource(row.calendar_source) ? row.calendar_source : 'local',
       externalId: row.external_id,
     }
@@ -2566,7 +2562,6 @@ export class CalendarStore {
       input.recurrenceParentId,
       input.recurrenceId,
       input.recurrenceCancelled ? 1 : 0,
-      input.resourceId,
       input.source,
       input.calendarIds[0] ?? '',
       input.externalId,

@@ -252,6 +252,7 @@ function parseCalendarIds(record: Record<string, unknown>, required: boolean): s
 function parseMeta(value: unknown): Record<string, unknown> {
   if (value === undefined || value === null) return {}
   const meta = requireRecord(value, 'meta')
+  if ('resourceId' in meta) throw ApiError.badRequest('resourceId is not supported')
   if (utf8ByteLength(JSON.stringify(meta)) > MAX_EVENT_META_BYTES) {
     throw ApiError.badRequest('meta is too large')
   }
