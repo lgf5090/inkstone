@@ -43145,10 +43145,10 @@ const allowed = new Map([
   ]],
   ["src/worker/project/archive.ts", [
     "// Not a ZIP: the reference's v1 export is a single JSON object with a blocks array.",
-    "/** Whole-account export: one v2 ZIP carrying every readable board's JSONL side by side. */",
     "/** Whole-account import: every board.jsonl in the ZIP becomes a fresh board (ids remapped). */",
     "/**\n * The archive transport: a v3 ZIP out, a v3 ZIP or a v1 JSON in. The JSONL mapping itself lives in\n * the shared module so the browser converters and this server agree byte for byte; this file only\n * zips, unzips, and writes the imported rows. Import preserves the archive's ids (so a round trip is\n * field-equal) but the new board belongs to whoever imports it. Member rows are deliberately not\n * restored: an archive is data, not an invitation, and no local account may join a board because an\n * uploaded file said so.\n */",
     "/** The two places a project file can live, passed in so the archive logic stays binding-free. */",
+    "/** Whole-account export: one v3 ZIP carrying every readable board's JSONL side by side. */",
   ]],
   ["src/worker/project/auth.ts", [
     "/** Every project write parses through this, so a rejected field reads the same on every route. */",

@@ -24,6 +24,7 @@ import { serializeProjectRecurrence } from '@shared/project/recurrence'
 import { serializeProjectPropertyConfig } from '@shared/project/property-config'
 import { ApiError } from '../lib/errors'
 import { readProjectBoardBundle } from './bundle'
+import { createProjectArchiveDownload, type ProjectArchiveDownload, type ProjectArchiveEntry } from './archive-export'
 import { duplicateProjectBoard } from './duplicate'
 import { listBoardLinks } from './enhance'
 import { projectRelationTargets, relationEdgeStatements } from './relations'
@@ -49,6 +50,7 @@ const ARCHIVE_MAX_CONTENTS = 20000
 const ARCHIVE_MAX_COMMENTS = 20000
 const ARCHIVE_MAX_LINKS = 40000
 const ARCHIVE_MAX_ATTACHMENTS = 500
+const ARCHIVE_MEMORY_FALLBACK_MAX_BYTES = 4 * 1024 * 1024
 const ARCHIVE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 const isArchiveId = (value: string): boolean => ARCHIVE_ID_PATTERN.test(value)
 const archiveIdSchema = z.string().refine(isArchiveId, 'invalid id')
@@ -165,6 +167,34 @@ function zipArchive(entries: Record<string, Uint8Array>): Uint8Array {
   return bytes
 }
 
+const ARCHIVE_WRITE_LIMITS = {
+  maxFiles: ARCHIVE_MAX_FILES,
+  maxBytes: ARCHIVE_MAX_BYTES,
+  maxUncompressedBytes: ARCHIVE_MAX_UNCOMPRESSED_BYTES,
+}
+
+function assertMemoryFallbackBudget(bytes: number): void {
+  if (bytes > ARCHIVE_MEMORY_FALLBACK_MAX_BYTES) {
+    throw ApiError.tooLarge('Archive export requires R2 storage for large archives')
+  }
+}
+
+async function* byteChunks(bytes: Uint8Array): AsyncGenerator<Uint8Array> {
+  yield bytes
+}
+
+function bytesDownload(bytes: Uint8Array): ProjectArchiveDownload {
+  return {
+    size: bytes.byteLength,
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes)
+        controller.close()
+      },
+    }),
+  }
+}
+
 function assertArchiveVersion(files: Unzipped): void {
   const raw = files['version.json']
   if (!raw) return
@@ -277,22 +307,63 @@ async function collectArchiveAttachments(
   db: D1Database,
   storage: ProjectArchiveStorage,
   boardId: string,
-  files: Record<string, Uint8Array>,
+  files?: Record<string, Uint8Array>,
 ): Promise<ProjectArchiveAttachment[]> {
   const out: ProjectArchiveAttachment[] = []
   const attachments = await listBoardAttachments(db, boardId, undefined, PROJECT_LIMITS.attachmentsPerBoard + 1)
   if (attachments.length > PROJECT_LIMITS.attachmentsPerBoard) throw ApiError.tooLarge('Board attachment quota exceeded')
   for (const attachment of attachments) {
-    const bytes = await readProjectFile(storage, attachment)
-    if (!bytes) throw ApiError.badRequest(`Archive file bytes are unavailable: ${attachment.id}`)
-    const path = attachmentPath(boardId, attachment.id)
-    files[path] = bytes
+    let size = attachment.size
+    if (files) {
+      const bytes = await readProjectFile(storage, attachment)
+      if (!bytes) throw ApiError.badRequest(`Archive file bytes are unavailable: ${attachment.id}`)
+      size = bytes.byteLength
+      files[attachmentPath(boardId, attachment.id)] = bytes
+    }
     out.push({
       id: attachment.id, cardId: attachment.cardId ?? '', filename: attachment.filename, mime: attachment.mime,
-      size: bytes.byteLength, storage: attachment.storage, width: attachment.width, height: attachment.height, path,
+      size, storage: attachment.storage, width: attachment.width, height: attachment.height, path: attachmentPath(boardId, attachment.id),
     })
   }
   return out
+}
+
+async function* projectFileChunks(storage: ProjectArchiveStorage, attachment: ProjectAttachment, onSize: (size: number) => void): AsyncGenerator<Uint8Array> {
+  let stream: ReadableStream<Uint8Array> | null
+  if (attachment.storage === 'kv') {
+    stream = await storage.kv?.get(attachment.objectKey, 'stream') ?? null
+  } else {
+    const object = await storage.r2?.get(attachment.objectKey)
+    stream = object?.body ?? null
+  }
+  if (!stream) throw ApiError.badRequest(`Archive file bytes are unavailable: ${attachment.id}`)
+  let size = 0
+  for await (const chunk of stream) {
+    size += chunk.byteLength
+    yield chunk
+  }
+  onSize(size)
+}
+
+async function* archiveLineChunks(lines: readonly ProjectArchiveLine[]): AsyncGenerator<Uint8Array> {
+  const encoder = new TextEncoder()
+  for (const line of lines) yield encoder.encode(`${JSON.stringify(line)}\n`)
+}
+
+async function* boardArchiveEntries(
+  db: D1Database,
+  storage: ProjectArchiveStorage,
+  bundle: ProjectBoardBundle,
+): AsyncGenerator<ProjectArchiveEntry> {
+  const attachments = await collectArchiveAttachments(db, storage, bundle.board.id)
+  const sources = new Map((await listBoardAttachments(db, bundle.board.id, undefined, PROJECT_LIMITS.attachmentsPerBoard)).map((entry) => [entry.id, entry]))
+  for (const attachment of attachments) {
+    const source = sources.get(attachment.id)
+    if (!source) throw ApiError.badRequest(`Archive file bytes are unavailable: ${attachment.id}`)
+    yield { name: attachment.path, chunks: projectFileChunks(storage, source, (size) => { attachment.size = size }) }
+  }
+  const lines = projectBundleToArchiveLines(bundle, await listBoardLinks(db, bundle.board.id), attachments)
+  yield { name: `${bundle.board.id}/board.jsonl`, chunks: archiveLineChunks(lines) }
 }
 
 export async function exportProjectBoardArchive(
@@ -301,37 +372,62 @@ export async function exportProjectBoardArchive(
   board: ProjectBoard,
   role: ProjectRole,
   viewerId?: string,
-): Promise<Uint8Array> {
+): Promise<ProjectArchiveDownload> {
   const bundle = await readProjectBoardBundle(db, board, role, viewerId)
   assertCompleteBundle(bundle)
-  const files: Record<string, Uint8Array> = {}
+  const version = strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() }))
+  if (storage.r2) {
+    async function* entries(): AsyncGenerator<ProjectArchiveEntry> {
+      yield { name: 'version.json', chunks: byteChunks(version) }
+      yield* boardArchiveEntries(db, storage, bundle)
+    }
+    return createProjectArchiveDownload(storage.r2, entries(), ARCHIVE_WRITE_LIMITS)
+  }
+  const declaredAttachments = await collectArchiveAttachments(db, storage, board.id)
+  const declaredLines = projectBundleToArchiveLines(bundle, await listBoardLinks(db, board.id), declaredAttachments)
+  assertMemoryFallbackBudget(version.byteLength + new TextEncoder().encode(serializeProjectArchiveLines(declaredLines)).byteLength
+    + declaredAttachments.reduce((total, attachment) => total + attachment.size, 0))
+  const files: Record<string, Uint8Array> = { 'version.json': version }
   const attachments = await collectArchiveAttachments(db, storage, board.id, files)
   const lines = projectBundleToArchiveLines(bundle, await listBoardLinks(db, board.id), attachments)
-  return zipArchive({
-    'version.json': strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() })),
-    [`${board.id}/board.jsonl`]: strToU8(serializeProjectArchiveLines(lines)),
-    ...files,
-  })
+  files[`${board.id}/board.jsonl`] = strToU8(serializeProjectArchiveLines(lines))
+  return bytesDownload(zipArchive(files))
 }
 
-/** Whole-account export: one v2 ZIP carrying every readable board's JSONL side by side. */
+/** Whole-account export: one v3 ZIP carrying every readable board's JSONL side by side. */
 export async function exportProjectAccountArchive(
   db: D1Database,
   storage: ProjectArchiveStorage,
   userId: string,
-): Promise<Uint8Array> {
+): Promise<ProjectArchiveDownload> {
   const boards = await new ProjectStore(db, userId).boards()
-  const files: Record<string, Uint8Array> = {
-    'version.json': strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() })),
+  const version = strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() }))
+  if (storage.r2) {
+    async function* entries(): AsyncGenerator<ProjectArchiveEntry> {
+      yield { name: 'version.json', chunks: byteChunks(version) }
+      for (const board of boards) {
+        const bundle = await readProjectBoardBundle(db, board, board.role, userId)
+        assertCompleteBundle(bundle)
+        yield* boardArchiveEntries(db, storage, bundle)
+      }
+    }
+    return createProjectArchiveDownload(storage.r2, entries(), ARCHIVE_WRITE_LIMITS)
   }
+  const files: Record<string, Uint8Array> = { 'version.json': version }
+  let declaredBytes = version.byteLength
   for (const board of boards) {
     const bundle = await readProjectBoardBundle(db, board, board.role, userId)
     assertCompleteBundle(bundle)
     const links = await listBoardLinks(db, board.id)
+    const declaredAttachments = await collectArchiveAttachments(db, storage, board.id)
+    const declaredLines = projectBundleToArchiveLines(bundle, links, declaredAttachments)
+    declaredBytes += new TextEncoder().encode(serializeProjectArchiveLines(declaredLines)).byteLength
+      + declaredAttachments.reduce((total, attachment) => total + attachment.size, 0)
+    assertMemoryFallbackBudget(declaredBytes)
     const attachments = await collectArchiveAttachments(db, storage, board.id, files)
     files[`${board.id}/board.jsonl`] = strToU8(serializeProjectArchiveLines(projectBundleToArchiveLines(bundle, links, attachments)))
   }
-  return zipArchive(files)
+  return bytesDownload(zipArchive(files))
 }
 
 async function discardImportedBoard(

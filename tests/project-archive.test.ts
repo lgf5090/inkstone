@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { strToU8, unzipSync, zipSync } from 'fflate'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { createApp } from '../src/worker/app'
 import { createSession } from '../src/worker/lib/session-store'
 import { CLIENT_HEADER, LEGACY_SESSION_COOKIE } from '../src/shared/constants'
@@ -35,7 +35,12 @@ beforeAll(async () => {
   }
 })
 
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
 beforeEach(() => {
+  vi.restoreAllMocks()
   files.objects.clear()
   files.types.clear()
   sqlite.exec(`DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
@@ -120,10 +125,14 @@ describe('archive export and import', () => {
   it('exports a v2 ZIP and imports it field for field under a new owner', async () => {
     const board = await richBoard()
     const original = await bundle('alice', board.id)
+    const multipart = vi.spyOn(files, 'createMultipartUpload')
     const exportResponse = await req('alice', 'GET', `/boards/${board.id}/archive`)
     expect(exportResponse.status).toBe(200)
     expect(exportResponse.headers.get('Content-Type')).toBe('application/zip')
+    expect(multipart).toHaveBeenCalledOnce()
     const bytes = new Uint8Array(await exportResponse.arrayBuffer())
+    expect(exportResponse.headers.get('Content-Length')).toBe(String(bytes.byteLength))
+    expect([...files.objects.keys()].some((key) => key.startsWith('project/exports/'))).toBe(false)
     const entries = unzipSync(bytes)
     expect(Object.keys(entries)).toContain('version.json')
     expect(Object.keys(entries)).toContain(`${board.id}/board.jsonl`)
@@ -147,6 +156,23 @@ describe('archive export and import', () => {
     expect(restored.board).toMatchObject({ title: 'Roadmap', description: 'Desc', icon: '🗺️', showDescription: true })
     expect(restored.board.ownerId).toBe('bob')
     expect(restored.members.map((m) => m.userId)).toEqual(['bob'])
+  })
+
+  it('streams a whole-account export containing only readable boards and cleans up its temporary object', async () => {
+    const first = await createBoard('alice', { title: 'First' })
+    const second = await createBoard('alice', { title: 'Second' })
+    const foreign = await createBoard('bob', { title: 'Foreign' })
+    const multipart = vi.spyOn(files, 'createMultipartUpload')
+    const response = await req('alice', 'GET', '/export')
+    expect(response.status).toBe(200)
+    expect(multipart).toHaveBeenCalledOnce()
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    const entries = unzipSync(bytes)
+    expect(Object.keys(entries)).toContain('version.json')
+    expect(Object.keys(entries)).toContain(`${first.id}/board.jsonl`)
+    expect(Object.keys(entries)).toContain(`${second.id}/board.jsonl`)
+    expect(Object.keys(entries).some((name) => name.startsWith(foreign.id))).toBe(false)
+    expect([...files.objects.keys()].some((key) => key.startsWith('project/exports/'))).toBe(false)
   })
 
   it('carries card hierarchy, recurrence and dependency edges through a round trip', async () => {
@@ -249,11 +275,46 @@ describe('archive export and import', () => {
     expect(response.status).toBe(413)
   })
 
-  it('refuses an export when attachment bytes are missing', async () => {
+  it('records streamed attachment byte counts instead of stale database sizes', async () => {
+    const board = await createBoard('alice', { title: 'Streamed file size' })
+    const attachmentId = await seedAttachment(board.id, 1, true)
+    sqlite.prepare('UPDATE project_attachments SET size = ? WHERE id = ?').run(999, attachmentId)
+    const response = await req('alice', 'GET', `/boards/${board.id}/archive`)
+    expect(response.status).toBe(200)
+    const entries = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    const lines = strFromU8(entries[`${board.id}/board.jsonl`]!).trim().split('\n').map((line) => JSON.parse(line) as { type: string, data: { id?: string, size?: number } })
+    expect(lines.find((line) => line.type === 'attachment' && line.data.id === attachmentId)?.data.size).toBe(1)
+    expect(entries[`${board.id}/files/${attachmentId}`]).toHaveLength(1)
+  })
+
+  it('bounds the in-memory fallback and requires multipart storage for large exports', async () => {
+    const board = await createBoard('alice', { title: 'KV fallback' })
+    const request = () => app.fetch(new Request(`http://localhost/api/project/boards/${board.id}/archive`, {
+      headers: { Cookie: `${LEGACY_SESSION_COOKIE}=${tokens.get('alice')}` },
+    }), { ...env, FILES: undefined })
+    const small = await request()
+    expect(small.status).toBe(200)
+    expect(new Uint8Array(await small.arrayBuffer()).byteLength).toBeGreaterThan(0)
+    const attachmentId = await seedAttachment(board.id, 1, false)
+    sqlite.prepare('UPDATE project_attachments SET size = ? WHERE id = ?').run(5 * 1024 * 1024, attachmentId)
+    expect((await request()).status).toBe(413)
+  })
+
+  it('refuses an export when attachment bytes are missing and aborts the temporary upload', async () => {
     const board = await createBoard('alice', { title: 'Missing file' })
     await seedAttachment(board.id, 1, false)
+    const createMultipartUpload = files.createMultipartUpload.bind(files)
+    let aborts = 0
+    vi.spyOn(files, 'createMultipartUpload').mockImplementation(async (key, options) => {
+      const upload = await createMultipartUpload(key, options)
+      const abort = upload.abort.bind(upload)
+      upload.abort = async () => { aborts += 1; await abort() }
+      return upload
+    })
     const response = await req('alice', 'GET', `/boards/${board.id}/archive`)
     expect(response.status).toBe(400)
+    expect(aborts).toBe(1)
+    expect([...files.objects.keys()].some((key) => key.startsWith('project/exports/'))).toBe(false)
   })
 
   it('reads beyond 200 attachments and refuses archives over the ZIP member budget', async () => {

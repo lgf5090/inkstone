@@ -479,9 +479,14 @@ projectRoutes.get('/search', async (c) => {
 projectRoutes.get('/export', async (c) => {
   const userId = projectUserId(c)
   await consumeAttemptBudget(c.env.DB, [{ key: `project-export:${userId}`, maxAttempts: 10, windowMs: 60 * 60 * 1000 }])
-  const bytes = await exportProjectAccountArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, userId)
-  return new Response(bytes, {
-    headers: { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="inkstone-project.zip"' },
+  const archive = await exportProjectAccountArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, userId)
+  return new Response(archive.body, {
+    headers: {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': 'attachment; filename="inkstone-project.zip"',
+      'Content-Length': String(archive.size),
+      'Cache-Control': 'private, no-store',
+    },
   })
 })
 
@@ -954,11 +959,13 @@ projectRoutes.get('/boards/:id/metadata', async (c) => {
 
 projectRoutes.get('/boards/:id/archive', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const bytes = await exportProjectBoardArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, board, role, projectUserId(c))
-  return new Response(bytes, {
+  const archive = await exportProjectBoardArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, board, role, projectUserId(c))
+  return new Response(archive.body, {
     headers: {
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename="${projectExportFilename(board.id, 'boardarchive')}"`,
+      'Content-Length': String(archive.size),
+      'Cache-Control': 'private, no-store',
     },
   })
 })
