@@ -340,6 +340,9 @@ export const ZH_CN_CALENDAR = {
   'calendar.settings.agenda_empty': '日程视图显示空日',
   'calendar.settings.save_failed': '无法保存设置',
   'calendar.settings.saved': '设置已保存',
+  'calendar.settings.discard_title': '丢弃未保存的设置？',
+  'calendar.settings.discard_description': '打开远程日历连接后，尚未保存的设置改动将丢失。',
+  'calendar.settings.discard_confirm': '丢弃并继续',
 
   'calendar.import.title': '导入日历',
   'calendar.import.description': '从其他日历应用导出的 .ics 文件添加事件。',

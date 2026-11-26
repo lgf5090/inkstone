@@ -338,6 +338,9 @@ export const EN_US_CALENDAR = {
   'calendar.settings.agenda_empty': 'Show empty days in agenda',
   'calendar.settings.save_failed': 'Could not save settings',
   'calendar.settings.saved': 'Settings saved',
+  'calendar.settings.discard_title': 'Discard unsaved settings?',
+  'calendar.settings.discard_description': 'Opening remote calendar connections will discard the changes you have not saved.',
+  'calendar.settings.discard_confirm': 'Discard and continue',
 
   'calendar.import.title': 'Import calendar',
   'calendar.import.description': 'Add events from an .ics file exported by another calendar app.',

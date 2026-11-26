@@ -9,7 +9,7 @@ import { normalizeCalendarPreferences } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { Button } from '../../components/primitives'
-import { Modal } from '../../components/overlay'
+import { confirm, Modal } from '../../components/overlay'
 import { Input, Segmented, Select, SettingRow, Switch } from '../../components/form'
 import { DAY_HOUR_HEIGHTS } from './model'
 import { CalendarTimeZoneField } from './CalendarTimeZoneField'
@@ -62,6 +62,21 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
   }, [open])
 
   const patch = (changes: Partial<CalendarPreferences>): void => setDraft(current => ({ ...current, ...changes }))
+
+  const openConnections = async (): Promise<void> => {
+    if (!onOpenConnections) return
+    const dirty = JSON.stringify(normalizeCalendarPreferences(draft)) !== JSON.stringify(normalizeCalendarPreferences(preferences))
+    if (dirty) {
+      const discard = await confirm({
+        title: t('calendar.settings.discard_title'),
+        description: t('calendar.settings.discard_description'),
+        confirmLabel: t('calendar.settings.discard_confirm'),
+        tone: 'danger',
+      })
+      if (!discard) return
+    }
+    onOpenConnections()
+  }
 
   const save = async (): Promise<void> => {
     setSaving(true)
@@ -446,7 +461,7 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
         {onOpenConnections && (
           <Section title={t('calendar.connections.title')}>
             <SettingRow title={t('calendar.connections.existing')} description={t('calendar.connections.description')}>
-              <Button variant="secondary" onClick={onOpenConnections}>{t('calendar.connections.add')}</Button>
+              <Button variant="secondary" onClick={() => void openConnections()} disabled={saving}>{t('calendar.connections.add')}</Button>
             </SettingRow>
           </Section>
         )}
