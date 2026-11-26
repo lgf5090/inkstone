@@ -18,7 +18,7 @@ interface ContactRow {
 }
 
 const CONTACT_COLUMNS = 'id, name, email, birthday, rev'
-const MAX_CONTACTS = 5000
+export const MAX_CONTACTS = 5000
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const BIRTHDAY_RE = /^\d{4}-\d{2}-\d{2}$/
 

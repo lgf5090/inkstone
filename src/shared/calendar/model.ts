@@ -149,6 +149,7 @@ export interface CalendarInviteDto {
 
 export interface CalendarMemberDto {
   memberId: string
+  calendarId?: string
   username: string
   name: string
   role: 'reader' | 'writer'

@@ -1396,14 +1396,20 @@ export class CalendarStore {
 
   async listAllEvents(): Promise<CalendarEventDto[]> {
     const { results } = await this.db.prepare(
-      `SELECT e.* FROM calendar_events e
-        WHERE e.user_id = ? ORDER BY e.start_ms ASC, e.id ASC`,
-    ).bind(this.userId).all<EventRow>()
-    const rows = results ?? []
-    const memberships = await this.membershipsFor(rows.map((row) => row.id))
-    return rows
-      .filter((row) => (memberships.get(row.id)?.length ?? 0) > 0)
-      .map((row) => toEventDto(row, memberships.get(row.id) ?? []))
+      `SELECT e.*, m.calendar_id AS membership_calendar_id
+         FROM calendar_events e
+         JOIN calendar_event_calendars m
+           ON m.user_id = e.user_id AND m.event_id = e.id
+        WHERE e.user_id = ?
+        ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC`,
+    ).bind(this.userId).all<EventRow & { membership_calendar_id: string }>()
+    const groups = new Map<string, { row: EventRow; calendarIds: string[] }>()
+    for (const row of results ?? []) {
+      const group = groups.get(row.id)
+      if (group) group.calendarIds.push(row.membership_calendar_id)
+      else groups.set(row.id, { row, calendarIds: [row.membership_calendar_id] })
+    }
+    return [...groups.values()].map(group => toEventDto(group.row, group.calendarIds))
   }
 
   async getEvent(id: string): Promise<CalendarEventDto | null> {

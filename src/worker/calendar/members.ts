@@ -2,6 +2,7 @@
 import type { CalendarMemberDto } from '@shared/calendar/model'
 
 interface MemberRow {
+  calendar_id: string
   member_user_id: string
   role: string
   status: string
@@ -10,16 +11,21 @@ interface MemberRow {
   name: string
 }
 
-export async function listMembers(db: D1Database, ownerId: string, calendarId: string): Promise<CalendarMemberDto[]> {
+export async function listMembers(
+  db: D1Database,
+  ownerId: string,
+  calendarId?: string,
+): Promise<CalendarMemberDto[]> {
   const { results } = await db.prepare(
-    `SELECT m.member_user_id, m.role, m.status, m.created_at, u.username, u.name
+    `SELECT m.calendar_id, m.member_user_id, m.role, m.status, m.created_at, u.username, u.name
        FROM calendar_members m
        JOIN users u ON u.id = m.member_user_id
-      WHERE m.owner_user_id = ? AND m.calendar_id = ?
+      WHERE m.owner_user_id = ? ${calendarId ? 'AND m.calendar_id = ?' : ''}
       ORDER BY m.created_at ASC`,
-  ).bind(ownerId, calendarId).all<MemberRow>()
+  ).bind(...(calendarId ? [ownerId, calendarId] : [ownerId])).all<MemberRow>()
   return (results ?? []).map(row => ({
     memberId: row.member_user_id,
+    calendarId: row.calendar_id,
     username: row.username,
     name: row.status === 'accepted' ? row.name : '',
     role: row.role === 'writer' ? 'writer' : 'reader',
