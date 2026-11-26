@@ -53,7 +53,7 @@
 | P2-05 | done | F31 recent-opened semantics, unique DOM ids, keyboard order and list metadata | sidebar has no duplicate ids; list shows count/update/category | f14529b54 |
 | P2-06 | done | F32 scope subscription cache by account; revalidate public share owner/archive state | account switch cannot leak watch state; archived/private share inaccessible | bdbb5afc2 |
 | P2-07 | done | F33 explicit loading/error/empty states and retry for silent catches | failed reads never masquerade as empty/no-access | cc5aa9c28 |
-| P2-08 | in_progress | F34 reliable undo/redo and keyboard error handling | failed undo restores stack; dialog edits and drag order undo correctly | - |
+| P2-08 | done | F34 reliable undo/redo and keyboard error handling | failed undo restores stack; dialog edits and drag order undo correctly | 8f8e210e4 |
 | P2-09 | pending | F35 keyboard equivalents for drag; pointercancel/unmount cleanup | Tab/arrow/Enter reorder works; cancelled pointer never mutates | - |
 | P2-10 | done | F36 readable CSV values and spreadsheet-safe escaping | labels/ISO dates exported; formula payloads neutralized | 5ac0b42b2 |
 | P2-11 | done | F37 reject unknown property ids and redact invisible backreferences | unknown id 400; invisible references expose no ids | 525aca436 |
@@ -99,3 +99,4 @@
 - 2026-11-27: P2-11 completed in `525aca436`; unknown property IDs and oversized value maps are rejected before mutation, batch limits retain priority, and backreferences hidden by board or field permissions expose no IDs or titles; 321 project tests, forced typechecks, static gates and production build passed.
 - 2026-11-27: P2-05 completed in `f14529b54`; recents now follow per-account opens, search renders one ordered list with unique IDs and one active board marker, and board rows/tiles show count, update date and viewer folder; 671 related tests, typechecks, static gates, production build and headed Chrome verification passed.
 - 2026-11-27: P2-07 completed in `cc5aa9c28`; project reads now distinguish loading, failure, empty and no-access with retry, stale responses are discarded across slug/board/account changes, and failed attachment/rollup/watch reads no longer corrupt visible state; 697 related tests, typechecks, static gates and production build passed, with headed Chrome confirming share failure/retry and automation failure rendering.
+- 2026-11-27: P2-08 completed in `8f8e210e4`; undo/redo is serialized and retryable, card/dialog/drag/property/view edits register inverse commands, stale board writes are isolated, and full content-order patches reindex positions; 710 related tests plus the added-view redo case, typechecks, static gates, production build and headed Chrome undo/redo verification passed.
