@@ -61,7 +61,9 @@ export async function replayTodoOutboxItem(
 ): Promise<TodoOutboxOutcome> {
   const payload = item.payload
   if (!isTodoOutboxPayload(payload)) {
-    await localDb.markOutboxFailure(item.id, item.writeId, 'invalid offline task write').catch(() => {})
+    await localDb.markOutboxFailure(item.id, item.writeId, 'invalid offline task write').catch(() => {
+      // The queue row stays retryable even when its failure marker cannot be persisted.
+    })
     return { status: 'retry' }
   }
   const id = item.entityId
@@ -71,7 +73,9 @@ export async function replayTodoOutboxItem(
         const body = payload.task ?? {}
         const { task } = await api.todos.create(body, item.writeId)
         runtime.storeServerTask(task, { addIfMissing: true, replaceId: id })
-        await localDb.retargetOutboxEntity('todo', id, task.id).catch(() => {})
+        await localDb.retargetOutboxEntity('todo', id, task.id).catch(() => {
+          // A missed retarget is repaired by the next create replay through the same idempotency key.
+        })
         await runtime.refreshServerRows(runtime.cachedDependPartners(runtime.dependsIds(body.dependsOn)))
         return { status: 'done', retarget: { from: id, to: task.id } }
       }
@@ -108,7 +112,9 @@ export async function replayTodoOutboxItem(
       case 'snooze': {
         const minutes = snoozeMinutesOrNull(payload.minutes)
         if (minutes === null) {
-          await localDb.markOutboxFailure(item.id, item.writeId, 'invalid snooze duration').catch(() => {})
+          await localDb.markOutboxFailure(item.id, item.writeId, 'invalid snooze duration').catch(() => {
+            // Keep the malformed row visible to the queue rather than dropping the only local copy.
+          })
           return { status: 'retry' }
         }
         const { task } = await api.todos.snooze(id, minutes, todoQueuedRev(payload))
@@ -151,7 +157,9 @@ export async function replayTodoOutboxItem(
         return { status: 'done' }
       }
       if (error.status === 429) {
-        await localDb.markOutboxFailure(item.id, item.writeId, error.message).catch(() => {})
+        await localDb.markOutboxFailure(item.id, item.writeId, error.message).catch(() => {
+          // The 429 response already explains the backoff; a missing local marker must not create a toast loop.
+        })
         return { status: 'retry' }
       }
     }
@@ -160,7 +168,9 @@ export async function replayTodoOutboxItem(
       item.id,
       item.writeId,
       error instanceof Error ? error.message : String(error),
-    ).catch(() => {})
+    ).catch(() => {
+      // The original error was already shown; persisting its marker is best-effort bookkeeping.
+    })
     return { status: 'retry' }
   }
 }

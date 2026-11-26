@@ -6791,14 +6791,16 @@ export class AssistantStore {
       ...(expectedRev === undefined ? [] : [expectedRev]),
     )
     statements.unshift(update)
-    statements.push(this.db.prepare(
-      `DELETE FROM todos_reminders
-        WHERE user_id = ?1 AND task_id = ?2 AND fired_at IS NULL
-          AND EXISTS (
-            SELECT 1 FROM todos_tasks
-             WHERE user_id = ?1 AND id = ?2 AND status = 'done' AND completed_at = ?3
-          )`,
-    ).bind(this.userId, id, completedAt))
+    if (row.reminders?.length) {
+      statements.push(this.db.prepare(
+        `DELETE FROM todos_reminders
+          WHERE user_id = ?1 AND task_id = ?2 AND fired_at IS NULL
+            AND EXISTS (
+              SELECT 1 FROM todos_tasks
+               WHERE user_id = ?1 AND id = ?2 AND status = 'done' AND completed_at = ?3
+            )`,
+      ).bind(this.userId, id, completedAt))
+    }
     statements.push(this.db.prepare(
       `INSERT INTO todos_task_events (user_id, id, task_id, at, on_day, kind, from_status, to_status)
        SELECT ?1, ?2, ?3, ?4, ?5, 'status', ?6, 'done'

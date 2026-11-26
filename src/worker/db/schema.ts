@@ -4849,6 +4849,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'todos_tasks', column: 'due_all_day' },
     statements: [
       `ALTER TABLE todos_tasks ADD COLUMN due_all_day INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 435,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'due_on' },
+    statements: [
       `ALTER TABLE todos_tasks ADD COLUMN due_on TEXT`,
     ],
   },

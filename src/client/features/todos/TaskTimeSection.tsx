@@ -8,12 +8,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Clock, Plus, Trash2 } from 'lucide-react'
 import { MAX_SINGLE_TIME_ENTRY_MS, type TimeEntrySource, type TodoTimeEntry } from '@shared/todos/model'
-import { parseLocalTime, toLocalMinute } from '@shared/assistant-time'
+import { parseLocalTime } from '@shared/assistant-time'
 import { ApiError, api } from '../../lib/api'
 import { localeTag, t } from '../../lib/i18n'
 import { useOnlineStatus } from '../../lib/hooks'
 import { Button, IconButton, Spinner } from '../../components/primitives'
-import { Field, Input } from '../../components/form'
+import { Field } from '../../components/form'
+import { DatePicker } from '../../components/date-picker'
 import { confirm } from '../../components/overlay'
 import { durationLabel } from './stats-charts'
 
@@ -89,8 +90,6 @@ export function TaskTimeSection({ taskId, timezone }: { taskId: string, timezone
       : null
   const canSubmit = startAt !== null && endAt !== null && !endBeforeStart && !overLimit
     && online && !saving && state.status !== 'loading'
-  const endMin = startText || undefined
-  const endMax = startAt === null ? undefined : toLocalMinute(startAt + MAX_SINGLE_TIME_ENTRY_MS, timezone)
 
   const add = async (): Promise<void> => {
     if (!canSubmit || startAt === null || endAt === null) return
@@ -228,27 +227,23 @@ export function TaskTimeSection({ taskId, timezone }: { taskId: string, timezone
         onSubmit={(event) => { event.preventDefault(); void add() }}
       >
         <Field label={t('todo.task.start_label')} required>
-          <Input
-            type="datetime-local"
+          <DatePicker
+            label={t('todo.task.start_label')}
             value={startText}
-            aria-label={t('todo.task.start_label')}
-            required
-            aria-invalid={endBeforeStart || overLimit || undefined}
+            withTime
+            invalid={endBeforeStart || overLimit}
             aria-describedby={validationMessage ? validationId : undefined}
-            onChange={(event) => { setStartText(event.target.value); setActionError(null) }}
+            onChange={(value) => { setStartText(value); setActionError(null) }}
           />
         </Field>
         <Field label={t('todo.time.end_label')} required>
-          <Input
-            type="datetime-local"
+          <DatePicker
+            label={t('todo.time.end_label')}
             value={endText}
-            aria-label={t('todo.time.end_label')}
-            required
-            min={endMin}
-            max={endMax}
-            aria-invalid={endBeforeStart || overLimit || undefined}
+            withTime
+            invalid={endBeforeStart || overLimit}
             aria-describedby={validationMessage ? validationId : undefined}
-            onChange={(event) => { setEndText(event.target.value); setActionError(null) }}
+            onChange={(value) => { setEndText(value); setActionError(null) }}
           />
         </Field>
         {validationMessage && (

@@ -178,7 +178,7 @@ export function buildScheduleMenuItems(task: TodoTask, handlers: TaskMenuHandler
         className="w-64"
         label={t('todo.task.due_label')}
         value={task.dueAllDay && task.dueOn ? task.dueOn : dueValue(task.dueAt, handlers.timezone)}
-        withTime={!task.dueAllDay}
+        withTime={task.dueAllDay === false}
         onChange={(dateStr) => {
           closeMenu()
           handlers.update({ dueAt: dateStr || null })

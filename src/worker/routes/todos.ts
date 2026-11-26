@@ -80,7 +80,7 @@ import {
   stopCounterTimer,
   updateCounter,
 } from '../todos/counters'
-import { addDays, countStatBuckets, isStatsDay, loadTodoStats, MAX_STATS_BUCKETS, MAX_STATS_RANGE_DAYS } from '../todos/stats'
+import { addDays, countStatBuckets, isStatsDay, loadTodoStats, MAX_STATS_BUCKETS } from '../todos/stats'
 import { buildTodoExportCsv, buildTodoExportJson, collectExportTasks, TodoExportTooLarge } from '../todos/export-tasks'
 import { listTaskEvents } from '../todos/events'
 import { loadTrackedTotals, loadWorklog } from '../todos/worklog'
@@ -639,7 +639,6 @@ function statsWindow(c: Ctx, timezone: string): { from: string; to: string; buck
   const from = c.req.query('from') || addDays(to, -29)
   if (!isStatsDay(from)) throw ApiError.badRequest('A statistics range must start on a date like 2026-01-31.')
   if (from > to) throw ApiError.badRequest('A statistics range cannot start after it ends.')
-  assertStatsSpan(from, to)
   const bucket = c.req.query('bucket') ?? 'day'
   if (!isTaskStatsBucket(bucket)) throw ApiError.badRequest('A bucket must be day, week or month.')
   return { from, to, bucket }
@@ -662,7 +661,6 @@ function statsWindow(c: Ctx, timezone: string): { from: string; to: string; buck
  */
 function statsRange(c: Ctx, timezone: string): { from: string; to: string; bucket: TaskStatsBucket } {
   const range = statsWindow(c, timezone)
-  assertStatsSpan(range.from, range.to)
   const buckets = countStatBuckets(range.from, range.to, range.bucket)
   if (buckets > MAX_STATS_BUCKETS[range.bucket]) {
     throw ApiError.badRequest(
@@ -673,15 +671,6 @@ function statsRange(c: Ctx, timezone: string): { from: string; to: string; bucke
   return range
 }
 
-/** The span two days may hold, counted in the account's own calendar rather than in hours. */
-function assertStatsSpan(from: string, to: string): void {
-  const span = Math.round(
-    (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000,
-  ) + 1
-  if (span > MAX_STATS_RANGE_DAYS) {
-    throw ApiError.badRequest(`A statistics range cannot cover more than ${MAX_STATS_RANGE_DAYS} days.`)
-  }
-}
 todoRoutes.get('/', async (c) => {
   const s = store(c)
   const settings = await s.getSettings()

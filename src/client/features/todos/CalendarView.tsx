@@ -208,8 +208,8 @@ function SpanRow({ bar, color, weekStart, weekEnd, timezone, dragEnabled, onOpen
       />
       {/* One step above the tint inside this bar's own stacking context — a local layer, not a tier
           of the app's scale. */}
-      <span className="relative z-[1] size-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
-      <span className="relative z-[1] truncate">{bar.task.title}</span>
+      <span className="relative z-[var(--z-sticky)] size-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+      <span className="relative z-[var(--z-sticky)] truncate">{bar.task.title}</span>
     </button>
   )
 }
@@ -648,7 +648,7 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
                   />
                 )}
                 {day.key === todayKey && (
-                  <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 z-[1]" style={{ top: (nowMinute / 60) * HOUR_H }}>
+                  <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 z-[var(--z-sticky)]" style={{ top: (nowMinute / 60) * HOUR_H }}>
                     <span className="absolute -left-0.5 size-1.5 -translate-y-1/2 rounded-full bg-[var(--danger)]" />
                     <span className="block h-px bg-[var(--danger)]" />
                   </span>
@@ -665,7 +665,7 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
                     }}
                     onClick={() => onOpenTask(block.task)}
                     title={block.task.title}
-                    className="absolute z-[1] flex flex-col overflow-hidden rounded-[var(--r-xs)] px-1 py-0.5 text-left text-[length:var(--text-10)] shadow-[var(--shadow-xs)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                    className="absolute z-[var(--z-sticky)] flex flex-col overflow-hidden rounded-[var(--r-xs)] px-1 py-0.5 text-left text-[length:var(--text-10)] shadow-[var(--shadow-xs)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                     style={{
                       top: (block.startMin / 60) * HOUR_H,
                       height: Math.max(18, ((block.endMin - block.startMin) / 60) * HOUR_H - 2),

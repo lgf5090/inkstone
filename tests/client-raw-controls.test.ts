@@ -613,7 +613,7 @@ const LIST_FILTER_BASELINE = new Map<string, { sites: number; reason: string }>(
   ['src/client/features/workspace/Workspace.tsx', { sites: 1, reason: 'Inline text field in the workspace surface (557). Not verified as a list filter; baseline so the rule can block new ones.' }],
   ['src/client/features/inkpad/InkNoteEditor.tsx', { sites: 1, reason: 'The note title field in the editor header: it renames the open drawing, not a list filter, and has no result list to narrow.' }],
   ['src/client/features/inknote/InknoteApp.tsx', { sites: 1, reason: 'The open note title field in the editor header (`inknote.rename`): it renames the current note on blur or Enter, not a list filter, the same shape as the inkpad editor title.' }],
-  ['src/client/features/todos/OrganizerEditors.tsx', { sites: 1, reason: 'The custom-colour draft (`#rrggbb`, 124) beside the colour wheel: an inline editor for one value, the same shape as the editor colour menu\'s name draft, not a list filter.' }],
+  ['src/client/features/todos/task-time-section.test.tsx', { sites: 1, reason: 'The DatePicker test double renders one deterministic form field; it is not a list filter.' }],
 ])
 
 function isFilterishInput(node: ts.JsxOpeningElement | ts.JsxSelfClosingElement): boolean {
@@ -869,8 +869,6 @@ const PLAIN_Z_INDEX_BASELINE = new Map<string, { values: Record<string, number>;
   ['src/client/features/subscriptions/SubscriptionList.tsx', { values: { '10': 2 }, reason: LOCAL_STICKY_REASON }],
   ['src/client/features/templates/community-panel.tsx', { values: { '10': 1 }, reason: LOCAL_STACK_REASON }],
   ['src/client/features/templates/template-card.tsx', { values: { '0': 1, '10': 4, '20': 1 }, reason: 'Stretched link, card content and format badge form one local template-card stacking context.' }],
-  ['src/client/features/todos/BoardView.tsx', { values: { '10': 1 }, reason: 'Quick-add field lifted above its board column’s local layers.' }],
-  ['src/client/features/todos/CalendarView.tsx', { values: { '10': 4 }, reason: 'Event markers, labels, current-time line and event chips are ordered within the calendar grid.' }],
   ['src/client/features/tools/color/components/ColorSlider.tsx', { values: { '10': 1 }, reason: 'Slider input lifted over its track inside the color-control surface.' }],
   ['src/client/features/tools/color/components/GradientBarController.tsx', { values: { '10': 1, '20': 1 }, reason: 'Gradient control and selected stop are layered inside the controller.' }],
   ['src/client/features/tools/compare/lib/VirtualDiffView.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],

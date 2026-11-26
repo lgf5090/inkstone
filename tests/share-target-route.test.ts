@@ -6,14 +6,15 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { shareTargetRoutes } from '../src/worker/routes/share-target'
 import { errorResponse } from '../src/worker/lib/errors'
-import type { AppBindings } from '../src/worker/env'
+import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
+import { testBindings } from './doubles/bindings'
 
 const USER = 'user-a'
 const ctx: ExecutionContext = { waitUntil: () => {}, passThroughOnException: () => {}, props: {} }
 let sqlite: DatabaseSync
 let app: Hono<AppBindings>
-let env: { DB: D1Database }
+let env: Env
 
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
@@ -22,7 +23,7 @@ beforeEach(() => {
     `INSERT INTO users (id, username, password_hash, login, name, avatar_url, role, settings, created_at, last_seen_at)
      VALUES (?, 'user-a', 'hash', 'user-a', '', '', 'owner', '{}', 1, 1)`,
   ).run(USER)
-  env = { DB: makeD1(sqlite) }
+  env = testBindings(makeD1(sqlite))
   app = new Hono<AppBindings>()
   app.onError((err, c) => errorResponse(c, err))
   app.use('*', async (c, next) => {
@@ -42,7 +43,7 @@ function request(fields: Record<string, string>, origin = 'http://localhost', co
     method: 'POST',
     headers,
     body: form,
-  }), env as never, ctx))
+  }), env, ctx))
 }
 
 describe('PWA share target', () => {
@@ -96,7 +97,7 @@ describe('PWA share target', () => {
     anonymous.route('/share-target', shareTargetRoutes)
     const form = new FormData()
     form.set('text', 'private')
-    const response = await anonymous.fetch(new Request('http://localhost/share-target', { method: 'POST', body: form }), env as never, ctx)
+    const response = await anonymous.fetch(new Request('http://localhost/share-target', { method: 'POST', body: form }), env, ctx)
     expect(response.status).toBe(401)
   })
 })

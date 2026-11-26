@@ -14,7 +14,7 @@ import { MAX_TASKS_PER_QUERY, type TodoTask } from '@shared/todos/model'
 import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
 import { localeTag, t } from '../../lib/i18n'
-import { formatDateKey } from '../../lib/time'
+import { formatDateKey, narrowWeekdayLabels } from '../../lib/time'
 import { Button, IconButton } from '../../components/primitives'
 import { Segmented } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -209,6 +209,7 @@ export function TimelineView() {
       : timelineRangeFor(today, scale)
   ), [timelineFrom, timelineTo, today, scale])
   const days = useMemo(() => timelineDays(range), [range])
+  const weekdayLabels = useMemo(() => narrowWeekdayLabels(localeTag(), 1), [])
 
   const sequence = useRef(0)
   useEffect(() => {
@@ -372,7 +373,7 @@ export function TimelineView() {
                           style={{ width: DAY_WIDTH }}
                         >
                           <span className="text-[length:var(--text-8-5)] text-[var(--text-quaternary)]">
-                            {new Intl.DateTimeFormat(localeTag(), { weekday: 'narrow' }).format(new Date(`${day}T00:00:00Z`))}
+                            {weekdayLabels[(new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7]}
                           </span>
                           <span className="text-[length:var(--text-10-5)] font-medium">{day.slice(8)}</span>
                         </div>
@@ -455,7 +456,7 @@ export function TimelineView() {
                                   void commit(bar.task, bar, mode, delta)
                                 }}
                                 className={cn(
-                                  'absolute inset-y-0 z-[1] flex w-4 touch-none items-center justify-center rounded-[var(--r-xs)] text-[var(--text-quaternary)]',
+                                  'absolute inset-y-0 z-[var(--z-sticky)] flex w-4 touch-none items-center justify-center rounded-[var(--r-xs)] text-[var(--text-quaternary)]',
                                   'before:absolute before:inset-y-0 before:-inset-x-1 before:content-[\'\']',
                                   'hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
                                   mode === 'start' ? '-left-2' : '-right-2',

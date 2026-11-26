@@ -24,6 +24,25 @@ vi.mock('../../lib/api', async (importOriginal) => {
   }
 })
 
+vi.mock('../../components/date-picker', () => ({
+  DatePicker: ({ label, value, onChange, invalid, describedBy }: {
+    label: string
+    value: string
+    onChange: (value: string) => void
+    invalid?: boolean
+    describedBy?: string
+  }) => (
+    <input
+      type="text"
+      aria-label={label}
+      value={value}
+      aria-invalid={invalid || undefined}
+      aria-describedby={describedBy}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
+}))
+
 import { TaskTimeSection } from './TaskTimeSection'
 
 const TASK = 'task-1'

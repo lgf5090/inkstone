@@ -578,7 +578,7 @@ export function BoardView({ onOpenList }: { onOpenList: (listId: string) => void
                           if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(card) }
                           if (event.key === 'Escape') { stopVoice(); setAdding(null); setDraft('') }
                         }}
-                        className={cn(QUICK_ADD_FIELD, 'relative z-[1] h-9 bg-transparent')}
+                        className={cn(QUICK_ADD_FIELD, 'relative z-[var(--z-sticky)] h-9 bg-transparent')}
                       />
                     </div>
                     <button

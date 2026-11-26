@@ -45238,7 +45238,6 @@ const allowed = new Map([
     "// rides along — a row that moved between the read above and this press is refused per row",
     "// rather than finished over whoever changed it.",
     "/** Reads one of the statistics screens may spend in a minute. */",
-    "/** The span two days may hold, counted in the account's own calendar rather than in hours. */",
     "// A read this wide spends the read budget: it is unmetered otherwise, and a loop over a",
     "// deliberately wide range is a way to make one account's screen slow for everyone on the isolate.",
     "// Any whole number of minutes inside the range, not only the four the menu offers: the presets are",
@@ -53877,6 +53876,13 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/todo-time.ts", [
     "/**\n * An instant the ledger may be written at, as the request names it — or a refusal with a reason.\n *\n * The server clock is the final trust boundary (AGENTS.md rule 1), and every guard here refuses\n * out loud rather than clamping (rule 2): a silently trimmed timestamp is a wrong fact the worklog\n * can never distinguish from real overtime. A client clock rebuilt from sleep, set by hand, or filed\n * from a wrong zone can therefore only produce three honest outcomes — a number inside the window,\n * a 400 naming what was wrong, or nothing. The five-minute future tolerance covers the drift the\n * platform admits; the lower bound is the harsher of the account's own birth and a remembered year,\n * because anything older is not a back-fill but a clock nobody set.\n */",
+  ]],
+  ["src/client/features/todos/todo-outbox.ts", [
+    "// The queue row stays retryable even when its failure marker cannot be persisted.",
+    "// A missed retarget is repaired by the next create replay through the same idempotency key.",
+    "// Keep the malformed row visible to the queue rather than dropping the only local copy.",
+    "// The 429 response already explains the backoff; a missing local marker must not create a toast loop.",
+    "// The original error was already shown; persisting its marker is best-effort bookkeeping.",
   ]],
 ])
 const found = new Map()

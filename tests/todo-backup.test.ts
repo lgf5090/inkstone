@@ -65,6 +65,11 @@ beforeEach(() => {
 describe('a backup round trip', () => {
   it('restores lists, tags, steps and every task field', async () => {
     const list = await store.createTaskList({ name: 'Work', icon: 'Briefcase', color: '#2563eb' })
+    const conversation = await store.createConversation('Backup conversation')
+    sqlite.prepare(
+      `INSERT INTO notes (id, user_id, title, title_key, content, created_at, updated_at)
+       VALUES (?, ?, 'Backup note', 'backup note', 'Body', 1, 1)`,
+    ).run('aaaaaaaaaaaaaaaaaaaaaaaaaa', USER)
     const due = Date.parse('2026-10-20T09:00:00Z')
     const task = await store.createTask({
       title: 'File the return',
@@ -76,7 +81,7 @@ describe('a backup round trip', () => {
       repeat: { freq: 'monthly', interval: 2 },
       remindAt: due - 60 * 60 * 1000,
       noteId: 'aaaaaaaaaaaaaaaaaaaaaaaaaa',
-      conversationId: 'bbbbbbbbbbbbbbbbbbbbbbbbbb',
+      conversationId: conversation.id,
       tags: ['Tax', 'Urgent'],
       steps: ['Collect receipts', 'Fill the form'],
     })
@@ -101,7 +106,7 @@ describe('a backup round trip', () => {
       repeat: { freq: 'monthly', interval: 2 },
       remindAt: due - 60 * 60 * 1000,
       noteId: 'aaaaaaaaaaaaaaaaaaaaaaaaaa',
-      conversationId: 'bbbbbbbbbbbbbbbbbbbbbbbbbb',
+      conversationId: conversation.id,
       listId: list.id,
       stepTotal: 2,
       stepDone: 1,
