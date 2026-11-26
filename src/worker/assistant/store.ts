@@ -7000,20 +7000,38 @@ export class AssistantStore {
     return created
   }
 
+  private touchTagTasksStatement(tagId: string, at: number): D1PreparedStatement {
+    return this.db.prepare(
+      `UPDATE todos_tasks SET updated_at = ?2, rev = rev + 1
+        WHERE user_id = ?1 AND id IN (
+          SELECT task_id FROM todos_tag_links WHERE user_id = ?1 AND tag_id = ?3
+        )`,
+    ).bind(this.userId, at, tagId)
+  }
+
   async updateTaskTag(id: string, patch: { name?: string; color?: string | null }): Promise<TaskTag | null> {
     const existing = await this.getTaskTag(id)
     if (!existing) return null
     const fields: (readonly [string, unknown])[] = []
     if (patch.name !== undefined) fields.push(['name', patch.name.trim().slice(0, MAX_TAG_NAME_CHARS)])
     if (patch.color !== undefined) fields.push(['color', patch.color])
-    fields.push(['updated_at', Date.now()])
-    await this.partialUpdate('todos_tags', id, fields)
+    const at = Date.now()
+    fields.push(['updated_at', at])
+    const update = this.db.prepare(
+      `UPDATE todos_tags SET ${fields.map(([column], index) => `${column} = ?${index + 2}`).join(', ')}
+        WHERE user_id = ?1 AND id = ?${fields.length + 2}`,
+    ).bind(this.userId, ...fields.map(([, value]) => value), id)
+    await this.db.batch([update, this.touchTagTasksStatement(id, at)])
     return await this.getTaskTag(id)
   }
 
   async deleteTaskTag(id: string): Promise<void> {
-    await this.write(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND tag_id = ?2`, id)
-    await this.write(`DELETE FROM todos_tags WHERE user_id = ?1 AND id = ?2`, id)
+    const at = Date.now()
+    await this.db.batch([
+      this.touchTagTasksStatement(id, at),
+      this.db.prepare(`DELETE FROM todos_tag_links WHERE user_id = ?1 AND tag_id = ?2`).bind(this.userId, id),
+      this.db.prepare(`DELETE FROM todos_tags WHERE user_id = ?1 AND id = ?2`).bind(this.userId, id),
+    ])
   }
 
   /**
@@ -7162,12 +7180,15 @@ export class AssistantStore {
     )
     if ((count?.n ?? 0) >= MAX_STEPS_PER_TASK) return null
     const id = newId()
-    await this.write(
-      `INSERT INTO todos_steps (id, user_id, task_id, text, done, position, created_at)
-       VALUES (?2, ?1, ?3, ?4, 0,
-         (SELECT COALESCE(MAX(position), -1) + 1 FROM todos_steps WHERE user_id = ?1 AND task_id = ?3), ?5)`,
-      id, taskId, clean, Date.now(),
-    )
+    const at = Date.now()
+    await this.db.batch([
+      this.db.prepare(
+        `INSERT INTO todos_steps (id, user_id, task_id, text, done, position, created_at)
+         VALUES (?2, ?1, ?3, ?4, 0,
+           (SELECT COALESCE(MAX(position), -1) + 1 FROM todos_steps WHERE user_id = ?1 AND task_id = ?3), ?5)`,
+      ).bind(this.userId, id, taskId, clean, at),
+      this.touchTaskStatement(taskId, at),
+    ])
     const row = await this.one<TaskStepRow>(`SELECT * FROM todos_steps WHERE user_id = ?1 AND id = ?2`, this.userId, id)
     return row ? toTaskStep(row) : null
   }
@@ -7177,12 +7198,18 @@ export class AssistantStore {
     if (patch.text !== undefined) fields.push(['text', patch.text.trim().slice(0, MAX_STEP_TEXT_CHARS)])
     if (patch.done !== undefined) fields.push(['done', patch.done ? 1 : 0])
     if (!fields.length) return null
-    const changes = await this.write(
+    const at = Date.now()
+    const update = this.db.prepare(
       `UPDATE todos_steps SET ${fields.map(([column], index) => `${column} = ?${index + 3}`).join(', ')}
         WHERE user_id = ?1 AND task_id = ?2 AND id = ?${fields.length + 3}`,
-      taskId, ...fields.map(([, value]) => value), stepId,
-    )
-    if (!changes) return null
+    ).bind(this.userId, taskId, ...fields.map(([, value]) => value), stepId)
+    const touch = this.db.prepare(
+      `UPDATE todos_tasks SET updated_at = ?2, rev = rev + 1
+        WHERE user_id = ?1 AND id = ?3
+          AND EXISTS (SELECT 1 FROM todos_steps WHERE user_id = ?1 AND task_id = ?3 AND id = ?4)`,
+    ).bind(this.userId, at, taskId, stepId)
+    const results = await this.db.batch([update, touch])
+    if (!Number(results[0]?.meta?.changes ?? 0)) return null
     const row = await this.one<TaskStepRow>(
       `SELECT * FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 AND id = ?3`,
       this.userId, taskId, stepId,
@@ -7250,6 +7277,7 @@ export class AssistantStore {
       position, taskId, stepId,
     )
     if (!changes) return null
+    await this.touchTaskStatement(taskId, Date.now()).run()
     const row = await this.one<TaskStepRow>(
       `SELECT * FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 AND id = ?3`,
       this.userId, taskId, stepId,
@@ -7258,11 +7286,17 @@ export class AssistantStore {
   }
 
   async deleteStep(taskId: string, stepId: string): Promise<boolean> {
-    const changes = await this.write(
+    const at = Date.now()
+    const touch = this.db.prepare(
+      `UPDATE todos_tasks SET updated_at = ?2, rev = rev + 1
+        WHERE user_id = ?1 AND id = ?3
+          AND EXISTS (SELECT 1 FROM todos_steps WHERE user_id = ?1 AND task_id = ?3 AND id = ?4)`,
+    ).bind(this.userId, at, taskId, stepId)
+    const remove = this.db.prepare(
       `DELETE FROM todos_steps WHERE user_id = ?1 AND task_id = ?2 AND id = ?3`,
-      taskId, stepId,
-    )
-    return changes > 0
+    ).bind(this.userId, taskId, stepId)
+    const results = await this.db.batch([touch, remove])
+    return Number(results[1]?.meta?.changes ?? 0) > 0
   }
 
   // ------------------------------------------------------------- time ledger

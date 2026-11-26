@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { syncRoutes } from '../src/worker/routes/sync'
 import { SyncStore } from '../src/worker/sync/store'
@@ -128,6 +128,11 @@ function listEntry(id: string, name: string): TaskListEntry {
   }
 }
 
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+})
+
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
@@ -190,6 +195,42 @@ describe('the task delta', () => {
     expect(next.todos.map((task) => [task.id, task.title])).toEqual([['t1', 'New title']])
     expect(next.deleted).toEqual(['t2'])
     expect(next.cursor).toBe(past + 6_000)
+  })
+
+  it('does not lose a write that shares the snapshot millisecond', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1000)
+    insertTask('t1', 'Old title', { updatedAt: 1000 })
+    const first = await get('/api/sync/todos?since=0') as TodosSyncResponse
+    expect(first.cursor).toBe(1000)
+
+    await new AssistantStore(db, USER).updateTask('t1', { title: 'New title' })
+    const next = await get('/api/sync/todos?since=1000') as TodosSyncResponse
+
+    expect(next.todos.map((task) => task.title)).toEqual(['New title'])
+  })
+
+  it('touches the parent row for step and tag changes', async () => {
+    insertTask('t1', 'Task with children', { updatedAt: 1 })
+    insertTag('t1', 'tag-1', 'old')
+    const store = new AssistantStore(db, USER)
+    const first = await get('/api/sync/todos?since=0') as TodosSyncResponse
+
+    const step = await store.addStep('t1', 'one')
+    expect(step).not.toBeNull()
+    const afterAdd = await get(`/api/sync/todos?since=${first.cursor}`) as TodosSyncResponse
+    expect(afterAdd.todos[0]?.stepTotal).toBe(1)
+
+    await store.updateStep('t1', step!.id, { done: true })
+    const afterCheck = await get(`/api/sync/todos?since=${afterAdd.cursor}`) as TodosSyncResponse
+    expect(afterCheck.todos[0]?.stepDone).toBe(1)
+
+    await store.updateTaskTag('tag-1', { name: 'new' })
+    const afterRename = await get(`/api/sync/todos?since=${afterCheck.cursor}`) as TodosSyncResponse
+    expect(afterRename.todos[0]?.tags[0]?.name).toBe('new')
+
+    await store.deleteStep('t1', step!.id)
+    const afterDelete = await get(`/api/sync/todos?since=${afterRename.cursor}`) as TodosSyncResponse
+    expect(afterDelete.todos[0]?.stepTotal).toBe(0)
   })
 
   it('never carries another account’s task', async () => {
