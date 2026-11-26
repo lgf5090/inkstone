@@ -19,8 +19,8 @@
  *
  * Every value is emitted in UTC (`Z`): `DTSTAMP` because RFC 5545 requires it to be UTC, and
  * `DTSTART`/`DTEND` because a UTC instant is unambiguous without a `VTIMEZONE` block this module
- * would otherwise have to compute and keep correct. A task has no duration of its own, so `DTEND` is
- * `DTSTART` plus a fixed, named span — the event is a reminder window, not a meeting room booking.
+ * would otherwise have to compute and keep correct. A task with an estimate spans that duration; a task
+ * without one uses a fixed, named reminder window rather than pretending to be a meeting room booking.
  *
  * ## Which recurrences become an `RRULE`, and which degrade
  *
@@ -53,6 +53,8 @@ export interface IcsTask {
   priority: TaskPriority
   /** The current occurrence's due instant, in UTC milliseconds. */
   dueAt: number
+  /** The reader's estimated duration, or null when no duration is known. */
+  timeEstimateMs?: number | null
   /** The already-parsed rule, or null when the task does not repeat. */
   repeat: RepeatRule | null
 }
@@ -186,7 +188,10 @@ function eventLines(task: IcsTask, options: IcsCalendarOptions): string[] {
   const uid = `${task.id}@${UID_DOMAIN}`
   const stamp = toIcsUtc(options.now)
   const start = toIcsUtc(task.dueAt)
-  const end = toIcsUtc(task.dueAt + ICS_EVENT_DURATION_MS)
+  const duration = task.timeEstimateMs != null && task.timeEstimateMs > 0
+    ? task.timeEstimateMs
+    : ICS_EVENT_DURATION_MS
+  const end = toIcsUtc(task.dueAt + duration)
   const lines = [
     'BEGIN:VEVENT',
     `UID:${uid}`,

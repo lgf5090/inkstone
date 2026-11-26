@@ -75,6 +75,14 @@ describe('the time representation', () => {
     expect(ics).toContain('PRODID:-//Inkstone//Todo Feed//EN')
   })
 
+  it('uses the task estimate for DTEND and keeps the named fallback when there is none', () => {
+    const dueAt = Date.parse('2026-03-02T09:30:00Z')
+    expect(property(buildIcsCalendar([task({ id: 'estimated', dueAt, timeEstimateMs: 90 * 60_000 })], options()), 'DTEND'))
+      .toEqual(['20260302T110000Z'])
+    expect(property(buildIcsCalendar([task({ id: 'unknown', dueAt, timeEstimateMs: null })], options()), 'DTEND'))
+      .toEqual(['20260302T100000Z'])
+  })
+
   it('keeps a UID stable for the same task instance across two fetches', () => {
     const one = property(buildIcsCalendar([task({ id: 'task-7', dueAt: Date.parse('2026-03-02T09:00:00Z') })], options()), 'UID')
     const two = property(
