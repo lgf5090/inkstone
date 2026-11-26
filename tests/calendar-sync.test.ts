@@ -467,6 +467,16 @@ describe('OAuth start and callback', () => {
       state,
       origin: 'https://notes.example.com',
     })).rejects.toMatchObject({ status: 400 })
+
+    const restarted = await startOAuth(env, USER, { provider: 'google', writable: false, origin: 'https://notes.example.com' })
+    const reauthorized = await completeOAuth(env, USER, {
+      code: 'synthetic-code',
+      state: new URL(restarted.url).searchParams.get('state')!,
+      origin: 'https://notes.example.com',
+    })
+    expect(reauthorized.connectionId).toBe(completed.connectionId)
+    expect((await getCalendarConnection(db, USER, reauthorized.connectionId))?.writable).toBe(true)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_connections WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
   })
 
   it('does not accept a state minted for another account or an expired one', async () => {

@@ -26,6 +26,7 @@ import {
   GOOGLE_CALENDAR_API_BASE,
   OUTLOOK_CALENDAR_API_BASE,
   createCalendarConnection,
+  listCalendarConnections,
   loadCalendarCredential,
   saveCalendarCredential,
   updateCalendarConnectionStatus,
@@ -210,7 +211,8 @@ export async function completeOAuth(
     verifier,
     callbackUrl(env, input.origin),
   )
-  const connectionId = newId()
+  const existing = (await listCalendarConnections(env.DB, userId)).find(connection => connection.kind === row.provider)
+  const connectionId = existing?.id ?? newId()
   const credential: CalendarOAuthCredential = {
     kind: 'oauth',
     accessToken: tokens.accessToken,

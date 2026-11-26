@@ -161,7 +161,12 @@ export async function createCalendarConnection(
       `INSERT INTO calendar_connections
         (user_id, id, kind, label, base_url, calendar_home_url, username, scope, writable,
          status, last_synced_at, last_error_code, last_error_at, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, NULL, ?11, ?11)`,
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, NULL, ?11, ?11)
+       ON CONFLICT(user_id, id) DO UPDATE SET
+         kind = excluded.kind, label = excluded.label, base_url = excluded.base_url,
+         calendar_home_url = excluded.calendar_home_url, username = excluded.username,
+         scope = excluded.scope, writable = excluded.writable, status = excluded.status,
+         last_synced_at = NULL, last_error_code = NULL, last_error_at = NULL, updated_at = excluded.updated_at`,
     ).bind(
       userId,
       input.id,
