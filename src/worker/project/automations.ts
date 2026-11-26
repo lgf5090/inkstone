@@ -12,9 +12,13 @@ import {
 import type { ProjectAutomationCreateInput, ProjectAutomationPatchInput } from '@shared/project/validation'
 import { newProjectId } from '@shared/project/limits'
 import type { ProjectBoard, ProjectCard, ProjectProperty } from '@shared/project/model'
-import { PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
+import { projectRoleAtLeast } from '@shared/project/model'
+import { projectPropertyEditableBy } from '@shared/project/property-config'
 import type { AppBindings } from '../env'
 import { notifyProjectAutomation } from './notify'
+import { cardPatchStatements, getProjectCard } from './cards'
+import { assertProjectRelationValues, projectRelationTargets } from './relations'
+import { projectRoleForBoard } from './visibility'
 
 interface AutomationRow {
   id: string
@@ -118,37 +122,62 @@ export async function runProjectAutomations(
   properties: readonly ProjectProperty[],
   now: number,
   seen: Set<string>,
-): Promise<void> {
+  applyEffects?: (before: ProjectCard, after: ProjectCard) => Promise<void>,
+): Promise<ProjectCard> {
   const rules = await listProjectAutomations(db, board.id)
+  let current = after
   for (const rule of rules) {
     if (!rule.enabled) continue
     const key = projectAutomationDedupeKey(rule.id, after.id, now)
     if (seen.has(key)) continue
     seen.add(key)
-    if (!projectAutomationTriggered(rule.trigger, before, after)) continue
-    if (!projectAutomationMatches(rule.condition, after)) continue
+    if (!projectAutomationTriggered(rule.trigger, before, current)) continue
+    if (!projectAutomationMatches(rule.condition, current)) continue
     const action = rule.action
     try {
       if (action.type === 'setValue') {
+        const role = await projectRoleForBoard(db, board.id, rule.createdBy)
         const property = properties.find((entry) => entry.id === action.propertyId)
-        if (!property || PROJECT_PROPERTY_CAPABILITIES[property.type].readOnly) continue
-        await db.prepare(
-          `INSERT INTO project_card_values (card_id, property_id, value, updated_at)
-           VALUES (?1, ?2, ?3, ?4)
-           ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-        ).bind(after.id, action.propertyId, action.value, now).run()
+        if (!role || !projectRoleAtLeast(role, 'editor') || !property || !projectPropertyEditableBy(property, role)) {
+          console.warn('[inkstone] project automation skipped by field permission:', { boardId: board.id, cardId: current.id, ruleId: rule.id })
+          continue
+        }
+        const optionIds = new Set(property.options.map((option) => option.id))
+        const validValue = property.type === 'select'
+          ? action.value === '' || optionIds.has(action.value)
+          : property.type === 'multiSelect'
+            ? (() => {
+                if (action.value === '') return true
+                try {
+                  const parsed: unknown = JSON.parse(action.value)
+                  return Array.isArray(parsed) && parsed.every((id) => typeof id === 'string' && optionIds.has(id))
+                } catch { return false }
+              })()
+            : property.type === 'checkbox' ? action.value === 'true' || action.value === 'false' : true
+        if (!validValue) {
+          console.warn('[inkstone] project automation skipped by value validation:', { boardId: board.id, cardId: current.id, ruleId: rule.id })
+          continue
+        }
+        const value = action.value === '' && (property.type === 'select' || property.type === 'multiSelect') ? null : action.value
+        await assertProjectRelationValues(db, properties, { [property.id]: value }, rule.createdBy)
+        await db.batch(cardPatchStatements(db, current, { values: { [property.id]: value } }, rule.createdBy, now, projectRelationTargets(properties)))
+        const updated = await getProjectCard(db, current.id)
+        if (!updated) continue
+        if (applyEffects) await applyEffects(current, updated)
+        current = await getProjectCard(db, current.id) ?? updated
       } else {
         await notifyProjectAutomation(db, env, {
           boardId: board.id,
-          cardTitle: after.title,
+          cardTitle: current.title,
           ownerId: board.ownerId,
           message: action.message,
         })
       }
     } catch (error) {
       console.warn('[inkstone] project automation failed:', {
-        boardId: board.id, cardId: after.id, ruleId: rule.id, action: rule.action.type,
+        boardId: board.id, cardId: current.id, ruleId: rule.id, action: rule.action.type,
       }, error instanceof Error ? error.message : error)
     }
   }
+  return current
 }

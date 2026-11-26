@@ -162,7 +162,8 @@ export async function applyCardValueEffects(
   userId: string,
   now: number,
   seen: Set<string> = new Set(),
-): Promise<void> {
+  runAutomations = true,
+): Promise<ProjectCard> {
   const wasDone = isProjectCardDone(before, properties)
   const nowDone = isProjectCardDone(after, properties)
   if (nowDone !== wasDone) {
@@ -182,7 +183,10 @@ export async function applyCardValueEffects(
       console.warn('[inkstone] project assignment notice failed:', error instanceof Error ? error.message : error)
     }
   }
-  await runProjectAutomations(db, env, board, before, after, properties, now, seen)
+  if (!runAutomations) return after
+  return runProjectAutomations(db, env, board, before, after, properties, now, seen, async (automationBefore, automationAfter) => {
+    await applyCardValueEffects(db, env, board, automationBefore, automationAfter, properties, userId, now, seen, false)
+  })
 }
 
 /** X-5 todo→card: mirror a task's completion onto the linked card's checkbox/status property. */

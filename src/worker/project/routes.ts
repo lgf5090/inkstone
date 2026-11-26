@@ -1035,7 +1035,8 @@ projectRoutes.patch('/cards/:id', async (c) => {
   const now = Date.now()
   const updated = await patchProjectCard(c.env.DB, rawCard, patch, userId, now, projectRelationTargets(properties))
   if (patch.values !== undefined) {
-    await applyCardValueEffects(c.env.DB, c.env, board, rawCard, updated, properties, userId, now)
+    const fresh = await applyCardValueEffects(c.env.DB, c.env, board, rawCard, updated, properties, userId, now)
+    return c.json({ card: projectCardForRole(fresh, properties, role) })
   }
   return c.json({ card: projectCardForRole(updated, properties, role) })
 })

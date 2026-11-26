@@ -69,8 +69,8 @@ async function bundle(account: string, boardId: string): Promise<ProjectBoardBun
   return (await response.json()) as ProjectBoardBundle
 }
 
-async function createRule(boardId: string, overrides: Record<string, unknown> = {}): Promise<ProjectAutomation> {
-  const response = await req('alice', 'POST', `/boards/${boardId}/automations`, {
+async function createRule(boardId: string, overrides: Record<string, unknown> = {}, account = 'alice'): Promise<ProjectAutomation> {
+  const response = await req(account, 'POST', `/boards/${boardId}/automations`, {
     trigger: { type: 'cardValueChanged' },
     condition: { propertyId: status, op: 'equals', value: 'go' },
     action: { type: 'setValue', propertyId: result, value: 'done' },
@@ -87,6 +87,7 @@ describe('project automations', () => {
     await createRule(board.id)
     const response = await req('alice', 'PATCH', `/cards/${card.id}`, { values: { [status]: 'go' } })
     expect(response.status, await response.clone().text()).toBe(200)
+    expect(((await response.json()) as { card: ProjectCard }).card.values[result]).toBe('done')
     const read = await bundle('alice', board.id)
     expect(read.cards.find((entry) => entry.id === card.id)!.values[result]).toBe('done')
   })
@@ -108,6 +109,68 @@ describe('project automations', () => {
     expect(enabled.status, await enabled.clone().text()).toBe(200)
     await req('alice', 'PATCH', `/cards/${card.id}`, { values: { [status]: 'again' } })
     expect((await bundle('alice', board.id)).cards.find((entry) => entry.id === card.id)!.values[result] ?? '').toBe('')
+  })
+
+  it('re-checks the rule creator field permission at execution time', async () => {
+    const { board, card } = await createBoard()
+    sqlite.prepare('UPDATE project_board_members SET role = ? WHERE board_id = ? AND user_id = ?').run('admin', board.id, 'bob')
+    await createRule(board.id, {}, 'bob')
+    sqlite.prepare('UPDATE project_board_members SET role = ? WHERE board_id = ? AND user_id = ?').run('editor', board.id, 'bob')
+    sqlite.prepare(`INSERT INTO project_property_configs (board_id, property_id, config, updated_at) VALUES (?, ?, ?, 1)
+      ON CONFLICT(board_id, property_id) DO UPDATE SET config = excluded.config, updated_at = excluded.updated_at`)
+      .run(board.id, result, JSON.stringify({ editRoles: ['admin'] }))
+    const response = await req('alice', 'PATCH', `/cards/${card.id}`, { values: { [status]: 'go' } })
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect((await bundle('alice', board.id)).cards.find((entry) => entry.id === card.id)!.values[result] ?? '').toBe('')
+  })
+
+  it('writes relation values and their edges through the normal card pipeline', async () => {
+    const boardId = 'b'.repeat(27)
+    const relation = pid(3)
+    const created = await req('alice', 'POST', '/boards', {
+      id: boardId,
+      title: 'Relations',
+      cardProperties: [
+        { id: status, name: 'Status', type: 'text', options: [] },
+        { id: relation, name: 'Related', type: 'relation', options: [], config: { targetBoardId: boardId } },
+      ],
+    })
+    const board = ((await created.json()) as { board: ProjectBoard }).board
+    const source = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Source' })).json()) as { card: ProjectCard }).card
+    const target = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, { title: 'Target' })).json()) as { card: ProjectCard }).card
+    await createRule(board.id, { action: { type: 'setValue', propertyId: relation, value: JSON.stringify([target.id]) } })
+    const response = await req('alice', 'PATCH', `/cards/${source.id}`, { values: { [status]: 'go' } })
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(((await response.json()) as { card: ProjectCard }).card.values[relation]).toBe(JSON.stringify([target.id]))
+    expect(sqlite.prepare('SELECT from_card_id, to_card_id, property_id FROM project_card_relations').all())
+      .toEqual([{ from_card_id: source.id, to_card_id: target.id, property_id: relation }])
+  })
+
+  it('runs completion and recurrence effects when an automation changes status', async () => {
+    const done = pid(4)
+    const open = pid(5)
+    const trigger = pid(6)
+    const created = await req('alice', 'POST', '/boards', {
+      title: 'Recurring automation',
+      cardProperties: [
+        { id: status, name: 'Status', type: 'select', options: [{ id: open, value: 'Open', color: '', category: 'todo' }, { id: done, value: 'Done', color: '', category: 'done' }] },
+        { id: trigger, name: 'Trigger', type: 'text', options: [] },
+      ],
+    })
+    const board = ((await created.json()) as { board: ProjectBoard }).board
+    const card = ((await (await req('alice', 'POST', `/boards/${board.id}/cards`, {
+      title: 'Repeat', values: { [status]: open }, recurrence: { freq: 'daily', interval: 1 },
+    })).json()) as { card: ProjectCard }).card
+    await createRule(board.id, {
+      condition: { propertyId: trigger, op: 'equals', value: 'go' },
+      action: { type: 'setValue', propertyId: status, value: done },
+    })
+    const response = await req('alice', 'PATCH', `/cards/${card.id}`, { values: { [trigger]: 'go' } })
+    expect(response.status, await response.clone().text()).toBe(200)
+    const fresh = ((await response.json()) as { card: ProjectCard }).card
+    expect(fresh.values[status]).toBe(done)
+    expect(fresh.completedAt).toBeTypeOf('number')
+    expect((await bundle('alice', board.id)).cards).toHaveLength(2)
   })
 
   it('limits rule writes to admins but lets a viewer list them', async () => {
