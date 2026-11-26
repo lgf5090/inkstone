@@ -106,8 +106,8 @@ calendarTemplateRoutes.patch('/templates/:id', async (c) => {
   if (!current) throw ApiError.notFound('Template not found')
   const record = await readJson<Record<string, unknown>>(c, LIMIT)
   const input = parse({ ...toDto(current), ...record })
-  const rev = record.rev === undefined ? current.rev : Number(record.rev)
-  if (!Number.isSafeInteger(rev)) throw ApiError.badRequest('rev is invalid')
+  const rev = record.rev === undefined ? null : Number(record.rev)
+  if (rev === null || !Number.isSafeInteger(rev) || rev < 1) throw ApiError.badRequest('rev is required')
   try {
     const row = await updateTemplateRow(c.env.DB, c.get('userId'), id, rev, {
       ...input,

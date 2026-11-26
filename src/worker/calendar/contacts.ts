@@ -122,7 +122,10 @@ export async function updateContact(
 ): Promise<CalendarContactDto> {
   const current = await contactRow(db, userId, id)
   if (!current) throw ApiError.notFound('Contact not found')
-  const rev = typeof input.rev === 'number' && Number.isSafeInteger(input.rev) ? input.rev : current.rev
+  const rev = typeof input.rev === 'number' && Number.isSafeInteger(input.rev) && input.rev > 0
+    ? input.rev
+    : null
+  if (rev === null) throw ApiError.badRequest('rev is required')
   if (rev !== current.rev) throw ApiError.conflict('The contact changed elsewhere. Refresh and try again')
   const name = input.name === undefined ? current.name : parseName(input.name)
   const email = input.email === undefined ? current.email : parseEmail(input.email)

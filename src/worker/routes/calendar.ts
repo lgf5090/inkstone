@@ -543,10 +543,12 @@ calendarRoutes.delete('/calendars/:id', async (c) => {
   const targetId = mode === 'merge'
     ? parseEntityId(c.req.query('targetId'), 'targetId')
     : null
+  const rev = parseRevQuery(c.req.query('rev'))
+  if (rev === null) throw ApiError.badRequest('rev is required')
   await store(c).deleteCalendar(id, {
     mode,
     targetId,
-    rev: parseRevQuery(c.req.query('rev')),
+    rev,
   })
   return noContent(c)
 })

@@ -325,11 +325,11 @@ export async function updateCalendar(id: string, patch: CalendarPatchInput, rev:
 
 export function deleteCalendar(
   id: string,
-  mode: { kind: 'delete'; rev: number } | { kind: 'merge'; targetId: string },
+  mode: { kind: 'delete'; rev: number } | { kind: 'merge'; targetId: string; rev: number },
 ): Promise<void> {
   const params = mode.kind === 'delete'
     ? `mode=delete&rev=${encodeURIComponent(String(mode.rev))}`
-    : `mode=merge&targetId=${encodeURIComponent(mode.targetId)}`
+    : `mode=merge&targetId=${encodeURIComponent(mode.targetId)}&rev=${encodeURIComponent(String(mode.rev))}`
   return request<void>(`/api/calendar/calendars/${entity(id)}?${params}`, { method: 'DELETE' })
 }
 

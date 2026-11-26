@@ -14,6 +14,7 @@ import { MAX_SCHEDULING_LINKS } from '../src/worker/calendar/scheduling'
 import { calendarRoutes } from '../src/worker/routes/calendar'
 import { calendarMemberRoutes } from '../src/worker/routes/calendar-members'
 import { calendarContactRoutes } from '../src/worker/routes/calendar-contacts'
+import { calendarTemplateRoutes } from '../src/worker/routes/calendar-templates'
 import { calendarResourceRoutes } from '../src/worker/routes/calendar-resources'
 import { calendarBookingRoutes, calendarSchedulingRoutes } from '../src/worker/routes/calendar-scheduling'
 import type { AppBindings } from '../src/worker/env'
@@ -41,6 +42,7 @@ app.use('*', async (c, next) => {
 })
 app.route('/api/calendar', calendarMemberRoutes)
 app.route('/api/calendar', calendarContactRoutes)
+app.route('/api/calendar', calendarTemplateRoutes)
 app.route('/api/calendar', calendarResourceRoutes)
 app.route('/api/calendar', calendarSchedulingRoutes)
 app.route('/api/calendar', calendarRoutes)
@@ -441,6 +443,25 @@ function timedEvent(calendarId: string, startMs: number, overrides: Record<strin
     ...overrides,
   })
 }
+
+describe('required write revisions', () => {
+  it('requires revisions for contacts, templates and calendar removal', async () => {
+    const contact = await json<{ contact: { id: string; rev: number } }>(await call('POST', '/api/calendar/contacts', {
+      name: 'Contact', email: 'revision@example.com', birthday: null,
+    }))
+    expect((await call('PATCH', `/api/calendar/contacts/${contact.contact.id}`, { name: 'No revision' })).status).toBe(400)
+    expect((await call('PATCH', `/api/calendar/contacts/${contact.contact.id}`, { name: 'Stale', rev: contact.contact.rev + 1 })).status).toBe(409)
+
+    const template = await json<{ template: { id: string } }>(await call('POST', '/api/calendar/templates', {
+      name: 'Template', title: 'Review', description: '', kind: 'event', allDay: false, durationMinutes: 30,
+    }))
+    expect((await call('PATCH', `/api/calendar/templates/${template.template.id}`, { title: 'No revision' })).status).toBe(400)
+
+    const calendar = await defaultCalendar()
+    expect((await call('DELETE', `/api/calendar/calendars/${calendar.id}?mode=delete`)).status).toBe(400)
+    expect((await call('DELETE', `/api/calendar/calendars/${calendar.id}?mode=merge&targetId=${calendar.id}`)).status).toBe(400)
+  })
+})
 
 describe('holiday imports and birthday sync', () => {
   it('reuses a holiday calendar and allows two holidays on the same date', async () => {

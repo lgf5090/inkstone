@@ -164,14 +164,15 @@ describe('calendar routes', () => {
     expect(ordered.status).toBe(204)
     expect((await meta()).calendars.map((entry) => entry.id)).toEqual([patched.calendar.id, home.id])
 
-    const deleted = await call('DELETE', `/calendars/${patched.calendar.id}?mode=delete`)
+    const current = (await meta()).calendars.find(entry => entry.id === patched.calendar.id)!
+    const deleted = await call('DELETE', `/calendars/${patched.calendar.id}?mode=delete&rev=${current.rev}`)
     expect(deleted.status).toBe(204)
     expect((await meta()).calendars.map((entry) => entry.id)).toEqual([home.id])
   })
 
   it('refuses to delete the last calendar and a malformed id', async () => {
     const home = (await meta()).calendars[0]!
-    expect((await call('DELETE', `/calendars/${home.id}?mode=delete`)).status).toBe(409)
+    expect((await call('DELETE', `/calendars/${home.id}?mode=delete&rev=${home.rev}`)).status).toBe(409)
     expect((await call('PATCH', '/calendars/bad!id', { rev: 1, name: 'X' })).status).toBe(400)
     expect((await call('PATCH', '/calendars/does-not-exist', { rev: 1, name: 'X' })).status).toBe(404)
   })

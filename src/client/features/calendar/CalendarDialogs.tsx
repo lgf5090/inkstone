@@ -366,7 +366,7 @@ export function DeleteCalendarDialog({ open, calendar, calendars, onClose, onSav
     setSaving(true)
     setError(null)
     try {
-      if (mode === 'merge') await api.deleteCalendar(calendar.id, { kind: 'merge', targetId })
+      if (mode === 'merge') await api.deleteCalendar(calendar.id, { kind: 'merge', targetId, rev: calendar.rev })
       else await api.deleteCalendar(calendar.id, { kind: 'delete', rev: calendar.rev })
       useUi.getState().toast({
         title: mode === 'merge' ? t('calendar.calendar.merged') : t('calendar.calendar.deleted'),
