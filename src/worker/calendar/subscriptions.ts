@@ -15,7 +15,7 @@ import { isRedirectResponse, NO_REDIRECT } from '../lib/no-redirect'
 import { readStreamTextWithinLimit } from '../lib/request'
 import { CalendarStore, type CalendarEventWriteInput } from './store'
 import { parseEventInput } from './validation'
-import { IcsParseError, icsExternalId, parseIcsCalendar } from './ics'
+import { IcsParseError, icsExternalId, parseIcsCalendar, type IcsWarning } from './ics'
 
 const FETCH_TIMEOUT_MS = 15_000
 const MAX_REDIRECTS = 3
@@ -94,7 +94,8 @@ export async function createIcsSubscription(
         lastModified: feed.lastModified,
       }), now),
     ])
-    const inputs = await subscriptionEvents(parsed.events, calendar.id, preferences.timeZone)
+    const inputs = await subscriptionEvents(parsed.events, calendar.id, preferences.timeZone, parsed.warnings)
+    if (inputs.length === 0) throw ApiError.badRequest('The calendar feed contains no valid events')
     const imported = await insertInChunks(store, inputs)
     return {
       subscription: subscriptionRowToDto({
@@ -149,9 +150,11 @@ export async function refreshIcsSubscription(
     await markSubscriptionError(env.DB, userId, subscriptionId, error instanceof IcsParseError ? error.code : 'invalid_ics')
     throw error
   }
-  const inputs = await subscriptionEvents(parsed.events, row.calendar_id, preferences.timeZone)
+  let inputs: CalendarEventWriteInput[]
   let imported = 0
   try {
+    inputs = await subscriptionEvents(parsed.events, row.calendar_id, preferences.timeZone, parsed.warnings)
+    if (inputs.length === 0) throw ApiError.badRequest('The calendar feed contains no valid events')
     imported = await insertInChunks(store, inputs)
     const keep = new Set(inputs.map((event) => event.externalId).filter((id): id is string => Boolean(id)))
     const removed = await removeStaleEvents(env.DB, userId, row.calendar_id, keep)
@@ -247,22 +250,35 @@ async function subscriptionEvents(
   events: readonly CalendarEventInput[],
   calendarId: string,
   defaultTimeZone: string,
+  warnings: IcsWarning[],
 ): Promise<CalendarEventWriteInput[]> {
-  return Promise.all(events.map(async (event) => {
-    const uid = event.meta?.originalUid
-    const recurrenceId = recurrenceIdOf(event.meta?.recurrenceId)
-    const stableUid = typeof uid === 'string'
-      ? uid
-      : `missing:${await sha256Hex(JSON.stringify([event.title, event.start, event.end, event.description, event.recurrenceRule, recurrenceId]))}`
-    const externalId = await icsExternalId(calendarId, stableUid, recurrenceId)
-    return parseEventInput({
-      ...event,
-      calendarIds: [calendarId],
-      calendarId: undefined,
-      source: 'ics',
-      externalId,
-    }, { defaultTimeZone })
-  }))
+  const inputs: CalendarEventWriteInput[] = []
+  for (let index = 0; index < events.length; index++) {
+    const event = events[index]!
+    try {
+      const uid = event.meta?.originalUid
+      const recurrenceId = recurrenceIdOf(event.meta?.recurrenceId)
+      const stableUid = typeof uid === 'string'
+        ? uid
+        : `missing:${await sha256Hex(JSON.stringify([event.title, event.start, event.end, event.description, event.recurrenceRule, recurrenceId]))}`
+      const externalId = await icsExternalId(calendarId, stableUid, recurrenceId)
+      inputs.push(parseEventInput({
+        ...event,
+        calendarIds: [calendarId],
+        calendarId: undefined,
+        source: 'ics',
+        externalId,
+      }, { defaultTimeZone }))
+    } catch (error) {
+      warnings.push({
+        line: index + 1,
+        ...(typeof event.meta?.originalUid === 'string' ? { uid: event.meta.originalUid } : {}),
+        code: 'invalid_event',
+        message: error instanceof Error ? error.message : 'The event could not be imported',
+      })
+    }
+  }
+  return inputs
 }
 
 function recurrenceIdOf(value: unknown): string | null {

@@ -1,10 +1,11 @@
 import { Hono } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { newId } from '../lib/id'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { CalendarStore } from '../calendar/store'
+import { CalendarStore, type CalendarEventWriteInput } from '../calendar/store'
 import { parseCalendarInput, parseEventInput } from '../calendar/validation'
 import {
   IcsParseError,
@@ -95,6 +96,8 @@ calendarIcsRoutes.post('/import', async (c) => {
 
   let calendar
   let created = false
+  let newCalendarInput: ReturnType<typeof parseCalendarInput> | null = null
+  let newCalendarId: string | null = null
   if (isCalendarEntityId(body.calendarId)) {
     calendar = (await store.listCalendars()).find((entry) => entry.id === body.calendarId)
     if (!calendar) throw ApiError.notFound('Calendar not found')
@@ -107,25 +110,45 @@ calendarIcsRoutes.post('/import', async (c) => {
     const record = requested as Record<string, unknown>
     const requestedName = typeof record.name === 'string' ? record.name : ''
     const name = requestedName.trim() || parsed.name || 'Imported calendar'
-    calendar = await store.createCalendar(parseCalendarInput({
+    newCalendarInput = parseCalendarInput({
       name,
       ...(record.color === undefined ? {} : { color: record.color }),
-    }))
+    })
+    newCalendarId = newId()
+  }
+  const targetCalendarId = calendar?.id ?? newCalendarId!
+
+  const inputs: CalendarEventWriteInput[] = []
+  for (let index = 0; index < parsed.events.length; index++) {
+    const event = parsed.events[index]!
+    try {
+      const uid = event.meta?.originalUid
+      const externalId = typeof uid === 'string'
+        ? await icsExternalId(targetCalendarId, uid, recurrenceIdOf(event.meta?.recurrenceId))
+        : null
+      inputs.push(parseEventInput({
+        ...event,
+        calendarIds: [targetCalendarId],
+        source: 'ics',
+        externalId,
+      }, { defaultTimeZone }))
+    } catch (error) {
+      parsed.warnings.push({
+        line: index + 1,
+        ...(typeof event.meta?.originalUid === 'string' ? { uid: event.meta.originalUid } : {}),
+        code: 'invalid_event',
+        message: error instanceof Error ? error.message : 'The event could not be imported',
+      })
+    }
+  }
+  if (inputs.length === 0) {
+    throw ApiError.badRequest('The calendar file contains no valid events')
+  }
+  if (!calendar) {
+    if (!newCalendarInput || !newCalendarId) throw new Error('Calendar import target was not prepared')
+    calendar = await store.createCalendar({ ...newCalendarInput, id: newCalendarId })
     created = true
   }
-
-  const inputs = await Promise.all(parsed.events.map(async (event) => {
-    const uid = event.meta?.originalUid
-    const externalId = typeof uid === 'string'
-      ? await icsExternalId(calendar.id, uid, recurrenceIdOf(event.meta?.recurrenceId))
-      : null
-    return parseEventInput({
-      ...event,
-      calendarIds: [calendar.id],
-      source: 'ics',
-      externalId,
-    }, { defaultTimeZone })
-  }))
 
   let imported = 0
   try {

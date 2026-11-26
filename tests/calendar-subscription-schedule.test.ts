@@ -82,6 +82,20 @@ describe('scheduled calendar subscriptions', () => {
     await expect(refreshIcsSubscription(env, USER, 'paused')).resolves.toMatchObject({ imported: 1 })
   })
 
+  it('keeps valid feed events when another event fails validation', async () => {
+    await insertSubscription('mixed', 1, null)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response([
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Audit//EN',
+      'BEGIN:VEVENT', 'UID:good', 'DTSTART:20261126T010000Z', 'DTEND:20261126T020000Z', 'SUMMARY:Good', 'END:VEVENT',
+      'BEGIN:VEVENT', 'UID:bad', 'DTSTART:20261126T010000Z', 'DTEND:20261126T020000Z', `SUMMARY:${'x'.repeat(301)}`, 'END:VEVENT',
+      'END:VCALENDAR', '',
+    ].join('\r\n'))))
+    const result = await refreshIcsSubscription(env, USER, 'mixed')
+    expect(result.imported).toBe(1)
+    expect(result.warnings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'invalid_event', uid: 'bad' })]))
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM calendar_events WHERE calendar_source = 'ics'").get()).toEqual({ count: 1 })
+  })
+
   it('keeps UID-less feed events stable across refreshes', async () => {
     const calendarId = await insertSubscription('uidless', 1, null)
     vi.stubGlobal('fetch', vi.fn(async () => new Response([

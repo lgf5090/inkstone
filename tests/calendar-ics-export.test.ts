@@ -103,6 +103,31 @@ beforeEach(() => {
   user = ALICE
 })
 
+describe('POST /api/calendar/ics/import', () => {
+  it('imports valid events and reports invalid ones as warnings', async () => {
+    const calendar = await createCalendar('Imports')
+    const content = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Audit//EN',
+      'BEGIN:VEVENT', 'UID:good', 'DTSTART:20261126T010000Z', 'DTEND:20261126T020000Z', 'SUMMARY:Good', 'END:VEVENT',
+      'BEGIN:VEVENT', 'UID:bad', 'DTSTART:20261126T010000Z', 'DTEND:20261126T020000Z', `SUMMARY:${'x'.repeat(301)}`, 'END:VEVENT',
+      'END:VCALENDAR', '',
+    ].join('\r\n')
+    const response = await call('POST', '/ics/import', { calendarId: calendar.id, content })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ imported: 1, warnings: [expect.objectContaining({ code: 'invalid_event', uid: 'bad' })] })
+  })
+
+  it('does not leave an empty calendar when every event is invalid', async () => {
+    const content = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Audit//EN',
+      'BEGIN:VEVENT', 'UID:bad', 'DTSTART:20261126T010000Z', 'DTEND:20261126T020000Z', `SUMMARY:${'x'.repeat(301)}`, 'END:VEVENT',
+      'END:VCALENDAR', '',
+    ].join('\r\n')
+    const response = await call('POST', '/ics/import', { newCalendar: { name: 'Broken import' }, content })
+    expect(response.status).toBe(400)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_calendars').get()).toEqual({ count: 0 })
+  })
+})
 describe('GET /api/calendar/ics/export', () => {
   it('needs a session', async () => {
     user = ''
