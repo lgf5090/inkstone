@@ -74,6 +74,12 @@ describe('calendar reminder copy', () => {
 })
 
 describe('calendar reminders', () => {
+  it('loads every account lead budget in one aggregate query', async () => {
+    const prepare = vi.spyOn(db, 'prepare')
+    await sweepCalendarReminders(env, Date.parse('2026-10-26T08:00:00Z'))
+    expect(prepare.mock.calls.filter(([sql]) => sql.includes('MAX(CASE WHEN r.minutes'))).toHaveLength(1)
+  })
+
   it('delivers once, links to the day, and ignores an already-fired occurrence', async () => {
     const now = Date.parse('2026-10-26T08:00:00Z')
     await createEvent(now + 10 * 60_000)

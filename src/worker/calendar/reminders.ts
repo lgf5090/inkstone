@@ -110,13 +110,25 @@ export async function sweepCalendarReminders(
   waitUntil?: WaitUntil,
 ): Promise<CalendarReminderSweepResult> {
   const { results: accounts } = await env.DB.prepare(
-    `SELECT user_id, preferences_json FROM calendar_preferences
-     UNION
-     SELECT r.user_id, p.preferences_json
-       FROM calendar_event_reminders r
-       LEFT JOIN calendar_preferences p ON p.user_id = r.user_id
-     ORDER BY user_id`,
-  ).all<{ user_id: string; preferences_json: string | null }>()
+    `SELECT a.user_id, a.preferences_json,
+            COALESCE(MAX(CASE WHEN r.minutes BETWEEN 0 AND ?1 THEN r.minutes END), 0) AS lead,
+            COUNT(r.minutes) AS reminder_count
+       FROM (
+         SELECT user_id, preferences_json FROM calendar_preferences
+         UNION
+         SELECT DISTINCT r.user_id, p.preferences_json
+           FROM calendar_event_reminders r
+           LEFT JOIN calendar_preferences p ON p.user_id = r.user_id
+       ) a
+       LEFT JOIN calendar_event_reminders r ON r.user_id = a.user_id
+      GROUP BY a.user_id, a.preferences_json
+      ORDER BY a.user_id`,
+  ).bind(MAX_REMINDER_MINUTES).all<{
+    user_id: string
+    preferences_json: string | null
+    lead: number
+    reminder_count: number
+  }>()
 
   const fanout = new NotificationPushFanout(env)
   const emailDeployment = await readEmailDeployment(env.DB).catch((error: unknown) => {
@@ -148,21 +160,8 @@ export async function sweepCalendarReminders(
     const minutes = preferences.eventReminderMinutes
     // The window is the furthest lead this account actually uses: an account with a 10-minute default
     // and no per-event reminders keeps scanning eleven minutes, not a week.
-    let ownLeadMax = 0
-    let ownReminderCount = 0
-    try {
-      const row = await env.DB.prepare(
-        `SELECT MAX(CASE WHEN minutes BETWEEN 0 AND ?2 THEN minutes END) AS lead,
-                COUNT(*) AS reminder_count
-           FROM calendar_event_reminders
-          WHERE user_id = ?1`,
-      ).bind(account.user_id, MAX_REMINDER_MINUTES).first<{ lead: number | null; reminder_count: number }>()
-      ownLeadMax = Number(row?.lead ?? 0)
-      ownReminderCount = Number(row?.reminder_count ?? 0)
-    } catch (error) {
-      console.error('[inkstone] calendar reminder leads failed:', account.user_id, errorDetail(error))
-      continue
-    }
+    const ownLeadMax = Number(account.lead ?? 0)
+    const ownReminderCount = Number(account.reminder_count ?? 0)
     const leadMinutes = Math.max(minutes, ownLeadMax)
     // Zero is a real per-event lead (at start), and a corrupt lead still needs to reach the per-event
     // validation below so it is logged rather than making the whole account disappear.
