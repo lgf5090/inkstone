@@ -162,7 +162,7 @@ export function useDragSort(options: {
       const zone = zones.find((entry) => entry.key === key)
       if (!zone) return
       readScroll()
-      const cards = [...zone.el.querySelectorAll<HTMLElement>('[data-drag-item]')]
+      const cards = [...zone.el.querySelectorAll<HTMLElement>('[data-drag-item]:not([data-child="true"])')]
       itemsByZone.set(key, cards.map((el, index) => {
         const rect = el.getBoundingClientRect()
         return { id: el.dataset.dragId ?? '', zone: key, top: rect.top + scrollY, height: rect.height, index }

@@ -41,6 +41,7 @@ export interface ListProps {
   onDeleteCard: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onPatchFields: (fields: Partial<ProjectViewFields>) => void
+  onDragCards: (patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]) => Promise<void>
   onAddCard: (title: string, optionId: string) => Promise<void>
 }
 
@@ -93,8 +94,8 @@ const ListRow = memo(function ListRow({ card, child, api, expanded, renaming, dr
     <div>
       <div
         className="pv-list-row group"
-        data-drag-item=""
-        data-drag-id={card.id}
+        data-drag-item={child ? undefined : ''}
+        data-drag-id={child ? undefined : card.id}
         data-project-card={card.id}
         data-child={child}
         data-done={done}
@@ -102,7 +103,7 @@ const ListRow = memo(function ListRow({ card, child, api, expanded, renaming, dr
         style={{ paddingLeft: child ? '36px' : undefined }}
         onContextMenu={(event) => api.onCardContextMenu(event, card)}
       >
-        {api.canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => api.onDragStart(event, card.id)} />}
+        {!child && api.canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => api.onDragStart(event, card.id)} />}
         {!child && subtasks.length > 0
           ? (
             <IconButton
@@ -262,20 +263,17 @@ export function ListView(props: ListProps): ReactElement {
   const drag = useDragSort({
     enabled: canEdit,
     onDrop: (cardId, target) => {
-      props.onPatchFields({
-        cardOrder: projectKanbanDropOrder({
-          columns: entries.map(([key, list]) => ({ key, cardIds: list.map((card) => card.id) })),
-          cardOrder: fields.cardOrder,
-          draggedIds: [cardId],
-          target,
-        }),
+      const cardOrder = projectKanbanDropOrder({
+        columns: entries.map(([key, list]) => ({ key, cardIds: list.map((card) => card.id) })),
+        cardOrder: fields.cardOrder,
+        draggedIds: [cardId],
+        target,
       })
-      if (groupProperty) {
-        const card = cards.find((entry) => entry.id === cardId)
-        if (card && (card.values[groupProperty.id] ?? '') !== target.zone) {
-          void props.onPatchCard(cardId, { values: { [groupProperty.id]: target.zone === '' ? null : target.zone } })
-        }
-      }
+      const card = cards.find((entry) => entry.id === cardId)
+      const patches = groupProperty && card && (card.values[groupProperty.id] ?? '') !== target.zone
+        ? [{ id: cardId, patch: { values: { [groupProperty.id]: target.zone === '' ? null : target.zone } } }]
+        : []
+      void props.onDragCards(patches, cardOrder)
     },
   })
 

@@ -42,6 +42,7 @@ export interface KanbanProps {
   onDeleteCard: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onPatchCards: (ids: readonly string[], values: Record<string, string | null>) => Promise<void>
+  onDragCards: (patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]) => Promise<void>
   onPatchFields: (fields: Partial<ProjectViewFields>) => void
   onAddCard: (title: string, optionId: string) => Promise<void>
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
@@ -121,11 +122,9 @@ export function KanbanView(props: KanbanProps): ReactElement {
       draggedIds,
       target,
     })
-    props.onPatchFields({ cardOrder: order })
-    if (!groupProperty || moving.length === 0) return
-    const values = { [groupProperty.id]: target.zone === '' ? null : target.zone }
-    if (moving.length === 1) void props.onPatchCard(moving[0]!, { values })
-    else void props.onPatchCards(moving, values)
+    const values = groupProperty ? { [groupProperty.id]: target.zone === '' ? null : target.zone } : {}
+    const patches = moving.map((id) => ({ id, patch: { values } }))
+    void props.onDragCards(patches, order)
   }
   const drag = useDragSort({
     enabled: canEdit,

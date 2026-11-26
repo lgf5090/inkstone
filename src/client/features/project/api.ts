@@ -154,7 +154,11 @@ export async function undeleteProjectCard(id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/cards/${encodeURIComponent(id)}/undelete`, { method: 'POST', body: {} })
 }
 
-export async function batchPatchProjectBoard(boardId: string, input: { cards?: { id: string, patch: Record<string, unknown> }[] }): Promise<void> {
+export async function batchPatchProjectBoard(boardId: string, input: {
+  cards?: { id: string, patch: Record<string, unknown> }[]
+  contents?: { id: string, patch: Record<string, unknown> }[]
+  views?: { id: string, patch: Record<string, unknown> }[]
+}): Promise<void> {
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/batch`, { method: 'PATCH', body: input })
 }
 

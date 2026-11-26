@@ -320,6 +320,18 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     await batchPatchProjectBoard(bundle.board.id, { cards: ids.map((id) => ({ id, patch: { values } })) })
     await onRefresh()
   })
+  const dragCards = useEvent(async (patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]): Promise<void> => {
+    if (!active) return
+    try {
+      await batchPatchProjectBoard(bundle.board.id, {
+        cards: patches,
+        views: [{ id: active.id, patch: { fields: { cardOrder } } }],
+      })
+      await onRefresh()
+    } catch (error) {
+      useUi.getState().toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
+    }
+  })
   const changeCalendarMode = useEvent((mode: ProjectViewFields['calendarMode']): void => {
     patchFields({ calendarMode: mode })
   })
@@ -506,6 +518,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     onDeleteCard,
     onPatchCard,
     onPatchCards: patchCardsValues,
+    onDragCards: dragCards,
     onPatchFields: patchFields,
     onAddCard: addCardInColumn,
     onAddGroupOption,
@@ -555,7 +568,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       case 'gallery':
         return <GalleryView cards={cards} properties={bundle.properties} chipProperties={columns} fields={fields} badgesFor={badgesFor} coverFor={coverFor} canEdit={canEdit} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onPatchFields={patchFields} onAddCard={addCardInColumn} />
       case 'list':
-        return <ListView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} canMarkDone={projectCanMarkDone(bundle.properties)} badgesFor={badgesFor} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onDeleteCard={onDeleteCard} onPatchCard={onPatchCard} onPatchFields={patchFields} onAddCard={addCardInColumn} />
+        return <ListView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} canMarkDone={projectCanMarkDone(bundle.properties)} badgesFor={badgesFor} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onDeleteCard={onDeleteCard} onPatchCard={onPatchCard} onPatchFields={patchFields} onDragCards={dragCards} onAddCard={addCardInColumn} />
       case 'board':
         return fields.swimlaneBy
           ? <Swimlanes cards={cards} properties={bundle.properties} fields={fields} kanbanProps={kanbanProps} />

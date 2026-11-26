@@ -12,6 +12,7 @@ import * as overlay from '../../components/overlay'
 vi.spyOn(api, 'fetchProjectCardMarks').mockResolvedValue({ starred: [], pinned: [] })
 vi.spyOn(api, 'fetchBoardDefaultView').mockResolvedValue(null)
 vi.spyOn(api, 'saveBoardDefaultView').mockResolvedValue(undefined)
+vi.spyOn(api, 'batchPatchProjectBoard').mockResolvedValue(undefined)
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 
@@ -146,7 +147,7 @@ describe('board column hide and cross-column drag (C-2)', () => {
     expect(onPatch).toHaveBeenCalledWith('v2', { fields: { hiddenOptionIds: ['o1'] } })
   })
 
-  it('dragging a card into another column patches its group value and its manual order', async () => {
+  it('dragging a card into another column commits group value and manual order together', async () => {
     const onPatchCard = vi.fn<(id: string, patch: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined)
     const onPatch = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>().mockResolvedValue(undefined)
     await mountBoard(onPatch, onPatchCard)
@@ -169,9 +170,12 @@ describe('board column hide and cross-column drag (C-2)', () => {
     Object.defineProperties(move, { clientX: { value: 320 }, clientY: { value: 120 } })
     await act(async () => { window.dispatchEvent(move) })
     await act(async () => { window.dispatchEvent(new Event('pointerup')) })
-    expect(onPatchCard).toHaveBeenCalledWith('c1', { values: { ps: 'o2' } })
-    const orderPatch = onPatch.mock.calls.find(([, patch]) => patch.fields?.cardOrder)?.[1]
-    expect(orderPatch?.fields?.cardOrder).toEqual(['c2', 'c1', 'c3'])
+    expect(onPatchCard).not.toHaveBeenCalled()
+    expect(onPatch).not.toHaveBeenCalled()
+    expect(api.batchPatchProjectBoard).toHaveBeenCalledWith('b1', {
+      cards: [{ id: 'c1', patch: { values: { ps: 'o2' } } }],
+      views: [{ id: 'v2', patch: { fields: { cardOrder: ['c2', 'c1', 'c3'] } } }],
+    })
   })
 })
 

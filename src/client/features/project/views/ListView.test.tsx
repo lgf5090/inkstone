@@ -28,7 +28,7 @@ async function mount(cards: ProjectCard[], extra: Partial<ProjectViewFields> = {
     badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }),
     onOpenCard: vi.fn(), onCardContextMenu: vi.fn(), onAddSubtask: vi.fn().mockResolvedValue(undefined),
     onToggleCardDone: vi.fn().mockResolvedValue(undefined), onDeleteCard: vi.fn(),
-    onPatchCard: vi.fn().mockResolvedValue(undefined), onPatchFields: vi.fn(), onAddCard: vi.fn().mockResolvedValue(undefined),
+    onPatchCard: vi.fn().mockResolvedValue(undefined), onPatchFields: vi.fn(), onDragCards: vi.fn().mockResolvedValue(undefined), onAddCard: vi.fn().mockResolvedValue(undefined),
   }
   await act(async () => { view = renderElement(createElement(ListView, props)) })
   return props as unknown as Record<string, unknown>
@@ -117,5 +117,7 @@ describe('hierarchy and drag affordance', () => {
     expect(view.container.querySelector('[data-project-card="c"]')).toBeNull()
     await act(async () => { parent.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.card.expand_subtasks')}"]`)!.click() })
     expect(view.container.querySelector('[data-project-card="c"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-project-card="c"]')?.hasAttribute('data-drag-item')).toBe(false)
+    expect(view.container.querySelector('[data-project-card="c"] [data-drag-handle]')).toBeNull()
   })
 })
