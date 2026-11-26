@@ -432,6 +432,7 @@ export const CALENDAR_REQUIRED_INDEXES: readonly string[] = [
   'idx_calendar_event_calendars_calendar',
   'idx_calendar_subscriptions_calendar',
   'idx_calendar_subscriptions_connection',
+  'idx_calendar_subscriptions_due',
   'idx_calendar_connections_kind',
   'idx_calendar_credentials_connection',
   'idx_calendar_oauth_expiry',

@@ -7,6 +7,7 @@
  * idempotency record is confirmed, so a failed write remains retryable; the push is a courtesy.
  */
 import ICAL from 'ical.js'
+import { Temporal } from 'temporal-polyfill'
 import { MAX_REMINDER_MINUTES, MAX_RECURRENCE_RULE, normalizeCalendarPreferences, temporalValueToEpochMs } from '@shared/calendar/model'
 import type { CalendarEventDto } from '@shared/calendar/model'
 import type { Env } from '../env'
@@ -23,6 +24,7 @@ const REMINDER_GRACE_MS = 5 * 60 * 1000
 const SWEEP_LIMIT = 50
 const FIRE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const RECURRENCE_FREQUENCIES = new Set(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'])
+const ALL_DAY_REMINDER_HOUR = 9
 
 export interface CalendarReminderSweepResult {
   due: number
@@ -63,13 +65,24 @@ function dateKey(at: number, timeZone: string): string {
   }
 }
 
+function allDayReminderStart(value: string, timeZone: string): number {
+  const date = Temporal.PlainDate.from(value)
+  return Temporal.ZonedDateTime.from({
+    timeZone,
+    year: date.year, month: date.month, day: date.day,
+    hour: ALL_DAY_REMINDER_HOUR, minute: 0, second: 0, millisecond: 0,
+  }).toInstant().epochMilliseconds
+}
+
 function occurrenceStarts(
   event: CalendarEventDto,
   from: number,
   to: number,
   timeZone: string,
 ): number[] {
-  const master = temporalValueToEpochMs(event.start, timeZone)
+  const master = event.allDay
+    ? allDayReminderStart(event.start.value, timeZone)
+    : temporalValueToEpochMs(event.start, timeZone)
   if (!event.recurrenceRule) return master >= from && master <= to ? [master] : []
   const starts: number[] = []
   try {
@@ -79,7 +92,9 @@ function occurrenceStarts(
     if (!RECURRENCE_FREQUENCIES.has(recurrence.freq)) throw new Error('Recurrence rule has no supported frequency')
     const expansion = expandRecurringEvents([event], from, to, timeZone)
     for (const occurrence of expansion.occurrences) {
-      starts.push(temporalValueToEpochMs(occurrence.start, timeZone))
+      starts.push(occurrence.allDay
+        ? allDayReminderStart(occurrence.start.value, timeZone)
+        : temporalValueToEpochMs(occurrence.start, timeZone))
     }
   } catch (error) {
     // A malformed rule leaves the master's own start below; the sweep must not fail the whole tick.
@@ -202,8 +217,8 @@ export async function sweepCalendarReminders(
             const copy = settings.language === 'en-US' ? EN_US_CALENDAR_NOTIFY : ZH_CN_CALENDAR_NOTIFY
             const notification = await store.createNotification({
               title: `${copy.title} · ${event.title}`,
-              body: fill(copy.startsAt, { title: event.title, when: whenText(start, settings.timezone) }),
-              link: `calendar:${dateKey(start, settings.timezone)}`,
+              body: fill(copy.startsAt, { title: event.title, when: whenText(start, preferences.timeZone) }),
+              link: `calendar:${dateKey(start, preferences.timeZone)}`,
             })
             // Delivery must exist before its idempotency record. A failed notification write above leaves
             // no claim, so the next sweep retries instead of permanently losing the reminder.
@@ -272,20 +287,20 @@ export async function sweepCalendarReminders(
         settingsCache.set(row.user_id, settings)
       }
       const copy = settings.language === 'en-US' ? EN_US_CALENDAR_NOTIFY : ZH_CN_CALENDAR_NOTIFY
+      const preferences = preferencesByUser.get(row.user_id) ?? normalizeCalendarPreferences(undefined)
       const start = Number(row.start_ms)
       const notification = await store.createNotification({
         title: `${copy.title} · ${row.title}`,
-        body: fill(copy.startsAt, { title: row.title, when: whenText(start, settings.timezone) }),
-        link: `calendar:${dateKey(start, settings.timezone)}`,
+        body: fill(copy.startsAt, { title: row.title, when: whenText(start, preferences.timeZone) }),
+        link: `calendar:${dateKey(start, preferences.timeZone)}`,
       })
       fanout.track(row.user_id, notification.id)
-      const preferences = preferencesByUser.get(row.user_id)
       if (preferences?.emailReminders && preferences.reminderEmail && emailFrom) {
         const mail = sendViaProvider(env, row.user_id, {
           to: preferences.reminderEmail,
           from: emailFrom,
           subject: `${copy.title} · ${row.title}`,
-          text: fill(copy.startsAt, { title: row.title, when: whenText(start, settings.timezone) }),
+          text: fill(copy.startsAt, { title: row.title, when: whenText(start, preferences.timeZone) }),
         }).catch((mailError: unknown) => {
           console.warn('[inkstone] calendar snooze email failed:', mailError instanceof Error ? mailError.message : mailError)
         })

@@ -95,6 +95,40 @@ describe('calendar reminders', () => {
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 1 })
   })
 
+  it('fires all-day reminders in the morning and uses the calendar time zone for copy', async () => {
+    const store = new CalendarStore(db, USER)
+    await store.savePreferences({
+      ...defaultCalendarPreferences(),
+      timeZone: 'America/Los_Angeles',
+      eventReminderMinutes: 10,
+    })
+    const assistant = new AssistantStore(db, USER, env)
+    await assistant.saveSettings({ ...(await assistant.getSettings()), timezone: 'Asia/Tokyo', language: 'en-US' })
+    await store.createEvent({
+      title: 'All day review',
+      description: '',
+      kind: 'event',
+      task: null,
+      conference: null,
+      start: { value: '2026-10-27', type: 'date' },
+      end: { value: '2026-10-28', type: 'date' },
+      allDay: true,
+      calendarIds: [calendarId],
+      meta: {},
+      icon: null,
+      recurrenceRule: null,
+      source: 'local',
+      externalId: null,
+    })
+
+    expect((await sweepCalendarReminders(env, Date.parse('2026-10-27T06:50:00Z'))).sent).toBe(0)
+    expect((await sweepCalendarReminders(env, Date.parse('2026-10-27T15:50:00Z'))).sent).toBe(1)
+    const notification = sqlite.prepare('SELECT body, link FROM chat_notifications WHERE user_id = ?').get(USER) as { body: string; link: string }
+    expect(notification.body).toContain('2026-10-27')
+    expect(notification.body).toContain('09:00')
+    expect(notification.link).toBe('calendar:2026-10-27')
+  })
+
   it('expands a recurring series and respects an opted-out account', async () => {
     const now = Date.parse('2026-10-26T08:00:00Z')
     await createEvent(now + 10 * 60_000, 'FREQ=WEEKLY;BYDAY=MO')
