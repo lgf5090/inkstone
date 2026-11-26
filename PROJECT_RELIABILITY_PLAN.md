@@ -56,7 +56,7 @@
 | P2-08 | pending | F34 reliable undo/redo and keyboard error handling | failed undo restores stack; dialog edits and drag order undo correctly | - |
 | P2-09 | pending | F35 keyboard equivalents for drag; pointercancel/unmount cleanup | Tab/arrow/Enter reorder works; cancelled pointer never mutates | - |
 | P2-10 | done | F36 readable CSV values and spreadsheet-safe escaping | labels/ISO dates exported; formula payloads neutralized | 5ac0b42b2 |
-| P2-11 | in_progress | F37 reject unknown property ids and redact invisible backreferences | unknown id 400; invisible references expose no ids | - |
+| P2-11 | done | F37 reject unknown property ids and redact invisible backreferences | unknown id 400; invisible references expose no ids | 525aca436 |
 | P2-12 | pending | F38 remove dead code, centralize API/network access, split giant components, i18n/style cleanup | gates pass; no unused public helpers; responsibilities separated | - |
 | P2-13 | pending | Add editable Markdown card body and editable/assignable checklist | card description edits persist with Markdown preview | - |
 | P2-14 | pending | Add personal views/filters without mutating shared view | viewer can personalize; shared filter unchanged | - |
@@ -96,3 +96,4 @@
 - 2026-11-25: P1-05 completed in `9baaec50`; board/list drag commits card values and manual order in one batch, and child rows no longer distort list drop indices.
 - 2026-11-25: P1-06 completed in `4046cc94`; Todo sync rechecks editor/field permissions, notifications recheck current board access, and trashed card attachments are hidden from non-admins.
 - 2026-11-25: P1-07 completed in `f85d8e79`; soft delete preserves relation edges, restore rebuilds every related board, deleted parents hide content/comments, and Sprint unbind validates membership.
+- 2026-11-27: P2-11 completed in `525aca436`; unknown property IDs and oversized value maps are rejected before mutation, batch limits retain priority, and backreferences hidden by board or field permissions expose no IDs or titles; 321 project tests, forced typechecks, static gates and production build passed.
