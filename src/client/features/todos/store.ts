@@ -791,7 +791,7 @@ export async function replayTodoOutboxItem(
             ...dependsIds(patch.dependsOn),
           ]
           : []
-        const { task, next } = await api.todos.update(id, patch, todoQueuedRev(payload))
+        const { task, next } = await api.todos.update(id, patch, todoQueuedRev(payload), item.writeId)
         storeServerTask(task, { addIfMissing: true })
         if (next) storeServerTask(next, { addIfMissing: true })
         await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
@@ -870,6 +870,14 @@ export async function replayTodoOutboxItem(
       if (error.status === 404 && payload.op === 'delete') {
         removeServerTask(id)
         return { status: 'done' }
+      }
+      if (error.status === 429) {
+        await localDb.markOutboxFailure(
+          item.id,
+          item.writeId,
+          error.message,
+        ).catch(() => {})
+        return { status: 'retry' }
       }
     }
     toastError(error)

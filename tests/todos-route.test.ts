@@ -1427,6 +1427,23 @@ describe('an idempotent task create', () => {
     expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(1)
   })
 
+  it('replays an idempotent patch before rechecking the revision it already spent', async () => {
+    const task = await create({ title: 'Retry this edit' })
+    const body = { title: 'Edited once' }
+    const headers = { 'If-Match': '1', 'Idempotency-Key': 'todo-update-retry-1' }
+
+    const first = await send('PATCH', `/${task.id}`, body, headers)
+    expect(first.status).toBe(200)
+    const firstBody = await json<{ task: TodoTask }>(first)
+    expect(firstBody.task.rev).toBe(2)
+
+    const replay = await send('PATCH', `/${task.id}`, body, headers)
+    expect(replay.status).toBe(200)
+    expect(await json(replay)).toEqual(firstBody)
+    expect((await send('PATCH', `/${task.id}`, { title: 'Different edit' }, headers)).status).toBe(409)
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.title).toBe('Edited once')
+  })
+
   it('creates once per key, so two keys are two tasks', async () => {
     const body = { title: 'Book the room' }
 

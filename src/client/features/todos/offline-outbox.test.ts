@@ -206,13 +206,14 @@ describe('a task write made offline', () => {
     const created = await useTodos.getState().createTask({ title: 'Draft', listId: null })
     await useTodos.getState().updateTask(created!.id, { title: 'Draft, edited' })
     expect(mocks.queue).toHaveLength(2)
+    const updateWriteId = (mocks.queue[1] as { writeId: string }).writeId
 
     setOnline(true)
     mocks.create.mockResolvedValue({ task: row('server-1', 'Draft', { rev: 1 }) })
     mocks.update.mockResolvedValue({ task: row('server-1', 'Draft, edited', { rev: 2 }) })
     await useNotes.getState().replayPending()
 
-    expect(mocks.update).toHaveBeenCalledWith('server-1', { title: 'Draft, edited' }, undefined)
+    expect(mocks.update).toHaveBeenCalledWith('server-1', { title: 'Draft, edited' }, undefined, updateWriteId)
     expect(useTodos.getState().tasks[0]).toMatchObject({ id: 'server-1', title: 'Draft, edited' })
     expect(mocks.queue).toHaveLength(0)
   })
@@ -221,7 +222,7 @@ describe('a task write made offline', () => {
     useTodos.setState({ tasks: [row('t1', 'Mine', { rev: 3 })], total: 1 })
     await useTodos.getState().updateTask('t1', { title: 'First edit' })
     await useTodos.getState().updateTask('t1', { priority: 'high' })
-    const [first, second] = mocks.queue as { payload: { rev?: number } }[]
+    const [first, second] = mocks.queue as { payload: { rev?: number }, writeId: string }[]
     expect(first!.payload.rev).toBe(3)
     expect(second!.payload.rev).toBe(3)
 
@@ -231,8 +232,8 @@ describe('a task write made offline', () => {
       .mockResolvedValueOnce({ task: row('t1', 'First edit', { rev: 5, priority: 'high' }) })
     await useNotes.getState().replayPending()
 
-    expect(mocks.update).toHaveBeenNthCalledWith(1, 't1', { title: 'First edit' }, 3)
-    expect(mocks.update).toHaveBeenNthCalledWith(2, 't1', { priority: 'high' }, 4)
+    expect(mocks.update).toHaveBeenNthCalledWith(1, 't1', { title: 'First edit' }, 3, first!.writeId)
+    expect(mocks.update).toHaveBeenNthCalledWith(2, 't1', { priority: 'high' }, 4, second!.writeId)
     expect(mocks.queue).toHaveLength(0)
   })
 
@@ -255,6 +256,7 @@ describe('a task write made offline', () => {
     await useTodos.getState().snoozeTask('t1', 60)
     await useTodos.getState().updateTask('t1', { title: 'Renamed' })
     expect(mocks.queue).toHaveLength(2)
+    const updateWriteId = (mocks.queue[1] as { writeId: string }).writeId
 
     setOnline(true)
     mocks.snooze
@@ -265,8 +267,22 @@ describe('a task write made offline', () => {
     expect(mocks.snooze).toHaveBeenCalledWith('t1', 60, 3)
     // The snooze spent a revision of its own, so the edit queued behind it names the one that landed:
     // left at 3 it would report a conflict this tab created itself.
-    expect(mocks.update).toHaveBeenCalledWith('t1', { title: 'Renamed' }, 4)
+    expect(mocks.update).toHaveBeenCalledWith('t1', { title: 'Renamed' }, 4, updateWriteId)
     expect(mocks.queue).toHaveLength(0)
+  })
+
+  it('keeps a rate-limited edit queued for backoff without repeating an error toast', async () => {
+    useTodos.setState({ tasks: [row('t1', 'Mine', { rev: 3 })], total: 1 })
+    await useTodos.getState().updateTask('t1', { title: 'Mine, edited' })
+    const item = mocks.queue[0] as { id: string; writeId: string }
+    const toast = vi.spyOn(useUi.getState(), 'toast')
+    mocks.update.mockRejectedValue(new ApiError(429, 'too_many_attempts', 'Too many attempts'))
+
+    expect(await replayTodoOutboxItem(item as never)).toEqual({ status: 'retry' })
+    expect(mocks.markOutboxFailure).toHaveBeenCalledWith(item.id, item.writeId, 'Too many attempts')
+    expect(toast).not.toHaveBeenCalled()
+    expect(mocks.queue).toHaveLength(1)
+    toast.mockRestore()
   })
 
   it('asks which side wins when the replay is refused, without painting over the local row', async () => {

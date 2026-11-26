@@ -1876,11 +1876,12 @@ export const api = {
      * `rev` is the revision the row was read at. Naming it makes the write conditional: a stale one is
      * refused with a 409 instead of replacing an edit this client never saw.
      */
-    update: (id: string, body: Record<string, unknown>, rev?: number) =>
+    update: (id: string, body: Record<string, unknown>, rev?: number, idempotencyKey?: string) =>
       request<{ task: TodoTask, next?: TodoTask }>(`/api/todos/${id}`, {
         method: 'PATCH',
         body: withReminderList(body),
         ...(rev === undefined ? {} : { ifMatch: String(rev) }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
       }),
     /**
      * Picks a task into a day, or takes it back out with `null`.

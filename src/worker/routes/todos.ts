@@ -1874,6 +1874,7 @@ todoRoutes.patch('/:id', async (c) => {
   const id = requiredId(c.req.param('id'))
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   const expectedRev = requestRevision(c, body)
+  const execute = async (): Promise<{ task: TodoTask; next?: TodoTask | null }> => {
   const existing = await s.getTask(id)
   if (!existing) throw ApiError.notFound('Task not found')
   // A guard that already disagrees is refused before anything is written. Once the patch below has
@@ -1949,7 +1950,21 @@ todoRoutes.patch('/:id', async (c) => {
     task = updated
   }
   await syncTodoCompletionToCard(c.env.DB, id, isTaskDone(task.status), Date.now())
-  return c.json({ task, ...(next ? { next } : {}) })
+  return { task, ...(next ? { next } : {}) }
+  }
+  const operationId = c.req.header('Idempotency-Key')
+  if (operationId) {
+    const result = await runIdempotent({
+      db: c.env.DB,
+      userId: c.get('userId'),
+      operationId,
+      tool: 'http.todos.update',
+      request: { id, body, ifMatch: c.req.header('If-Match') ?? null },
+      execute,
+    })
+    return c.json(result)
+  }
+  return c.json(await execute())
 })
 
 todoRoutes.delete('/:id', async (c) => {
