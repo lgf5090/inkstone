@@ -180,6 +180,147 @@ export const PROJECT_CONTENT_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_category_boards(board_id, user_id)`,
 ]
 
+export const PROJECT_SEARCH_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_search_docs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_key TEXT NOT NULL UNIQUE,
+    card_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    property_id TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_search_docs_board
+     ON project_search_docs(board_id, kind, card_id)`,
+  `CREATE VIRTUAL TABLE IF NOT EXISTS project_search_fts USING fts5(
+    card_id UNINDEXED,
+    board_id UNINDEXED,
+    property_id UNINDEXED,
+    kind UNINDEXED,
+    text,
+    content = 'project_search_docs',
+    content_rowid = 'id',
+    tokenize = 'unicode61 remove_diacritics 2'
+  )`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_docs_insert AFTER INSERT ON project_search_docs
+   BEGIN
+     INSERT INTO project_search_fts(rowid, card_id, board_id, property_id, kind, text)
+     VALUES (NEW.id, NEW.card_id, NEW.board_id, NEW.property_id, NEW.kind, NEW.text);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_docs_delete AFTER DELETE ON project_search_docs
+   BEGIN
+     INSERT INTO project_search_fts(project_search_fts, rowid, card_id, board_id, property_id, kind, text)
+     VALUES ('delete', OLD.id, OLD.card_id, OLD.board_id, OLD.property_id, OLD.kind, OLD.text);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_docs_update
+   AFTER UPDATE OF card_id, board_id, property_id, kind, text ON project_search_docs
+   BEGIN
+     INSERT INTO project_search_fts(project_search_fts, rowid, card_id, board_id, property_id, kind, text)
+     VALUES ('delete', OLD.id, OLD.card_id, OLD.board_id, OLD.property_id, OLD.kind, OLD.text);
+     INSERT INTO project_search_fts(rowid, card_id, board_id, property_id, kind, text)
+     VALUES (NEW.id, NEW.card_id, NEW.board_id, NEW.property_id, NEW.kind, NEW.text);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_card_insert AFTER INSERT ON project_cards
+   WHEN NEW.delete_at = 0
+   BEGIN
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     VALUES ('title:' || NEW.id, NEW.id, NEW.board_id, '', 'title', NEW.title);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_card_update
+   AFTER UPDATE OF title, board_id, delete_at ON project_cards
+   BEGIN
+     DELETE FROM project_search_docs WHERE card_id = NEW.id;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'title:' || NEW.id, NEW.id, NEW.board_id, '', 'title', NEW.title WHERE NEW.delete_at = 0;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'content:' || x.id, x.card_id, x.board_id, '', 'content', x.title
+     FROM project_card_contents x WHERE x.card_id = NEW.id AND x.delete_at = 0 AND NEW.delete_at = 0;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'comment:' || m.id, m.card_id, m.board_id, '', 'comment', m.body
+     FROM project_comments m WHERE m.card_id = NEW.id AND m.delete_at = 0 AND NEW.delete_at = 0;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'value:' || v.card_id || ':' || v.property_id, v.card_id, NEW.board_id, v.property_id, 'value', v.value
+     FROM project_card_values v WHERE v.card_id = NEW.id AND NEW.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_card_delete AFTER DELETE ON project_cards
+   BEGIN
+     DELETE FROM project_search_docs WHERE card_id = OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_content_insert AFTER INSERT ON project_card_contents
+   WHEN NEW.delete_at = 0
+   BEGIN
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'content:' || NEW.id, NEW.card_id, NEW.board_id, '', 'content', NEW.title
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_content_update
+   AFTER UPDATE OF card_id, board_id, title, delete_at ON project_card_contents
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'content:' || OLD.id;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'content:' || NEW.id, NEW.card_id, NEW.board_id, '', 'content', NEW.title
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0 AND NEW.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_content_delete AFTER DELETE ON project_card_contents
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'content:' || OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_comment_insert AFTER INSERT ON project_comments
+   WHEN NEW.delete_at = 0
+   BEGIN
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'comment:' || NEW.id, NEW.card_id, NEW.board_id, '', 'comment', NEW.body
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_comment_update
+   AFTER UPDATE OF card_id, board_id, body, delete_at ON project_comments
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'comment:' || OLD.id;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'comment:' || NEW.id, NEW.card_id, NEW.board_id, '', 'comment', NEW.body
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0 AND NEW.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_comment_delete AFTER DELETE ON project_comments
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'comment:' || OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_value_insert AFTER INSERT ON project_card_values
+   BEGIN
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'value:' || NEW.card_id || ':' || NEW.property_id, NEW.card_id, c.board_id, NEW.property_id, 'value', NEW.value
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_value_update
+   AFTER UPDATE OF card_id, property_id, value ON project_card_values
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'value:' || OLD.card_id || ':' || OLD.property_id;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'value:' || NEW.card_id || ':' || NEW.property_id, NEW.card_id, c.board_id, NEW.property_id, 'value', NEW.value
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_value_delete AFTER DELETE ON project_card_values
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'value:' || OLD.card_id || ':' || OLD.property_id;
+   END`,
+]
+
+export const PROJECT_SEARCH_BACKFILL_STATEMENTS: readonly string[] = [
+  `INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+   SELECT 'title:' || id, id, board_id, '', 'title', title FROM project_cards WHERE delete_at = 0`,
+  `INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+   SELECT 'content:' || x.id, x.card_id, x.board_id, '', 'content', x.title
+   FROM project_card_contents x JOIN project_cards c ON c.id = x.card_id
+   WHERE c.delete_at = 0 AND x.delete_at = 0`,
+  `INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+   SELECT 'comment:' || m.id, m.card_id, m.board_id, '', 'comment', m.body
+   FROM project_comments m JOIN project_cards c ON c.id = m.card_id
+   WHERE c.delete_at = 0 AND m.delete_at = 0`,
+  `INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+   SELECT 'value:' || v.card_id || ':' || v.property_id, v.card_id, c.board_id, v.property_id, 'value', v.value
+   FROM project_card_values v JOIN project_cards c ON c.id = v.card_id WHERE c.delete_at = 0`,
+  `INSERT INTO project_search_fts(project_search_fts) VALUES('rebuild')`,
+]
+
 export const PROJECT_AUX_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS project_attachments (
     id TEXT PRIMARY KEY,
@@ -467,6 +608,9 @@ function projectReminderInsert(cardIdSql?: string, propertyIdSql?: string, board
 
 export const PROJECT_REMINDER_BACKFILL_STATEMENT = projectReminderInsert(undefined, undefined, undefined, true)
 
+export const PROJECT_REMINDER_PENDING_INDEX_STATEMENT = `CREATE INDEX IF NOT EXISTS idx_project_reminders_pending
+   ON project_reminders(due_at, card_id, property_id) WHERE notified_at = 0`
+
 export const PROJECT_REMINDER_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS project_reminders (
     card_id TEXT NOT NULL,
@@ -479,8 +623,7 @@ export const PROJECT_REMINDER_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_reminders_due
      ON project_reminders(notified_at, due_at, card_id, property_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_project_reminders_pending
-     ON project_reminders(due_at, card_id, property_id) WHERE notified_at = 0`,
+  PROJECT_REMINDER_PENDING_INDEX_STATEMENT,
   `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_value_insert AFTER INSERT ON project_card_values
    BEGIN
      ${projectReminderInsert('NEW.card_id', 'NEW.property_id')};
@@ -561,6 +704,8 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_comments',
   'project_categories',
   'project_category_boards',
+  'project_search_docs',
+  'project_search_fts',
   'project_attachments',
   'project_subscriptions',
   'project_shares',
@@ -617,6 +762,7 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_sprints_board',
   'idx_project_sprint_cards_sprint',
   'idx_project_write_receipts_created',
+  'idx_project_search_docs_board',
   'idx_project_reminders_due',
   'idx_project_reminders_pending',
   'idx_project_time_running',

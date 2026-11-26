@@ -14,6 +14,7 @@ import {
   PROJECT_SPRINT_SCHEMA_STATEMENTS,
   PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS,
   PROJECT_REMINDER_SCHEMA_STATEMENTS,
+  PROJECT_SEARCH_SCHEMA_STATEMENTS,
   PROJECT_REQUIRED_COLUMNS,
   PROJECT_REQUIRED_INDEXES,
   PROJECT_REQUIRED_TABLES,
@@ -30,6 +31,7 @@ const PROJECT_STATEMENTS = [
   ...PROJECT_SPRINT_SCHEMA_STATEMENTS,
   ...PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS,
   ...PROJECT_REMINDER_SCHEMA_STATEMENTS,
+  ...PROJECT_SEARCH_SCHEMA_STATEMENTS,
 ]
 
 let sqlite: DatabaseSync
@@ -99,7 +101,7 @@ describe('the project tables', () => {
     // The project block follows the ledger the rest of the app already spent, so it is found by the
     // statements it carries rather than by a version number another feature may claim first.
     const projectMigrations = SCHEMA_MIGRATIONS.filter((entry) => entry.statements.some((statement) => PROJECT_STATEMENTS.includes(statement)))
-    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 397, 398, 401, 402, 403, 428])
+    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 397, 398, 401, 402, 403, 428, 435, 436])
     for (const entry of projectMigrations) migrated.exec(entry.statements.join(';'))
 
     const shape = (db: DatabaseSync): string[] =>
@@ -200,10 +202,14 @@ describe('the project tables', () => {
     sqlite.prepare(link).run('c1', 't2')
   })
 
-  it('leave no full-text index tables behind now that search reads the live rows', () => {
+  it('installs the project full-text index and its incremental maintenance triggers', () => {
     const tables = names('table')
-    expect(tables.has('project_fts')).toBe(false)
-    expect(tables.has('project_fts_queue')).toBe(false)
-    expect(names('index').has('idx_project_fts_queue_due')).toBe(false)
+    expect(tables.has('project_search_docs')).toBe(true)
+    expect(tables.has('project_search_fts')).toBe(true)
+    const triggers = names('trigger')
+    expect(triggers.has('trg_project_search_card_update')).toBe(true)
+    expect(triggers.has('trg_project_search_content_update')).toBe(true)
+    expect(triggers.has('trg_project_search_comment_update')).toBe(true)
+    expect(triggers.has('trg_project_search_value_update')).toBe(true)
   })
 })
