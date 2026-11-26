@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono'
 import { projectBoardToCsv } from '@shared/project/csv'
-import { isProjectId } from '@shared/project/limits'
+import { isProjectId, PROJECT_LIMITS } from '@shared/project/limits'
 import type { ProjectRole } from '@shared/project/model'
 import {
   ProjectBoardCreateSchema,
@@ -708,7 +708,27 @@ projectRoutes.get('/boards/:id/cursor', async (c) => {
 
 projectRoutes.get('/boards/:id/bundle', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c))
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c), { limit: PROJECT_LIMITS.bundleCards })
+  await redactHiddenRelations(c.env.DB, bundle, projectUserId(c))
+  return c.json(bundle)
+})
+
+projectRoutes.get('/boards/:id/cards/:cardId', async (c) => {
+  const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c), { cardId: c.req.param('cardId') })
+  await redactHiddenRelations(c.env.DB, bundle, projectUserId(c))
+  const card = bundle.cards[0]
+  if (!card) throw ApiError.notFound('Card not found')
+  return c.json({ card })
+})
+
+projectRoutes.get('/boards/:id/cards', async (c) => {
+  const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const requestedLimit = Number(c.req.query('limit'))
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c), {
+    cursor: c.req.query('cursor'),
+    limit: Number.isFinite(requestedLimit) ? requestedLimit : PROJECT_LIMITS.bundleCards,
+  })
   await redactHiddenRelations(c.env.DB, bundle, projectUserId(c))
   return c.json(bundle)
 })

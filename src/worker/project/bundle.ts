@@ -1,9 +1,7 @@
 /**
- * The whole-board read. The reference made the client page through blocks and stitch them together;
- * every screen that opens a board needs all of it, so this gathers board, properties, views, cards,
- * values, contents, comments and members in one round trip. The cursor is the newest update stamp
- * across them all, which is what a realtime `changed` notification carries so a client knows whether
- * its copy is stale.
+ * The board read. Interactive clients ask for a bounded card page and fetch older pages on demand;
+ * internal exports and duplication pass the full card limit. The cursor is sampled before the rows so
+ * a concurrent write can only make the response newer than its cursor, never the other way around.
  */
 import type {
   ProjectBoard,
@@ -17,9 +15,10 @@ import type {
 import { evaluateProjectFormulaResult, projectFormulaDependencyOrder, projectFormulaReferenceValue } from '@shared/project/formula'
 import { evaluateProjectRollup, projectRollupCycleIds, projectRollupOrder } from '@shared/project/rollup'
 import { projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
-import { PROJECT_LIMITS } from '@shared/project/limits'
+import { PROJECT_LIMITS, isProjectId } from '@shared/project/limits'
+import { ApiError } from '../lib/errors'
 import { parseProjectRecurrence } from '@shared/project/recurrence'
-import { readBoardProperties, readProjectPropertyRevision } from './boards'
+import { getProjectBoardRow, readBoardProperties, readProjectPropertyRevision } from './boards'
 import { listProjectMembers, listProjectPeople } from './members'
 import { projectCardForRole, projectPropertiesForRole, projectRoleForBoard } from './visibility'
 
@@ -154,41 +153,94 @@ export function rowToComment(row: CommentRow): ProjectComment {
   }
 }
 
+export interface ProjectCardPageOptions {
+  cursor?: string
+  limit?: number
+  cardId?: string
+}
+
+interface ProjectBundleContext {
+  computed: Map<string, ProjectCard>
+  loading: Set<string>
+}
+
+interface ProjectCardCursor {
+  createAt: number
+  id: string
+}
+
+function encodeCardCursor(row: CardRow): string {
+  return btoa(JSON.stringify({ createAt: row.create_at, id: row.id }))
+}
+
+function decodeCardCursor(cursor: string | undefined): ProjectCardCursor | null {
+  if (!cursor) return null
+  try {
+    const parsed = JSON.parse(atob(cursor)) as Partial<ProjectCardCursor>
+    if (typeof parsed.createAt !== 'number' || !Number.isFinite(parsed.createAt)
+      || typeof parsed.id !== 'string' || !isProjectId(parsed.id)) throw new Error('invalid cursor')
+    return { createAt: parsed.createAt, id: parsed.id }
+  } catch {
+    throw ApiError.badRequest('invalid card cursor')
+  }
+}
+
 export async function readProjectBoardBundle(
   db: D1Database,
   board: ProjectBoard,
   role: ProjectRole,
   viewerId?: string,
+  options: ProjectCardPageOptions = {},
+  context: ProjectBundleContext = { computed: new Map(), loading: new Set() },
 ): Promise<ProjectBoardBundle> {
-  const [properties, members, propertyRevision, cardRows, valueRows, viewRows, contentRows, commentRows] = await Promise.all([
+  const cursor = await projectBoardCursor(db, board)
+  const cardCursor = decodeCardCursor(options.cursor)
+  if (options.cardId && !isProjectId(options.cardId)) throw ApiError.badRequest('invalid card id')
+  const limit = options.cardId ? 1 : Math.min(PROJECT_LIMITS.cardsPerBoard, Math.max(1, Math.floor(options.limit ?? PROJECT_LIMITS.cardsPerBoard)))
+  const pageClause = options.cardId
+    ? 'AND id = ?2'
+    : cardCursor ? 'AND (create_at > ?2 OR (create_at = ?2 AND id > ?3))' : ''
+  const cardParams: (string | number)[] = options.cardId
+    ? [board.id, options.cardId]
+    : [board.id, ...(cardCursor ? [cardCursor.createAt, cardCursor.id] : [])]
+  const [properties, members, propertyRevision, cardRows, viewRows, countRow] = await Promise.all([
     readBoardProperties(db, board.id),
     listProjectMembers(db, board.id),
     readProjectPropertyRevision(db, board.id),
-    db.prepare('SELECT * FROM project_cards WHERE board_id = ?1 AND delete_at = 0 ORDER BY create_at, id')
-      .bind(board.id).all<CardRow>(),
-    // Values are keyed to a card, so a deleted card's values drop out with it rather than lingering.
-    db.prepare(
-      `SELECT card_id, property_id, value FROM project_card_values
-       WHERE card_id IN (SELECT id FROM project_cards WHERE board_id = ?1 AND delete_at = 0)`,
-    ).bind(board.id).all<ValueRow>(),
+    db.prepare(`SELECT * FROM project_cards WHERE board_id = ?1 AND delete_at = 0 ${pageClause} ORDER BY create_at, id LIMIT ?${cardParams.length + 1}`)
+      .bind(...cardParams, limit + 1).all<CardRow>(),
     db.prepare('SELECT * FROM project_views WHERE board_id = ?1 AND delete_at = 0 ORDER BY position, id')
       .bind(board.id).all<ViewRow>(),
-    db.prepare(
-      `SELECT * FROM project_card_contents
-       WHERE board_id = ?1 AND delete_at = 0
-         AND card_id IN (SELECT id FROM project_cards WHERE board_id = ?1 AND delete_at = 0)
-       ORDER BY position, id LIMIT ?2`,
-    ).bind(board.id, PROJECT_LIMITS.bundleContents + 1).all<ContentRow>(),
-    db.prepare(
-      `SELECT * FROM project_comments
-       WHERE board_id = ?1 AND delete_at = 0
-         AND card_id IN (SELECT id FROM project_cards WHERE board_id = ?1 AND delete_at = 0)
-       ORDER BY create_at, id LIMIT ?2`,
-    ).bind(board.id, PROJECT_LIMITS.bundleComments + 1).all<CommentRow>(),
+    db.prepare('SELECT COUNT(*) AS count FROM project_cards WHERE board_id = ?1 AND delete_at = 0')
+      .bind(board.id).first<{ count: number }>(),
   ])
+  const cardsHasMore = cardRows.results.length > limit
+  const pageRows = cardRows.results.slice(0, limit)
+  const valueRows: ValueRow[] = []
+  const contentRows: ContentRow[] = []
+  const commentRows: CommentRow[] = []
+  for (let at = 0; at < pageRows.length; at += 90) {
+    const chunk = pageRows.slice(at, at + 90)
+    const marks = chunk.map((_, index) => `?${index + 1}`).join(', ')
+    const [values, contents, comments] = await Promise.all([
+      db.prepare(`SELECT card_id, property_id, value FROM project_card_values WHERE card_id IN (${marks})`)
+        .bind(...chunk.map((row) => row.id)).all<ValueRow>(),
+      db.prepare(`SELECT * FROM project_card_contents WHERE card_id IN (${marks}) AND delete_at = 0 ORDER BY position, id`)
+        .bind(...chunk.map((row) => row.id)).all<ContentRow>(),
+      db.prepare(`SELECT * FROM project_comments WHERE card_id IN (${marks}) AND delete_at = 0 ORDER BY create_at, id`)
+        .bind(...chunk.map((row) => row.id)).all<CommentRow>(),
+    ])
+    valueRows.push(...values.results)
+    contentRows.push(...contents.results)
+    commentRows.push(...comments.results)
+  }
+  contentRows.sort((left, right) => left.position - right.position || left.id.localeCompare(right.id))
+  commentRows.sort((left, right) => left.create_at - right.create_at || left.id.localeCompare(right.id))
+  const contentPage = contentRows.slice(0, PROJECT_LIMITS.bundleContents + 1)
+  const commentPage = commentRows.slice(0, PROJECT_LIMITS.bundleComments + 1)
 
   const valuesByCard = new Map<string, Record<string, string>>()
-  for (const row of valueRows.results) {
+  for (const row of valueRows) {
     let values = valuesByCard.get(row.card_id)
     if (!values) {
       values = {}
@@ -197,11 +249,12 @@ export async function readProjectBoardBundle(
     values[row.property_id] = row.value
   }
   const visibleProperties = projectPropertiesForRole(properties, role)
-  const cards = cardRows.results.map((row) => projectCardForRole(
+  const cards = pageRows.map((row) => projectCardForRole(
     rowToCard(row, valuesByCard.get(row.id) ?? {}),
     properties,
     role,
   ))
+  for (const card of cards) context.computed.set(card.id, card)
   const relationProperties = visibleProperties.filter(
     (property) => property.type === 'relation' && property.config?.targetBoardId,
   )
@@ -210,8 +263,9 @@ export async function readProjectBoardBundle(
     const { results: relationRows } = await db.prepare(
       `SELECT r.from_card_id, r.property_id, r.to_card_id FROM project_card_relations r
        JOIN project_cards c ON c.id = r.to_card_id AND c.delete_at = 0
-       WHERE r.board_id = ?1`,
-    ).bind(board.id).all<{ from_card_id: string, property_id: string, to_card_id: string }>()
+       WHERE r.board_id = ?1
+         AND r.from_card_id IN (SELECT id FROM project_cards WHERE board_id = ?1 AND delete_at = 0 ${pageClause})`,
+    ).bind(...cardParams).all<{ from_card_id: string, property_id: string, to_card_id: string }>()
     const edges = new Map<string, string[]>()
     for (const row of relationRows) {
       if (!relationIds.has(row.property_id)) continue
@@ -260,6 +314,7 @@ export async function readProjectBoardBundle(
       }
     }
   }
+  for (const card of cards) context.computed.set(card.id, card)
   const rollupProperties = visibleProperties.filter((property) => property.type === 'rollup' && property.config?.rollup)
   if (rollupProperties.length) {
     const cycles = projectRollupCycleIds(visibleProperties)
@@ -268,8 +323,9 @@ export async function readProjectBoardBundle(
     const { results: rollupEdges } = await db.prepare(
       `SELECT r.from_card_id, r.property_id, r.to_card_id FROM project_card_relations r
        JOIN project_cards c ON c.id = r.to_card_id AND c.delete_at = 0
-       WHERE r.board_id = ?1`,
-    ).bind(board.id).all<{ from_card_id: string, property_id: string, to_card_id: string }>()
+       WHERE r.board_id = ?1
+         AND r.from_card_id IN (SELECT id FROM project_cards WHERE board_id = ?1 AND delete_at = 0 ${pageClause})`,
+    ).bind(...cardParams).all<{ from_card_id: string, property_id: string, to_card_id: string }>()
     const edgesByKey = new Map<string, string[]>()
     const targetIds = new Set<string>()
     for (const edge of rollupEdges) {
@@ -279,39 +335,24 @@ export async function readProjectBoardBundle(
       edgesByKey.set(key, list)
       targetIds.add(edge.to_card_id)
     }
-    const relationIds = new Set(rollupProperties.map((property) => property.config!.rollup!.relationPropertyId))
-    const targetContexts = new Map<string, Set<string>>()
-    for (const relation of visibleProperties) {
-      if (!relationIds.has(relation.id) || relation.type !== 'relation' || !relation.config?.targetBoardId) continue
-      const targetBoardId = relation.config.targetBoardId
-      if (targetContexts.has(targetBoardId)) continue
-      if (targetBoardId === board.id) {
-        targetContexts.set(targetBoardId, new Set(visibleProperties.map((property) => property.id)))
-        continue
-      }
-      if (!viewerId) continue
-      const targetRole = await projectRoleForBoard(db, targetBoardId, viewerId)
-      if (!targetRole) continue
-      const targetProperties = await readBoardProperties(db, targetBoardId)
-      targetContexts.set(targetBoardId, new Set(projectPropertiesForRole(targetProperties, targetRole).map((property) => property.id)))
-    }
     const valuesByCardId = new Map<string, Record<string, string>>()
     for (const card of cards) valuesByCardId.set(card.id, { ...card.values })
-    const targetIdList = [...targetIds]
-    for (let at = 0; at < targetIdList.length; at += 90) {
-      const chunk = targetIdList.slice(at, at + 90)
-      const marks = chunk.map((_, index) => `?${index + 1}`).join(', ')
-      const { results: targetRows } = await db.prepare(
-        `SELECT v.card_id, v.property_id, v.value, c.board_id
-         FROM project_card_values v
-         JOIN project_cards c ON c.id = v.card_id AND c.delete_at = 0
-         WHERE v.card_id IN (${marks})`,
-      ).bind(...chunk).all<ValueRow & { board_id: string }>()
-      for (const row of targetRows) {
-        if (!targetContexts.get(row.board_id)?.has(row.property_id)) continue
-        const values = valuesByCardId.get(row.card_id) ?? {}
-        values[row.property_id] = row.value
-        valuesByCardId.set(row.card_id, values)
+    for (const targetId of targetIds) {
+      if (valuesByCardId.has(targetId) || context.loading.has(targetId)) continue
+      const targetCardRow = await db.prepare('SELECT board_id FROM project_cards WHERE id = ?1 AND delete_at = 0')
+        .bind(targetId).first<{ board_id: string }>()
+      if (!targetCardRow) continue
+      const targetBoard = await getProjectBoardRow(db, targetCardRow.board_id)
+      if (!targetBoard) continue
+      const targetRole = targetBoard.id === board.id ? role : await projectRoleForBoard(db, targetBoard.id, viewerId ?? '')
+      if (!targetRole) continue
+      context.loading.add(targetId)
+      try {
+        const targetBundle = await readProjectBoardBundle(db, targetBoard, targetRole, viewerId, { cardId: targetId }, context)
+        const targetCard = targetBundle.cards[0]
+        if (targetCard) valuesByCardId.set(targetId, { ...targetCard.values })
+      } finally {
+        context.loading.delete(targetId)
       }
     }
     const computed = new Map<string, string>()
@@ -343,12 +384,13 @@ export async function readProjectBoardBundle(
       }
     }
   }
+  for (const card of cards) context.computed.set(card.id, card)
   const allViews = viewRows.results.map(rowToView)
   const views = allViews.filter((view) => !view.fields.minimumRole || projectRoleAtLeast(role, view.fields.minimumRole))
-  const contentsTruncated = contentRows.results.length > PROJECT_LIMITS.bundleContents
-  const commentsTruncated = commentRows.results.length > PROJECT_LIMITS.bundleComments
-  const contents = contentRows.results.slice(0, PROJECT_LIMITS.bundleContents).map(rowToContent)
-  const comments = commentRows.results.slice(0, PROJECT_LIMITS.bundleComments).map(rowToComment)
+  const contentsTruncated = contentPage.length > PROJECT_LIMITS.bundleContents
+  const commentsTruncated = commentPage.length > PROJECT_LIMITS.bundleComments
+  const contents = contentPage.slice(0, PROJECT_LIMITS.bundleContents).map(rowToContent)
+  const comments = commentPage.slice(0, PROJECT_LIMITS.bundleComments).map(rowToComment)
 
   const personProperties = new Set(visibleProperties.filter((property) => property.type === 'person' || property.type === 'multiPerson').map((property) => property.id))
   const userIds = new Set<string>([board.ownerId])
@@ -364,15 +406,13 @@ export async function readProjectBoardBundle(
   for (const comment of comments) userIds.add(comment.authorId)
   const people = await listProjectPeople(db, [...userIds])
 
-  let cursor = board.updateAt
-  for (const card of cards) cursor = Math.max(cursor, card.updateAt)
-  for (const view of allViews) cursor = Math.max(cursor, view.updateAt)
-  for (const content of contents) cursor = Math.max(cursor, content.updateAt)
-  for (const comment of comments) cursor = Math.max(cursor, comment.updateAt)
-  for (const member of members) cursor = Math.max(cursor, member.updatedAt)
+  const nextCursor = cardsHasMore && pageRows.length ? encodeCardCursor(pageRows[pageRows.length - 1]!) : undefined
 
   return {
     board, properties: visibleProperties, views, cards, contents, comments, members, people, role, cursor, propertyRevision,
+    cardCount: countRow?.count ?? pageRows.length,
+    cardsHasMore,
+    ...(nextCursor ? { cardsNextCursor: nextCursor } : {}),
     ...(contentsTruncated ? { contentsTruncated } : {}),
     ...(commentsTruncated ? { commentsTruncated } : {}),
   }
@@ -383,11 +423,8 @@ export async function touchProjectBoard(db: D1Database, boardId: string, now: nu
 }
 
 /**
- * The newest stamp across everything the bundle carries, without reading any of it.
- *
- * The bundle's own cursor is computed from rows it already fetched; a poller only needs the number,
- * so this asks each table for its MAX instead. An unchanged answer means the copy the reader holds
- * is still current and the whole-board read can be skipped.
+ * The newest stamp across everything the board carries, without reading any of it. A bundle samples
+ * this before its rows; an unchanged answer means the copy the reader holds is still current.
  */
 export async function projectBoardCursor(db: D1Database, board: ProjectBoard): Promise<number> {
   // One SELECT with scalar subqueries rather than a UNION of six: the local D1 runtime caps a

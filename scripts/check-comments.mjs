@@ -43165,13 +43165,12 @@ const allowed = new Map([
     "/**\n * A board patch. The two property lists run through the shared ordering rule (§6.2); the board's own\n * fields are a sparse update. Everything lands in one D1 batch so a half-applied patch cannot survive.\n */",
   ]],
   ["src/worker/project/bundle.ts", [
-    "/**\n * The whole-board read. The reference made the client page through blocks and stitch them together;\n * every screen that opens a board needs all of it, so this gathers board, properties, views, cards,\n * values, contents, comments and members in one round trip. The cursor is the newest update stamp\n * across them all, which is what a realtime `changed` notification carries so a client knows whether\n * its copy is stale.\n */",
-    "// Values are keyed to a card, so a deleted card's values drop out with it rather than lingering.",
-    "/**\n * The newest stamp across everything the bundle carries, without reading any of it.\n *\n * The bundle's own cursor is computed from rows it already fetched; a poller only needs the number,\n * so this asks each table for its MAX instead. An unchanged answer means the copy the reader holds\n * is still current and the whole-board read can be skipped.\n */",
     "/** Advances the board's own stamp; the cursor poll and the sidebar's recency both read it. */",
     "// One SELECT with scalar subqueries rather than a UNION of six: the local D1 runtime caps a",
     "// compound SELECT at five terms, and a 500 here made every 30-second convergence poll fail",
     "// silently because the caller treats a cursor error as best-effort.",
+    "/**\n * The board read. Interactive clients ask for a bounded card page and fetch older pages on demand;\n * internal exports and duplication pass the full card limit. The cursor is sampled before the rows so\n * a concurrent write can only make the response newer than its cursor, never the other way around.\n */",
+    "/**\n * The newest stamp across everything the board carries, without reading any of it. A bundle samples\n * this before its rows; an unchanged answer means the copy the reader holds is still current.\n */",
   ]],
   ["src/worker/project/cards.ts", [
     "/**\n * Cards and their property values. A card is a row plus a bag of values keyed by property id; the\n * value bag lives in its own table so changing one property never rewrites the whole card. Writes\n * land in one D1 batch, and a delete is a stamp so a card can come back with its values intact.\n */",

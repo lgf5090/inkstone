@@ -24,6 +24,7 @@ export const PROJECT_LIMITS = {
   searchResults: 50,
   searchPatternBytes: 50,
   bundleContents: 2000,
+  bundleCards: 200,
   bundleComments: 2000,
   attachmentsPerBoard: 500,
   attachmentBytesPerBoard: 200 * 1024 * 1024,

@@ -135,6 +135,16 @@ export async function fetchProjectBoardBundle(id: string, signal?: AbortSignal):
   return request<ProjectBoardBundle>(`/api/project/boards/${encodeURIComponent(id)}/bundle`, { signal })
 }
 
+export async function fetchProjectBoardCards(id: string, cursor: string, signal?: AbortSignal): Promise<ProjectBoardBundle> {
+  const query = new URLSearchParams({ cursor })
+  return request<ProjectBoardBundle>(`/api/project/boards/${encodeURIComponent(id)}/cards?${query}`, { signal })
+}
+
+export async function fetchProjectCard(boardId: string, cardId: string, signal?: AbortSignal): Promise<ProjectCard> {
+  const body = await request<{ card: ProjectCard }>(`/api/project/boards/${encodeURIComponent(boardId)}/cards/${encodeURIComponent(cardId)}`, { signal })
+  return body.card
+}
+
 /** The staleness question a poller asks before paying for the whole bundle. */
 export async function fetchBoardCursor(boardId: string, signal?: AbortSignal): Promise<number> {
   const body = await request<{ cursor: number }>(`/api/project/boards/${encodeURIComponent(boardId)}/cursor`, { signal })

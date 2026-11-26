@@ -116,6 +116,39 @@ describe('reading a card', () => {
   })
 })
 
+describe('paginated board cards', () => {
+  it('bounds the initial bundle and continues with an opaque keyset cursor', async () => {
+    const board = await createBoard('alice', { cardProperties: [{ id: pid(1), name: 'Text', type: 'text', options: [] }] })
+    const insert = sqlite.prepare(
+      `INSERT INTO project_cards (id, board_id, title, created_by, modified_by, create_at, update_at) VALUES (?, ?, ?, 'alice', 'alice', ?, 1)`,
+    )
+    for (let index = 0; index < 205; index += 1) insert.run(cid(index + 1), board.id, `Card ${index + 1}`, index + 1)
+    sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)')
+      .run(cid(205), pid(1), 'last page value')
+    const insertContent = sqlite.prepare(`INSERT INTO project_card_contents (id, card_id, board_id, type, title, created_by, modified_by, create_at, update_at, position)
+      VALUES (?, ?, ?, 'text', 'Block', 'alice', 'alice', 1, 1, ?)`)
+    for (let index = 0; index < 2001; index += 1) insertContent.run(`x${String(index).padStart(26, '0')}`, cid(205), board.id, index)
+    const first = await req('alice', 'GET', `/boards/${board.id}/bundle`)
+    expect(first.status).toBe(200)
+    const bundle = (await first.json()) as { cards: ProjectCard[], cardCount: number, cardsHasMore: boolean, cardsNextCursor: string, contentsTruncated?: boolean }
+    expect(bundle.cards).toHaveLength(200)
+    expect(bundle.contentsTruncated).toBeUndefined()
+    expect(bundle.cardCount).toBe(205)
+    expect(bundle.cardsHasMore).toBe(true)
+    expect(bundle.cardsNextCursor).toBeTruthy()
+    const second = await req('alice', 'GET', `/boards/${board.id}/cards?cursor=${encodeURIComponent(bundle.cardsNextCursor)}`)
+    expect(second.status, await second.clone().text()).toBe(200)
+    const page = (await second.json()) as { cards: ProjectCard[], cardCount: number, cardsHasMore: boolean, cardsNextCursor?: string, contentsTruncated?: boolean }
+    expect(page.cards.map((card) => card.id)).toEqual([cid(201), cid(202), cid(203), cid(204), cid(205)])
+    expect(page.contentsTruncated).toBe(true)
+    expect(page.cards[4]!.values[pid(1)]).toBe('last page value')
+    expect(page.cardCount).toBe(205)
+    expect(page.cardsHasMore).toBe(false)
+    expect(page.cardsNextCursor).toBeUndefined()
+    expect((await req('alice', 'GET', `/boards/${board.id}/cards?cursor=not-a-cursor`)).status).toBe(400)
+  })
+})
+
 describe('patching a card', () => {
   it('updates fields, upserts a value and deletes another with null', async () => {
     const board = await createBoard('alice', {

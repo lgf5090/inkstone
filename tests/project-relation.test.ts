@@ -137,6 +137,15 @@ describe('the relation property', () => {
     expect(((await response.json()) as { references: unknown[] }).references).toEqual([])
   })
 
+  it('applies relation redaction to a single-card page read', async () => {
+    const { boardA, boardB, relationId, target } = await setup()
+    const source = await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
+    const response = await req('bob', 'GET', `/boards/${boardA.id}/cards/${source.id}`)
+    expect(response.status, await response.clone().text()).toBe(200)
+    const card = ((await response.json()) as { card: ProjectCard }).card
+    expect(card.values[relationId]).toBe('')
+  })
+
   it('returns a null placeholder and no target titles when the target board is hidden', async () => {
     const { boardA, boardB, relationId, target } = await setup()
     await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })

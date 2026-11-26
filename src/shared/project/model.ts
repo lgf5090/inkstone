@@ -631,6 +631,9 @@ export interface ProjectBoardBundle {
   properties: ProjectProperty[]
   views: ProjectView[]
   cards: ProjectCard[]
+  cardCount?: number
+  cardsHasMore?: boolean
+  cardsNextCursor?: string
   contents: ProjectContent[]
   /** Set when the board holds more detail rows than one read carries; open a card for the rest. */
   contentsTruncated?: boolean

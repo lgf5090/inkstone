@@ -54,6 +54,8 @@ export const ZH_CN_PROJECT = {
     "project.board.load_failed": "无法加载该板",
     "project.board.not_found": "未找到该板",
     "project.board.cards_count": "{count} 张卡片",
+    "project.board.cards_loaded": "已加载 {loaded}/{total} 张卡片",
+    "project.board.load_more": "加载更多",
     "project.board.new_card": "新建卡片",
     "project.board.card_placeholder": "卡片标题",
     "project.board.empty_cards": "还没有卡片",

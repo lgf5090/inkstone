@@ -18,7 +18,7 @@ import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { confirm, Modal } from '../../components/overlay'
-import { batchPatchProjectBoard, createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchBoardCursor, fetchProjectBoardBundle, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard, undeleteProjectView } from './api'
+import { batchPatchProjectBoard, createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchBoardCursor, fetchProjectBoardBundle, fetchProjectBoardCards, fetchProjectCard, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard, undeleteProjectView } from './api'
 import { createUndoStack } from './undo'
 import { newProjectId, PROJECT_LIMITS } from '@shared/project/limits'
 import type { SkinTone } from '@shared/types'
@@ -68,13 +68,47 @@ function cardPatchSnapshot(card: ProjectCard, valuePatch?: Record<string, unknow
   }
 }
 
+function mergeProjectCardPage(current: ProjectBoardBundle, page: ProjectBoardBundle): ProjectBoardBundle {
+  const cards = new Map(current.cards.map((card) => [card.id, card]))
+  for (const card of page.cards) cards.set(card.id, card)
+  const contents = new Map(current.contents.map((content) => [content.id, content]))
+  for (const content of page.contents) contents.set(content.id, content)
+  const comments = new Map(current.comments.map((comment) => [comment.id, comment]))
+  for (const comment of page.comments) comments.set(comment.id, comment)
+  return {
+    ...current,
+    cards: [...cards.values()],
+    contents: [...contents.values()],
+    comments: [...comments.values()],
+    people: { ...current.people, ...page.people },
+    cursor: Math.max(current.cursor, page.cursor),
+    cardCount: page.cardCount ?? current.cardCount,
+    cardsHasMore: page.cardsHasMore,
+    cardsNextCursor: page.cardsNextCursor,
+    contentsTruncated: current.contentsTruncated || page.contentsTruncated,
+    commentsTruncated: current.commentsTruncated || page.commentsTruncated,
+  }
+}
+
 export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const search = useSearch()
   const [bundle, setBundle] = useState<ProjectBoardBundle | null>(null)
   const bundleRef = useRef<ProjectBoardBundle | null>(null)
   bundleRef.current = bundle
+  const pendingCardRef = useRef<ProjectCard | null>(null)
+  const loadedCardCursors = useRef<string[]>([])
+  const cardPageQueue = useRef<Promise<void>>(Promise.resolve())
+  const enqueueCardOperation = useCallback(function enqueueCardOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = cardPageQueue.current.then(operation, operation)
+    cardPageQueue.current = result.then(() => undefined, () => undefined)
+    return result
+  }, [])
   const [status, setStatus] = useState<Status>('loading')
   const [error, setError] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const loadingMoreRef = useRef(false)
+  const [cardsError, setCardsError] = useState(false)
+  const [detailCardId, setDetailCardId] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [openCardId, setOpenCardId] = useState<string | null>(null)
@@ -94,15 +128,36 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const activityBoard = useRef(boardId)
   activityBoard.current = boardId
   const activityGeneration = useRef(0)
+  const deepLinkGeneration = useRef(0)
   const refresh = useMemo(
     () => createRefreshQueue(
-      () => fetchProjectBoardBundle(boardId),
-      (result) => setBundle((current) => current && result.cursor < current.cursor ? current : result),
+      () => enqueueCardOperation(async () => {
+        let result = await fetchProjectBoardBundle(boardId)
+        for (const cursor of loadedCardCursors.current) {
+          result = mergeProjectCardPage(result, await fetchProjectBoardCards(boardId, cursor))
+        }
+        return result
+      }),
+      (result) => setBundle((current) => {
+        const next = current && result.cursor < current.cursor ? current : result
+        const pending = pendingCardRef.current
+        return pending && !next.cards.some((card) => card.id === pending.id)
+          ? { ...next, cards: [...next.cards, pending], cursor: Math.max(next.cursor, pending.updateAt) }
+          : next
+      }),
       () => refreshBoard.current === boardId,
     ),
-    [boardId],
+    [boardId, enqueueCardOperation],
   )
-  useEffect(() => { undoStack.clear() }, [boardId, undoStack])
+  useEffect(() => {
+    undoStack.clear()
+    pendingCardRef.current = null
+    loadedCardCursors.current = []
+    loadingMoreRef.current = false
+    setLoadingMore(false)
+    setCardsError(false)
+    setDetailCardId(null)
+  }, [boardId, undoStack])
   const [pendingWrites, setPendingWrites] = useState(0)
   useEffect(() => {
     let alive = true
@@ -164,8 +219,30 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
 
   useEffect(() => {
     const id = new URLSearchParams(search).get('card')
-    if (id) setOpenCardId(id)
-  }, [search])
+    const request = ++deepLinkGeneration.current
+    pendingCardRef.current = null
+    setDetailCardId(null)
+    if (!id) return
+    setOpenCardId(id)
+    if (bundleRef.current?.cards.some((card) => card.id === id)) return
+    const epoch = boardEpoch.current
+    void fetchProjectCard(boardId, id)
+      .then((card) => {
+        if (request !== deepLinkGeneration.current || refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
+        if (new URLSearchParams(window.location.search).get('card') !== id) return
+        pendingCardRef.current = card
+        setBundle((current) => current && !current.cards.some((entry) => entry.id === id)
+          ? { ...current, cards: [...current.cards, card], cursor: Math.max(current.cursor, card.updateAt) }
+          : current)
+        setDetailCardId(id)
+      })
+      .catch((reason: unknown) => {
+        if (request !== deepLinkGeneration.current || refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
+        if (new URLSearchParams(window.location.search).get('card') !== id) return
+        setOpenCardId(null)
+        useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
+      })
+  }, [search, boardId])
 
   const retryBoard = () => {
     const generation = ++loadGeneration.current
@@ -180,6 +257,26 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         setError(reason instanceof Error ? reason.message : String(reason))
       })
   }
+
+  const loadMoreCards = (): Promise<void> => enqueueCardOperation(async () => {
+    const cursor = bundleRef.current?.cardsNextCursor
+    if (!cursor || loadingMoreRef.current) return
+    const epoch = boardEpoch.current
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    setCardsError(false)
+    try {
+      const page = await fetchProjectBoardCards(boardId, cursor)
+      if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
+      if (!loadedCardCursors.current.includes(cursor)) loadedCardCursors.current = [...loadedCardCursors.current, cursor]
+      setBundle((current) => current ? mergeProjectCardPage(current, page) : current)
+    } catch {
+      if (refreshBoard.current === boardId && boardEpoch.current === epoch) setCardsError(true)
+    } finally {
+      loadingMoreRef.current = false
+      if (refreshBoard.current === boardId && boardEpoch.current === epoch) setLoadingMore(false)
+    }
+  })
 
   const openActivity = () => {
     const generation = ++activityGeneration.current
@@ -288,6 +385,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     const epoch = boardEpoch.current
     await deleteProjectCard(cardId)
     if (refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
+    if (pendingCardRef.current?.id === cardId) pendingCardRef.current = null
+    setDetailCardId((current) => current === cardId ? null : current)
     setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, Date.now()), cards: current.cards.filter((card) => card.id !== cardId) } : current)
     undoStack.push({
       undo: async () => { await undeleteProjectCard(cardId); await refreshAfterCommand() },
@@ -589,8 +688,21 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
             </span>
           )}
           <span className="ml-auto shrink-0 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
-            {t('project.board.cards_count', { count: bundle.cards.length })}
+            {bundle.cardsHasMore
+              ? t('project.board.cards_loaded', { loaded: bundle.cards.length, total: bundle.cardCount ?? bundle.cards.length })
+              : t('project.board.cards_count', { count: bundle.cardCount ?? bundle.cards.length })}
           </span>
+          {bundle.cardsHasMore && (
+            <Button size="sm" variant="ghost" disabled={loadingMore} onClick={() => void loadMoreCards()}>
+              {loadingMore ? t('common.loading') : t('project.board.load_more')}
+            </Button>
+          )}
+          {cardsError && (
+            <span role="alert" className="flex shrink-0 items-center gap-1 text-[length:var(--text-11)] text-[var(--danger)]">
+              {t('project.common.load_failed')}
+              <Button size="sm" variant="ghost" onClick={() => void loadMoreCards()}>{t('project.common.retry')}</Button>
+            </span>
+          )}
           {canEdit && (
             <IconButton label={t('project.props.title')} size="sm" onClick={() => setShowProps(true)}>
               <Settings2 size={16} />
@@ -759,7 +871,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           contents={bundle.contents.filter((content) => content.cardId === openCard.id)}
           siblings={bundle.cards}
           canEdit={canEdit}
-          detailTruncated={Boolean(bundle.contentsTruncated || bundle.commentsTruncated)}
+          detailTruncated={Boolean(bundle.contentsTruncated || bundle.commentsTruncated || detailCardId === openCardId)}
           onClose={() => setOpenCardId(null)}
           onDelete={(id) => void removeCard(id)}
           onUpdated={(updated) => setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, updated.updateAt), cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current)}

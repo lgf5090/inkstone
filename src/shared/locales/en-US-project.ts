@@ -54,6 +54,8 @@ export const EN_US_PROJECT = {
     "project.board.load_failed": "Could not load this board",
     "project.board.not_found": "Board not found",
     "project.board.cards_count": "{count} cards",
+    "project.board.cards_loaded": "{loaded} of {total} cards loaded",
+    "project.board.load_more": "Load more",
     "project.board.new_card": "New card",
     "project.board.card_placeholder": "Card title",
     "project.board.empty_cards": "No cards yet",

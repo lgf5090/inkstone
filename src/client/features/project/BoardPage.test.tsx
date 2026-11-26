@@ -1,6 +1,6 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectBoardBundle } from '@shared/project/model'
+import type { ProjectBoardBundle, ProjectCard } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
 import { initI18n, t } from '../../lib/i18n'
 import { navigateToAddress } from '../../lib/app-history'
@@ -13,6 +13,8 @@ import * as api from './api'
 vi.mock('./api', async (importOriginal) => ({
   ...await importOriginal<typeof import('./api')>(),
   fetchProjectBoardBundle: vi.fn(),
+  fetchProjectBoardCards: vi.fn(),
+  fetchProjectCard: vi.fn(),
   patchProjectCard: vi.fn(),
   patchProjectBoard: vi.fn(),
   batchPatchProjectBoard: vi.fn().mockResolvedValue(undefined),
@@ -108,6 +110,35 @@ describe('board read failures', () => {
     expect(dialog.querySelector('[role="alert"]')?.textContent).toContain(t('project.boards.load_failed'))
     await act(async () => { [...dialog.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
     expect(api.fetchBoardActivity).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('board card pagination', () => {
+  it('loads the next page on demand and merges it without duplicating cards', async () => {
+    const first = bundle()
+    first.cardCount = 2
+    first.cardsHasMore = true
+    first.cardsNextCursor = 'next-page'
+    const secondCard: ProjectCard = { ...first.cards[0]!, id: 'c2', title: 'Beta' }
+    vi.mocked(api.fetchProjectBoardBundle).mockResolvedValue(first)
+    vi.mocked(api.fetchProjectBoardCards).mockResolvedValue({
+      ...first, cards: [...first.cards, secondCard], cardsHasMore: false, cardsNextCursor: undefined,
+    })
+    await mount()
+    expect(view.container.textContent).toContain(t('project.board.cards_loaded', { loaded: 1, total: 2 }))
+    await act(async () => { [...view.container.querySelectorAll('button')].find((button) => button.textContent === t('project.board.load_more'))!.click() })
+    expect(api.fetchProjectBoardCards).toHaveBeenCalledWith(BOARD_ID, 'next-page')
+    expect(view.container.textContent).toContain(t('project.board.cards_count', { count: 2 }))
+    expect(view.container.textContent).toContain('Beta')
+  })
+
+  it('fetches a deep-linked card that is outside the first bundle page', async () => {
+    const linked: ProjectCard = { ...bundle().cards[0]!, id: 'c2', title: 'Deep linked' }
+    vi.mocked(api.fetchProjectCard).mockResolvedValue(linked)
+    navigateToAddress(`/project/boards/${BOARD_ID}`, 'card=c2')
+    await mount()
+    expect(api.fetchProjectCard).toHaveBeenCalledWith(BOARD_ID, 'c2')
+    await vi.waitFor(() => expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('Deep linked'))
   })
 })
 
