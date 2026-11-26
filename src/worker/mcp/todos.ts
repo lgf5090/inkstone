@@ -748,10 +748,7 @@ async function resolveNoteRef(context: McpTodoContext, ref: string | null | unde
   if (!context.scopes.includes(MCP_SCOPES.read)) {
     throw ApiError.forbidden(`OAuth scope required: ${MCP_SCOPES.read}`)
   }
-  const row = await context.env.DB.prepare(
-    `SELECT 1 AS ok FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-  ).bind(ref, context.userId).first<{ ok: number }>()
-  if (!row) throw ApiError.notFound('Note not found')
+  if (!(await storeFor(context).knownNote(ref))) throw ApiError.notFound('Note not found')
   return ref
 }
 
