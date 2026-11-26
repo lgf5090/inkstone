@@ -6735,7 +6735,7 @@ export class AssistantStore {
           urgent: row.urgent ?? null,
           dueAt,
           dueAllDay: row.dueAllDay === true,
-          dueOn: advanced.dueAt === null ? null : localDate(advanced.dueAt, timeZone),
+          dueOn: row.dueAllDay === true && advanced.dueAt !== null ? localDate(advanced.dueAt, timeZone) : null,
           startAt,
           icon: row.icon,
           color: row.color,

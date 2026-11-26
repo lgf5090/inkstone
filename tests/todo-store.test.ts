@@ -444,6 +444,24 @@ describe('completing a task', () => {
     expect(unpicked).toMatchObject({ plannedFor: null, archivedAt: expect.any(Number) })
   })
 
+  it('keeps due_on only on all-day occurrences', async () => {
+    const timed = await store.createTask({
+      title: 'Timed workday',
+      dueAt: Date.parse('2026-11-06T09:00:00Z'),
+      repeat: { freq: 'workday', interval: 1 },
+    })
+    expect((await store.completeTask(timed.id, 'UTC'))?.next).toMatchObject({ dueAllDay: false, dueOn: null })
+
+    const allDay = await store.createTask({
+      title: 'All-day workday',
+      dueAt: Date.parse('2026-11-06T23:59:00Z'),
+      dueAllDay: true,
+      dueOn: '2026-11-06',
+      repeat: { freq: 'workday', interval: 1 },
+    })
+    expect((await store.completeTask(allDay.id, 'UTC'))?.next).toMatchObject({ dueAllDay: true, dueOn: '2026-11-09' })
+  })
+
   it('is idempotent: completing a finished task does not clone it again', async () => {
     const task = await store.createTask({ title: 'Weekly', dueAt: Date.parse('2026-10-19T09:00:00Z'), repeat: { freq: 'weekly', interval: 1 } })
     await store.completeTask(task.id, 'UTC')
