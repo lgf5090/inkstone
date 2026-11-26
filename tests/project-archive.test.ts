@@ -81,6 +81,14 @@ async function bundle(account: Account, boardId: string): Promise<ProjectBoardBu
   return (await response.json()) as ProjectBoardBundle
 }
 
+function withoutAuthors<T extends object>(entity: T): Partial<T> {
+  const copy = { ...entity } as Record<string, unknown>
+  delete copy.createdBy
+  delete copy.modifiedBy
+  delete copy.authorId
+  return copy as Partial<T>
+}
+
 async function richBoard(): Promise<ProjectBoard> {
   const board = await createBoard('alice', {
     title: 'Roadmap', description: 'Desc', icon: '🗺️', showDescription: true,
@@ -132,10 +140,10 @@ describe('archive export and import', () => {
 
     const restored = await bundle('bob', board.id)
     expect(restored.properties).toEqual(original.properties)
-    expect(restored.cards).toEqual(original.cards)
-    expect(restored.views).toEqual(original.views)
-    expect(restored.contents).toEqual(original.contents)
-    expect(restored.comments).toEqual(original.comments)
+    expect(restored.cards.map(withoutAuthors)).toEqual(original.cards.map(withoutAuthors))
+    expect(restored.views.map(withoutAuthors)).toEqual(original.views.map(withoutAuthors))
+    expect(restored.contents.map(withoutAuthors)).toEqual(original.contents.map(withoutAuthors))
+    expect(restored.comments.map(withoutAuthors)).toEqual(original.comments.map(withoutAuthors))
     expect(restored.board).toMatchObject({ title: 'Roadmap', description: 'Desc', icon: '🗺️', showDescription: true })
     expect(restored.board.ownerId).toBe('bob')
     expect(restored.members.map((m) => m.userId)).toEqual(['bob'])
@@ -219,6 +227,15 @@ describe('archive export and import', () => {
 
   it('rejects bytes that are neither a ZIP nor a v1 JSON', async () => {
     expect((await reqRaw('alice', '/boards/import', strToU8('not an archive'))).status).toBe(400)
+  })
+
+  it('rejects malformed archive version metadata', async () => {
+    const bytes = zipSync({
+      'version.json': strToU8('{'),
+      'b-bad-version/board.jsonl': strToU8(`${JSON.stringify(boardLine('b-bad-version'))}\n`),
+    })
+    expect((await reqRaw('alice', '/boards/import', bytes)).status).toBe(400)
+    expect((await reqRaw('alice', '/boards/import-account', bytes)).status).toBe(400)
   })
 
   it('refuses an export when bundle contents or comments are truncated', async () => {
@@ -308,6 +325,91 @@ describe('archive import trust boundary', () => {
     const response = await reqRaw('alice', '/boards/import-account', zipSync(files))
     expect(response.status).toBe(400)
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM project_boards WHERE id IN ('b-account-a','b-account-b')").get()).toMatchObject({ count: 0 })
+  })
+
+  it('rejects unknown property types and values that reference missing properties', async () => {
+    const unknownType = archiveWithLines('b-unknown-type', [
+      { type: 'board', data: { id: 'b-unknown-type', title: 'Bad type', cardProperties: [{ id: pid(1), name: 'Bad', type: 'not-a-type', options: [] }] } },
+    ])
+    expect((await reqRaw('alice', '/boards/import', unknownType)).status).toBe(400)
+    const orphanValue = archiveWithLines('b-orphan-value', [
+      boardLine('b-orphan-value'),
+      { type: 'block', data: { id: 'c-orphan-value', type: 'card', parentId: 'b-orphan-value', boardId: 'b-orphan-value', title: 'Bad value', fields: { properties: { [pid(1)]: 'x' } }, createAt: 1, updateAt: 1 } },
+    ])
+    expect((await reqRaw('alice', '/boards/import', orphanValue)).status).toBe(400)
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM project_boards WHERE id IN ('b-unknown-type','b-orphan-value')").get()).toMatchObject({ count: 0 })
+  })
+
+  it('rejects duplicate entity ids and file blocks with missing attachments', async () => {
+    const duplicateBytes = archiveWithLines('b-duplicate-id', [
+      boardLine('b-duplicate-id'), cardBlock('c-duplicate', 'b-duplicate-id'), cardBlock('c-duplicate', 'b-duplicate-id'),
+    ])
+    expect((await reqRaw('alice', '/boards/import', duplicateBytes)).status).toBe(400)
+    const orphanBytes = archiveWithLines('b-orphan-file', [
+      boardLine('b-orphan-file'),
+      cardBlock('c-orphan-file', 'b-orphan-file'),
+      { type: 'block', data: { id: 'a-orphan-file', type: 'file', parentId: 'c-orphan-file', boardId: 'b-orphan-file', title: 'File', fields: { attachmentId: 'i-missing' }, createAt: 1, updateAt: 1 } },
+    ])
+    expect((await reqRaw('alice', '/boards/import', orphanBytes)).status).toBe(400)
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM project_boards WHERE id IN ('b-duplicate-id','b-orphan-file')").get()).toMatchObject({ count: 0 })
+  })
+
+  it('rewrites imported authors to the importing account', async () => {
+    const boardId = 'b-author-rewrite'
+    const cardId = 'c'.repeat(27)
+    const contentId = 'a'.repeat(27)
+    const commentId = 'm'.repeat(27)
+    const viewId = 'v'.repeat(27)
+    const bytes = archiveWithLines(boardId, [
+      boardLine(boardId),
+      { type: 'block', data: { id: cardId, type: 'card', parentId: boardId, boardId, title: 'Card', fields: {}, createdBy: 'alice', modifiedBy: 'alice', createAt: 1, updateAt: 1 } },
+      { type: 'block', data: { id: viewId, type: 'view', parentId: boardId, boardId, title: 'View', fields: { viewType: 'table' }, createdBy: 'alice', modifiedBy: 'alice', createAt: 1, updateAt: 1 } },
+      { type: 'block', data: { id: contentId, type: 'text', parentId: cardId, boardId, title: 'Body', fields: {}, createdBy: 'alice', modifiedBy: 'alice', createAt: 1, updateAt: 1 } },
+      { type: 'block', data: { id: commentId, type: 'comment', parentId: cardId, boardId, title: 'Comment', fields: {}, createdBy: 'alice', modifiedBy: 'alice', createAt: 1, updateAt: 1 } },
+    ])
+    const response = await reqRaw('bob', '/boards/import', bytes)
+    expect(response.status, await response.clone().text()).toBe(201)
+    expect(sqlite.prepare('SELECT created_by, modified_by FROM project_cards WHERE id = ?').get(cardId)).toMatchObject({ created_by: 'bob', modified_by: 'bob' })
+    expect(sqlite.prepare('SELECT created_by, modified_by FROM project_card_contents WHERE id = ?').get(contentId)).toMatchObject({ created_by: 'bob', modified_by: 'bob' })
+    expect(sqlite.prepare('SELECT created_by, modified_by FROM project_views WHERE id = ?').get(viewId)).toMatchObject({ created_by: 'bob', modified_by: 'bob' })
+    expect(sqlite.prepare('SELECT author_id FROM project_comments WHERE id = ?').get(commentId)).toMatchObject({ author_id: 'bob' })
+
+    const accountResponse = await reqRaw('bob', '/boards/import-account', bytes)
+    expect(accountResponse.status, await accountResponse.clone().text()).toBe(201)
+    const { boards } = await accountResponse.json() as { boards: { id: string }[] }
+    const accountBoardId = boards[0]!.id
+    expect(sqlite.prepare('SELECT created_by, modified_by FROM project_cards WHERE board_id = ?').get(accountBoardId)).toMatchObject({ created_by: 'bob', modified_by: 'bob' })
+    expect(sqlite.prepare('SELECT created_by, modified_by FROM project_card_contents WHERE board_id = ?').get(accountBoardId)).toMatchObject({ created_by: 'bob', modified_by: 'bob' })
+    expect(sqlite.prepare('SELECT created_by, modified_by FROM project_views WHERE board_id = ?').get(accountBoardId)).toMatchObject({ created_by: 'bob', modified_by: 'bob' })
+    expect(sqlite.prepare('SELECT author_id FROM project_comments WHERE board_id = ?').get(accountBoardId)).toMatchObject({ author_id: 'bob' })
+  })
+
+  it('remaps file block references when account import creates fresh attachment ids', async () => {
+    const boardId = 'b-file-remap'
+    const cardId = 'c-file-remap'
+    const attachmentId = 'i-file-old'
+    const content = new Uint8Array([1, 2, 3])
+    const bytes = zipSync({
+      'version.json': strToU8(JSON.stringify({ version: 2, date: 1 })),
+      [`${boardId}/board.jsonl`]: strToU8([
+        boardLine(boardId),
+        cardBlock(cardId, boardId),
+        { type: 'block', data: { id: 'a-file-block', type: 'file', parentId: cardId, boardId, title: 'File', fields: { attachmentId }, createAt: 1, updateAt: 1 } },
+        { type: 'attachment', data: { id: attachmentId, cardId, filename: 'file.bin', mime: 'application/octet-stream', size: content.byteLength, storage: 'r2', path: `${boardId}/files/${attachmentId}` } },
+      ].map((line) => JSON.stringify(line)).join('\n') + '\n'),
+      [`${boardId}/files/${attachmentId}`]: content,
+    })
+    const response = await reqRaw('bob', '/boards/import-account', bytes)
+    expect(response.status, await response.clone().text()).toBe(201)
+    const { boards } = await response.json() as { boards: { id: string }[] }
+    const importedBoardId = boards[0]!.id
+    const attachment = sqlite.prepare('SELECT id, card_id FROM project_attachments WHERE board_id = ?').get(importedBoardId) as { id: string, card_id: string }
+    const block = sqlite.prepare('SELECT fields FROM project_card_contents WHERE board_id = ?').get(importedBoardId) as { fields: string }
+    expect(attachment.id).not.toBe(attachmentId)
+    expect(JSON.parse(block.fields)).toMatchObject({ attachmentId: attachment.id })
+    const restored = await req('bob', 'GET', `/files/${attachment.id}`)
+    expect(restored.status, await restored.clone().text()).toBe(200)
+    expect(new Uint8Array(await restored.arrayBuffer())).toEqual(content)
   })
 
   it('never restores member rows from an uploaded archive', async () => {

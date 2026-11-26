@@ -18,7 +18,7 @@ import { readBoardProperties } from './boards'
 import { ApiError } from '../lib/errors'
 import { assertProjectBatchStatementLimit } from './d1'
 
-type AttachmentSource = Pick<ProjectAttachment, 'cardId' | 'filename' | 'mime' | 'storage' | 'width' | 'height'>
+type AttachmentSource = Pick<ProjectAttachment, 'id' | 'cardId' | 'filename' | 'mime' | 'storage' | 'width' | 'height'>
 
 function remapId(map: Map<string, string>, id: string): string {
   return map.get(id) ?? id
@@ -43,6 +43,7 @@ export async function duplicateProjectBoard(
   now: number,
   options: {
     includeComments?: boolean
+    rewriteAuthors?: boolean
     attachments?: readonly { attachment: AttachmentSource, bytes: Uint8Array }[]
     onAttachment?: (input: { id: string, cardId: string | null, attachment: AttachmentSource, bytes: Uint8Array }) => Promise<string | null>
     onAttachmentError?: (objectKey: string) => Promise<void>
@@ -54,6 +55,7 @@ export async function duplicateProjectBoard(
   const viewMap = new Map(bundle.views.map((view) => [view.id, newProjectId('view')]))
   const contentMap = new Map(bundle.contents.map((content) => [content.id, newProjectId('content')]))
   const commentMap = new Map(bundle.comments.map((comment) => [comment.id, newProjectId('comment')]))
+  const attachmentMap = new Map((options.attachments ?? []).map((item) => [item.attachment.id, newProjectId('attachment')]))
   const childMap = new Map([...contentMap, ...commentMap])
   const links = bundle.links ?? (await db
     .prepare('SELECT from_card_id, to_card_id, kind FROM project_card_links WHERE board_id = ?1')
@@ -117,11 +119,15 @@ export async function duplicateProjectBoard(
     ).bind(viewMap.get(view.id)!, boardId, view.title, view.viewType, JSON.stringify(remapViewFields(view.fields, cardMap)), view.position, userId, now))
   }
   for (const content of bundle.contents) {
+    const attachmentId = content.fields.attachmentId
+      ? attachmentMap.get(content.fields.attachmentId) ?? content.fields.attachmentId
+      : undefined
     statements.push(db.prepare(
       `INSERT INTO project_card_contents
          (id, card_id, board_id, type, title, fields, position, created_by, modified_by, create_at, update_at, delete_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9, ?9, 0)`,
-    ).bind(contentMap.get(content.id)!, remapId(cardMap, content.cardId), boardId, content.type, content.title, JSON.stringify(content.fields), content.position, userId, now))
+    ).bind(contentMap.get(content.id)!, remapId(cardMap, content.cardId), boardId, content.type, content.title,
+      JSON.stringify(attachmentId ? { ...content.fields, attachmentId } : content.fields), content.position, userId, now))
   }
   for (const link of links) {
     const from = cardMap.get(link.fromCardId)
@@ -149,7 +155,7 @@ export async function duplicateProjectBoard(
     if (!options.onAttachment) continue
     const cardId = item.attachment.cardId ? cardMap.get(item.attachment.cardId) ?? null : null
     if (item.attachment.cardId && !cardId) continue
-    const attachmentId = newProjectId('attachment')
+    const attachmentId = attachmentMap.get(item.attachment.id)!
     const objectKey = await options.onAttachment({ id: attachmentId, cardId, attachment: item.attachment, bytes: item.bytes })
     if (!objectKey) continue
     writtenAttachmentKeys.push(objectKey)
@@ -167,7 +173,7 @@ export async function duplicateProjectBoard(
       statements.push(db.prepare(
         `INSERT INTO project_comments (id, card_id, board_id, author_id, body, create_at, update_at, delete_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 0)`,
-      ).bind(commentMap.get(comment.id)!, remapId(cardMap, comment.cardId), boardId, comment.authorId, comment.body, now))
+      ).bind(commentMap.get(comment.id)!, remapId(cardMap, comment.cardId), boardId, options.rewriteAuthors ? userId : comment.authorId, comment.body, now))
     }
   }
   assertProjectBatchStatementLimit(statements.length)

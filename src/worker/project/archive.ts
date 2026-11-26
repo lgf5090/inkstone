@@ -7,6 +7,7 @@
  * uploaded file said so.
  */
 import { strFromU8, strToU8, unzipSync, zipSync, type Unzipped } from 'fflate'
+import { z } from 'zod'
 import type { ProjectAttachment, ProjectBoard, ProjectBoardBundle, ProjectBoardSummary, ProjectRole } from '@shared/project/model'
 import {
   PROJECT_ARCHIVE_VERSION,
@@ -30,6 +31,16 @@ import { listBoardAttachments, projectAttachmentObjectKey } from './files'
 import { ProjectStore } from './store'
 import { assertProjectBatchStatementLimit } from './d1'
 import { projectParentMapHasCycle } from '@shared/project/hierarchy'
+import {
+  ProjectBoardCreateSchema,
+  ProjectCardCreateSchema,
+  ProjectCommentCreateSchema,
+  ProjectContentCreateSchema,
+  ProjectContentFieldsSchema,
+  ProjectPropertyOptionSchema,
+  ProjectPropertySchema,
+  ProjectViewCreateSchema,
+} from '@shared/project/validation'
 
 const ARCHIVE_MAX_BYTES = 32 * 1024 * 1024
 const ARCHIVE_MAX_FILES = 100
@@ -39,6 +50,24 @@ const ARCHIVE_MAX_COMMENTS = 20000
 const ARCHIVE_MAX_LINKS = 40000
 const ARCHIVE_MAX_ATTACHMENTS = 500
 const ARCHIVE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+const isArchiveId = (value: string): boolean => ARCHIVE_ID_PATTERN.test(value)
+const archiveIdSchema = z.string().refine(isArchiveId, 'invalid id')
+const archiveBoardSchema = ProjectBoardCreateSchema.omit({ id: true })
+const archivePropertySchema = ProjectPropertySchema.extend({
+  id: archiveIdSchema,
+  options: z.array(ProjectPropertyOptionSchema.extend({ id: archiveIdSchema })).max(PROJECT_LIMITS.optionsPerProperty),
+})
+const archiveValueMap = z.record(archiveIdSchema, z.string().max(PROJECT_LIMITS.fieldsRunes))
+  .refine((values) => Object.keys(values).length <= PROJECT_LIMITS.propertiesPerBoard, 'too many values')
+const archiveCardSchema = ProjectCardCreateSchema.omit({ id: true }).extend({
+  parentId: z.union([archiveIdSchema, z.literal('')]).default(''),
+  values: archiveValueMap,
+})
+const archiveViewSchema = ProjectViewCreateSchema.omit({ id: true })
+const archiveContentSchema = ProjectContentCreateSchema.omit({ id: true }).extend({
+  fields: ProjectContentFieldsSchema.extend({ attachmentId: archiveIdSchema.optional() }),
+})
+const archiveCommentSchema = ProjectCommentCreateSchema.omit({ id: true })
 
 /** The two places a project file can live, passed in so the archive logic stays binding-free. */
 export interface ProjectArchiveStorage {
@@ -82,8 +111,14 @@ async function deleteProjectFile(storage: ProjectArchiveStorage, kind: ProjectAt
 }
 
 function archiveId(value: string, label: string): string {
-  if (!ARCHIVE_ID_PATTERN.test(value)) throw ApiError.badRequest(`${label} has an invalid id`)
+  if (!isArchiveId(value)) throw ApiError.badRequest(`${label} has an invalid id`)
   return value
+}
+
+function assertUniqueArchiveIds(entities: readonly { id: string }[], label: string): void {
+  if (new Set(entities.map((entity) => entity.id)).size !== entities.length) {
+    throw ApiError.badRequest(`archive ${label} ids must be unique`)
+  }
 }
 
 function assertZipBudget(bytes: Uint8Array): void {
@@ -130,36 +165,97 @@ function zipArchive(entries: Record<string, Uint8Array>): Uint8Array {
   return bytes
 }
 
+function assertArchiveVersion(files: Unzipped): void {
+  const raw = files['version.json']
+  if (!raw) return
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(strFromU8(raw))
+  } catch {
+    throw ApiError.badRequest('archive version.json is invalid')
+  }
+  if (!ProjectArchiveHeaderSchema.safeParse(parsed).success) {
+    throw ApiError.badRequest('archive version.json is invalid')
+  }
+}
+
 function assertArchiveImport(imported: ReturnType<typeof projectArchiveLinesToImport>): void {
   archiveId(imported.board.id, 'board')
+  const boardInput = archiveBoardSchema.safeParse({
+    title: imported.board.title,
+    description: imported.board.description,
+    icon: imported.board.icon,
+    showDescription: imported.board.showDescription,
+    type: imported.board.type,
+    minimumRole: imported.board.minimumRole,
+    isTemplate: imported.board.isTemplate,
+  })
+  if (!boardInput.success) throw ApiError.badRequest('archive board or property schema is invalid')
   if (imported.cards.length > PROJECT_LIMITS.cardsPerBoard) throw ApiError.conflict('PROJECT_MAX_CARDS_PER_BOARD')
   if (imported.views.length > PROJECT_LIMITS.viewsPerBoard) throw ApiError.conflict('PROJECT_MAX_VIEWS_PER_BOARD')
-  if (imported.properties.length > PROJECT_LIMITS.propertiesPerBoard) throw ApiError.conflict('PROJECT_MAX_PROPERTIES_PER_BOARD')
+  if (imported.properties.length > PROJECT_LIMITS.propertiesPerBoard) throw ApiError.conflict('PROJECT_MAX_BOARD_PROPERTIES')
   if (imported.contents.length > ARCHIVE_MAX_CONTENTS || imported.comments.length > ARCHIVE_MAX_COMMENTS) {
     throw ApiError.tooLarge('archive has too many rows')
+  }
+  if (imported.attachments.length > ARCHIVE_MAX_ATTACHMENTS) throw ApiError.tooLarge('archive has too many files')
+  assertUniqueArchiveIds(imported.properties, 'property')
+  assertUniqueArchiveIds(imported.cards, 'card')
+  assertUniqueArchiveIds(imported.views, 'view')
+  assertUniqueArchiveIds(imported.contents, 'content')
+  assertUniqueArchiveIds(imported.comments, 'comment')
+  assertUniqueArchiveIds(imported.attachments, 'attachment')
+  const attachmentIds = new Set(imported.attachments.map((attachment) => attachment.id))
+  const propertyIds = new Set<string>()
+  for (const property of imported.properties) {
+    archiveId(property.id, 'property')
+    if (!archivePropertySchema.safeParse(property).success || property.type === 'unknown') {
+      throw ApiError.badRequest('archive property schema is invalid')
+    }
+    if (new Set(property.options.map((option) => option.id)).size !== property.options.length) {
+      throw ApiError.badRequest('archive property option ids must be unique')
+    }
+    propertyIds.add(property.id)
   }
   const cardIds = new Set<string>()
   for (const card of imported.cards) {
     archiveId(card.id, 'card')
+    if (!archiveCardSchema.safeParse({
+      parentId: card.parentId,
+      title: card.title,
+      icon: card.icon,
+      isTemplate: card.isTemplate,
+      values: card.values,
+      recurrence: card.recurrence,
+    }).success) throw ApiError.badRequest('archive card schema is invalid')
+    if (Object.keys(card.values).some((propertyId) => !propertyIds.has(propertyId))) {
+      throw ApiError.badRequest('archive card value references an unknown property')
+    }
     cardIds.add(card.id)
-    for (const propertyId of Object.keys(card.values)) archiveId(propertyId, 'property value')
   }
-  for (const property of imported.properties) archiveId(property.id, 'property')
-  for (const view of imported.views) archiveId(view.id, 'view')
+  for (const view of imported.views) {
+    archiveId(view.id, 'view')
+    if (!archiveViewSchema.safeParse(view).success) throw ApiError.badRequest('archive view schema is invalid')
+  }
   for (const content of imported.contents) {
     archiveId(content.id, 'content')
     if (!cardIds.has(content.cardId)) throw ApiError.badRequest('archive content references an unknown card')
+    if (content.fields.attachmentId && !attachmentIds.has(content.fields.attachmentId)) {
+      throw ApiError.badRequest('archive content references an unknown attachment')
+    }
+    if (!archiveContentSchema.safeParse(content).success) throw ApiError.badRequest('archive content schema is invalid')
   }
   for (const comment of imported.comments) {
     archiveId(comment.id, 'comment')
     if (!cardIds.has(comment.cardId)) throw ApiError.badRequest('archive comment references an unknown card')
+    if (!archiveCommentSchema.safeParse({ body: comment.body }).success) {
+      throw ApiError.badRequest('archive comment schema is invalid')
+    }
   }
   for (const card of imported.cards) {
     if (card.parentId && !cardIds.has(card.parentId)) throw ApiError.badRequest('archive card references an unknown parent')
     if (card.parentId === card.id) throw ApiError.badRequest('archive card is its own parent')
   }
   if (projectParentMapHasCycle(imported.cards)) throw ApiError.badRequest('archive card hierarchy contains a cycle')
-  if (imported.attachments.length > ARCHIVE_MAX_ATTACHMENTS) throw ApiError.tooLarge('archive has too many files')
   for (const attachment of imported.attachments) {
     archiveId(attachment.id, 'attachment')
     if (attachment.cardId && !cardIds.has(attachment.cardId)) throw ApiError.badRequest('archive file references an unknown card')
@@ -283,6 +379,7 @@ export async function importProjectAccountArchive(
   if (!files) throw ApiError.badRequest('archive is not a ZIP')
   const jsonlNames = Object.keys(files).filter((name) => name.endsWith('board.jsonl'))
   if (jsonlNames.length === 0) throw ApiError.badRequest('archive ZIP has no board.jsonl')
+  assertArchiveVersion(files)
   const created: ProjectBoardSummary[] = []
   try {
     for (const name of jsonlNames) {
@@ -310,6 +407,7 @@ export async function importProjectAccountArchive(
       }
       const writtenStorage = new Map<string, ProjectAttachment['storage']>()
       created.push(await duplicateProjectBoard(db, bundle, userId, now, {
+        rewriteAuthors: true,
         attachments: attachmentInputs,
         onAttachment: async ({ id, attachment, bytes: content }) => {
           const key = projectAttachmentObjectKey(userId, id, attachment.mime, attachment.filename)
@@ -336,11 +434,7 @@ function linesFromArchiveBytes(bytes: Uint8Array, files: Unzipped | null = archi
   if (files) {
     const jsonl = Object.keys(files).find((name) => name.endsWith('board.jsonl'))
     if (!jsonl) throw ApiError.badRequest('archive ZIP has no board.jsonl')
-    const versionRaw = files['version.json']
-    if (versionRaw) {
-      const header = ProjectArchiveHeaderSchema.safeParse(JSON.parse(strFromU8(versionRaw)))
-      if (!header.success) throw ApiError.badRequest('archive version.json is invalid')
-    }
+    assertArchiveVersion(files)
     return parseProjectArchiveLines(strFromU8(files[jsonl]!))
   }
   // Not a ZIP: the reference's v1 export is a single JSON object with a blocks array.
@@ -412,7 +506,7 @@ export async function importProjectBoardArchive(
     ).bind(
       card.id, source.id, card.parentId, card.title, card.icon, card.isTemplate ? 1 : 0, JSON.stringify(card.contentOrder),
       card.recurrence ? serializeProjectRecurrence(card.recurrence) : null,
-      card.createdBy || userId, card.modifiedBy || userId, card.createAt || now, card.updateAt || now,
+      userId, userId, card.createAt || now, card.updateAt || now,
     ))
     for (const [propertyId, value] of Object.entries(card.values)) {
       statements.push(db.prepare(
@@ -427,7 +521,7 @@ export async function importProjectBoardArchive(
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)`,
     ).bind(
       view.id, source.id, view.title, view.viewType, JSON.stringify(view.fields), view.position,
-      view.createdBy || userId, view.modifiedBy || userId, view.createAt || now, view.updateAt || now,
+      userId, userId, view.createAt || now, view.updateAt || now,
     ))
   }
   for (const content of imported.contents) {
@@ -437,14 +531,14 @@ export async function importProjectBoardArchive(
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0)`,
     ).bind(
       content.id, content.cardId, source.id, content.type, content.title, JSON.stringify(content.fields), content.position,
-      content.createdBy || userId, content.modifiedBy || userId, content.createAt || now, content.updateAt || now,
+      userId, userId, content.createAt || now, content.updateAt || now,
     ))
   }
   for (const comment of imported.comments) {
     statements.push(db.prepare(
       `INSERT INTO project_comments (id, card_id, board_id, author_id, body, create_at, update_at, delete_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)`,
-    ).bind(comment.id, comment.cardId, source.id, comment.authorId || userId, comment.body, comment.createAt || now, comment.updateAt || now))
+    ).bind(comment.id, comment.cardId, source.id, userId, comment.body, comment.createAt || now, comment.updateAt || now))
   }
   for (const link of imported.links) {
     statements.push(db.prepare(
