@@ -60,7 +60,10 @@ import {
 } from './todo-address'
 import { daysToRange } from './due-range'
 
-export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats' | 'finish-day' | 'counters' | 'matrix'
+export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'timeline' | 'starred' | 'completed' | 'list' | 'tag' | 'stats' | 'finish-day' | 'counters' | 'matrix'
+
+/** The two windows the timeline can draw; both are carried by the address. */
+export type TodoTimelineScale = 'week' | 'month'
 
 /** The list shape this feature reads, re-exported so its screens do not reach the API module. */
 export type { TaskListEntry } from '../../lib/api'
@@ -202,6 +205,11 @@ interface TodosState {
   statsTo: string | null
   statsBucket: TaskStatsBucket | null
 
+  /** The timeline's half-open day window and scale; null asks for the current week. */
+  timelineFrom: string | null
+  timelineTo: string | null
+  timelineScale: TodoTimelineScale | null
+
   selectedId: string | null
   /**
    * The rows picked for a batch write.
@@ -248,6 +256,8 @@ interface TodosState {
   loadStats: () => Promise<void>
   /** Move the statistics to another range, writing the move into the address and asking again. */
   setStatsRange: (range: { from: string; to: string; bucket: TaskStatsBucket }) => void
+  /** Move the timeline to another half-open day window, keeping the move in the address. */
+  setTimelineRange: (range: { from: string; to: string; scale: TodoTimelineScale }) => void
   /** Put the store where the address bar says the screen is — what a back button asks of it. */
   syncFromAddress: () => void
   select: (id: string | null) => void
@@ -517,7 +527,8 @@ export function quickAddDraft(
 /** The view part of the state, which is the part the query string carries. */
 function viewSelection(
   state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query' | 'sort' | 'dueFrom' | 'dueTo'
-    | 'completedFrom' | 'completedTo' | 'statsFrom' | 'statsTo' | 'statsBucket'>,
+    | 'completedFrom' | 'completedTo' | 'statsFrom' | 'statsTo' | 'statsBucket'
+    | 'timelineFrom' | 'timelineTo' | 'timelineScale'>,
 ): TodoViewSelection {
   return {
     view: state.view,
@@ -532,6 +543,9 @@ function viewSelection(
     statsFrom: state.statsFrom,
     statsTo: state.statsTo,
     statsBucket: state.statsBucket,
+    timelineFrom: state.timelineFrom,
+    timelineTo: state.timelineTo,
+    timelineScale: state.timelineScale,
   }
 }
 
@@ -575,8 +589,8 @@ const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'upcoming' | 'starred' |
  * not draw the filter bar beside rows nobody is showing. One predicate, because the three followings are
  * one fact.
  */
-export function readsOwnRows(view: TodoView): view is 'stats' | 'calendar' | 'finish-day' | 'counters' {
-  return view === 'stats' || view === 'calendar' || view === 'finish-day' || view === 'counters'
+export function readsOwnRows(view: TodoView): view is 'stats' | 'calendar' | 'timeline' | 'finish-day' | 'counters' {
+  return view === 'stats' || view === 'calendar' || view === 'timeline' || view === 'finish-day' || view === 'counters'
 }
 
 /**
@@ -1599,6 +1613,10 @@ export const useTodos = create<TodosState>((set, get) => ({
   statsTo: initialAddress.statsTo ?? null,
   statsBucket: initialAddress.statsBucket ?? null,
 
+  timelineFrom: initialAddress.timelineFrom ?? null,
+  timelineTo: initialAddress.timelineTo ?? null,
+  timelineScale: initialAddress.timelineScale ?? null,
+
   selectedId: null,
   selectedIds: new Set<string>(),
   editorOpen: false,
@@ -1744,6 +1762,9 @@ export const useTodos = create<TodosState>((set, get) => ({
       // screen: it starts over at "all years". A back button or a reload restores one from the address
       // through `syncFromAddress`, which writes the state directly rather than coming through here.
       ...(view === 'completed' ? { completedFrom: null, completedTo: null } : {}),
+      // A timeline opened from navigation starts at the current week; an address or back button restores
+      // a named window through `syncFromAddress` instead of coming through this reset.
+      ...(view === 'timeline' ? { timelineFrom: null, timelineTo: null, timelineScale: null } : {}),
     })
     // Opening a view is a move the reader made on purpose, so it gets a history entry: the back button
     // walks the views they stood in instead of dumping them on the board.
@@ -1844,6 +1865,12 @@ export const useTodos = create<TodosState>((set, get) => ({
     void get().loadStats()
   },
 
+  setTimelineRange: (range) => {
+    if (get().timelineFrom === range.from && get().timelineTo === range.to && get().timelineScale === range.scale) return
+    set({ timelineFrom: range.from, timelineTo: range.to, timelineScale: range.scale })
+    pushTodoAddress(viewSelection(get()))
+  },
+
   syncFromAddress: () => {
     const address = readTodoAddress()
     const state = get()
@@ -1852,12 +1879,16 @@ export const useTodos = create<TodosState>((set, get) => ({
     const statsFrom = address.statsFrom ?? null
     const statsTo = address.statsTo ?? null
     const statsBucket = address.statsBucket ?? null
+    const timelineFrom = address.timelineFrom ?? null
+    const timelineTo = address.timelineTo ?? null
+    const timelineScale = address.timelineScale ?? null
     if (
       address.view !== state.view || address.listId !== state.listId || address.tagId !== state.tagId
       || address.query !== state.query || address.sort !== state.sort
       || address.dueFrom !== state.dueFrom || address.dueTo !== state.dueTo
       || completedFrom !== state.completedFrom || completedTo !== state.completedTo
       || statsFrom !== state.statsFrom || statsTo !== state.statsTo || statsBucket !== state.statsBucket
+      || timelineFrom !== state.timelineFrom || timelineTo !== state.timelineTo || timelineScale !== state.timelineScale
     ) {
       set({
         view: address.view,
@@ -1872,6 +1903,9 @@ export const useTodos = create<TodosState>((set, get) => ({
         statsFrom,
         statsTo,
         statsBucket,
+        timelineFrom,
+        timelineTo,
+        timelineScale,
         // The back button moved the reader to another listing, so the rows picked on the old one are no
         // longer the rows on screen.
         selectedIds: new Set<string>(),

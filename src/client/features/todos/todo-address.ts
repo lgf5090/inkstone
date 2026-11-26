@@ -14,7 +14,7 @@
 import { isTaskStatsBucket, TASK_SORTS, type TaskSort, type TaskStatsBucket } from '@shared/todos/model'
 import { currentPathname, currentSearch, navigateToAddress, replaceAddress } from '../../lib/app-history'
 import { BOARD_DIMENSIONS, type BoardDimension } from './task-groups'
-import type { TodoView } from './store'
+import type { TodoTimelineScale, TodoView } from './store'
 
 /** The app's own address, and the prefix every screen under it hangs off. */
 export const TODO_PATH = '/todo'
@@ -60,7 +60,10 @@ export function taskIdFromNotificationLink(link: string | null | undefined): str
 }
 
 /** The views the container draws, which is what a `view=` parameter can name. */
-export const TODO_VIEWS: readonly TodoView[] = ['board', 'today', 'plan', 'upcoming', 'calendar', 'starred', 'completed', 'list', 'tag', 'stats', 'finish-day', 'counters', 'matrix']
+export const TODO_VIEWS: readonly TodoView[] = ['board', 'today', 'plan', 'upcoming', 'calendar', 'timeline', 'starred', 'completed', 'list', 'tag', 'stats', 'finish-day', 'counters', 'matrix']
+
+/** The windows the timeline address can name. */
+export const TODO_TIMELINE_SCALES: readonly TodoTimelineScale[] = ['week', 'month']
 
 /** The orders a `sort=` parameter may name, which are the ones the route reads. */
 export const TODO_SORTS: readonly TaskSort[] = TASK_SORTS
@@ -93,6 +96,10 @@ export interface TodoViewSelection {
   statsFrom?: string | null
   statsTo?: string | null
   statsBucket?: TaskStatsBucket | null
+  /** The timeline's half-open day window and scale. Optional for older selection shapes. */
+  timelineFrom?: string | null
+  timelineTo?: string | null
+  timelineScale?: TodoTimelineScale | null
   /**
    * The list screen's arrangement. Optional because the store's selection describes the view, not
    * the arrangement: an address writer carries the current layout over when a caller does not name
@@ -153,6 +160,11 @@ function groupParam(value: string | null): TodoGroup {
   return TODO_GROUPS.includes(value as TodoGroup) ? (value as TodoGroup) : 'status'
 }
 
+/** The timeline window a query names, or the current week for an omitted or unknown scale. */
+function timelineScaleParam(value: string | null): TodoTimelineScale | null {
+  return TODO_TIMELINE_SCALES.includes(value as TodoTimelineScale) ? (value as TodoTimelineScale) : null
+}
+
 /**
  * The dimension a query names for the columns on screen.
  *
@@ -194,6 +206,7 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
     return {
       view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
       completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null,
+      timelineFrom: null, timelineTo: null, timelineScale: null,
       layout: null, group: null, taskId: null,
     }
   }
@@ -219,9 +232,14 @@ export function parseTodoAddress(pathname: string, search: string): TodoAddress 
   const statsTo = rawTo && STATS_DAY.test(rawTo) ? rawTo : null
   const rawBucket = params.get('bucket')
   const statsBucket = isTaskStatsBucket(rawBucket) ? rawBucket : null
+  // The same half-open day pair is a timeline window only on that view. A pasted range with one bound
+  // missing is not a window, so the timeline falls back to the current week rather than half applying it.
+  const timelineFrom = named === 'timeline' && rawFrom && rawTo && STATS_DAY.test(rawFrom) ? rawFrom : null
+  const timelineTo = named === 'timeline' && rawFrom && rawTo && STATS_DAY.test(rawTo) ? rawTo : null
+  const timelineScale = named === 'timeline' ? timelineScaleParam(params.get('timelineScale')) : null
   const common = {
     query, sort, dueFrom, dueTo, completedFrom, completedTo,
-    statsFrom, statsTo, statsBucket,
+    statsFrom, statsTo, statsBucket, timelineFrom, timelineTo, timelineScale,
     layout: null as TodoLayout | null, group: null as TodoGroup | null,
     taskId: taskIdFromPathname(pathname),
   }
@@ -262,6 +280,13 @@ export function writeTodoSearch(selection: TodoViewSelection): string {
     // beside `view=completed`, because that is the only listing the route applies it to.
     if (selection.completedFrom) params.set('completedFrom', selection.completedFrom)
     if (selection.completedTo) params.set('completedTo', selection.completedTo)
+  } else if (selection.view === 'timeline') {
+    params.set('view', 'timeline')
+    if (selection.timelineFrom && selection.timelineTo) {
+      params.set('from', selection.timelineFrom)
+      params.set('to', selection.timelineTo)
+    }
+    if (selection.timelineScale) params.set('timelineScale', selection.timelineScale)
   } else if (selection.view !== 'board') {
     params.set('view', selection.view)
   }
@@ -287,6 +312,7 @@ export function readTodoAddress(): TodoAddress {
     return {
       view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
       completedFrom: null, completedTo: null, statsFrom: null, statsTo: null, statsBucket: null,
+      timelineFrom: null, timelineTo: null, timelineScale: null,
       layout: null, group: null, taskId: null,
     }
   }
@@ -350,6 +376,7 @@ function selectionOf(current: TodoAddress): TodoViewSelection {
     sort: current.sort, dueFrom: current.dueFrom, dueTo: current.dueTo,
     completedFrom: current.completedFrom, completedTo: current.completedTo,
     statsFrom: current.statsFrom, statsTo: current.statsTo, statsBucket: current.statsBucket,
+    timelineFrom: current.timelineFrom, timelineTo: current.timelineTo, timelineScale: current.timelineScale,
   }
 }
 

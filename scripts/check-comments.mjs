@@ -18632,6 +18632,11 @@ const allowed = new Map([
     "// Appended to the current rows, not the snapshot captured before the request: a delta may have",
     "// replaced a row while this page was in flight, and that newer server truth must not be lost.",
     "// A newer first page owns the spinner now; otherwise this request is the one that must release it.",
+    "/** The two windows the timeline can draw; both are carried by the address. */",
+    "/** The timeline's half-open day window and scale; null asks for the current week. */",
+    "/** Move the timeline to another half-open day window, keeping the move in the address. */",
+    "// A timeline opened from navigation starts at the current week; an address or back button restores",
+    "// a named window through `syncFromAddress` instead of coming through this reset.",
   ]],
   ["src/client/features/todos/task-attachments.ts", [
     "/**\n * The client's half of a task's files.\n *\n * `POST /api/todos/:id/attachments` has carried the whole job since the attachment round: the same\n * storage every note file uses, with the account's hourly upload budget, the multipart ceiling, the\n * 25 MB limit, the MIME sniffing, the filename cleanup, the quota and the link row all read on the\n * server. What was missing was a caller (C12). This is that caller, and it adds nothing to the\n * contract — one multipart field named `file`, posted to the task it belongs to.\n *\n * The one judgement made here is a courtesy, not a boundary: a file already known to be over the limit\n * is refused before its bytes are sent, so the reader hears about it in the time it takes to let go of\n * the pointer rather than after an upload that was always going to be refused. Everything else — the\n * type, the content, the path, the quota, the budget — is the route's to decide, and its answer is what\n * reaches the reader. Nothing about a limit rides in the request, and no file is checked twice here.\n *\n * Files go one at a time. A hand of them fired together would race the hourly budget for the same\n * account and report a failure count nobody could tie to a file.\n */",
@@ -19125,6 +19130,7 @@ const allowed = new Map([
     "// The inbox is a screen, so it is an address. Naming none is a state the sidebar never holds — and",
     "// when a caller does hand one in, the address says what the screen means rather than going blank and",
     "// reading back as the board.",
+    "// A half window or an unknown scale is not a range the screen can restore.",
   ]],
   ["src/client/features/todos/todo-address.ts", [
     "/**\n * The grammar of the to-do address, and nothing else.\n *\n * The app's screen is its address: `/todo` for the board, `?view=plan` for a smart view, `?list=<id>`\n * or `?tag=<id>` for one collection, `&q=<text>` for a search on top of it, and `/todo/<task id>` for\n * the one task the panel is open on. Two shapes are deliberately *not* written: the board, because it is\n * what an empty address already means, and the view name beside a list or a tag, because the parameter\n * that names the collection already says which view is up. An address the app never writes is an address\n * nobody is reading, and a reader who types one anyway gets the board rather than a broken screen.\n *\n * Everything that reads or writes this address goes through here, so the store, the container and a link\n * pasted into a chat cannot drift into three spellings of the same screen.\n */",
@@ -19190,6 +19196,11 @@ const allowed = new Map([
     "// that says only \"the list view\" is a screen this app never shows — and it read back as the board, so",
     "// closing a panel from the inbox carried the reader off the list they were on.",
     "// written, and only beside the collection it belongs to.",
+    "/** The windows the timeline address can name. */",
+    "/** The timeline's half-open day window and scale. Optional for older selection shapes. */",
+    "/** The timeline window a query names, or the current week for an omitted or unknown scale. */",
+    "// The same half-open day pair is a timeline window only on that view. A pasted range with one bound",
+    "// missing is not a window, so the timeline falls back to the current week rather than half applying it.",
   ]],
   ["src/client/features/todos/todo-deep-link.test.ts", [
     "/**\n * `/todo/<task id>`: the address that names one task, and what the app does when it is the whole screen.\n *\n * A reminder, a chip in an answer, a link pasted into another tab — each of them arrives as an address\n * naming a task, and the reader is entitled to land on that task's panel rather than on the board with a\n * note that something went wrong. Two things make that non-trivial, and both are asserted here: the row may\n * not be on the page the board loaded (it can be completed, or older than that page), so it is read on its\n * own; and it may not be readable at all — somebody else's id, or one that has been deleted — which is\n * answered by putting the address back to the screen that is really there, not by a panel over nothing.\n *\n * jsdom lays nothing out, so every claim here is about which dialog the app mounted, what the address bar\n * was left holding, and which row the store is showing.\n */",
@@ -19416,6 +19427,8 @@ const allowed = new Map([
     "/** What the frame draws for one address; the renderers live in `registry.tsx`, beside the views. */",
     "// The matrix is a way to sort the open plate by two questions, so it sits beside the calendar and",
     "// carries the same open count as the board.",
+    "// The timeline is the calendar's planning counterpart: one row per task, with editable start and",
+    "// due ends. Like the calendar it is a wide-window surface and reaches a phone from the overflow menu.",
   ]],
   ["src/client/features/todos/views/registry.tsx", [
     "/**\n * What the to-do container draws for one address.\n *\n * The navigation table — order, glyph, badge, labels — is `views/nav`, and it is kept apart from this\n * file on purpose: the organizer page offers every other surface, and if the table lived here it would\n * have to import that page to be read, while that page imports the table to list what it can jump to.\n * This file is the half that is allowed to know what a screen looks like.\n */",
@@ -53859,6 +53872,27 @@ const allowed = new Map([
     "/**\n * The time ledger for one saved task.\n *\n * Entries stay as the server split them: a span crossing the account's midnight is several rows, not\n * one duration with a guessed date. Manual spans are written immediately rather than queued, because\n * the time route has no idempotency key and replaying a lost answer would file the same work twice.\n */",
     "// Check again at the gesture: the browser may not have delivered the offline event yet, and this",
     "// write deliberately has no offline queue to lose or duplicate it.",
+  ]],
+  ["src/client/features/todos/TimelineView.tsx", [
+    "/**\n * The timeline: one open task per row, measured from its start to its due day.\n *\n * A missing start is inferred backwards from the estimate when there is one; a missing due day is\n * inferred forwards. A task with no estimate keeps a one-day, dashed placeholder instead of inventing a\n * duration. The bar and its two ends are real buttons: the bar opens the task and moves the whole range,\n * while either end adjusts that date. Arrow keys give the same edits without a pointer.\n */",
+    "/** First included account-zone day. */",
+    "/** First excluded account-zone day. */",
+    "/** The row has a positive estimate, so its inferred or explicit span is a plan rather than a placeholder. */",
+    "/** The week or calendar month containing an account-zone day. */",
+    "/** Move a timeline window by one of its own units. */",
+    "/** Every included day in a half-open range. */",
+    "/**\n * The days one task's bar covers.\n *\n * Explicit start and due dates win. The estimate fills only a missing end, rounded up to a whole day;\n * without an estimate the bar is a visible one-day placeholder. A reversed explicit range is clamped\n * rather than drawn backwards.\n */",
+    "/** Whether a bar touches the half-open window. */",
+    "/** The inclusive day distance between two account-zone days. */",
+    "/** The bar while a pointer is moving it, before anything is written. */",
+    "/** Keep an existing wall-clock time when a drag changes only its day. */",
+    "/** The patch one committed drag means. Whole-bar moves preserve which ends were actually stated. */",
+    "// Start-only and undated tasks have no server-side start filter. Reading the open set once keeps the",
+    "// range switch local and lets the timeline place those rows honestly; the ceiling is reported below.",
+  ]],
+  ["src/client/features/todos/timeline-view.test.tsx", [
+    "/**\n * The timeline's date arithmetic and the edits its bars offer.\n *\n * The cases pin the facts a painted grid can get wrong while still looking plausible: an estimate fills\n * only a missing end, a missing estimate stays visibly unknown, and both pointer and keyboard edits go\n * through the store's guarded task writer rather than a second timeline-only API path.\n */",
+    "// The start cannot cross the due date; the clamp is part of the edit rather than a backwards bar.",
   ]],
 ])
 const found = new Map()
