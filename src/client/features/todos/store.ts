@@ -18,8 +18,14 @@
  */
 
 import { create } from 'zustand'
-import { ApiError, CLIENT_ID, api, type TaskListEntry } from '../../lib/api'
+import { CLIENT_ID, api, type TaskListEntry } from '../../lib/api'
 import { localDb, type OutboxItem } from '../../lib/db'
+import {
+  replayTodoOutboxItem as replayTodoOutboxItemWithRuntime,
+  todoQueuedRev,
+  type TodoOutboxOutcome,
+  type TodoOutboxPayload,
+} from './todo-outbox'
 import { t } from '../../lib/i18n'
 import { subscribeToAddress } from '../../lib/app-history'
 import { localDate, localDayBounds, parseLocalTime } from '@shared/assistant-time'
@@ -32,7 +38,6 @@ import type { MessageKey } from '@shared/locales/en-US'
 import {
   MAX_SINGLE_TIME_ENTRY_MS,
   remindOffsetForDelta,
-  snoozeMinutesOrNull,
   toggledStatus,
   type RemindOffset,
   type SnoozeMinutes,
@@ -615,41 +620,6 @@ const PICKER_LIMIT = 8
  * replay could land twice — `/time` has no idempotency key, so a lost answer would turn five minutes
  * into ten.
  */
-type TodoOutboxOp = 'create' | 'update' | 'delete' | 'plan' | 'snooze' | 'timer-start' | 'timer-stop'
-
-type TodoOutboxPayload = {
-  op: TodoOutboxOp
-  /** The body a create posts; the optimistic row's id is this item's `entityId`, not part of it. */
-  task?: Record<string, unknown>
-  patch?: Record<string, unknown>
-  /** The revision the write was made against, when the row had one. */
-  rev?: number
-  date?: string | null
-  /** Any whole number of minutes the snooze route accepts; the four presets are a menu, not a range. */
-  minutes?: number
-  /** The instant a queued timer gesture was pressed at, in the reader's own clock. */
-  at?: number
-}
-
-/** How a replay pass ended for one row; the note store's loop acts on it. */
-export type TodoOutboxOutcome =
-  | { status: 'done'; retarget?: { from: string; to: string } }
-  | { status: 'retry' }
-  | { status: 'offline' }
-
-function isTodoOutboxPayload(value: Record<string, unknown>): value is TodoOutboxPayload {
-  return value.op === 'create' || value.op === 'update' || value.op === 'delete'
-    || value.op === 'plan' || value.op === 'snooze'
-    || value.op === 'timer-start' || value.op === 'timer-stop'
-}
-
-/** The revision a queued write names, or undefined when the row was created offline. */
-function todoQueuedRev(payload: TodoOutboxPayload): number | undefined {
-  return typeof payload.rev === 'number' && Number.isSafeInteger(payload.rev) && payload.rev >= 1
-    ? payload.rev
-    : undefined
-}
-
 /**
  * Put one server row into the lists, moving it between the open and finished buckets.
  *
@@ -751,147 +721,23 @@ async function resolveTodoReplayConflict(
   return 'adopted'
 }
 
-/**
- * Replay one queued task write.
- *
- * The note store owns the queue's lease and hands each task row here. Success leaves the row in the
- * queue for that loop to complete after this call returns; `retry` leaves it for a later pass, and
- * `offline` stops the whole pass because nothing behind it can land either.
- */
 export async function replayTodoOutboxItem(
   item: OutboxItem,
   siblings: OutboxItem[] = [],
 ): Promise<TodoOutboxOutcome> {
-  const payload = item.payload
-  if (!isTodoOutboxPayload(payload)) {
-    await localDb.markOutboxFailure(item.id, item.writeId, 'invalid offline task write').catch(() => {})
-    return { status: 'retry' }
-  }
-  const id = item.entityId
-  try {
-    switch (payload.op) {
-      case 'create': {
-        const body = payload.task ?? {}
-        // The queued row's own write id is the idempotency key: it was minted when this create was
-        // enqueued and travels with the queue row, so a second attempt at the same queued write —
-        // the one where the server wrote the task and the response was lost — is answered with the
-        // task it already made rather than with a second copy.
-        const { task } = await api.todos.create(body, item.writeId)
-        storeServerTask(task, { addIfMissing: true, replaceId: id })
-        // Every later queued write for the row this create just minted names the local id. Move them
-        // together, or they would edit a task that never existed.
-        await localDb.retargetOutboxEntity('todo', id, task.id).catch(() => {})
-        // The rows this queued create waits on each gained a partner of their own to restate.
-        await refreshServerRows(cachedDependPartners(dependsIds(body.dependsOn)))
-        return { status: 'done', retarget: { from: id, to: task.id } }
-      }
-      case 'update': {
-        const patch = payload.patch ?? {}
-        // A cached row is the only place the edges being replaced are still written down, so both sets
-        // are read here — before the answer overwrites the row this queue item was about.
-        const partners = 'dependsOn' in patch
-          ? [
-            ...(useTodos.getState().tasks.find((entry) => entry.id === id)?.dependsOn.map((ref) => ref.id) ?? []),
-            ...dependsIds(patch.dependsOn),
-          ]
-          : []
-        const { task, next } = await api.todos.update(id, patch, todoQueuedRev(payload), item.writeId)
-        storeServerTask(task, { addIfMissing: true })
-        if (next) storeServerTask(next, { addIfMissing: true })
-        await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
-        await refreshServerRows(cachedDependPartners(partners))
-        return { status: 'done' }
-      }
-      case 'delete': {
-        try {
-          await api.todos.remove(id)
-        } catch (error) {
-          // The dequeued row is a tombstone: the point of queueing a delete rather than an update is
-          // that a row already gone is the outcome this write wanted, not a failure.
-          if (!(error instanceof ApiError && error.status === 404)) throw error
-        }
-        removeServerTask(id)
-        return { status: 'done' }
-      }
-      case 'plan': {
-        // The revision the row carried when the pick was queued rides to the route, which is what
-        // makes an offline pick a conditional write rather than a blind one.
-        const { task } = await api.todos.plan(id, payload.date ?? null, todoQueuedRev(payload))
-        storeServerTask(task, { addIfMissing: true })
-        await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
-        return { status: 'done' }
-      }
-      case 'snooze': {
-        const minutes = snoozeMinutesOrNull(payload.minutes)
-        if (minutes === null) {
-          await localDb.markOutboxFailure(item.id, item.writeId, 'invalid snooze duration').catch(() => {})
-          return { status: 'retry' }
-        }
-        const { task } = await api.todos.snooze(id, minutes, todoQueuedRev(payload))
-        storeServerTask(task, { addIfMissing: true })
-        // A snooze spends a revision like any other write, so the edits queued behind it have to be
-        // moved onto the one that landed — otherwise the next replay reports a conflict this tab made.
-        await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
-        return { status: 'done' }
-      }
-      case 'timer-start': {
-        // The instant travels. A reader who started an interval at two and reconnected at six worked
-        // from two, and replaying the gesture as "now" would move those four hours into a different
-        // day of the ledger — which is the one thing the day buckets and the per-day ceiling read off.
-        const { entry } = await api.todos.startTimer(id, payload.at === undefined ? {} : { startAt: payload.at })
-        // The row this start displaced, if any, spent a revision too — the server closed its interval
-        // where this one begins — so it is re-read alongside the row that now holds the open span.
-        const displaced = timedRowIds(useTodos.getState()).filter((rowId) => rowId !== entry.taskId)
-        paintTimedRow(entry.taskId, entry.startAt)
-        await refreshServerRows([entry.taskId, ...displaced])
-        return { status: 'done' }
-      }
-      case 'timer-stop': {
-        try {
-          await api.todos.stopTimer(id, payload.at === undefined ? {} : { endAt: payload.at })
-        } catch (error) {
-          // Nothing running on this task is the state a stop wants, exactly as a delete of a row that
-          // is already gone is: the only way here is a replay of a stop that landed and lost its answer.
-          if (!(error instanceof ApiError && error.status === 404)) throw error
-        }
-        paintTimedRow(id, null)
-        await refreshServerRows([id])
-        return { status: 'done' }
-      }
-    }
-  } catch (error) {
-    if (error instanceof ApiError) {
-      if (error.isOffline) return { status: 'offline' }
-      if (error.isAuth) {
-        location.reload()
-        return { status: 'retry' }
-      }
-      if (error.isConflict) {
-        const resolved = await resolveTodoReplayConflict(item, payload, siblings)
-        if (resolved === 'retry') return { status: 'retry' }
-        if (resolved === 'adopted') return { status: 'done' }
-      }
-      if (error.status === 404 && payload.op === 'delete') {
-        removeServerTask(id)
-        return { status: 'done' }
-      }
-      if (error.status === 429) {
-        await localDb.markOutboxFailure(
-          item.id,
-          item.writeId,
-          error.message,
-        ).catch(() => {})
-        return { status: 'retry' }
-      }
-    }
-    toastError(error)
-    await localDb.markOutboxFailure(
-      item.id,
-      item.writeId,
-      error instanceof Error ? error.message : String(error),
-    ).catch(() => {})
-    return { status: 'retry' }
-  }
+  return await replayTodoOutboxItemWithRuntime(item, siblings, {
+    tasks: () => useTodos.getState().tasks,
+    timedRowIds: () => timedRowIds(useTodos.getState()),
+    storeServerTask,
+    removeServerTask,
+    advanceTodoDependents,
+    resolveTodoReplayConflict,
+    refreshServerRows,
+    cachedDependPartners,
+    dependsIds,
+    paintTimedRow,
+    toastError,
+  })
 }
 
 type ListingParams = NonNullable<Parameters<typeof api.todos.list>[0]>
