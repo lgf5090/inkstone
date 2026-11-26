@@ -7,9 +7,13 @@ import type { MessageKey } from '@shared/locales/en-US'
 import { Button, Spinner } from '../../../components/primitives'
 import { clouddriveApi, cloudDriveErrorKey } from '../api'
 import { useCloudDriveStore } from '../store'
+import { useUi } from '../../../store/ui'
 
 export function QuickFilesPage({ mode }: { mode: 'recent' | 'starred' }) {
+  const toast = useUi((state) => state.toast)
   const [files, setFiles] = useState<CloudDriveEntry[]>([])
+  const [cursor, setCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<MessageKey | null>(null)
   const [retryKey, setRetryKey] = useState(0)
@@ -18,13 +22,15 @@ export function QuickFilesPage({ mode }: { mode: 'recent' | 'starred' }) {
     let cancelled = false
     setStatus('loading')
     setError(null)
+    setCursor(null)
     const work = mode === 'recent'
-      ? clouddriveApi.recent('viewed').then((result) => result.files)
-      : clouddriveApi.recent('starred').then((result) => result.files)
+      ? clouddriveApi.recent('viewed')
+      : clouddriveApi.recent('starred')
     void work
       .then((result) => {
         if (cancelled) return
-        setFiles(result)
+        setFiles(result.files)
+        setCursor(result.cursor)
         setStatus('ready')
       })
       .catch((caught) => {
@@ -35,6 +41,21 @@ export function QuickFilesPage({ mode }: { mode: 'recent' | 'starred' }) {
       })
     return () => { cancelled = true }
   }, [mode, refreshKey, retryKey])
+
+  const loadMore = async () => {
+    if (!cursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const result = await clouddriveApi.recent(mode === 'recent' ? 'viewed' : 'starred', cursor)
+      setFiles((current) => [...current, ...result.files])
+      setCursor(result.cursor)
+    } catch (caught) {
+      toast({ title: t('clouddrive.search.load_more_failed'), description: caught instanceof Error ? caught.message : '', tone: 'danger' })
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col p-4">
       <h1 className="mb-3 flex items-center gap-2 text-[length:var(--text-15)] font-semibold text-[var(--text-primary)]">{mode === 'recent' ? t('clouddrive.nav.recent') : t('clouddrive.nav.starred')}{mode === 'starred' && <Star size={14} className="text-[var(--accent)]" />}</h1>
@@ -56,6 +77,13 @@ export function QuickFilesPage({ mode }: { mode: 'recent' | 'starred' }) {
             </li>
           ))}
         </ul>
+      )}
+      {status === 'ready' && cursor && (
+        <div className="mt-3 flex justify-center">
+          <Button size="sm" variant="secondary" loading={loadingMore} onClick={() => void loadMore()}>
+            {t('clouddrive.search.load_more')}
+          </Button>
+        </div>
       )}
     </div>
   )

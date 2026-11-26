@@ -65,6 +65,11 @@ export const cloudDrivePublicApi = {
   shareContentUrl: (slug: string, path: string, download: boolean) => download
     ? `/d/${encodeURIComponent(slug)}/raw?path=${encodeURIComponent(path)}`
     : `${sharePath(slug)}/content?path=${encodeURIComponent(path)}`,
+  shareZipUrl: (slug: string) => `/api/public/clouddrive/shares/${encodeURIComponent(slug)}/zip`,
+  saveShare: (slug: string, toPath = '/') => request<{ saved: number; entry: { id: string; name: string; path: string } }>(
+    `/api/clouddrive/shares/${encodeURIComponent(slug)}/save`,
+    { method: 'POST', body: JSON.stringify({ toPath }) },
+  ),
 
   fileRequest: (slug: string) => request<PublicRequestInfo>(requestPath(slug)),
   verifyRequest: (slug: string, password: string) => request<{ ok: true }>(`${requestPath(slug)}/verify`, {

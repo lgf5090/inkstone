@@ -1695,6 +1695,7 @@ export type ApiErrorCode =
   | 'clouddrive_folder_summary_disabled'
   | 'clouddrive_folder_too_large'
   | 'clouddrive_meta_locked'
+  | 'clouddrive_vault_locked'
   | 'clouddrive_mount_unavailable'
   | 'clouddrive_upload_expired'
   | 'clouddrive_share_locked'

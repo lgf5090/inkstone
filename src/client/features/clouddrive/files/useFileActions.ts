@@ -42,8 +42,8 @@ export interface FileActions {
   setFolderMeta: (entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => Promise<boolean>
   addTag: (entry: CloudDriveEntry, tag: string, color: string) => Promise<boolean>
   removeTag: (entry: CloudDriveEntry, tag: string) => Promise<boolean>
-  move: (ids: string[], toPath: string, entries?: CloudDriveEntry[]) => Promise<boolean>
-  copy: (ids: string[], toPath: string) => Promise<boolean>
+  move: (ids: string[], toPath: string, entries?: CloudDriveEntry[], toMountId?: string) => Promise<boolean>
+  copy: (ids: string[], toPath: string, toMountId?: string) => Promise<boolean>
   trash: (ids: string[], entries?: CloudDriveEntry[]) => Promise<boolean>
   restore: (ids: string[]) => Promise<boolean>
   purge: (ids?: string[], all?: boolean) => Promise<boolean>
@@ -166,7 +166,7 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
     showSuccess(t('clouddrive.toast.tags_saved'))
   }), [execute, onLocalChange])
 
-  const move = useCallback((ids: string[], toPath: string, entries?: CloudDriveEntry[]) => execute(async () => {
+  const move = useCallback((ids: string[], toPath: string, entries?: CloudDriveEntry[], toMountId?: string) => execute(async () => {
     if (external) {
       if (!entries || entries.length === 0) throw new CloudDriveApiError('internal', 'missing entries', 0)
       const moved: string[] = []
@@ -181,21 +181,21 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
       else showSuccess(t('clouddrive.toast.moved', { count: moved.length }))
       return
     }
-    const result = await clouddriveApi.move({ ids, toPath, conflict: 'rename' })
-    const moved = successfulIds(result.results)
+    const result = await clouddriveApi.move({ ids, mountId, toMountId, toPath, conflict: 'rename' })
+    const moved = successfulIds(result.results.filter((item) => !item.sourceRetained))
     if (moved.length > 0) onLocalChange?.({ type: 'remove', ids: moved })
-    const failed = failedResults(result.results)
+    const failed = result.results.filter((item) => !item.ok || item.sourceRetained).length
     if (failed > 0) showError(new CloudDriveApiError('internal', 'partial move', 0))
     else showSuccess(t('clouddrive.toast.moved', { count: moved.length }))
   }), [execute, external, mountId, onLocalChange])
 
-  const copy = useCallback((ids: string[], toPath: string) => execute(async () => {
-    const result = await clouddriveApi.copy({ ids, toPath, conflict: 'rename' })
+  const copy = useCallback((ids: string[], toPath: string, toMountId?: string) => execute(async () => {
+    const result = await clouddriveApi.copy({ ids, mountId, toMountId, toPath, conflict: 'rename' })
     const copied = successfulIds(result.results).length
-    const failed = failedResults(result.results)
+    const failed = result.results.filter((item) => !item.ok || item.sourceRetained).length
     if (failed > 0) showError(new CloudDriveApiError('internal', 'partial copy', 0))
     else showSuccess(t('clouddrive.toast.copied', { count: copied }))
-  }), [execute])
+  }), [execute, mountId])
 
   const trash = useCallback((ids: string[], entries?: CloudDriveEntry[]) => execute(async () => {
     if (external) {

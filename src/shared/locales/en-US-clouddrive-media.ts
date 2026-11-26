@@ -24,6 +24,7 @@ export const EN_US_CLOUDDRIVE_MEDIA = {
   'clouddrive.viewer.counter': '{index} of {count}',
   'clouddrive.viewer.reset_zoom': 'Reset zoom',
   'clouddrive.viewer.image_failed': 'This image could not be loaded',
+  'clouddrive.viewer.heic_failed': 'This browser cannot preview HEIC/HEIF. Download the file to view it.',
   'clouddrive.viewer.media_failed': 'This file could not be played',
   'clouddrive.viewer.unsupported': 'This file cannot be previewed here',
   'clouddrive.viewer.video': 'Video',

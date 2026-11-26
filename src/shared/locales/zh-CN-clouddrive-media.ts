@@ -24,6 +24,7 @@ export const ZH_CN_CLOUDDRIVE_MEDIA = {
   'clouddrive.viewer.counter': '第 {index} 项，共 {count} 项',
   'clouddrive.viewer.reset_zoom': '重置缩放',
   'clouddrive.viewer.image_failed': '无法加载此图片',
+  'clouddrive.viewer.heic_failed': '当前浏览器无法预览 HEIC/HEIF，请下载文件后查看。',
   'clouddrive.viewer.media_failed': '无法播放此文件',
   'clouddrive.viewer.unsupported': '此文件无法在此预览',
   'clouddrive.viewer.video': '视频',

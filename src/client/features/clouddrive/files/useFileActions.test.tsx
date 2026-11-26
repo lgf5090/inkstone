@@ -54,6 +54,13 @@ describe('useFileActions partial transfers', () => {
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ tone: 'danger' }))
   })
 
+  it('forwards the selected destination mount for cross-mount copy', async () => {
+    api.copy.mockResolvedValue({ results: [{ id: 'ok', ok: true, toPath: '/ok.txt' }] })
+    view = renderElement(createElement(Harness, { changes: [], refresh: vi.fn() }))
+    await act(async () => { await actions!.copy(['ok'], '/', 'archive') })
+    expect(api.copy).toHaveBeenCalledWith({ ids: ['ok'], mountId: 'primary', toMountId: 'archive', toPath: '/', conflict: 'rename' })
+  })
+
   it('reports restored count rather than requesting count after partial restore', async () => {
     api.restore.mockResolvedValue({ results: [{ id: 'ok', ok: true }, { id: 'bad', ok: false, error: 'not_found' }] })
     view = renderElement(createElement(Harness, { changes: [], refresh: vi.fn() }))

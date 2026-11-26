@@ -4,6 +4,10 @@ import { clouddriveApi } from '../src/client/features/clouddrive/api'
 import { useCloudDriveStore } from '../src/client/features/clouddrive/store'
 import { partRetryDelay, putPartWithRetry, useTransferStore, type TransferItem } from '../src/client/features/clouddrive/transfers/useTransferStore'
 
+vi.mock('../src/client/features/clouddrive/transfers/hash', () => ({
+  sha256File: vi.fn().mockResolvedValue('a'.repeat(64)),
+}))
+
 const HISTORY_VERSION = 'v1'
 const originalCreateObjectURL = URL.createObjectURL
 

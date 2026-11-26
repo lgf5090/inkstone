@@ -1,6 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import {
+  Activity,
+  ArchiveRestore,
   Clock,
   Database,
   Eye,
@@ -19,6 +21,7 @@ import {
   Search,
   Settings,
   Share2,
+  ShieldCheck,
   Star,
   Tag,
   Timer,
@@ -65,6 +68,9 @@ const QuickFilesPage = lazy(() => import('./quick/QuickFilesPage').then((module)
 const AlbumPage = lazy(() => import('./album/AlbumPage').then((module) => ({ default: module.AlbumPage })))
 const TransfersPage = lazy(() => import('./transfers/TransfersPage').then((module) => ({ default: module.TransfersPage })))
 const SyncPage = lazy(() => import('./sync/SyncPage').then((module) => ({ default: module.SyncPage })))
+const ActivityPage = lazy(() => import('./activity/ActivityPage').then((module) => ({ default: module.ActivityPage })))
+const BackupsPage = lazy(() => import('./backups/BackupsPage').then((module) => ({ default: module.BackupsPage })))
+const VaultPage = lazy(() => import('./vault/VaultPage').then((module) => ({ default: module.VaultPage })))
 const OfflinePage = lazy(() => import('./offline/OfflinePage').then((module) => ({ default: module.OfflinePage })))
 const RequestsPage = lazy(() => import('./requests/RequestsPage').then((module) => ({ default: module.RequestsPage })))
 const TrashPage = lazy(() => import('./trash/TrashPage').then((module) => ({ default: module.TrashPage })))
@@ -95,6 +101,9 @@ const MANAGE: readonly { page: CloudDrivePage; labelKey: MessageKey; icon: typeo
   { page: 'jobs', labelKey: 'clouddrive.nav.jobs', icon: Timer, ownerOnly: true },
   { page: 'tasks', labelKey: 'clouddrive.nav.tasks', icon: ListChecks },
   { page: 'sync', labelKey: 'clouddrive.nav.sync', icon: RefreshCw },
+  { page: 'activity', labelKey: 'clouddrive.nav.activity', icon: Activity },
+  { page: 'backups', labelKey: 'clouddrive.nav.backups', icon: ArchiveRestore, ownerOnly: true },
+  { page: 'vault', labelKey: 'clouddrive.nav.vault', icon: ShieldCheck, ownerOnly: true },
   { page: 'keys', labelKey: 'clouddrive.nav.keys', icon: KeyRound },
   { page: 'maintenance', labelKey: 'clouddrive.nav.maintenance', icon: Wrench, ownerOnly: true },
   { page: 'settings', labelKey: 'clouddrive.nav.settings', icon: Settings },
@@ -259,6 +268,7 @@ export function ClouddriveApp() {
                   external={!!activeMount && activeMount.storageId !== 'primary'}
                   folderSummary={activeMount?.folderSummary ?? false}
                   onNavigate={(nextPath) => navigate(cloudDrivePath('files', address.mountId, nextPath))}
+                  onNavigateMount={(nextMountId, nextPath) => navigate(cloudDrivePath('files', nextMountId, nextPath))}
                   onPreview={(entry, context) => setPreview({ entries: context?.entries ?? [entry], index: context?.index ?? 0 })}
                 />
               )
@@ -288,7 +298,13 @@ export function ClouddriveApp() {
                   ? <TransfersPage />
                   : address.page === 'sync'
                     ? <SyncPage />
-                  : address.page === 'settings'
+                    : address.page === 'activity'
+                      ? <ActivityPage />
+                      : address.page === 'backups' && owner
+                        ? <BackupsPage />
+                        : address.page === 'vault' && owner
+                          ? <VaultPage />
+                          : address.page === 'settings'
                     ? <CloudDriveSettingsPage owner={owner} />
                     : address.page === 'keys'
                       ? <ApiKeysPage />

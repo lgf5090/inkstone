@@ -11,6 +11,7 @@ import type { CloudDriveEntry, CloudDriveUploadConflict } from '@shared/clouddri
 import { useSession } from '../../../store/session'
 import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
 import { useCloudDriveStore } from '../store'
+import { sha256File } from './hash'
 
 export type TransferKind = 'upload' | 'download'
 export type TransferStatus = 'queued' | 'running' | 'success' | 'error' | 'cancelled'
@@ -297,6 +298,7 @@ async function runUpload(item: TransferItem, signal: AbortSignal): Promise<numbe
     uploaded = resumed.uploadedParts
     patchItem(item.id, { parentPath: resumed.path.slice(0, resumed.path.lastIndexOf('/') || 1) })
   } else {
+    const checksum = await sha256File(file)
     const init = await clouddriveApi.initUpload({
       mountId: item.mountId,
       parentPath: item.parentPath ?? '/',
@@ -304,6 +306,7 @@ async function runUpload(item: TransferItem, signal: AbortSignal): Promise<numbe
       size: item.size,
       mime: item.mime || 'application/octet-stream',
       conflict: item.conflict ?? 'rename',
+      sha256: checksum,
     })
     if (!init.session) {
       if (!init.skipped) throw new TransferError('clouddrive.error.internal')
@@ -321,6 +324,13 @@ async function runUpload(item: TransferItem, signal: AbortSignal): Promise<numbe
       console.warn('[inkstone] CloudDrive upload session could not be aborted', error)
     })
     throw abortError()
+  }
+
+  if (strategy === 'dedupe') {
+    const completed = await clouddriveApi.completeUpload(sessionId)
+    if (!completed.entry) throw new TransferError('clouddrive.error.internal')
+    patchItem(item.id, { entryId: completed.entry.id, transferred: 0 })
+    return 0
   }
 
   if (strategy === 'direct') {

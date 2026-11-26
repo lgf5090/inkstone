@@ -56,6 +56,21 @@ describe('QuickFilesPage read states', () => {
     expect(document.body.textContent).toContain(t('clouddrive.empty.recent'))
   })
 
+  it('appends the next recent page instead of discarding the cursor', async () => {
+    recent.mockResolvedValueOnce({ files: [{ id: 'one', name: 'one.txt' }], cursor: 'next' })
+      .mockResolvedValueOnce({ files: [{ id: 'two', name: 'two.txt' }], cursor: null })
+    view = renderElement(createElement(QuickFilesPage, { mode: 'recent' }))
+    await settle()
+    expect(button(t('clouddrive.search.load_more'))).toBeDefined()
+
+    await act(async () => { button(t('clouddrive.search.load_more'))!.click() })
+    await settle()
+    expect(recent).toHaveBeenLastCalledWith('viewed', 'next')
+    expect(document.body.textContent).toContain('one.txt')
+    expect(document.body.textContent).toContain('two.txt')
+    expect(button(t('clouddrive.search.load_more'))).toBeUndefined()
+  })
+
   it('shows a retryable failure instead of claiming there are no starred files', async () => {
     recent.mockRejectedValueOnce(new Error('offline'))
     view = renderElement(createElement(QuickFilesPage, { mode: 'starred' }))

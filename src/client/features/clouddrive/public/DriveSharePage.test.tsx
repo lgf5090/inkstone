@@ -10,6 +10,8 @@ const service = vi.hoisted(() => ({
   listShare: vi.fn(),
   verifyShare: vi.fn(),
   shareContentUrl: vi.fn((slug: string, path: string, download: boolean) => `/d/${slug}/${path}?download=${download}`),
+  shareZipUrl: vi.fn((slug: string) => `/api/public/clouddrive/shares/${slug}/zip`),
+  saveShare: vi.fn(),
 }))
 
 vi.mock('./api', () => ({ cloudDrivePublicApi: service }))
@@ -42,6 +44,7 @@ beforeEach(async () => {
   service.share.mockReset().mockResolvedValue(meta)
   service.listShare.mockReset().mockResolvedValue({ entries: [], cursor: null, total: 0 })
   service.verifyShare.mockReset()
+  service.saveShare.mockReset()
 })
 
 afterEach(() => {
@@ -51,6 +54,13 @@ afterEach(() => {
 })
 
 describe('DriveSharePage folder states', () => {
+  it('offers a folder ZIP download when downloads are allowed', async () => {
+    view = renderElement(createElement(DriveSharePage, { slug: 'share' }))
+    await settle()
+    const link = document.querySelector<HTMLAnchorElement>(`a[href="/api/public/clouddrive/shares/share/zip"]`)
+    expect(link?.textContent).toContain(t('clouddrive.share.download_zip'))
+  })
+
   it('does not turn a failed folder read into an empty folder', async () => {
     service.listShare.mockRejectedValueOnce(new Error('offline'))
     view = renderElement(createElement(DriveSharePage, { slug: 'share' }))

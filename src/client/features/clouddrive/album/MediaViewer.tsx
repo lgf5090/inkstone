@@ -84,6 +84,7 @@ export function MediaViewer({ open, entries, index, onIndexChange, onClose, onDo
   if (!open || !entry) return null
 
   const isImage = entry.category === 'images' || entry.mime.startsWith('image/')
+  const isHeic = /^image\/(heic|heif)$/i.test(entry.mime)
   const isVideo = entry.category === 'videos' || entry.mime.startsWith('video/')
   const isAudio = entry.category === 'audios' || entry.mime.startsWith('audio/')
   const contentUrl = clouddriveApi.contentUrl(entry.id)
@@ -235,7 +236,7 @@ export function MediaViewer({ open, entries, index, onIndexChange, onClose, onDo
               <div role="alert" className="flex max-w-[380px] flex-col items-center gap-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-6 text-center">
                 <AlertTriangle size={26} className="text-[var(--danger)]" aria-hidden />
                 <p className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
-                  {isImage ? ct('clouddrive.viewer.image_failed') : ct('clouddrive.viewer.media_failed')}
+                  {isHeic ? ct('clouddrive.viewer.heic_failed') : isImage ? ct('clouddrive.viewer.image_failed') : ct('clouddrive.viewer.media_failed')}
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   <Button size="sm" variant="secondary" onClick={() => { setFailed(false); setRetryKey((key) => key + 1) }}>

@@ -4,9 +4,10 @@ import type { ReactNode } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
-import { clouddriveApi } from '../api'
+import { clouddriveApi, type CloudDriveAclGrant, type CloudDriveAclRole } from '../api'
 import { Button, IconButton } from '../../../components/primitives'
-import { Input, Textarea } from '../../../components/form'
+import { DatePicker } from '../../../components/date-picker'
+import { Input, Select, Textarea } from '../../../components/form'
 import { Drawer } from '../../../components/overlay'
 import { useMediaQuery } from '../../../lib/hooks'
 import { useSession } from '../../../store/session'
@@ -26,31 +27,60 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
   )
 }
 
+function expiryInputValue(value: number | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
 function AclEditor({ entry }: { entry: CloudDriveEntry }) {
   const toast = useUi((state) => state.toast)
-  const [grants, setGrants] = useState<{ granteeId: string; username: string; name: string }[]>([])
+  const [grants, setGrants] = useState<CloudDriveAclGrant[]>([])
+  const [cursor, setCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [username, setUsername] = useState('')
+  const [role, setRole] = useState<CloudDriveAclRole>('viewer')
+  const [expiresAt, setExpiresAt] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
-  const load = () => {
-    void clouddriveApi.aclGrants(entry.id).then((result) => setGrants(result.grants)).catch((error) => {
+  const load = (next: string | null = null) => {
+    if (next) setLoadingMore(true)
+    void clouddriveApi.aclGrants(entry.id, next).then((result) => {
+      setGrants((current) => next ? [...current, ...result.grants] : result.grants)
+      setCursor(result.cursor)
+    }).catch((error) => {
       console.warn('[inkstone] CloudDrive ACL grants could not be read', error)
-    })
+    }).finally(() => setLoadingMore(false))
   }
   useEffect(() => { load() }, [entry.id])
+  const fail = (caught: unknown) => toast({
+    title: t('clouddrive.toast.failed'),
+    description: caught instanceof Error ? caught.message : '',
+    tone: 'danger',
+  })
   const add = async () => {
     if (!username.trim()) return
     setBusy(true)
     try {
-      await clouddriveApi.addAclGrant(entry.id, username.trim())
+      await clouddriveApi.addAclGrant(entry.id, username.trim(), role, expiresAt)
       setUsername('')
+      setExpiresAt(null)
       load()
       toast({ title: t('clouddrive.inspector.acl_added') })
     } catch (caught) {
-      toast({
-        title: t('clouddrive.toast.failed'),
-        description: caught instanceof Error ? caught.message : '',
-        tone: 'danger',
-      })
+      fail(caught)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const update = async (grant: CloudDriveAclGrant, patch: { role?: CloudDriveAclRole; expiresAt?: number | null }) => {
+    setBusy(true)
+    try {
+      const result = await clouddriveApi.patchAclGrant(entry.id, grant.granteeId, patch)
+      setGrants((current) => current.map((one) => one.granteeId === grant.granteeId ? result.grant : one))
+    } catch (caught) {
+      fail(caught)
+      load()
     } finally {
       setBusy(false)
     }
@@ -61,8 +91,8 @@ function AclEditor({ entry }: { entry: CloudDriveEntry }) {
       await clouddriveApi.removeAclGrant(entry.id, granteeId)
       load()
       toast({ title: t('clouddrive.inspector.acl_removed') })
-    } catch {
-      toast({ title: t('clouddrive.toast.failed'), tone: 'danger' })
+    } catch (caught) {
+      fail(caught)
     } finally {
       setBusy(false)
     }
@@ -71,19 +101,51 @@ function AclEditor({ entry }: { entry: CloudDriveEntry }) {
     <section>
       <h3 className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.acl')}</h3>
       <p className="mb-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.inspector.acl_hint')}</p>
-      <div className="flex gap-1.5">
+      <div className="flex flex-col gap-1.5">
         <Input value={username} onChange={(event) => setUsername(event.target.value)} placeholder={t('clouddrive.inspector.acl')} aria-label={t('clouddrive.inspector.acl')} />
+        <div className="flex gap-1.5">
+          <Select value={role} onChange={(event) => setRole(event.target.value as CloudDriveAclRole)} aria-label={t('clouddrive.inspector.acl_role')} disabled={busy}>
+            <option value="viewer">{t('clouddrive.acl.role.viewer')}</option>
+            <option value="commenter">{t('clouddrive.acl.role.commenter')}</option>
+            <option value="editor">{t('clouddrive.acl.role.editor')}</option>
+          </Select>
+          <DatePicker label={t('clouddrive.inspector.acl_expires')} value={expiryInputValue(expiresAt)} onChange={(value) => setExpiresAt(value ? new Date(value).getTime() : null)} withTime className="min-w-0 flex-1" />
+        </div>
         <Button size="sm" variant="secondary" loading={busy} onClick={() => void add()}>{t('clouddrive.inspector.acl_add')}</Button>
       </div>
       {grants.length === 0 ? <p className="mt-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.inspector.acl_empty')}</p> : (
-        <ul className="mt-1 flex flex-col gap-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+        <ul className="mt-2 flex flex-col gap-2 text-[length:var(--text-11)] text-[var(--text-secondary)]">
           {grants.map((grant) => (
-            <li key={grant.granteeId} className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate">{grant.username}{grant.name && grant.name !== grant.username ? ` · ${grant.name}` : ''}</span>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void remove(grant.granteeId)}>{t('clouddrive.inspector.acl_remove')}</Button>
+            <li key={grant.granteeId} className="flex flex-col gap-1 border-t border-[var(--border-subtle)] pt-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate">{grant.username}{grant.name && grant.name !== grant.username ? ` · ${grant.name}` : ''}</span>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => void remove(grant.granteeId)}>{t('clouddrive.inspector.acl_remove')}</Button>
+              </div>
+              <div className="flex gap-1.5">
+                <Select value={grant.role} onChange={(event) => void update(grant, { role: event.target.value as CloudDriveAclRole })} aria-label={t('clouddrive.inspector.acl_role')} disabled={busy}>
+                  <option value="viewer">{t('clouddrive.acl.role.viewer')}</option>
+                  <option value="commenter">{t('clouddrive.acl.role.commenter')}</option>
+                  <option value="editor">{t('clouddrive.acl.role.editor')}</option>
+                </Select>
+                <DatePicker
+                  label={t('clouddrive.inspector.acl_expires')}
+                  value={expiryInputValue(grant.expiresAt)}
+                  withTime
+                  className="min-w-0 flex-1"
+                  onChange={(value) => {
+                    const next = value ? new Date(value).getTime() : null
+                    if (!busy && next !== grant.expiresAt) void update(grant, { expiresAt: next })
+                  }}
+                />
+              </div>
             </li>
           ))}
         </ul>
+      )}
+      {cursor && (
+        <Button size="sm" variant="secondary" className="mt-1" loading={loadingMore} onClick={() => load(cursor)}>
+          {t('clouddrive.search.load_more')}
+        </Button>
       )}
     </section>
   )

@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom'
+import { useShallow } from 'zustand/react/shallow'
 import {
   Fragment,
   Suspense,
@@ -21,6 +22,7 @@ import {
   ArrowUpDown,
   ChevronRight,
   Columns3,
+  Database,
   FolderOpen,
   FolderPlus,
   FolderSearch,
@@ -46,7 +48,6 @@ import {
   CLOUDDRIVE_UPLOAD_CONFLICTS,
   parentPathOf,
   type CloudDriveEntry,
-  type CloudDriveListing,
   type CloudDriveListColumn,
   type CloudDriveSortDirection,
   type CloudDriveSortKey,
@@ -61,16 +62,15 @@ import { AssistantDock } from '../../chat'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { Field, Input, Segmented } from '../../../components/form'
 import { Menu, Modal, type MenuItem } from '../../../components/overlay'
-import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
+import { clouddriveApi, cloudDriveErrorKey } from '../api'
 import { cloudDriveCssVars } from '../prefs'
 import { useCloudDriveStore } from '../store'
 import { createFolderTree, planFolderUpload } from '../transfers/folder-upload'
-import { useTransferStore } from '../transfers/useTransferStore'
 import { FileList } from './FileList'
 import { FileGrid } from './FileGrid'
 import { FileGallery } from './FileGallery'
 import { ContextMenu, type ContextMenuTarget } from './ContextMenu'
-import { BatchRenameDialog, ConfirmDeleteDialog, MoveDialog, NameDialog, RenameDialog } from './Dialogs'
+import { BatchRenameDialog, ConfirmDeleteDialog, CrossMountDialog, MoveDialog, NameDialog, RenameDialog } from './Dialogs'
 import { Inspector } from './Inspector'
 import { SelectionBar } from './SelectionBar'
 import { RemoteUploadDialog } from './RemoteUploadDialog'
@@ -78,8 +78,10 @@ import { ShareDialog } from './ShareDialog'
 import { VersionsDialog } from './VersionsDialog'
 import { useFileActions, type FileListChange, type ShareOptions } from './useFileActions'
 import { useEntryIndicators } from './useEntryIndicators'
+import { useFileListing } from './useFileListing'
+import { useFileSelection } from './useFileSelection'
 import { useTouchDrag } from './useTouchDrag'
-import type { FileClipboard, SelectMode } from './types'
+import type { FileClipboard } from './types'
 import { totalEntryBytes } from './format'
 import './files.css'
 
@@ -90,22 +92,10 @@ import './files.css'
  */
 const MarkdownBody = lazy(() => import('../../preview/MarkdownBody').then((module) => ({ default: module.MarkdownBody })))
 
-/** A page is what the user scrolls past before asking for the next one; the server caps at 500. */
-const PAGE_SIZE = 200
-
 /** The private `dataTransfer` type that marks an in-app move, as opposed to a file dropped from the OS. */
 const DRAG_MIME = 'application/x-inkstone-clouddrive'
 /** The chip a long-press drag carries: a name that fits, and how many more rows ride with it. */
 const DRAG_LABEL_MAX = 28
-
-function appendListing(current: CloudDriveListing, next: CloudDriveListing): CloudDriveListing {
-  const seen = new Set([...current.folders, ...current.files].map((entry) => entry.id))
-  return {
-    ...next,
-    folders: [...current.folders, ...next.folders.filter((entry) => !seen.has(entry.id))],
-    files: [...current.files, ...next.files.filter((entry) => !seen.has(entry.id))],
-  }
-}
 
 export interface PreviewContext {
   entries: CloudDriveEntry[]
@@ -117,6 +107,7 @@ export interface FilesPageProps {
   mountName?: string
   path: string
   onNavigate(path: string): void
+  onNavigateMount?(mountId: string, path: string): void
   readOnly?: boolean
   external?: boolean
   folderSummary?: boolean
@@ -132,31 +123,31 @@ type DialogState =
   | { kind: 'rename'; entry: CloudDriveEntry }
   | { kind: 'renameBatch' }
   | { kind: 'move'; ids: string[]; initialPath: string; entries: CloudDriveEntry[] }
+  | { kind: 'transfer'; mode: 'copy' | 'move'; ids: string[]; initialPath: string; entries: CloudDriveEntry[] }
   | { kind: 'delete'; ids: string[]; entries: CloudDriveEntry[] }
   | { kind: 'share'; entries: CloudDriveEntry[] }
   | { kind: 'versions'; entry: CloudDriveEntry }
   | { kind: 'remoteUpload' }
   | null
 
-export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = false, external = false, folderSummary = false, onPreview }: FilesPageProps) {
+export function FilesPage({ mountId, mountName, path, onNavigate, onNavigateMount, readOnly = false, external = false, folderSummary = false, onPreview }: FilesPageProps) {
   const prefs = useCloudDriveStore((state) => state.prefs)
   const setPrefs = useCloudDriveStore((state) => state.setPrefs)
   const refreshKey = useCloudDriveStore((state) => state.refreshKey)
+  const primaryMounts = useCloudDriveStore(useShallow((state) => state.bootstrap?.mounts.filter((mount) => mount.storageId === 'primary' && mount.enabled && !mount.readOnly) ?? []))
 
-  const [listing, setListing] = useState<CloudDriveListing | null>(null)
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [error, setError] = useState<string | null>(null)
-  const [nextCursor, setNextCursor] = useState<string | null>(null)
-  const [more, setMore] = useState<'idle' | 'loading' | 'error'>('idle')
-  const [searchScope, setSearchScope] = useState<'drive' | 'folder'>('drive')
-  const [search, setSearch] = useState('')
-  const [query, setQuery] = useState('')
-  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
-  const [anchorId, setAnchorId] = useState<string | null>(null)
-  const [focusedId, setFocusedId] = useState<string | null>(null)
-  const [lockPath, setLockPath] = useState<string | null>(null)
-  const [lockPassword, setLockPassword] = useState('')
-  const [lockBusy, setLockBusy] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
+  const sortButtonRef = useRef<HTMLButtonElement>(null)
+  const columnsButtonRef = useRef<HTMLButtonElement>(null)
+  const conflictButtonRef = useRef<HTMLButtonElement>(null)
+  const dragRef = useRef<{ ids: string[]; paths: string[] } | null>(null)
+  const searchSummaryId = useId()
+  const {
+    listing, setListing, status, error, nextCursor, more, searchScope, setSearchScope,
+    search, setSearch, query, setQuery, load, lockPath, setLockPath, lockPassword, setLockPassword, lockBusy,
+    unlockFolder, driveSearch,
+  } = useFileListing({ mountId, path, external, sortKey: prefs.sortKey, sortDir: prefs.sortDir, refreshKey })
   const [clipboard, setClipboard] = useState<FileClipboard | null>(null)
   const [menuTarget, setMenuTarget] = useState<ContextMenuTarget | null>(null)
   const [dialog, setDialog] = useState<DialogState>(null)
@@ -165,19 +156,14 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   const [conflictOpen, setConflictOpen] = useState(false)
   const [crumbDrop, setCrumbDrop] = useState<string | null>(null)
 
-  const listingRef = useRef<CloudDriveListing | null>(null)
-  const requestRef = useRef(0)
-  const cursorRef = useRef<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const folderInputRef = useRef<HTMLInputElement>(null)
-  const sortButtonRef = useRef<HTMLButtonElement>(null)
-  const columnsButtonRef = useRef<HTMLButtonElement>(null)
-  const conflictButtonRef = useRef<HTMLButtonElement>(null)
-  const dragRef = useRef<{ ids: string[]; paths: string[] } | null>(null)
-  const searchSummaryId = useId()
-
   const writable = !readOnly
   const viewMode: ViewMode = prefs.viewMode === 'column' ? 'icon' : prefs.viewMode
+  useEffect(() => {
+    setMenuTarget(null)
+    setDialog(null)
+    setCrumbDrop(null)
+  }, [mountId, path])
+
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const toggleAssistantDock = useUi((state) => state.toggleAssistantDock)
 
@@ -207,111 +193,6 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   }, [external, listing, mountId, mountName, path, query, readOnly])
 
   useEffect(() => {
-    listingRef.current = listing
-  }, [listing])
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setQuery(search.trim().slice(0, 100)), 300)
-    return () => window.clearTimeout(timer)
-  }, [search])
-
-  const driveSearch = searchScope === 'drive' && query.length > 0 && !external
-
-  /**
-   * One page of results, either the current folder or — while the search box holds text and the
-   * scope says *whole drive* — every folder under the mount. `cursor` continues where the last
-   * page stopped; the server hands it back only when there is more.
-   */
-  const fetchPage = useCallback(async (cursor: string | null): Promise<CloudDriveListing> => {
-    if (driveSearch) {
-      const result = await clouddriveApi.search({ q: query, mountId, cursor, limit: PAGE_SIZE })
-      return {
-        mountId,
-        path,
-        folders: [],
-        files: result.files,
-        cursor: result.cursor,
-        total: result.total,
-        foldersTruncated: false,
-        note: null,
-        footer: null,
-      }
-    }
-    return await clouddriveApi.list({
-      mountId,
-      path,
-      sort: prefs.sortKey,
-      dir: prefs.sortDir,
-      limit: PAGE_SIZE,
-      cursor,
-      q: query || undefined,
-    })
-  }, [driveSearch, mountId, path, prefs.sortKey, prefs.sortDir, query])
-
-  const load = useCallback(async (mode: 'reset' | 'more' = 'reset') => {
-    const sequence = ++requestRef.current
-    if (mode === 'reset') {
-      setStatus('loading')
-      setError(null)
-    } else {
-      setMore('loading')
-    }
-    try {
-      const result = await fetchPage(mode === 'more' ? cursorRef.current : null)
-      if (sequence !== requestRef.current) return
-      setListing((current) => (mode === 'more' && current ? appendListing(current, result) : result))
-      cursorRef.current = result.cursor
-      setNextCursor(result.cursor)
-      setMore('idle')
-      setStatus('ready')
-    } catch (caught) {
-      if (sequence !== requestRef.current) return
-      if (mode === 'more') {
-        setMore('error')
-        useUi.getState().toast({ title: t('clouddrive.search.load_more_failed'), description: caught instanceof Error ? caught.message : String(caught), tone: 'danger' })
-        return
-      }
-      cursorRef.current = null
-      setNextCursor(null)
-      if (caught instanceof CloudDriveApiError && caught.code === 'clouddrive_meta_locked') {
-        setStatus('ready')
-        setError(null)
-        setLockPath(path)
-        return
-      }
-      const message = t(cloudDriveErrorKey(caught) as MessageKey)
-      if (listingRef.current) {
-        // The previous directory is still usable; the failed refresh explains itself in a toast.
-        setStatus('ready')
-        useUi.getState().toast({ title: message, tone: 'danger' })
-      } else {
-        setError(message)
-        setStatus('error')
-      }
-    }
-  }, [fetchPage, path])
-
-  useEffect(() => {
-    setListing(null)
-    listingRef.current = null
-    cursorRef.current = null
-    setNextCursor(null)
-    setMore('idle')
-    setSelected(new Set())
-    setAnchorId(null)
-    setFocusedId(null)
-    setMenuTarget(null)
-    setSearch('')
-    setQuery('')
-    setLockPath(null)
-    setLockPassword('')
-  }, [mountId, path])
-
-  useEffect(() => {
-    void load()
-  }, [load, refreshKey])
-
-  useEffect(() => {
     let active = true
     void clouddriveApi.clipboard()
       .then(({ clipboard: saved }) => {
@@ -323,17 +204,6 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       })
     return () => { active = false }
   }, [])
-
-  useEffect(() => useTransferStore.subscribe((state, previous) => {
-    const previousStatus = new Map(previous.items.map((item) => [item.id, item.status]))
-    const arrived = state.items.some((item) =>
-      item.kind === 'upload'
-      && item.status === 'success'
-      && item.mountId === mountId
-      && item.parentPath === path
-      && previousStatus.get(item.id) !== 'success')
-    if (arrived) void load()
-  }), [load, mountId, path])
 
   // The server answers with the two halves of a folder separately, each in its own order; which half
   // comes first in the browser is the reader's "folders first" choice.
@@ -347,25 +217,14 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   const { reload: reloadIndicators, refreshVersions } = entryIndicators
   const searchSummary = query.length > 0
     ? (driveSearch
-      ? t('clouddrive.search.results_drive', { count: listing?.total ?? entries.length })
+      ? t(searchScope === 'all' ? 'clouddrive.search.results_all' : 'clouddrive.search.results_drive', { count: listing?.total ?? entries.length })
       : t('clouddrive.search.results_folder', { path, count: listing?.total ?? entries.length }))
     : ''
 
-  useEffect(() => {
-    if (!listing) return
-    const ids = new Set(entries.map((entry) => entry.id))
-    setSelected((current) => {
-      const next = new Set([...current].filter((id) => ids.has(id)))
-      return next.size === current.size ? current : next
-    })
-    setFocusedId((current) => (current && ids.has(current) ? current : entries[0]?.id ?? null))
-    setAnchorId((current) => (current && ids.has(current) ? current : null))
-  }, [listing, entries])
-
-  const selectedEntries = useMemo(
-    () => entries.filter((entry) => selected.has(entry.id)),
-    [entries, selected],
-  )
+  const {
+    selected, setSelected, setAnchorId, focusedId, setFocusedId, selectedEntries,
+    selectEntry, selectAll, clearSelection, focusFirstEntry, targetsFor,
+  } = useFileSelection(entries, listing)
 
   const pathSegments = useMemo(() => path.split('/').filter(Boolean), [path])
 
@@ -462,57 +321,14 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     labelFor: labelOfDrag,
   })
 
-  const selectEntry = useCallback((entry: CloudDriveEntry, mode: SelectMode) => {
-    if (swallowTapClick.current) return
-    setSelected((current) => {
-      if (mode === 'toggle') {
-        const next = new Set(current)
-        if (next.has(entry.id)) next.delete(entry.id)
-        else next.add(entry.id)
-        return next
-      }
-      if (mode === 'range' && anchorId) {
-        const from = entries.findIndex((item) => item.id === anchorId)
-        const to = entries.findIndex((item) => item.id === entry.id)
-        if (from >= 0 && to >= 0) {
-          const [start, end] = from < to ? [from, to] : [to, from]
-          return new Set(entries.slice(start, end + 1).map((item) => item.id))
-        }
-      }
-      return new Set([entry.id])
-    })
-    if (mode !== 'range') setAnchorId(entry.id)
-    setFocusedId(entry.id)
-  }, [anchorId, entries])
-
-  const selectAll = useCallback(() => {
-    setSelected(new Set(entries.map((entry) => entry.id)))
-    setAnchorId(entries[0]?.id ?? null)
-  }, [entries])
-
-  const clearSelection = useCallback(() => {
-    setSelected(new Set())
-    setAnchorId(null)
-  }, [])
-
-  /** The selection bar disappears with the selection, so focus has to land somewhere visible. */
-  const focusFirstEntry = useCallback(() => {
-    window.requestAnimationFrame(() => {
-      const root = document.querySelector<HTMLElement>('[data-clouddrive-files]')
-      const target = root?.querySelector<HTMLElement>('[data-cd-entry]')
-        ?? root?.querySelector<HTMLElement>('[role="region"]')
-      target?.focus({ preventScroll: true })
-    })
-  }, [])
-
-  const targetsFor = useCallback(
-    (entry: CloudDriveEntry) => (selected.has(entry.id) ? entries.filter((item) => selected.has(item.id)) : [entry]),
-    [entries, selected],
-  )
+  const navigateEntry = useCallback((entry: CloudDriveEntry) => {
+    if (entry.mountId !== mountId && onNavigateMount) onNavigateMount(entry.mountId, entry.path)
+    else onNavigate(entry.path)
+  }, [mountId, onNavigate, onNavigateMount])
 
   const previewEntry = useCallback((entry: CloudDriveEntry) => {
     if (entry.kind === 'folder') {
-      onNavigate(entry.path)
+      navigateEntry(entry)
       return
     }
     actions.noteView(entry)
@@ -523,12 +339,12 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       return
     }
     window.open(clouddriveApi.contentUrl(entry.id), '_blank', 'noopener,noreferrer')
-  }, [actions, entries, onNavigate, onPreview])
+  }, [actions, entries, navigateEntry, onPreview])
 
   const openEntry = useCallback((entry: CloudDriveEntry) => {
-    if (entry.kind === 'folder') onNavigate(entry.path)
+    if (entry.kind === 'folder') navigateEntry(entry)
     else previewEntry(entry)
-  }, [onNavigate, previewEntry])
+  }, [navigateEntry, previewEntry])
 
   const isMutable = useCallback((entry: CloudDriveEntry) => writable && !entry.readOnly, [writable])
 
@@ -639,21 +455,6 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       focusFirstEntry()
     }
   }, [actions, clipboard, focusFirstEntry, path])
-
-  const unlockFolder = async () => {
-    if (!lockPath) return
-    setLockBusy(true)
-    try {
-      await clouddriveApi.metaUnlock({ mountId, path: lockPath, password: lockPassword })
-      setLockPath(null)
-      setLockPassword('')
-      await load()
-    } catch (error) {
-      useUi.getState().toast({ title: t('clouddrive.meta.unlock'), description: error instanceof Error ? error.message : '', tone: 'danger' })
-    } finally {
-      setLockBusy(false)
-    }
-  }
 
   const handleUploadPicked = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
@@ -817,13 +618,14 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
             />
           </div>
           {query.length > 0 && !external && (
-            <Segmented<'drive' | 'folder'>
+            <Segmented<'folder' | 'drive' | 'all'>
               value={searchScope}
               size="sm"
               label={t('clouddrive.search.scope')}
               options={[
                 { value: 'folder', label: <FolderSearch size={14} />, title: t('clouddrive.search.scope_folder') },
                 { value: 'drive', label: <Globe size={14} />, title: t('clouddrive.search.scope_drive') },
+                { value: 'all', label: <Database size={14} />, title: t('clouddrive.search.scope_all') },
               ]}
               onChange={(scope) => setSearchScope(scope)}
             />
@@ -1221,8 +1023,11 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         onDownload={() => actions.download(selectedEntries)}
         onShare={() => requestShare(selectedEntries)}
         onCopy={() => rememberClipboard('copy', selectedEntries.map((entry) => entry.id))}
+        onCopyTo={() => setDialog({ kind: 'transfer', mode: 'copy', ids: selectedEntries.map((entry) => entry.id), initialPath: path, entries: selectedEntries })}
         onCut={() => rememberClipboard('cut', selectedEntries.map((entry) => entry.id))}
-        onMove={() => setDialog({ kind: 'move', ids: selectedEntries.map((entry) => entry.id), initialPath: path, entries: selectedEntries })}
+        onMove={() => setDialog(external
+          ? { kind: 'move', ids: selectedEntries.map((entry) => entry.id), initialPath: path, entries: selectedEntries }
+          : { kind: 'transfer', mode: 'move', ids: selectedEntries.map((entry) => entry.id), initialPath: path, entries: selectedEntries })}
         onRenameBatch={() => setDialog({ kind: 'renameBatch' })}
         onStar={() => void actions.setStarred(selectedEntries, !selectedEntries.every((entry) => Boolean(entry.starredAt)))}
         onDelete={() => requestDelete(selectedEntries)}
@@ -1264,7 +1069,9 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         onCut={(targets) => rememberClipboard('cut', targets.map((entry) => entry.id))}
         onPaste={() => void pasteClipboard()}
         onRename={(entry) => setDialog({ kind: 'rename', entry })}
-        onMove={(targets) => setDialog({ kind: 'move', ids: targets.map((entry) => entry.id), initialPath: path, entries: targets })}
+        onMove={(targets) => setDialog(external
+          ? { kind: 'move', ids: targets.map((entry) => entry.id), initialPath: path, entries: targets }
+          : { kind: 'transfer', mode: 'move', ids: targets.map((entry) => entry.id), initialPath: path, entries: targets })}
         onDelete={requestDelete}
         onColor={(entry, color) => void actions.setColor(entry, color)}
         onAddTag={(entry, tag, color) => void actions.addTag(entry, tag, color)}
@@ -1299,6 +1106,26 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         busy={actions.busy}
         onClose={() => setDialog(null)}
         onSubmit={(items) => actions.renameBatch(items)}
+      />
+      <CrossMountDialog
+        open={dialog?.kind === 'transfer'}
+        mode={dialog?.kind === 'transfer' ? dialog.mode : 'move'}
+        count={dialog?.kind === 'transfer' ? dialog.ids.length : 0}
+        mounts={primaryMounts.map((mount) => ({ id: mount.id, name: mount.name }))}
+        initialMountId={mountId}
+        initialPath={dialog?.kind === 'transfer' ? dialog.initialPath : path}
+        busy={actions.busy}
+        onClose={() => setDialog(null)}
+        onSubmit={(toMountId, destination) => {
+          if (dialog?.kind !== 'transfer') return Promise.resolve(false)
+          const run = dialog.mode === 'copy'
+            ? actions.copy(dialog.ids, destination, toMountId)
+            : actions.move(dialog.ids, destination, dialog.entries, toMountId)
+          return run.then((ok) => {
+            if (ok && dialog.mode === 'move' && toMountId === mountId) focusFirstEntry()
+            return ok
+          })
+        }}
       />
       <MoveDialog
         open={dialog?.kind === 'move'}

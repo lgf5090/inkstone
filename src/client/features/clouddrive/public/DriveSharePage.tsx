@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { HardDrive, LockKeyhole } from 'lucide-react'
+import { FileArchive, HardDrive, LockKeyhole, Save } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Input } from '../../../components/form'
 import { Button, Spinner } from '../../../components/primitives'
 import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../../lib/autocomplete'
 import { CloudDriveApiError } from '../api'
+import { useSession } from '../../../store/session'
 import { cloudDrivePublicApi, type PublicShareEntry, type PublicShareMeta } from './api'
 
 type Phase = 'loading' | 'ready' | 'locked' | 'unavailable' | 'expired'
@@ -35,6 +36,9 @@ export function DriveSharePage({ slug }: { slug: string }) {
   const [loadMoreError, setLoadMoreError] = useState(false)
   const [previewPath, setPreviewPath] = useState<string | null>(null)
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set())
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const signedIn = useSession((state) => Boolean(state.user))
 
   const load = useCallback(() => cloudDrivePublicApi.share(slug), [slug])
 
@@ -89,6 +93,21 @@ export function DriveSharePage({ slug }: { slug: string }) {
   }
 
   const contentUrl = (path: string, download: boolean) => cloudDrivePublicApi.shareContentUrl(slug, path, download)
+
+  const saveToDrive = async () => {
+    setSaving(true)
+    setSaveError('')
+    try {
+      const saved = await cloudDrivePublicApi.saveShare(slug, '/')
+      setSaveError(t('clouddrive.share.saved', { value0: saved.entry.name }))
+    } catch (caught) {
+      setSaveError(caught instanceof CloudDriveApiError && caught.status === 401
+        ? t('clouddrive.share.sign_in_to_save')
+        : t('clouddrive.share.save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const fetchFolder = useCallback(
     (at: string | null) => cloudDrivePublicApi.listShare(slug, sharePath, at),
@@ -229,6 +248,22 @@ export function DriveSharePage({ slug }: { slug: string }) {
             {meta.targetKind === 'file' && !meta.allowDownload && !preview && (
               <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.share.no_download')}</p>
             )}
+            <div className="flex flex-wrap items-center gap-2">
+              {signedIn && meta.allowDownload && (
+                <Button size="sm" variant="secondary" icon={<Save size={13} />} loading={saving} onClick={() => void saveToDrive()}>
+                  {t('clouddrive.share.save_to_drive')}
+                </Button>
+              )}
+              {meta.targetKind === 'folder' && meta.allowDownload && (
+                <a
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--r-md)] bg-[var(--accent)] px-4 text-[length:var(--text-12)] font-medium text-[var(--accent-contrast)]"
+                  href={cloudDrivePublicApi.shareZipUrl(slug)}
+                >
+                  <FileArchive size={14} aria-hidden />{t('clouddrive.share.download_zip')}
+                </a>
+              )}
+            </div>
+            {saveError && <p role="status" className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{saveError}</p>}
             {meta.targetKind === 'folder' && (
               <div className="flex flex-col gap-1">
                 {sharePath !== '/' && <button type="button" className="self-start text-[length:var(--text-11)] text-[var(--accent)]" onClick={goUp}>{t('clouddrive.toolbar.back')}</button>}

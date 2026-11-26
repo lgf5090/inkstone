@@ -1,31 +1,38 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, Download, FolderOpen, RefreshCw, Save, Users } from 'lucide-react'
+import { ArrowLeft, Download, FolderOpen, FolderPlus, RefreshCw, Save, Users } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { useUi } from '../../../store/ui'
 import { clouddriveApi, type CloudDriveSharedEntry, type CloudDriveSharedItem } from '../api'
 import { useCloudDriveStore } from '../store'
+import { NameDialog } from '../files/Dialogs'
 
 interface BrowseState {
   item: CloudDriveSharedItem
   path: string
   entries: CloudDriveSharedEntry[]
+  cursor: string | null
 }
 
 export function SharedPage() {
   const toast = useUi((state) => state.toast)
   const bumpRefresh = useCloudDriveStore((state) => state.bumpRefresh)
   const [items, setItems] = useState<CloudDriveSharedItem[]>([])
+  const [itemsCursor, setItemsCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [browse, setBrowse] = useState<BrowseState | null>(null)
   const [busy, setBusy] = useState(false)
+  const [newFolder, setNewFolder] = useState<{ ownerId: string; folderId: string; path: string } | null>(null)
   const refreshKey = useCloudDriveStore((state) => state.refreshKey)
 
   const load = useCallback(async () => {
     setStatus('loading')
     try {
-      setItems((await clouddriveApi.sharedWithMe()).shared)
+      const result = await clouddriveApi.sharedWithMe()
+      setItems(result.shared)
+      setItemsCursor(result.cursor)
       setStatus('ready')
     } catch {
       setStatus('error')
@@ -33,13 +40,46 @@ export function SharedPage() {
   }, [])
   useEffect(() => { void load() }, [load, refreshKey])
 
-  const openFolder = async (item: CloudDriveSharedItem, path: string) => {
+  const loadMoreItems = async () => {
+    if (!itemsCursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const result = await clouddriveApi.sharedWithMe(itemsCursor)
+      setItems((current) => [...current, ...result.shared])
+      setItemsCursor(result.cursor)
+    } catch {
+      setStatus('error')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  const openFolder = async (item: CloudDriveSharedItem, path: string, next: string | null = null) => {
     setBusy(true)
     try {
-      const result = await clouddriveApi.sharedList(item.ownerId, item.fileId, path)
-      setBrowse({ item, path: result.path, entries: result.entries })
+      const result = await clouddriveApi.sharedList(item.ownerId, item.fileId, path, next)
+      setBrowse((current) => next && current
+        ? { ...current, entries: [...current.entries, ...result.entries], cursor: result.cursor }
+        : { item, path: result.path, entries: result.entries, cursor: result.cursor })
     } catch {
-      setBrowse(null)
+      if (!next) setBrowse(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const createFolder = async (name: string) => {
+    if (!newFolder || !browse) return false
+    setBusy(true)
+    try {
+      await clouddriveApi.createSharedFolder(newFolder.ownerId, newFolder.folderId, name)
+      const result = await clouddriveApi.sharedList(browse.item.ownerId, browse.item.fileId, newFolder.path)
+      setBrowse({ item: browse.item, path: result.path, entries: result.entries, cursor: result.cursor })
+      toast({ title: t('clouddrive.toast.created') })
+      return true
+    } catch (caught) {
+      toast({ title: t('clouddrive.toast.failed'), description: caught instanceof Error ? caught.message : '', tone: 'danger' })
+      return false
     } finally {
       setBusy(false)
     }
@@ -105,7 +145,7 @@ export function SharedPage() {
               >
                 {item.name}
               </button>
-              <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{item.ownerName} · {formatBytes(item.size)}</span>
+              <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{item.ownerName} · {formatBytes(item.size)} · {t(`clouddrive.acl.role.${item.role}`)}</span>
               <IconButton label={t('clouddrive.shared.save')} disabled={busy} onClick={() => void save(item.ownerId, item.fileId)}><Save size={13} /></IconButton>
               {item.kind === 'file' && (
                 <IconButton label={t('clouddrive.action.download')} onClick={() => downloadFile(item.ownerId, item.fileId)}><Download size={13} /></IconButton>
@@ -114,12 +154,25 @@ export function SharedPage() {
           ))}
         </ul>
       )}
+      {!browse && itemsCursor && (
+        <div className="flex justify-center">
+          <Button size="sm" variant="secondary" loading={loadingMore} onClick={() => void loadMoreItems()}>
+            {t('clouddrive.search.load_more')}
+          </Button>
+        </div>
+      )}
       {browse && (
         <div className="flex min-h-0 flex-1 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <IconButton label={t('clouddrive.shared.back')} onClick={() => setBrowse(null)}><ArrowLeft size={14} /></IconButton>
             <strong className="text-[length:var(--text-13)] text-[var(--text-primary)]">{browse.item.name}</strong>
             <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{browse.path}</span>
+            <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t(`clouddrive.acl.role.${browse.item.role}`)}</span>
+            {browse.item.role === 'editor' && (
+              <Button size="sm" variant="secondary" icon={<FolderPlus size={13} />} disabled={busy} onClick={() => setNewFolder({ ownerId: browse.item.ownerId, folderId: browse.item.fileId, path: browse.path })}>
+                {t('clouddrive.toolbar.new_folder')}
+              </Button>
+            )}
             {busy && <Spinner size={12} />}
           </div>
           {browse.entries.length === 0 && <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.shared.folder_empty')}</p>}
@@ -137,6 +190,9 @@ export function SharedPage() {
                   </button>
                   <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{formatBytes(entry.size)}</span>
                   <IconButton label={t('clouddrive.shared.save')} disabled={busy} onClick={() => void save(entry.ownerId, entry.fileId)}><Save size={13} /></IconButton>
+                  {entry.kind === 'folder' && browse.item.role === 'editor' && (
+                    <IconButton label={t('clouddrive.toolbar.new_folder')} disabled={busy} onClick={() => setNewFolder({ ownerId: entry.ownerId, folderId: entry.fileId, path: entry.path })}><FolderPlus size={13} /></IconButton>
+                  )}
                   {entry.kind === 'file' && (
                     <IconButton label={t('clouddrive.action.download')} onClick={() => downloadFile(entry.ownerId, entry.fileId)}><Download size={13} /></IconButton>
                   )}
@@ -144,8 +200,21 @@ export function SharedPage() {
               ))}
             </ul>
           )}
+          {browse.cursor && (
+            <div className="flex justify-center">
+              <Button size="sm" variant="secondary" loading={busy} onClick={() => void openFolder(browse.item, browse.path, browse.cursor)}>
+                {t('clouddrive.search.load_more')}
+              </Button>
+            </div>
+          )}
         </div>
       )}
+      <NameDialog
+        open={newFolder !== null}
+        busy={busy}
+        onClose={() => setNewFolder(null)}
+        onSubmit={createFolder}
+      />
     </div>
   )
 }
