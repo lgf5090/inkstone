@@ -288,6 +288,16 @@ describe('event routes', () => {
     expect(reread.event).toMatchObject({ title: 'Current', rev: created.event.rev + 1 })
   })
 
+  it('rejects recurrence rules with more than twenty-four times per day', async () => {
+    const home = (await meta()).calendars[0]!
+    const minutes = Array.from({ length: 25 }, (_, index) => index).join(',')
+    const response = await call('POST', '/events', eventBody(home.id, {
+      recurrenceRule: `FREQ=DAILY;BYMINUTE=${minutes}`,
+    }))
+    expect(response.status).toBe(400)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events').get()).toEqual({ count: 0 })
+  })
+
   it('accepts an occurrence id for snooze and rejects it on a one-off event', async () => {
     const home = (await meta()).calendars[0]!
     const recurring = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, {

@@ -348,6 +348,41 @@ describe('recurrence expansion', () => {
     )
     expect(result.occurrences).toHaveLength(8)
   })
+
+  it('marks a series truncated when it exhausts the request iteration budget', async () => {
+    const { expandRecurringEvents } = await import('../src/worker/calendar/ics')
+    const event = {
+      id: 'ancient-series',
+      title: 'Ancient',
+      description: '',
+      kind: 'event' as const,
+      task: null,
+      conference: null,
+      start: { value: '1800-01-01T09:00:00', type: 'datetime' as const },
+      end: { value: '1800-01-01T10:00:00', type: 'datetime' as const },
+      allDay: false,
+      calendarId: 'cal-1',
+      calendarIds: ['cal-1'],
+      meta: {},
+      icon: null,
+      color: null,
+      recurrenceRule: 'FREQ=DAILY;COUNT=100000',
+      recurrenceParentId: null,
+      recurrenceId: null,
+      recurrenceCancelled: false,
+      rev: 1,
+      source: 'local' as const,
+      externalId: null,
+    }
+    const result = expandRecurringEvents(
+      [event],
+      Date.parse('2026-10-01T00:00:00Z'),
+      Date.parse('2026-11-01T00:00:00Z'),
+      'UTC',
+    )
+    expect(result.occurrences).toEqual([])
+    expect(result.truncated).toBe(true)
+  })
 })
 
 describe('icsCalendarChunks', () => {

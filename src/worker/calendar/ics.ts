@@ -887,6 +887,7 @@ function compareText(left: string, right: string): number {
 
 export const MAX_RECURRENCE_OCCURRENCES = 2000
 const MAX_RECURRENCE_ITERATIONS = 50_000
+const MAX_RECURRENCE_ITERATIONS_TOTAL = 50_000
 
 export interface RecurrenceExpansion {
   occurrences: CalendarEventDto[]
@@ -914,7 +915,12 @@ export function expandRecurringEvents(
 ): RecurrenceExpansion {
   const occurrences: CalendarEventDto[] = []
   let truncated = false
+  let iterationsRemaining = MAX_RECURRENCE_ITERATIONS_TOTAL
   for (const event of events) {
+    if (iterationsRemaining <= 0) {
+      truncated = true
+      break
+    }
     const rule = (event.recurrenceRule
       ?? (typeof event.meta?.recurrenceRule === 'string' ? event.meta.recurrenceRule : null))
       ?.replace(/^RRULE:/i, '').trim()
@@ -942,7 +948,10 @@ export function expandRecurringEvents(
       continue
     }
     const iterator = icalEvent.iterator()
-    for (let iterations = 0; iterations < MAX_RECURRENCE_ITERATIONS; iterations += 1) {
+    const eventIterationLimit = Math.min(MAX_RECURRENCE_ITERATIONS, iterationsRemaining)
+    let iterations = 0
+    for (; iterations < eventIterationLimit; iterations += 1) {
+      iterationsRemaining -= 1
       const next = iterator.next() as IcalTime | null
       if (!next) break
       let start: TemporalValue
@@ -979,6 +988,7 @@ export function expandRecurringEvents(
         rev: 0,
       })
     }
+    if (iterations >= eventIterationLimit || iterationsRemaining <= 0) truncated = true
     if (truncated) break
   }
   return { occurrences, truncated }

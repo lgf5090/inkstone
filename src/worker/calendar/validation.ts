@@ -261,6 +261,8 @@ function parseMeta(value: unknown): Record<string, unknown> {
   return meta
 }
 
+const MAX_RECURRENCE_TIMES_PER_DAY = 24
+
 function normalizeRecurrence(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null
   if (typeof value !== 'string') throw ApiError.badRequest(`${field} must be text`)
@@ -273,6 +275,14 @@ function normalizeRecurrence(value: unknown, field: string): string | null {
   }
   if (!/(?:^|;)FREQ=(?:DAILY|WEEKLY|MONTHLY|YEARLY)(?:;|$)/i.test(rule)) {
     throw ApiError.badRequest(`${field} must name a daily, weekly, monthly or yearly frequency`)
+  }
+  const part = (name: string): string | undefined => rule.split(';').find(entry => entry.toUpperCase().startsWith(`${name}=`))
+  const times = (name: string): number => {
+    const raw = part(name)
+    return raw === undefined ? 1 : Math.max(1, new Set(raw.slice(name.length + 1).split(',')).size)
+  }
+  if (times('BYHOUR') * times('BYMINUTE') * times('BYSECOND') > MAX_RECURRENCE_TIMES_PER_DAY) {
+    throw ApiError.badRequest(`${field} creates more than ${MAX_RECURRENCE_TIMES_PER_DAY} occurrences per day`)
   }
   return rule
 }
