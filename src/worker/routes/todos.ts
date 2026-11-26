@@ -40,6 +40,7 @@ import {
   MAX_REMINDERS_PER_TASK,
   MAX_SINGLE_TIME_ENTRY_MS,
   MAX_SNOOZE_MINUTES,
+  MAX_STEPS_PER_TASK,
   MAX_STEP_TEXT_CHARS,
   MAX_TAGS_PER_TASK,
   MAX_TAG_NAME_CHARS,
@@ -54,6 +55,7 @@ import {
   isTaskStatsBucket,
   isTaskView,
   isTimeEstimateMs,
+  isTodoTimestamp,
   normalizeReminderTimes,
   normalizeTagNames,
   parseRepeatRule,
@@ -219,13 +221,22 @@ function asTimeEstimate(value: unknown): number | null | undefined {
 /** A local date, a local date-time, an instant, or nothing. */
 function parseDue(value: unknown, timezone: string): number | null {
   if (value === undefined || value === null || value === '') return null
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value)
+  if (typeof value === 'number') {
+    if (!isTodoTimestamp(value)) throw ApiError.badRequest('That date is outside the supported range.')
+    return value
+  }
   if (typeof value === 'string') {
     const parsed = parseLocalTime(value, timezone)
     if (parsed === null) throw ApiError.badRequest('That date could not be read.')
     return parsed
   }
   throw ApiError.badRequest('A due date must be text or a number.')
+}
+
+function assertTaskDateOrder(startAt: number | null | undefined, dueAt: number | null | undefined): void {
+  if (startAt != null && dueAt != null && startAt > dueAt) {
+    throw ApiError.badRequest('A task cannot start after its due date.')
+  }
 }
 
 function asRepeat(value: unknown): RepeatRule | null {
@@ -287,8 +298,8 @@ function reminderTimes(value: unknown): number[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value)) throw ApiError.badRequest('Reminders must be a list of instants.')
   for (const entry of value) {
-    if (typeof entry !== 'number' || !Number.isFinite(entry)) {
-      throw ApiError.badRequest('Each reminder must be a millisecond timestamp.')
+    if (!isTodoTimestamp(entry)) {
+      throw ApiError.badRequest('Each reminder must be a supported millisecond timestamp.')
     }
   }
   const unique = new Set(value.map((entry) => Math.trunc(entry)))
@@ -351,11 +362,13 @@ function optionalId(value: unknown, field: string): string | null | undefined {
 
 function stepTexts(value: unknown): string[] | undefined {
   if (value === undefined) return undefined
-  if (!Array.isArray(value)) throw ApiError.badRequest('Steps must be a list of texts.')
-  return value
-    .filter((entry): entry is string => typeof entry === 'string')
-    .map((entry) => entry.trim().slice(0, MAX_STEP_TEXT_CHARS))
-    .filter(Boolean)
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw ApiError.badRequest('Steps must be a list of texts.')
+  }
+  if (value.length > MAX_STEPS_PER_TASK) {
+    throw ApiError.badRequest(`A task can carry at most ${MAX_STEPS_PER_TASK} steps.`)
+  }
+  return value.map((entry) => entry.trim().slice(0, MAX_STEP_TEXT_CHARS)).filter(Boolean)
 }
 
 /**
@@ -401,7 +414,11 @@ async function taskParent(s: AssistantStore, value: unknown, selfId: string): Pr
 function tagNames(value: unknown): string[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value) && typeof value !== 'string') throw ApiError.badRequest('Tags must be a list of names.')
-  return normalizeTagNames(value).slice(0, MAX_TAGS_PER_TASK)
+  const names = normalizeTagNames(value, Number.MAX_SAFE_INTEGER)
+  if (names.length > MAX_TAGS_PER_TASK) {
+    throw ApiError.badRequest(`A task can carry at most ${MAX_TAGS_PER_TASK} tags.`)
+  }
+  return names
 }
 
 /**
@@ -1388,6 +1405,7 @@ todoRoutes.post('/', async (c) => {
   // A start date is read with the due date's own grammar — a local date, a local date-time, an instant
   // or nothing — because it is the same kind of fact and a second parser would eventually disagree.
   const startAt = parseDue(body.startAt, settings.timezone)
+  assertTaskDateOrder(startAt, dueAt)
   const reminders = body.reminders !== undefined
     ? reminderTimes(body.reminders)
     : body.remind !== undefined
@@ -1855,6 +1873,7 @@ todoRoutes.patch('/:id', async (c) => {
   const dueAt = body.dueAt === undefined ? undefined : parseDue(body.dueAt, settings.timezone)
   // Absent leaves the column alone; null clears it, exactly as the due date's own field reads.
   const startAt = body.startAt === undefined ? undefined : parseDue(body.startAt, settings.timezone)
+  assertTaskDateOrder(startAt === undefined ? existing.startAt : startAt, dueAt === undefined ? existing.dueAt : dueAt)
   const nextStatus = body.status !== undefined ? asStatus(body.status) : undefined
   /**
    * Whether this request is the reader finishing the task.
@@ -1909,12 +1928,14 @@ todoRoutes.patch('/:id', async (c) => {
     next = done.next
     await s.recordActivity('task.completed', task.title)
   } else if (nextStatus !== undefined && nextStatus !== task.status) {
-    task = (await s.updateTask(
+    const updated = await s.updateTask(
       id,
       { status: nextStatus },
       settings.timezone,
       wroteFields ? undefined : expectedRev,
-    )) ?? task
+    )
+    if (!updated) throw ApiError.notFound('Task not found')
+    task = updated
   }
   await syncTodoCompletionToCard(c.env.DB, id, isTaskDone(task.status), Date.now())
   return c.json({ task, ...(next ? { next } : {}) })

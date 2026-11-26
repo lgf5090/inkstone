@@ -12,6 +12,14 @@ import { isTaskDone, isTaskOpen } from './status'
 import { daysInMonth, getZonedParts, zonedTimeToUtc } from '../assistant-schedule'
 import { ORGANIZER_COLORS, organizerColorOrNull } from '../organizer-colors'
 
+export const MIN_TODO_TIMESTAMP_MS = 0
+export const MAX_TODO_TIMESTAMP_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999)
+
+export function isTodoTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value)
+    && value >= MIN_TODO_TIMESTAMP_MS && value <= MAX_TODO_TIMESTAMP_MS
+}
+
 export const REPEAT_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const
 export type RepeatFrequency = (typeof REPEAT_FREQUENCIES)[number]
 
@@ -1236,7 +1244,7 @@ export function normalizeReminderTimes(values: readonly number[]): number[] {
  * case, so `Work` and `work` are one tag. Order is kept, because the list is also what the reader
  * sees on the task.
  */
-export function normalizeTagNames(input: unknown): string[] {
+export function normalizeTagNames(input: unknown, limit = MAX_TAGS_PER_TASK): string[] {
   const source = Array.isArray(input)
     ? input
     : typeof input === 'string' ? input.split(',') : []
@@ -1250,7 +1258,7 @@ export function normalizeTagNames(input: unknown): string[] {
     if (seen.has(key)) continue
     seen.add(key)
     out.push(name)
-    if (out.length >= MAX_TAGS_PER_TASK) break
+    if (out.length >= limit) break
   }
   return out
 }

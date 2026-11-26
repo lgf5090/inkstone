@@ -13,6 +13,8 @@ import { LIMITS } from '../src/shared/constants'
 import { AssistantStore } from '../src/worker/assistant/store'
 import {
   MAX_BATCH_TASKS,
+  MAX_STEPS_PER_TASK,
+  MAX_TAGS_PER_TASK,
   MAX_TASK_ICON_CHARS,
   type TaskBatchResult,
   type TaskCounts,
@@ -304,6 +306,16 @@ describe('the task endpoints', () => {
     expect((await send('POST', '', { title: '   ' })).status).toBe(400)
     const task = await create({ title: 'One' })
     expect((await send('PATCH', `/${task.id}`, { status: 'someday' })).status).toBe(400)
+  })
+
+  it('refuses invalid timestamps, date order and oversized collections', async () => {
+    mocks.userId = `taskinput${'0'.repeat(20)}`
+    expect((await send('POST', '', { title: 'x', dueAt: 1e100 })).status).toBe(400)
+    expect((await send('POST', '', { title: 'x', dueAt: -1 })).status).toBe(400)
+    expect((await send('POST', '', { title: 'x', startAt: '2026-10-21T09:00', dueAt: '2026-10-20T09:00' })).status).toBe(400)
+    expect((await send('POST', '', { title: 'x', tags: Array.from({ length: MAX_TAGS_PER_TASK + 1 }, (_, index) => `tag-${index}`) })).status).toBe(400)
+    expect((await send('POST', '', { title: 'x', steps: Array.from({ length: MAX_STEPS_PER_TASK + 1 }, (_, index) => `step-${index}`) })).status).toBe(400)
+    expect((await send('POST', '', { title: 'x', steps: [1] })).status).toBe(400)
   })
 
   /**

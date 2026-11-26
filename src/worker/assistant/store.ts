@@ -362,17 +362,22 @@ function pickEnum<T extends string>(value: unknown, allowed: readonly T[], fallb
  * search for "live" would only find statements that begin with it, which silently disables the whole
  * conflict check for anything but the first word.
  *
- * The literal is truncated before escaping because SQLite compiles a LIKE pattern into a program and
- * refuses one longer than 50 000 characters with `LIKE or GLOB pattern too complex`. That is reachable
- * from the composer: a chat body may be 64 KB, and a pasted log line or base64 blob arrives as one
- * unbroken term, so an unguarded pattern used to fail the whole turn. 16 000 keeps even the worst case
- * — a term made entirely of characters that escape to two — under the ceiling.
+ * D1 caps a LIKE/GLOB pattern at 50 bytes, including the two wildcards and any escape characters.
+ * Truncation therefore happens by encoded bytes rather than character count, so a long Chinese term
+ * cannot pass the local SQLite check and then fail the hosted database.
  */
 const LIKE_TERM_CEILING = 16_000
+const LIKE_PATTERN_ENCODER = new TextEncoder()
 
 function containsPattern(term: string): string {
-  const literal = term.slice(0, LIKE_TERM_CEILING)
-  return `%${literal.replace(/[\\%_]/g, (character) => `\\${character}`)}%`
+  const escape = (value: string) => value.replace(/[\\%_]/g, (character) => `\\${character}`)
+  let literal = ''
+  for (const character of term.slice(0, LIKE_TERM_CEILING)) {
+    const candidate = literal + character
+    if (LIKE_PATTERN_ENCODER.encode(`%${escape(candidate)}%`).length > 50) break
+    literal = candidate
+  }
+  return `%${escape(literal)}%`
 }
 
 /**
@@ -3603,6 +3608,13 @@ export class AssistantStore {
     ))
   }
 
+  private async assertTaskReferences(input: { noteId?: string | null, conversationId?: string | null }): Promise<void> {
+    if (input.noteId && !(await this.knownNote(input.noteId))) throw ApiError.notFound('Note not found')
+    if (input.conversationId && !(await this.getConversation(input.conversationId))) {
+      throw ApiError.notFound('Conversation not found')
+    }
+  }
+
   async knownTag(tagId: string): Promise<boolean> {
     return !!(await this.one<{ id: string }>(`SELECT id FROM tags WHERE user_id = ?1 AND id = ?2`, this.userId, tagId))
   }
@@ -6063,6 +6075,7 @@ export class AssistantStore {
   }
 
   async createTask(input: NewTask, timeZone?: string): Promise<TodoTask> {
+    await this.assertTaskReferences(input)
     const id = newId()
     const at = Date.now()
     const status = input.status ?? 'todo'
@@ -6258,6 +6271,7 @@ export class AssistantStore {
     const existing = await this.getTask(id)
     if (!existing) return null
     if (expectedRev !== undefined && existing.rev !== expectedRev) throw this.taskConflict(id, existing)
+    await this.assertTaskReferences(patch)
     if (isTaskDone(patch.status) && !isTaskDone(existing.status)) {
       throw new TaskCompletionRequiresCompleteTask(id)
     }
