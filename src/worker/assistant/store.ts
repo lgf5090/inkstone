@@ -542,11 +542,8 @@ function taskShelf(alias = 'todos_tasks', shelf: 'off' | 'on' | 'any'): string {
 
 /** The list half of the rule, restated once so the three readings below cannot drift apart. */
 function taskListNotPutAway(alias = 'todos_tasks'): string {
-  return `AND NOT EXISTS (
-    SELECT 1 FROM todos_lists put_away
-     WHERE put_away.user_id = ${alias}.user_id
-       AND put_away.id = ${alias}.list_id
-       AND put_away.archived_at IS NOT NULL)`
+  return `AND (${alias}.list_id IS NULL OR ${alias}.list_id NOT IN (
+    SELECT id FROM todos_lists WHERE user_id = ?1 AND archived_at IS NOT NULL))`
 }
 
 /**
