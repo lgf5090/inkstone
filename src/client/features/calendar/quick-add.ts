@@ -44,14 +44,17 @@ function timeOfDay(text: string): { hour: number; minute: number; tokens: string
     if (suffix === 'pm' && hour < 12) hour += 12
     if (suffix === 'am' && hour === 12) hour = 0
     hour = periodHour(hour, clock[1])
-    return { hour: hour % 24, minute: Number(clock[3]), tokens: [clock[0]] }
+    const minute = Number(clock[3])
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
+    return { hour, minute, tokens: [clock[0]] }
   }
   const meridiem = /(\d{1,2})\s*(am|pm)\b/i.exec(text)
   if (meridiem) {
     let hour = Number(meridiem[1])
     if (meridiem[2].toLowerCase() === 'pm' && hour < 12) hour += 12
     if (meridiem[2].toLowerCase() === 'am' && hour === 12) hour = 0
-    return { hour: hour % 24, minute: 0, tokens: [meridiem[0]] }
+    if (hour > 23) return null
+    return { hour, minute: 0, tokens: [meridiem[0]] }
   }
   const chinese = new RegExp(`(${ZH.periodWords})?\\s*(\\d{1,2})\\s*[${ZH.timeUnits}](${ZH.half}|\\d{1,2}\\s*${ZH.minuteUnit}?)?`).exec(text)
   if (chinese) {
@@ -61,9 +64,11 @@ function timeOfDay(text: string): { hour: number; minute: number; tokens: string
       : minuteText
         ? Number(minuteText.replace(/[^\d]/g, ''))
         : 0
+    const hour = periodHour(Number(chinese[2]), chinese[1])
+    if (hour > 23 || minute > 59) return null
     return {
-      hour: periodHour(Number(chinese[2]), chinese[1]) % 24,
-      minute: Math.min(59, minute),
+      hour,
+      minute,
       tokens: [chinese[0]],
     }
   }
@@ -74,16 +79,16 @@ function dateOf(text: string, today: Temporal.ZonedDateTime): { date: Temporal.P
   const explicit = /(\d{4})-(\d{2})-(\d{2})/.exec(text)
   if (explicit) {
     try {
-      return { date: Temporal.PlainDate.from(explicit[0]), token: explicit[0] }
+      return { date: Temporal.PlainDate.from(explicit[0], { overflow: 'reject' }), token: explicit[0] }
     } catch {
-      return { date: null, token: null }
+      return { date: null, token: explicit[0] }
     }
   }
   const chineseDate = new RegExp(`(\\d{1,2})\\s*${ZH.month}\\s*(\\d{1,2})\\s*[${ZH.daySuffixes}]`).exec(text)
   if (chineseDate) {
     const attempt = (year: number): Temporal.PlainDate | null => {
       try {
-        return Temporal.PlainDate.from({ year, month: Number(chineseDate[1]), day: Number(chineseDate[2]) })
+        return Temporal.PlainDate.from({ year, month: Number(chineseDate[1]), day: Number(chineseDate[2]) }, { overflow: 'reject' })
       } catch {
         return null
       }
@@ -136,6 +141,9 @@ export function parseQuickAdd(
   if (!trimmed) return null
   const today = Temporal.Instant.fromEpochMilliseconds(now.getTime()).toZonedDateTimeISO(timeZone)
   const date = dateOf(trimmed, today)
+  if (date.token && !date.date) return null
+  const clock = /(\d{1,2})[:：](\d{2})/.exec(trimmed)
+  if (clock && (Number(clock[1]) > 23 || Number(clock[2]) > 59)) return null
   const time = timeOfDay(trimmed)
   const duration = durationMinutes(trimmed)
   const dateValue = date.date ?? today.toPlainDate()

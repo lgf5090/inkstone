@@ -134,6 +134,9 @@ export function countdownOccurrence(
   if (item.repeat === 'none') {
     return { date: first, days: first.since(today).days, ordinal: 1, clamped: false }
   }
+  if (first.since(today).days > 0) {
+    return { date: first, days: first.since(today).days, ordinal: 1, clamped: false }
+  }
 
   if (item.repeat === 'lunar' && item.lunarMonth && item.lunarDay) {
     const month = item.lunarMonth

@@ -9,6 +9,7 @@ import {
   FULL_DAY_HOURS,
   isRecurrenceOccurrence,
   missingRangeEventIds,
+  planEventSnapshot,
   toCalendarType,
   toDayFlowEvent,
   toEventInput,
@@ -260,6 +261,32 @@ describe('calendar DTO mapping', () => {
       timeZone: 'Asia/Shanghai',
       hasPending: id => id === 'evt_pending',
     })).toEqual(['evt_within'])
+  })
+})
+
+describe('event snapshot planning', () => {
+  it('treats cached rows as paint without rewriting revisions or proving absence', () => {
+    const cached = eventDto({ id: 'evt_work', rev: 2 })
+    const current = { ...toDayFlowEvent(eventDto({ id: 'evt_work', rev: 9 }), 'UTC'), title: 'Newer local title' }
+    const localOnly = toDayFlowEvent(eventDto({ id: 'evt_local' }), 'UTC')
+    const plan = planEventSnapshot({
+      dtos: [cached], existing: [current, localOnly], range: { from: 0, to: 100 },
+      timeZone: 'UTC', truncated: false, mirror: false, updateRevisions: false,
+      hasPending: () => false,
+    })
+    expect(plan.revisions).toEqual([])
+    expect(plan.stale).toEqual([])
+    expect(plan.update).toHaveLength(1)
+  })
+
+  it('uses a complete server answer as a revision and absence mirror', () => {
+    const localOnly = toDayFlowEvent(eventDto({ id: 'evt_local' }), 'UTC')
+    const plan = planEventSnapshot({
+      dtos: [eventDto({ id: 'evt_work', rev: 9 })], existing: [localOnly], range: { from: Date.parse('2026-10-01T00:00:00Z'), to: Date.parse('2026-11-01T00:00:00Z') },
+      timeZone: 'UTC', truncated: false, hasPending: () => false,
+    })
+    expect(plan.revisions).toEqual([['evt_work', 9]])
+    expect(plan.stale).toContain('evt_local')
   })
 })
 

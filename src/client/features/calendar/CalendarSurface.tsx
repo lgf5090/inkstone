@@ -41,7 +41,7 @@ import type {
   CalendarRangeRevisionDto,
   CalendarTemplateDto,
 } from '@shared/calendar/model'
-import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, MAX_EVENTS_PER_QUERY, isSharedCalendarId, temporalToEpochMs, type CalendarViewName } from '@shared/calendar/model'
+import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, isSharedCalendarId, temporalToEpochMs, type CalendarViewName } from '@shared/calendar/model'
 import type { AppLocale } from '@shared/types'
 import type { AssistantPageContext } from '@shared/assistant'
 import type { MessageKey } from '@shared/locales/en-US'
@@ -79,7 +79,7 @@ import { CalendarQuickAdd } from './CalendarQuickAdd'
 import { attachCalendarChrome } from './calendar-chrome'
 import { CalendarPrintSheet } from './CalendarPrintSheet'
 import { buildPrintSheet, printCalendarSheet, printPeriod } from './print'
-import { paintableRange, rangeCovers, rangeFor, sameRevision, saveRange } from './range-cache'
+import { paintableRange, rangeFor, sameRevision, saveRange } from './range-cache'
 import { observeViewSwitcher } from './view-switcher-a11y'
 import type { PrintSheet } from './print'
 import { CalendarFilteredSearch, calendarSearchResultDate } from './CalendarFilteredSearch'
@@ -99,10 +99,9 @@ import {
   eventCalendarIds,
   FULL_DAY_HOURS,
   isRecurrenceOccurrence,
-  missingRangeEventIds,
+  planEventSnapshot,
   toCalendarType,
   toDayFlowEvent,
-  toEventUpdates,
   toPersistedCalendarEvent,
   toSearchEvent,
 } from './model'
@@ -145,6 +144,7 @@ interface CalendarSurfaceProps {
   initialRecurrenceTruncated?: boolean
   /** The fingerprint the app shell's first read carried; null when that answer had none. */
   initialRevision?: CalendarRangeRevisionDto | null
+  initialCached?: boolean
   initialRange: { from: number; to: number }
   onRefreshMeta: () => Promise<CalendarMetaDto>
   onSavePreferences: (next: CalendarPreferences) => Promise<void>
@@ -418,7 +418,7 @@ function rememberRange(userId: string, from: number, to: number, page: api.Event
   })
 }
 
-export function CalendarSurface({ meta, initialEvents, initialOccurrences, initialTruncated = false, initialRecurrenceTruncated = false, initialRevision = null, initialRange, onRefreshMeta, onSavePreferences }: CalendarSurfaceProps) {
+export function CalendarSurface({ meta, initialEvents, initialOccurrences, initialTruncated = false, initialRecurrenceTruncated = false, initialRevision = null, initialCached = false, initialRange, onRefreshMeta, onSavePreferences }: CalendarSurfaceProps) {
   useLocaleRepaint()
   const appLocale = useLocale()
   const dark = useThemeDark()
@@ -605,7 +605,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   // A truncated first page cannot prove that a smaller visible range is covered; let the surface
   // fetch that range on its own instead of trusting a page that already hit its row ceiling.
   const covered = useRef<Array<[number, number]>>(
-    initialTruncated || initialRecurrenceTruncated ? [] : [[initialRange.from, initialRange.to]],
+    initialTruncated || initialRecurrenceTruncated || initialCached ? [] : [[initialRange.from, initialRange.to]],
   )
   const inFlight = useRef<Array<[number, number]>>([])
   const lastRange = useRef(initialRange)
@@ -705,47 +705,33 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const searchAbort = useRef<AbortController | null>(null)
   useEffect(() => () => searchAbort.current?.abort(), [])
 
-  const applySnapshot = useCallback((dtos: CalendarEventDto[], range: { from: number; to: number }, truncated: boolean, mirror = true): Set<string> => {
-    const timeZone = preferencesRef.current.timeZone
-    const revById = new Map(dtos.map(dto => [dto.id, dto.rev]))
-    const mapped = dtos.map(dto => toDayFlowEvent(dto, timeZone))
-    const existing = new Map(
-      app.getEvents()
-        .filter(event => !isRecurrenceOccurrence(event))
-        .map(event => [event.id, event]),
-    )
-    const add: Event[] = []
-    const update: Array<{ id: string; updates: Partial<Event> }> = []
-    for (const event of mapped) {
-      revs.set(event.id, revById.get(event.id) ?? 0)
-      if (existing.has(event.id)) update.push({ id: event.id, updates: toEventUpdates(event) })
-      else add.push(event)
+  const applySnapshot = useCallback((
+    dtos: CalendarEventDto[],
+    range: { from: number; to: number },
+    truncated: boolean,
+    options: { mirror?: boolean; updateRevisions?: boolean } = {},
+  ): Set<string> => {
+    const plan = planEventSnapshot({
+      dtos,
+      existing: app.getEvents().filter(event => !isRecurrenceOccurrence(event)),
+      range,
+      timeZone: preferencesRef.current.timeZone,
+      truncated,
+      mirror: options.mirror,
+      updateRevisions: options.updateRevisions,
+      hasPending: id => persistenceRef.current?.hasPending(id) === true,
+    })
+    for (const [id, rev] of plan.revisions) revs.set(id, rev)
+    if (plan.add.length > 0 || plan.update.length > 0) {
+      persistenceRef.current?.skip(plan.fetched)
+      app.applyEventsChanges({ add: plan.add, update: plan.update }, false, 'remote')
     }
-    const fetched = new Set(mapped.map(event => event.id))
-    if (add.length > 0 || update.length > 0) {
-      persistenceRef.current?.skip(fetched)
-      app.applyEventsChanges({ add, update }, false, 'remote')
+    if (plan.stale.length > 0) {
+      persistenceRef.current?.skip(plan.stale)
+      app.applyEventsChanges({ delete: plan.stale }, false, 'remote')
+      for (const id of plan.stale) revs.delete(id)
     }
-    // A complete range is a mirror: anything local that overlaps it and did not come back was deleted
-    // elsewhere. A partial cached overlap is only a paint, not proof of absence. Recurring masters and
-    // generated occurrences are views, never rows of their own; a truncated page cannot prove absence,
-    // and a queued write must be allowed to reach the server.
-    const stale = !mirror || truncated || dtos.length >= MAX_EVENTS_PER_QUERY
-      ? []
-      : missingRangeEventIds({
-          events: [...existing.values()],
-          fetched,
-          from: range.from,
-          to: range.to,
-          timeZone,
-          hasPending: id => persistenceRef.current?.hasPending(id) === true,
-        })
-    if (stale.length > 0) {
-      persistenceRef.current?.skip(stale)
-      app.applyEventsChanges({ delete: stale }, false, 'remote')
-      for (const id of stale) revs.delete(id)
-    }
-    return fetched
+    return plan.fetched
   }, [app, revs])
 
   const fetchRange = useCallback(async (from: number, to: number): Promise<Set<string>> => {
@@ -939,12 +925,16 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     if (accountRef.current) rememberRange(accountRef.current, initialRange.from, initialRange.to, page)
     if (appliedRevision.current && sameRevision(appliedRevision.current, initialRevision)) return
     appliedRevision.current = initialRevision
-    applySnapshot(initialEvents, { from: initialRange.from, to: initialRange.to }, initialTruncated)
+    applySnapshot(initialEvents, { from: initialRange.from, to: initialRange.to }, initialTruncated, {
+      mirror: !initialCached,
+      updateRevisions: !initialCached,
+    })
     updateOccurrences(initialOccurrences, { from: initialRange.from, to: initialRange.to })
     lastRange.current = { from: initialRange.from, to: initialRange.to }
     lastPage.current = { from: initialRange.from, to: initialRange.to, page }
   }, [
     applySnapshot,
+    initialCached,
     initialEvents,
     initialOccurrences,
     initialRange.from,
@@ -962,7 +952,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     const range = lastRange.current
     const cached = paintableRange(userId, range.from, range.to)
     if (!cached) return
-    applySnapshot(cached.events, { from: range.from, to: range.to }, false, rangeCovers(cached, range.from, range.to))
+    applySnapshot(cached.events, { from: range.from, to: range.to }, false, { mirror: false, updateRevisions: false })
     updateOccurrences(cached.occurrences, { from: range.from, to: range.to })
   }, [applySnapshot, updateOccurrences, userId])
 
@@ -1002,7 +992,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     // reader's week instead of an empty grid. The fetch below replaces it with the server's answer.
     const cached = userId ? paintableRange(userId, from, to) : null
     if (cached) {
-      applySnapshot(cached.events, { from, to }, false, rangeCovers(cached, from, to))
+      applySnapshot(cached.events, { from, to }, false, { mirror: false, updateRevisions: false })
       updateOccurrences(cached.occurrences, { from, to })
     }
     inFlight.current.push([from, to])

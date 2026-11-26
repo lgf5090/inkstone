@@ -18,6 +18,7 @@ import { Temporal } from 'temporal-polyfill'
 import {
   defaultTimeZone,
   isCalendarEntityId,
+  MAX_EVENTS_PER_QUERY,
   parseTemporalValue,
   temporalToEpochMs,
   toTemporalValue,
@@ -184,6 +185,45 @@ export function missingRangeEventIds(input: {
       && temporalToEpochMs(event.start, input.timeZone) <= input.to
       && temporalToEpochMs(event.end, input.timeZone) >= input.from)
     .map(event => event.id)
+}
+
+export interface EventSnapshotPlan {
+  add: Event[]
+  update: Array<{ id: string; updates: Partial<Event> }>
+  stale: string[]
+  fetched: Set<string>
+  revisions: Array<[string, number]>
+}
+
+export function planEventSnapshot(input: {
+  dtos: readonly CalendarEventDto[]
+  existing: readonly Event[]
+  range: { from: number; to: number }
+  timeZone: string
+  truncated: boolean
+  mirror?: boolean
+  updateRevisions?: boolean
+  hasPending: (id: string) => boolean
+}): EventSnapshotPlan {
+  const mapped = input.dtos.map(dto => toDayFlowEvent(dto, input.timeZone))
+  const existing = new Map(input.existing.map(event => [event.id, event]))
+  const add: Event[] = []
+  const update: Array<{ id: string; updates: Partial<Event> }> = []
+  for (const event of mapped) {
+    if (existing.has(event.id)) update.push({ id: event.id, updates: toEventUpdates(event) })
+    else add.push(event)
+  }
+  const fetched = new Set(mapped.map(event => event.id))
+  const stale = input.mirror === false || input.truncated || input.dtos.length >= MAX_EVENTS_PER_QUERY
+    ? []
+    : missingRangeEventIds({
+        events: [...existing.values()], fetched, from: input.range.from, to: input.range.to,
+        timeZone: input.timeZone, hasPending: input.hasPending,
+      })
+  const revisions = input.updateRevisions === false
+    ? []
+    : input.dtos.map(dto => [dto.id, dto.rev] as [string, number])
+  return { add, update, stale, fetched, revisions }
 }
 
 /** Calendar IDs in DayFlow's order: the primary first, duplicates removed. */

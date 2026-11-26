@@ -25,7 +25,7 @@ import * as api from './api'
 type LoadState =
   | { status: 'loading' }
   | { status: 'error'; error: string }
-  | { status: 'ready'; meta: CalendarMetaDto; events: CalendarEventDto[]; occurrences: CalendarEventDto[]; truncated: boolean; recurrenceTruncated: boolean; revision: CalendarRangeRevisionDto | null }
+  | { status: 'ready'; meta: CalendarMetaDto; events: CalendarEventDto[]; occurrences: CalendarEventDto[]; truncated: boolean; recurrenceTruncated: boolean; revision: CalendarRangeRevisionDto | null; cached: boolean }
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -86,6 +86,7 @@ function cachedFirstPaint(userId: string | null, range: { from: number; to: numb
   if (!meta || !page) return null
   return {
     status: 'ready',
+    cached: true,
     meta,
     events: page.events,
     occurrences: page.occurrences,
@@ -160,7 +161,7 @@ export function CalendarApp() {
     void fetchAll(controller.signal).then(({ meta, events, occurrences, truncated, recurrenceTruncated, revision }) => {
       if (controller.signal.aborted) return
       if (userId) saveFirstPaintMeta(userId, meta)
-      setState({ status: 'ready', meta, events, occurrences, truncated, recurrenceTruncated, revision })
+      setState({ status: 'ready', cached: false, meta, events, occurrences, truncated, recurrenceTruncated, revision })
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return
       const message = error instanceof Error && error.message ? error.message : t('calendar.error.load')
@@ -192,7 +193,7 @@ export function CalendarApp() {
 
   const reload = useCallback(async (): Promise<void> => {
     const { meta, events, occurrences, truncated, recurrenceTruncated, revision } = await fetchAll()
-    setState({ status: 'ready', meta, events, occurrences, truncated, recurrenceTruncated, revision })
+    setState({ status: 'ready', cached: false, meta, events, occurrences, truncated, recurrenceTruncated, revision })
   }, [fetchAll])
 
   if (state.status === 'loading') return <LoadingCalendar />
@@ -291,6 +292,7 @@ export function CalendarApp() {
       initialTruncated={state.truncated}
       initialRecurrenceTruncated={state.recurrenceTruncated}
       initialRevision={state.revision}
+      initialCached={state.cached}
       initialRange={range}
       onRefreshMeta={refreshMeta}
       onSavePreferences={savePreferences}
