@@ -1,9 +1,17 @@
 # CloudDrive 整改计划
 
-> 基准提交：`7592a935aa9777a3d765e9ffcf0ef8d2fdeb467b`  
-> 分支：`fix/clouddrive-remediation`  
-> 状态：本批次已验证完成；剩余未完成项见下文  
+> 基准提交：`aa37d72b32a4f309f6547f8d594bcbb84a4f4fb5`  
+> 分支：`fix/clouddrive-remediation-r2`  
+> 状态：第二轮执行中  
 > 规则：每个任务完成后提交原子 commit，并实时更新本文件；未验证项不得标记 DONE。
+
+## 第二轮进度
+
+- [ ] UX-07：已抽出 useFileListing/useFileSelection，待与跨盘搜索汇合后回归。
+- [ ] FEAT-13：续播已存在；HEIC/HEIF 失败提示已补，转码方案待评估记录。
+- [ ] FEAT-14：content-visibility 守护测试已补，真实大列表性能基线待测。
+- [ ] QA-03：cloudflared 与本机 WebDAV fixture 已准备，待代码合并后跑真实隧道。
+
 
 ## 当前批次
 
