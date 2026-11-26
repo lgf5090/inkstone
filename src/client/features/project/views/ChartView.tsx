@@ -52,7 +52,7 @@ export function ChartView(props: ChartProps): ReactElement {
   const { cards, properties, fields } = props
   const people = useProjectPeople()
   const locale = useLocale()
-  const groupable = properties.filter((property) => PROJECT_PROPERTY_CAPABILITIES[property.type].canGroup)
+  const groupable = useMemo(() => properties.filter((property) => PROJECT_PROPERTY_CAPABILITIES[property.type].canGroup), [properties])
   const groupProperty = properties.find((property) => property.id === fields.chartGroupById)
     ?? groupable[0]
   const type: ProjectChartType = fields.chartType ?? 'bar'
@@ -77,8 +77,8 @@ export function ChartView(props: ChartProps): ReactElement {
   }, [cards, properties, groupProperty, measureProperty, calculation, people, locale])
 
   const total = series.reduce((sum, entry) => sum + entry.value, 0)
-  const labels = series.map((entry) => entry.label)
-  const values = series.map((entry) => entry.value)
+  const labels = useMemo(() => series.map((entry) => entry.label), [series])
+  const values = useMemo(() => series.map((entry) => entry.value), [series])
 
   const build = useCallback((colors: ChartColors) => {
     const palette = series.map((entry, index) => canvasColor(entry.color ?? colors.palette[index % colors.palette.length]!, colors.palette[index % colors.palette.length]!))

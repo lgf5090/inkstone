@@ -1,5 +1,5 @@
 import { act, createElement } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectBoardBundle } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
 import { ApiError } from '../../lib/api'
@@ -31,6 +31,7 @@ function bundle(): ProjectBoardBundle {
 const read = vi.mocked(api.readPublicProjectBoard)
 let view: RenderedElement
 
+beforeAll(async () => { await import('./views/TableView') })
 beforeEach(async () => { localStorage.clear(); vi.clearAllMocks(); await initI18n() })
 afterEach(() => { view?.unmount() })
 

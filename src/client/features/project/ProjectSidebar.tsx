@@ -211,9 +211,9 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
 
   const pinnedBoards = useMemo(() => {
     return pinnedIds
-      .map((id) => boards.find((b) => b.id === id))
+      .map((id) => boardsById.get(id))
       .filter((b): b is ProjectBoardSummary => b !== undefined && matches(b))
-  }, [pinnedIds, boards, matches])
+  }, [pinnedIds, boardsById, matches])
 
   const recentBoards = useMemo(() => recentIds
     .map((id) => boardsById.get(id))
@@ -222,9 +222,9 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
 
   const starredBoards = useMemo(() => {
     return starredIds
-      .map((id) => boards.find((b) => b.id === id))
+      .map((id) => boardsById.get(id))
       .filter((b): b is ProjectBoardSummary => b !== undefined && matches(b))
-  }, [starredIds, boards, matches])
+  }, [starredIds, boardsById, matches])
 
   const primarySectionByBoard = useMemo(() => {
     const sections = new Map<string, string>()

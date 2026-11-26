@@ -1,5 +1,5 @@
 import { act, createElement } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectBoardBundle, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_VIEW_TYPES } from '@shared/project/model'
 import { projectDayToStamp } from '@shared/project/date'
@@ -51,6 +51,15 @@ async function menuLabels(label: string): Promise<string[]> {
   await act(async () => { trigger!.click() })
   return [...document.querySelectorAll('[role="menuitemcheckbox"], [role="menuitem"]')].map((row) => row.textContent ?? '')
 }
+
+beforeAll(async () => {
+  await Promise.all([
+    import('./views/KanbanView'), import('./views/TableView'), import('./views/GalleryView'),
+    import('./views/CalendarView'), import('./views/ListView'), import('./views/TimelineView'),
+    import('./views/GanttView'), import('./views/ChartView'), import('./views/DashboardView'),
+    import('./views/CollectionView'), import('./views/SprintView'),
+  ])
+})
 
 beforeEach(async () => {
   localStorage.clear()

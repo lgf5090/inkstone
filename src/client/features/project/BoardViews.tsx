@@ -5,7 +5,7 @@
  * reader who switches tabs is looking at the same set. What a view does with them — columns, cells,
  * bars, tiles — is the view's own business.
  */
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ArrowUpDown, BarChart3, Calendar, CalendarRange, Clock, Copy, Download, Eye, Filter, FolderOpen, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Pencil, Plus, RotateCcw, SquareKanban, Table, Target, Trash2, type LucideIcon } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, projectCanMarkDone, projectDonePatch, projectViewPropertyId, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
@@ -28,19 +28,21 @@ import { ProjectPeopleProvider, useProjectPeople } from './people-context'
 import { readPinnedCardsPref, readStarredCardsPref, writePinnedCardsPref, writeStarredCardsPref } from './project-prefs'
 import { Seg } from './views/shell'
 import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardDefaultView, fetchBoardLinks, fetchProjectCardMarks, moveProjectCard, projectBoardExportUrl, projectFileUrl, saveBoardDefaultView, saveProjectCardMarks } from './api'
-import { KanbanView } from './views/KanbanView'
-import { TableView } from './views/TableView'
-import { GalleryView } from './views/GalleryView'
-import { CalendarView } from './views/CalendarView'
-import { ListView } from './views/ListView'
-import { TimelineView } from './views/TimelineView'
-import { GanttView } from './views/GanttView'
-import { ChartView } from './views/ChartView'
-import { DashboardView } from './views/DashboardView'
-import { CollectionView } from './views/CollectionView'
-import { SprintView } from './views/SprintView'
+import { LoadingBlock } from '../../components/feedback'
 import { ViewEmpty } from './views/shell'
 import { BatchEditDialog } from './BatchEditDialog'
+
+const KanbanView = lazy(() => import('./views/KanbanView').then((module) => ({ default: module.KanbanView })))
+const TableView = lazy(() => import('./views/TableView').then((module) => ({ default: module.TableView })))
+const GalleryView = lazy(() => import('./views/GalleryView').then((module) => ({ default: module.GalleryView })))
+const CalendarView = lazy(() => import('./views/CalendarView').then((module) => ({ default: module.CalendarView })))
+const ListView = lazy(() => import('./views/ListView').then((module) => ({ default: module.ListView })))
+const TimelineView = lazy(() => import('./views/TimelineView').then((module) => ({ default: module.TimelineView })))
+const GanttView = lazy(() => import('./views/GanttView').then((module) => ({ default: module.GanttView })))
+const ChartView = lazy(() => import('./views/ChartView').then((module) => ({ default: module.ChartView })))
+const DashboardView = lazy(() => import('./views/DashboardView').then((module) => ({ default: module.DashboardView })))
+const CollectionView = lazy(() => import('./views/CollectionView').then((module) => ({ default: module.CollectionView })))
+const SprintView = lazy(() => import('./views/SprintView').then((module) => ({ default: module.SprintView })))
 
 const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   board: 'project.view.board',
@@ -808,7 +810,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             id={active ? `project-view-panel-${active.id}` : undefined}
             aria-labelledby={active ? `project-view-tab-${active.id}` : undefined}
           >
-            <ProjectPeopleProvider people={bundle.people}>{renderView()}</ProjectPeopleProvider>
+            <ProjectPeopleProvider people={bundle.people}>
+              <Suspense fallback={<LoadingBlock />}>{renderView()}</Suspense>
+            </ProjectPeopleProvider>
           </div>
         )}
       {active && settings === 'sort' && <SortModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => enqueueViewPatch(active.id, { fields: next })} />}
