@@ -634,6 +634,24 @@ describe('background provider sync', () => {
     }])
 
     const store = new CalendarStore(db, USER)
+    const remote = (await store.listEvents(Date.parse('2026-10-01T00:00:00Z'), Date.parse('2026-11-01T00:00:00Z')))
+      .events.find(event => event.externalId === 'google-event-1')!
+    await store.setEventReminders(remote.id, [10], remote.rev)
+    sqlite.prepare('INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(USER, remote.id, 'remote@example.com', 'Remote', 'needs-action', 1)
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS attachments (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, scope TEXT NOT NULL,
+      filename TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL,
+      object_key TEXT, storage TEXT NOT NULL, created_at INTEGER NOT NULL
+    ); CREATE TABLE IF NOT EXISTS attachment_cleanup (
+      object_key TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at INTEGER NOT NULL
+    )`)
+    sqlite.prepare(`INSERT INTO attachments
+      (id, user_id, scope, filename, mime, size, sha256, object_key, storage, created_at)
+      VALUES (?, ?, 'calendar', 'remote.txt', 'text/plain', 6, 'hash', ?, 'r2', ?)`)
+      .run('remote-attachment', USER, 'calendar/user/remote-attachment.txt', 1)
+    sqlite.prepare('INSERT INTO calendar_event_attachments (user_id, attachment_id, event_id, created_at) VALUES (?, ?, ?, ?)')
+      .run(USER, 'remote-attachment', remote.id, 1)
     await store.createEvent({
       title: 'Local only',
       description: '',
@@ -653,15 +671,32 @@ describe('background provider sync', () => {
       externalId: null,
     })
     vi.stubGlobal('fetch', async () => Response.json({ items: [] }))
+    sqlite.exec(`CREATE TRIGGER fail_provider_delete
+      BEFORE DELETE ON calendar_events
+      WHEN OLD.external_id = 'google-event-1'
+      BEGIN SELECT RAISE(ABORT, 'forced provider delete'); END`)
     sqlite.prepare(
-      `UPDATE calendar_provider_calendars SET last_sync_at = ? WHERE user_id = ? AND connection_id = ?`,
+      'UPDATE calendar_provider_calendars SET last_sync_at = ? WHERE user_id = ? AND connection_id = ?',
     ).run(Date.now() - 16 * 60_000, USER, seeded.id)
-    const second = await syncDueProviderConnections(env, Date.now())
-    expect(second.deleted).toBe(1)
+    expect(await syncDueProviderConnections(env, Date.now())).toMatchObject({ deleted: 0, failed: 1 })
+    expect(await store.getEvent(remote.id)).not.toBeNull()
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_reminders WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attendees WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attachments WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
+
+    sqlite.exec('DROP TRIGGER fail_provider_delete')
+    sqlite.prepare(
+      'UPDATE calendar_provider_calendars SET last_sync_at = ? WHERE user_id = ? AND connection_id = ?',
+    ).run(Date.now() - 16 * 60_000, USER, seeded.id)
+    expect(await syncDueProviderConnections(env, Date.now())).toMatchObject({ deleted: 1, failed: 0 })
     const remaining = sqlite.prepare(
-      `SELECT title FROM calendar_events WHERE user_id = ? ORDER BY title`,
+      'SELECT title FROM calendar_events WHERE user_id = ? ORDER BY title',
     ).all(USER) as Array<{ title: string }>
     expect(remaining).toEqual([{ title: 'Local only' }])
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_reminders WHERE user_id = ?').get(USER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attendees WHERE user_id = ?').get(USER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attachments WHERE user_id = ?').get(USER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM attachment_cleanup WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
   })
 
   it('backs off failed mappings and reports the connection as failed', async () => {

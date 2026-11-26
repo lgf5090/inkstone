@@ -317,40 +317,20 @@ async function deleteProviderEvents(
   source: CalendarSource,
   externalIds: readonly string[],
 ): Promise<number> {
+  const store = new CalendarStore(env.DB, userId)
   let deleted = 0
   for (let index = 0; index < externalIds.length; index += 60) {
     const ids = externalIds.slice(index, index + 60)
     const placeholders = ids.map((_, offset) => `?${offset + 4}`).join(', ')
-    await env.DB.prepare(
-      `DELETE FROM calendar_event_calendars
-        WHERE user_id = ?1 AND event_id IN (
-          SELECT id FROM calendar_events
-           WHERE user_id = ?1 AND calendar_source = ?2 AND external_scope = ?3
-             AND external_id IN (${placeholders})
-        )`,
-    ).bind(userId, source, localCalendarId, ...ids).run()
-    await env.DB.prepare(
-      `DELETE FROM calendar_event_attendees
-        WHERE user_id = ?1 AND event_id IN (
-          SELECT id FROM calendar_events
-           WHERE user_id = ?1 AND calendar_source = ?2 AND external_scope = ?3
-             AND external_id IN (${placeholders})
-        )`,
-    ).bind(userId, source, localCalendarId, ...ids).run()
-    await env.DB.prepare(
-      `DELETE FROM calendar_event_reminders
-        WHERE user_id = ?1 AND event_id IN (
-          SELECT id FROM calendar_events
-           WHERE user_id = ?1 AND calendar_source = ?2 AND external_scope = ?3
-             AND external_id IN (${placeholders})
-        )`,
-    ).bind(userId, source, localCalendarId, ...ids).run()
-    const removed = await env.DB.prepare(
-      `DELETE FROM calendar_events
+    const { results } = await env.DB.prepare(
+      `SELECT id FROM calendar_events
         WHERE user_id = ?1 AND calendar_source = ?2 AND external_scope = ?3
           AND external_id IN (${placeholders})`,
-    ).bind(userId, source, localCalendarId, ...ids).run()
-    deleted += removed.meta.changes ?? 0
+    ).bind(userId, source, localCalendarId, ...ids).all<{ id: string }>()
+    deleted += await store.removeEventMembershipsAndDeleteOrphans(
+      localCalendarId,
+      (results ?? []).map(row => row.id),
+    )
   }
   return deleted
 }
