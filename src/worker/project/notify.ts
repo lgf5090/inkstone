@@ -9,6 +9,7 @@ import { AssistantStore } from '../assistant/store'
 import { storedObject } from '../lib/json'
 import { projectCommentMentionedIds, projectCommentNotificationTargets } from '@shared/project/mentions'
 import type { ProjectNotificationLevel } from '@shared/constants'
+import { projectRoleForBoard } from './visibility'
 
 /** The account's choice for this board: all notices, only direct ones, or none. */
 async function notificationLevel(db: D1Database, boardId: string, userId: string): Promise<ProjectNotificationLevel> {
@@ -23,6 +24,7 @@ export async function notifyProjectAssignment(
 ): Promise<void> {
   for (const assigneeId of new Set(input.assigneeIds)) {
     if (!assigneeId || assigneeId === input.actorId) continue
+    if (!await projectRoleForBoard(db, input.boardId, assigneeId)) continue
     if (await notificationLevel(db, input.boardId, assigneeId) === 'off') continue
     await new AssistantStore(db, assigneeId, env).createNotification({
       title: `Assigned to ${input.cardTitle}`.slice(0, 200),
@@ -48,6 +50,7 @@ export async function notifyProjectComment(
   const mentioned = new Set(projectCommentMentionedIds(memberIds, input.body, names))
   const targets = projectCommentNotificationTargets(memberIds, watchers.results.map((row) => row.subscriber_id), input.body, input.authorId, names)
   for (const target of targets) {
+    if (!await projectRoleForBoard(db, input.boardId, target)) continue
     const level = await notificationLevel(db, input.boardId, target)
     if (level === 'off') continue
     if (level === 'mentions' && !mentioned.has(target)) continue

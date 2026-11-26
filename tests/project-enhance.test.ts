@@ -27,7 +27,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  sqlite.exec(`DELETE FROM chat_notifications; DELETE FROM project_card_links; DELETE FROM project_activity; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_cards; DELETE FROM project_todo_links; DELETE FROM todos_tasks`)
+  sqlite.exec(`DELETE FROM chat_notifications; DELETE FROM project_card_links; DELETE FROM project_property_configs; DELETE FROM project_card_values; DELETE FROM project_activity; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_cards; DELETE FROM project_todo_links; DELETE FROM todos_tasks`)
 })
 
 async function req(method: string, path: string, body?: unknown): Promise<Response> {
@@ -136,6 +136,30 @@ describe('todo two-way completion sync (X-5)', () => {
     await syncTodoCompletionToCard(env.DB, 't1', false, Date.now())
     const value = sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id) as { value: string }
     expect(value.value).toBe('false')
+  })
+
+  it('does not let Todo completion bypass field permissions or a later viewer downgrade', async () => {
+    const checkbox = 'p'.repeat(27)
+    const board = ((await (await req('POST', '/boards', {
+      title: 'Restricted sync',
+      cardProperties: [{ id: checkbox, name: 'Done', type: 'checkbox', options: [], config: { editRoles: ['admin'] } }],
+    })).json()) as { board: ProjectBoard }).board
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(board.id, 'bob', 'editor')
+    const card = ((await (await req('POST', `/boards/${board.id}/cards`, { title: 'Restricted' })).json()) as { card: ProjectCard }).card
+    sqlite.prepare(`INSERT INTO todos_tasks (user_id, id, title, created_at, updated_at) VALUES ('bob', 'restricted', 'Linked', 1, 1)`).run()
+    sqlite.prepare('INSERT INTO project_todo_links (card_id, todo_id, user_id, created_at) VALUES (?, ?, ?, 1)')
+      .run(card.id, 'restricted', 'bob')
+    await syncTodoCompletionToCard(env.DB, 'restricted', true, Date.now())
+    expect(sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id)).toBeUndefined()
+
+    sqlite.prepare('DELETE FROM project_property_configs WHERE board_id = ? AND property_id = ?').run(board.id, checkbox)
+    await syncTodoCompletionToCard(env.DB, 'restricted', true, Date.now())
+    expect(sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id)).toMatchObject({ value: 'true' })
+
+    sqlite.prepare('UPDATE project_board_members SET role = ? WHERE board_id = ? AND user_id = ?').run('viewer', board.id, 'bob')
+    await syncTodoCompletionToCard(env.DB, 'restricted', false, Date.now())
+    expect(sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id)).toMatchObject({ value: 'true' })
   })
 
   it('recognises a Chinese done option in both sync directions', async () => {

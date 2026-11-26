@@ -615,7 +615,11 @@ projectRoutes.post('/boards/:id/files', async (c) => {
 projectRoutes.get('/files/:id', async (c) => {
   const attachment = await getProjectAttachment(c.env.DB, c.req.param('id'))
   if (!attachment) throw ApiError.notFound('File not found')
-  await requireBoard(c, attachment.boardId, 'viewer')
+  const access = await requireBoard(c, attachment.boardId, 'viewer')
+  if (attachment.cardId) {
+    const card = await getProjectCardRow(c.env.DB, attachment.cardId)
+    if ((!card || card.delete_at !== 0) && access.role !== 'admin') throw ApiError.notFound('File not found')
+  }
   if (!c.env.FILES) throw ApiError.notFound('File not found')
   const object = await c.env.FILES.get(attachment.objectKey)
   if (!object) throw ApiError.notFound('File not found')
@@ -635,7 +639,11 @@ projectRoutes.get('/files/:id', async (c) => {
 projectRoutes.delete('/files/:id', async (c) => {
   const attachment = await getProjectAttachment(c.env.DB, c.req.param('id'))
   if (!attachment) throw ApiError.notFound('File not found')
-  await requireBoard(c, attachment.boardId, 'editor')
+  const access = await requireBoard(c, attachment.boardId, 'editor')
+  if (attachment.cardId) {
+    const card = await getProjectCardRow(c.env.DB, attachment.cardId)
+    if ((!card || card.delete_at !== 0) && access.role !== 'admin') throw ApiError.notFound('File not found')
+  }
   await deleteProjectAttachment(c.env.DB, c.env.FILES, attachment)
   return c.json({ ok: true })
 })

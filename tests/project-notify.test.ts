@@ -89,6 +89,15 @@ describe('the per-board notification preference', () => {
     expect(notices().map((notice) => notice.title)).toEqual(['New comment on Task'])
   })
 
+  it('does not notify a former member who still has a subscription', async () => {
+    const { board, card } = await boardWithCard()
+    sqlite.prepare('INSERT INTO project_subscriptions (block_type, block_id, subscriber_id, create_at) VALUES (?, ?, ?, 1)')
+      .run('card', card.id, 'bob')
+    sqlite.prepare('DELETE FROM project_board_members WHERE board_id = ? AND user_id = ?').run(board.id, 'bob')
+    expect((await req('POST', `/cards/${card.id}/comments`, { body: '@bob private update' })).status).toBe(201)
+    expect(notices()).toEqual([])
+  })
+
   it('honours the same choice for an assignment', async () => {
     const { board, card } = await boardWithCard()
     preference(board.id, 'off')

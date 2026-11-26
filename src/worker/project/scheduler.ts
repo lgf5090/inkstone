@@ -6,6 +6,7 @@
 import type { AppBindings } from '../env'
 import { notifySyncHub } from '../realtime/sync-hub'
 import { recordProjectActivity } from './enhance'
+import { projectRoleForBoard } from './visibility'
 
 const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000
 const SCAN_LIMIT = 500
@@ -53,9 +54,13 @@ export async function sweepProjectReminders(env: AppBindings['Bindings'], now: n
       .prepare('SELECT subscriber_id FROM project_subscriptions WHERE block_type = ?1 AND block_id = ?2 AND delete_at = 0 AND notified_at < ?3')
       .bind('card', row.card_id, from)
       .all<{ subscriber_id: string }>()
-    if (subs.length === 0) continue
+    const accessible: string[] = []
+    for (const sub of subs) {
+      if (await projectRoleForBoard(env.DB, row.board_id, sub.subscriber_id)) accessible.push(sub.subscriber_id)
+    }
+    if (accessible.length === 0) continue
     reminded += 1
-    const tasks = subs.map((sub) => notifySyncHub(env.SYNC_HUB, sub.subscriber_id, now, null, env.DO_AUTH_KEY))
+    const tasks = accessible.map((subscriberId) => notifySyncHub(env.SYNC_HUB, subscriberId, now, null, env.DO_AUTH_KEY))
     const all = Promise.all(tasks).then(() => undefined)
     if (waitUntil) waitUntil(all)
     else await all

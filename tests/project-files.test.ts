@@ -20,6 +20,7 @@ const PNG = new Uint8Array([
 let sqlite: DatabaseSync
 let env: Env
 let token: string
+let bobToken: string
 
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
@@ -27,7 +28,9 @@ beforeAll(async () => {
   await app.fetch(new Request('http://localhost/api/health'), env)
   const now = Date.now()
   sqlite.prepare(`INSERT INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at) VALUES ('alice','alice','hash','alice','alice','member',?,?)`).run(now, now)
+  sqlite.prepare(`INSERT INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at) VALUES ('bob','bob','hash','bob','bob','member',?,?)`).run(now, now)
   token = await createSession(env.DB, 'alice')
+  bobToken = await createSession(env.DB, 'bob')
 })
 
 beforeEach(() => {
@@ -41,6 +44,13 @@ async function req(method: string, path: string, body?: unknown): Promise<Respon
   if (method !== 'GET') headers[CLIENT_HEADER] = '1'
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   return app.fetch(new Request(`http://localhost/api/project${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }), env)
+}
+
+async function reqAs(who: string, method: string, path: string): Promise<Response> {
+  return app.fetch(new Request(`http://localhost/api/project${path}`, {
+    method,
+    headers: { Cookie: `${LEGACY_SESSION_COOKIE}=${who}`, [CLIENT_HEADER]: '1' },
+  }), env)
 }
 
 async function makeBoard(): Promise<ProjectBoard> {
@@ -65,6 +75,25 @@ describe('project attachments', () => {
     expect(served.headers.get('Content-Type')).toBe('image/png')
     expect((await req('DELETE', `/files/${file.id}`)).status).toBe(200)
     expect(((await (await req('GET', `/boards/${board.id}/files`)).json()) as { files: unknown[] }).files).toEqual([])
+  })
+
+  it('hides trashed card attachments from ordinary viewers', async () => {
+    const board = await makeBoard()
+    const card = ((await (await req('POST', `/boards/${board.id}/cards`, { title: 'Trashed' })).json()) as { card: { id: string } }).card
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(board.id, 'bob', 'viewer')
+    const form = new FormData()
+    form.append('file', new File([PNG], 'pic.png', { type: 'image/png' }))
+    form.append('cardId', card.id)
+    const upload = await app.fetch(new Request(`http://localhost/api/project/boards/${board.id}/files`, {
+      method: 'POST', headers: { Cookie: `${LEGACY_SESSION_COOKIE}=${token}`, [CLIENT_HEADER]: '1' }, body: form,
+    }), env)
+    expect(upload.status).toBe(201)
+    const file = ((await upload.json()) as { file: ProjectAttachment }).file
+    expect((await req('DELETE', `/cards/${card.id}`)).status).toBe(200)
+    const list = await reqAs(bobToken, 'GET', `/boards/${board.id}/files`)
+    expect(((await list.json()) as { files: unknown[] }).files).toEqual([])
+    expect((await reqAs(bobToken, 'GET', `/files/${file.id}`)).status).toBe(404)
   })
 
   it('keeps a cleanup row when R2 deletion fails after the database row is gone', async () => {

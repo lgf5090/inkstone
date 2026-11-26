@@ -4,7 +4,8 @@
  * a board can never deadlock itself. Both reuse tables created with the core schema.
  */
 import type { ProjectActivityEntry, ProjectBoard, ProjectCard, ProjectCardLink, ProjectCardLinkKind, ProjectProperty } from '@shared/project/model'
-import { CARD_DONE_PATTERN, isProjectCardDone, projectMultiValueIds } from '@shared/project/model'
+import { CARD_DONE_PATTERN, isProjectCardDone, projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
+import { projectPropertyEditableBy } from '@shared/project/property-config'
 import { newProjectId } from '@shared/project/limits'
 import { ApiError } from '../lib/errors'
 import type { AppBindings } from '../env'
@@ -14,6 +15,7 @@ import { notifyProjectAssignment } from './notify'
 import { projectRelationTargets } from './relations'
 import { readBoardProperties } from './boards'
 import { runProjectAutomations } from './automations'
+import { projectRoleForBoard } from './visibility'
 
 export type { ProjectActivityEntry, ProjectCardLink }
 
@@ -202,16 +204,11 @@ export async function syncTodoCompletionToCard(db: D1Database, todoId: string, d
   const row = await db.prepare('SELECT card_id, user_id FROM project_todo_links WHERE todo_id = ?1').bind(todoId).first<{ card_id: string, user_id: string }>()
   if (!row) return
   const card = await getProjectCard(db, row.card_id)
-  if (!card) return
-  const access = await db.prepare(
-    `SELECT 1 FROM project_boards b
-     WHERE b.id = ?1 AND b.delete_at = 0
-       AND (b.owner_id = ?2 OR b.minimum_role IN ('viewer','commenter','editor','admin')
-            OR EXISTS (SELECT 1 FROM project_board_members m WHERE m.board_id = b.id AND m.user_id = ?2))`,
-  ).bind(card.boardId, row.user_id).first()
-  if (!access) return
-  const { results } = await db.prepare('SELECT id, type, options FROM project_properties WHERE board_id = ?1').bind(card.boardId).all<{ id: string, type: string, options: string }>()
-  const checkbox = results.find((p) => p.type === 'checkbox')
+  if (!card || card.deleteAt !== 0) return
+  const role = await projectRoleForBoard(db, card.boardId, row.user_id)
+  if (!role || !projectRoleAtLeast(role, 'editor')) return
+  const properties = await readBoardProperties(db, card.boardId)
+  const checkbox = properties.find((property) => property.type === 'checkbox' && projectPropertyEditableBy(property, role))
   if (checkbox) {
     await db.prepare(
       'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
@@ -219,11 +216,10 @@ export async function syncTodoCompletionToCard(db: D1Database, todoId: string, d
     await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(done ? now : null, card.id).run()
     return
   }
-  const select = results.find((p) => p.type === 'select')
+  const select = properties.find((property) => property.type === 'select' && projectPropertyEditableBy(property, role))
   if (select) {
-    const options = JSON.parse(select.options) as { id: string, value: string }[]
-    const doneOption = options.find((o) => CARD_DONE_PATTERN.test(o.value))
-    const target = done ? doneOption : options.find((o) => !CARD_DONE_PATTERN.test(o.value))
+    const doneOption = select.options.find((option) => CARD_DONE_PATTERN.test(option.value))
+    const target = done ? doneOption : select.options.find((option) => !CARD_DONE_PATTERN.test(option.value))
     if (target) {
       await db.prepare(
         'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',

@@ -54,10 +54,11 @@ export function attachmentCategory(mime: string): ProjectAttachmentCategory {
   return 'other'
 }
 
-export async function listBoardAttachments(db: D1Database, boardId: string, cardId?: string, limit = ATTACHMENT_LIST_LIMIT): Promise<ProjectAttachment[]> {
+export async function listBoardAttachments(db: D1Database, boardId: string, cardId?: string, limit = ATTACHMENT_LIST_LIMIT, includeDeleted = false): Promise<ProjectAttachment[]> {
+  const liveOnly = includeDeleted ? '' : 'AND (card_id IS NULL OR EXISTS (SELECT 1 FROM project_cards c WHERE c.id = card_id AND c.delete_at = 0))'
   const { results } = cardId
-    ? await db.prepare('SELECT * FROM project_attachments WHERE board_id = ?1 AND card_id = ?2 ORDER BY created_at DESC LIMIT ?3').bind(boardId, cardId, limit).all<AttachmentRow>()
-    : await db.prepare('SELECT * FROM project_attachments WHERE board_id = ?1 ORDER BY created_at DESC LIMIT ?2').bind(boardId, limit).all<AttachmentRow>()
+    ? await db.prepare(`SELECT * FROM project_attachments WHERE board_id = ?1 AND card_id = ?2 ${liveOnly} ORDER BY created_at DESC LIMIT ?3`).bind(boardId, cardId, limit).all<AttachmentRow>()
+    : await db.prepare(`SELECT * FROM project_attachments WHERE board_id = ?1 ${liveOnly} ORDER BY created_at DESC LIMIT ?2`).bind(boardId, limit).all<AttachmentRow>()
   return results.map(rowToAttachment)
 }
 
