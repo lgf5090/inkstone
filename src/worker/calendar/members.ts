@@ -21,7 +21,7 @@ export async function listMembers(db: D1Database, ownerId: string, calendarId: s
   return (results ?? []).map(row => ({
     memberId: row.member_user_id,
     username: row.username,
-    name: row.name,
+    name: row.status === 'accepted' ? row.name : '',
     role: row.role === 'writer' ? 'writer' : 'reader',
     status: row.status === 'accepted' || row.status === 'declined' ? row.status : 'pending',
     createdAt: Number(row.created_at),
@@ -50,7 +50,9 @@ export async function upsertMember(
        (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
      VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?5)
      ON CONFLICT(owner_user_id, calendar_id, member_user_id) DO UPDATE SET
-       role = excluded.role, status = 'pending', updated_at = excluded.updated_at`,
+       role = excluded.role,
+       status = CASE WHEN calendar_members.status = 'declined' THEN 'pending' ELSE calendar_members.status END,
+       updated_at = excluded.updated_at`,
   ).bind(ownerId, calendarId, memberId, role, now).run()
 }
 

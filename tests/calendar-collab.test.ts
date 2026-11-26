@@ -7,6 +7,7 @@ import { MAX_EVENTS_PER_QUERY, type CalendarDto, type CalendarEventDto, type Cal
 import { MAX_RECURRENCE_OCCURRENCES } from '../src/worker/calendar/ics'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
+import { clearRateLimit } from '../src/worker/lib/rate-limit'
 import { calendarRoutes } from '../src/worker/routes/calendar'
 import { calendarMemberRoutes } from '../src/worker/routes/calendar-members'
 import { calendarResourceRoutes } from '../src/worker/routes/calendar-resources'
@@ -79,6 +80,7 @@ function eventBody(calendarId: string, overrides: Record<string, unknown> = {}):
 }
 
 beforeEach(() => {
+  clearRateLimit()
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   db = makeD1(sqlite)
@@ -99,6 +101,41 @@ async function accept(ownerId: string, calendarId: string): Promise<void> {
 }
 
 describe('account sharing', () => {
+  it('uses one non-enumerating invitation response and rate-limits each target', async () => {
+    const calendar = await defaultCalendar()
+    const missing = await call('POST', `/api/calendar/calendars/${calendar.id}/members`, { username: 'missing-user', role: 'reader' })
+    expect(missing.status).toBe(202)
+    expect(await missing.json()).toEqual({ invited: true })
+    const existing = await call('POST', `/api/calendar/calendars/${calendar.id}/members`, { username: 'bob', role: 'reader' })
+    expect(existing.status).toBe(202)
+    expect(await existing.json()).toEqual({ invited: true })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_members WHERE member_user_id = ?').get(BOB)).toEqual({ count: 1 })
+    const pending = await json<{ members: Array<{ name: string; status: string }> }>(await call('GET', `/api/calendar/calendars/${calendar.id}/members`))
+    expect(pending.members.find(member => member.status === 'pending')?.name).toBe('')
+    expect((await call('POST', `/api/calendar/calendars/${calendar.id}/members`, { username: 'bob', role: 'reader' })).status).toBe(202)
+    expect((await call('POST', `/api/calendar/calendars/${calendar.id}/members`, { username: 'bob', role: 'reader' })).status).toBe(202)
+    expect((await call('POST', `/api/calendar/calendars/${calendar.id}/members`, { username: 'bob', role: 'reader' })).status).toBe(429)
+  })
+
+  it('keeps accepted access when the owner re-invites the member', async () => {
+    const calendar = await defaultCalendar()
+    await invite(calendar.id, 'bob', 'reader')
+    user = BOB
+    await accept(ALICE, calendar.id)
+    user = ALICE
+    await invite(calendar.id, 'bob', 'writer')
+    user = BOB
+    const meta = await json<CalendarMetaDto>(await call('GET', '/api/calendar/meta'))
+    expect(meta.invites?.some(entry => entry.calendarId === calendar.id)).toBe(false)
+    expect(meta.calendars.find(entry => entry.id.startsWith('shared:'))?.sharedRole).toBe('writer')
+  })
+
+  it('rejects malformed member and invite ids before querying', async () => {
+    expect((await call('GET', '/api/calendar/calendars/bad!/members')).status).toBe(400)
+    expect((await call('POST', '/api/calendar/invites/bad!/calendar/response', { status: 'accepted' })).status).toBe(400)
+    expect((await call('DELETE', '/api/calendar/calendars/calendar/members/bad!')).status).toBe(400)
+  })
+
   it('invites, accepts, and lets a writer create and edit an event in the shared calendar', async () => {
     const calendar = await defaultCalendar()
     await invite(calendar.id, 'bob', 'writer')
