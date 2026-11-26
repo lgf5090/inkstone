@@ -1522,9 +1522,10 @@ export class CalendarStore {
   /** Whether this event can be written at all: every calendar it is in must be writable. */
   async assertEventWritable(eventId: string): Promise<void> {
     const ids = (await this.membershipsFor([eventId])).get(eventId) ?? []
-    if (ids.length === 0) return
+    if (ids.length === 0) throw ApiError.notFound('Event calendar membership is missing')
     const rows = await this.calendarAccess(ids)
-    if (rows.length === ids.length && rows.some((row) => row.read_only === 1)) {
+    if (rows.length !== ids.length) throw ApiError.notFound('Calendar not found')
+    if (rows.some((row) => row.read_only === 1)) {
       throw ApiError.forbidden('The event belongs to a read-only calendar')
     }
   }

@@ -8,6 +8,7 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { calendarRoutes } from '../src/worker/routes/calendar'
 import { calendarAttachmentRoutes } from '../src/worker/routes/calendar-attachments'
+import { linkEventAttachment } from '../src/worker/calendar/attachments'
 import { filesRoutes } from '../src/worker/routes/files'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -176,6 +177,29 @@ describe('an event attachment', () => {
     // The refusal happens before the upload, so nothing was written for it.
     expect(count('SELECT COUNT(*) AS n FROM attachments WHERE user_id = ?', ALICE)).toBe(1)
     expect(attachment.id).toBeTruthy()
+  })
+
+  it('enforces the attachment limit atomically when two links race', async () => {
+    const calendar = await newCalendar('Trips')
+    const event = await newEvent(calendar.id)
+    await upload(event.id, 'first.txt')
+    for (let index = 1; index < MAX_ATTACHMENTS_PER_EVENT - 1; index += 1) {
+      sqlite.prepare(
+        'INSERT INTO calendar_event_attachments (user_id, attachment_id, event_id, created_at) VALUES (?, ?, ?, ?)',
+      ).run(ALICE, `filler-${index}`, event.id, index)
+    }
+    for (const id of ['race-a', 'race-b']) {
+      sqlite.prepare(`INSERT INTO attachments
+        (id, user_id, scope, filename, mime, size, sha256, storage, created_at)
+        VALUES (?, ?, 'calendar', ?, 'text/plain', 1, 'hash', 'r2', 1)`).run(id, ALICE, `${id}.txt`)
+    }
+    const linked = await Promise.all([
+      linkEventAttachment(env.DB, ALICE, event.id, 'race-a', 1),
+      linkEventAttachment(env.DB, ALICE, event.id, 'race-b', 1),
+    ])
+    expect(linked.filter(Boolean)).toHaveLength(1)
+    expect(count('SELECT COUNT(*) AS n FROM calendar_event_attachments WHERE event_id = ?', event.id))
+      .toBe(MAX_ATTACHMENTS_PER_EVENT)
   })
 
   it('refuses another account at every door', async () => {

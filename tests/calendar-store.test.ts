@@ -691,6 +691,15 @@ describe('search', () => {
 })
 
 describe('account isolation', () => {
+  it('refuses writes when an event membership points at a missing calendar', async () => {
+    const created = await store.createEvent(eventInput())
+    sqlite.prepare('DELETE FROM calendar_calendars WHERE user_id = ? AND id = ?').run(ALICE, calendar.id)
+    await expect(store.updateEvent(created.id, { rev: created.rev, title: 'Must not land' }))
+      .rejects.toMatchObject({ status: 404 })
+    expect(sqlite.prepare('SELECT title FROM calendar_events WHERE user_id = ? AND id = ?').get(ALICE, created.id))
+      .toEqual({ title: 'Meeting' })
+  })
+
   it('never lets another account read, change or delete an event', async () => {
     const created = await store.createEvent(eventInput({ title: 'Private' }))
     const bobStore = new CalendarStore(db, BOB)

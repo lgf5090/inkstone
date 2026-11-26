@@ -613,6 +613,8 @@ calendarRoutes.patch('/countdowns/:id', async (c) => {
 
 calendarRoutes.delete('/countdowns/:id', async (c) => {
   const id = pathId(c)
-  await new CountdownStore(c.env.DB, c.get('userId')).delete(id, parseRevQuery(c.req.query('rev')) ?? 0)
+  const rev = parseRevQuery(c.req.query('rev'))
+  if (rev === null) throw ApiError.badRequest('rev is required')
+  await new CountdownStore(c.env.DB, c.get('userId')).delete(id, rev)
   return noContent(c)
 })

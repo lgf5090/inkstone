@@ -7,12 +7,11 @@
  * event is deleted. Objects are filed under a category folder — `calendar/images/<id>.png`,
  * `calendar/docx/<id>.pdf` — because that is the layout this deployment is read with.
  *
- * Deleting a whole calendar deletes the link rows of the events it really removes, but not their files:
- * that is the same rule task attachments follow, and it keeps a file that a surviving event in another
- * calendar still links. The files stay counted against the account quota; reclaiming them is the job of
- * a sweep this app does not have yet.
+ * Deleting a whole calendar queues cleanup for files linked only by the events it really removes,
+ * then deletes those attachment rows and links in the same guarded batch. A file still linked by a
+ * surviving event is not selected by that event set.
  */
-import type { CalendarAttachmentDto } from '@shared/calendar/model'
+import { MAX_ATTACHMENTS_PER_EVENT, type CalendarAttachmentDto } from '@shared/calendar/model'
 import type { AppBindings } from '../env'
 import { attachmentCleanupTarget, attachmentCleanupTargetSql } from '../attachments/keys'
 
@@ -92,8 +91,9 @@ export async function linkEventAttachment(
     `INSERT OR IGNORE INTO calendar_event_attachments (user_id, attachment_id, event_id, created_at)
      SELECT ?1, ?2, ?3, ?4
       WHERE EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?3)
-        AND EXISTS (SELECT 1 FROM attachments WHERE user_id = ?1 AND id = ?2 AND scope = 'calendar')`,
-  ).bind(userId, attachmentId, eventId, now).run()
+        AND EXISTS (SELECT 1 FROM attachments WHERE user_id = ?1 AND id = ?2 AND scope = 'calendar')
+        AND (SELECT COUNT(*) FROM calendar_event_attachments WHERE user_id = ?1 AND event_id = ?3) < ?5`,
+  ).bind(userId, attachmentId, eventId, now, MAX_ATTACHMENTS_PER_EVENT).run()
   return (result.meta.changes ?? 0) > 0
 }
 

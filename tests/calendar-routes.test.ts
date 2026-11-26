@@ -218,6 +218,14 @@ describe('event routes', () => {
       expect(response.status, `write ${index + 1}`).toBe(200)
     }
   })
+  it('requires a revision when deleting a countdown', async () => {
+    const created = await json<{ countdown: { id: string; rev: number } }>(await call('POST', '/countdowns', {
+      title: 'Launch', date: '2026-12-01', repeat: 'none', note: '', color: '#e5484d', pinned: false,
+    }))
+    expect((await call('DELETE', `/countdowns/${created.countdown.id}`)).status).toBe(400)
+    expect((await call('DELETE', `/countdowns/${created.countdown.id}?rev=${created.countdown.rev}`)).status).toBe(204)
+  })
+
   it('creates, lists, patches and deletes an event', async () => {
     const home = (await meta()).calendars[0]!
     const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id)))

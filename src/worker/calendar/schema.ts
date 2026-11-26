@@ -432,6 +432,7 @@ export const CALENDAR_REQUIRED_TABLES: readonly string[] = [
   'calendar_members',
   'calendar_contacts',
   'calendar_event_templates',
+  'calendar_countdowns',
   'calendar_resources',
   'calendar_scheduling_links',
 ]
@@ -446,6 +447,7 @@ export const CALENDAR_REQUIRED_INDEXES: readonly string[] = [
   'idx_calendar_events_range',
   'idx_calendar_events_range_end',
   'idx_calendar_events_updated',
+  'idx_calendar_events_created',
   'idx_calendar_events_recurring',
   'idx_calendar_events_batch',
   'idx_calendar_events_external',
@@ -469,6 +471,7 @@ export const CALENDAR_REQUIRED_INDEXES: readonly string[] = [
   'idx_calendar_members_calendar',
   'idx_calendar_contacts_email',
   'idx_calendar_templates_user',
+  'idx_calendar_countdowns_order',
   'idx_calendar_resources_calendar',
   'idx_calendar_scheduling_slug',
 ]
@@ -524,6 +527,10 @@ export const CALENDAR_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[
   calendar_event_templates: [
     'user_id', 'id', 'name', 'title', 'description', 'kind', 'all_day', 'duration_minutes',
     'color', 'meta_json', 'created_at', 'updated_at', 'rev',
+  ],
+  calendar_countdowns: [
+    'user_id', 'id', 'title', 'target_date', 'repeat_mode', 'lunar_month', 'lunar_day',
+    'lunar_leap', 'note', 'color', 'pinned', 'created_at', 'updated_at', 'rev',
   ],
   calendar_resources: ['user_id', 'id', 'calendar_id', 'name', 'capacity', 'created_at', 'updated_at'],
   calendar_scheduling_links: [
