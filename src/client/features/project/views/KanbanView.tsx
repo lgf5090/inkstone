@@ -180,9 +180,11 @@ export function KanbanView(props: KanbanProps): ReactElement {
           colorOf={colorOf}
           todayStamp={todayStamp}
           drag={drag}
-          dragColumn={columnDrag.draggingId}
+          dragColumn={columnDrag.draggingId === column.key ? column.key : null}
+          keyboardColumn={columnDrag.keyboardDragId === column.key ? column.key : null}
           overColumn={columnDrag.overId}
           onColumnDragStart={(event) => columnDrag.start(event, column.key)}
+          onColumnKeyDown={(event) => columnDrag.onKeyDown(event, column.key)}
           selectedSet={selectedSet}
           starredSet={starredSet}
           pinnedSet={pinnedSet}
@@ -217,7 +219,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
   )
 }
 
-function KanbanColumn({ columnKey, cards, groupProperty, properties, chipProperties, fields, colorOf, todayStamp, drag, dragColumn, overColumn, onColumnDragStart, ...props }: KanbanProps & {
+function KanbanColumn({ columnKey, cards, groupProperty, properties, chipProperties, fields, colorOf, todayStamp, drag, dragColumn, keyboardColumn, overColumn, onColumnDragStart, onColumnKeyDown, ...props }: KanbanProps & {
   columnKey: string
   cards: ProjectCard[]
   groupProperty: ProjectProperty | undefined
@@ -226,8 +228,10 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
   todayStamp: number
   drag: ReturnType<typeof useDragSort>
   dragColumn: string | null
+  keyboardColumn: string | null
   overColumn: string | null
   onColumnDragStart: (event: React.PointerEvent) => void
+  onColumnKeyDown: (event: React.KeyboardEvent) => void
   selectedSet: ReadonlySet<string>
   starredSet: ReadonlySet<string>
   pinnedSet: ReadonlySet<string>
@@ -321,9 +325,10 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
               color={color}
               canEdit={canEdit && Boolean(groupProperty) && columnKey !== ''}
               hideable={canEdit && Boolean(groupProperty) && columnKey !== ''}
-              dragging={dragColumn === columnKey}
-              dropTarget={overColumn === columnKey && dragColumn !== columnKey}
+              dragging={dragColumn === columnKey || keyboardColumn === columnKey}
+              dropTarget={overColumn === columnKey && dragColumn !== columnKey && keyboardColumn !== columnKey}
               onGripDown={onColumnDragStart}
+              onGripKey={onColumnKeyDown}
               calc={calc}
               calcOptions={calcProperty ? calculationOptionsFor(calcProperty) : []}
               wip={wip}
@@ -367,6 +372,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
                   starred={starredSet.has(card.id)}
                   pinned={pinnedSet.has(card.id)}
                   dragging={drag.draggingId === card.id}
+                  keyboardDragging={drag.keyboardDragId === card.id}
                   isOpen={expanded.has(card.id)}
                   canEdit={canEdit}
                   canMarkDone={canMarkDone}
@@ -381,6 +387,7 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
                   onAddSubtask={props.onAddSubtask}
                   onToggleExpanded={toggleExpanded}
                   onDragStart={drag.start}
+                  onDragKey={drag.onKeyDown}
                 />
               ))}
               <DropLine store={drag.overStore} zone={columnKey} index={cards.length} />
@@ -423,9 +430,11 @@ interface KanbanCardProps {
   onAddSubtask: (parentId: string) => Promise<void>
   onToggleExpanded: (cardId: string) => void
   onDragStart: (event: React.PointerEvent, id: string) => void
+  onDragKey: (event: React.KeyboardEvent, id: string) => void
+  keyboardDragging: boolean
 }
 
-const KanbanCard = memo(function KanbanCard({ card, index, columnKey, overStore, fields, properties, chipProperties, colorOf, todayStamp, subtasksByParent, selected, starred, pinned, dragging, isOpen, canEdit, canMarkDone, badges, cover, description, onSelectClick, onDeleteCard, onCardContextMenu, onOpenCard, onToggleCardDone, onAddSubtask, onToggleExpanded, onDragStart }: KanbanCardProps): ReactElement {
+const KanbanCard = memo(function KanbanCard({ card, index, columnKey, overStore, fields, properties, chipProperties, colorOf, todayStamp, subtasksByParent, selected, starred, pinned, dragging, keyboardDragging, isOpen, canEdit, canMarkDone, badges, cover, description, onSelectClick, onDeleteCard, onCardContextMenu, onOpenCard, onToggleCardDone, onAddSubtask, onToggleExpanded, onDragStart, onDragKey }: KanbanCardProps): ReactElement {
   const subtasks = subtasksByParent.get(card.id) ?? []
   const done = subtasks.filter((entry) => isProjectCardDone(entry, properties)).length
   const layout = fields.boardLayout ?? 'compact'
@@ -478,7 +487,7 @@ const KanbanCard = memo(function KanbanCard({ card, index, columnKey, overStore,
               <Trash2 size={12} />
             </IconButton>
           )}
-          {canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => onDragStart(event, card.id)} />}
+          {canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => onDragStart(event, card.id)} onKeyDown={(event) => onDragKey(event, card.id)} dragging={keyboardDragging} />}
         </CardFace>
         {subtasks.length > 0 && (
           <>
@@ -519,7 +528,7 @@ const KanbanCard = memo(function KanbanCard({ card, index, columnKey, overStore,
  * The name is a button so a double click renames the option itself — the column and every card wearing
  * that option change together, which is what renaming a status means.
  */
-function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, calcOptions, wip, renaming, draft, dragging, dropTarget, onGripDown, onDraft, onRename, onCommit, onCancelRename, onCollapse, onCalc, onWip, onHide }: {
+function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, calcOptions, wip, renaming, draft, dragging, dropTarget, onGripDown, onGripKey, onDraft, onRename, onCommit, onCancelRename, onCollapse, onCalc, onWip, onHide }: {
   label: string
   count: string | number
   overLimit: boolean
@@ -534,6 +543,7 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
   dragging: boolean
   dropTarget: boolean
   onGripDown: (event: React.PointerEvent) => void
+  onGripKey: (event: React.KeyboardEvent) => void
   onDraft: (value: string) => void
   onRename: () => void
   onCommit: () => void
@@ -568,9 +578,12 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
           className="pv-col-grip"
           data-column-grip={label}
           aria-label={t('project.view.drag_column', { title: label })}
+          aria-pressed={dragging}
           onPointerDown={onGripDown}
+          onKeyDown={onGripKey}
         >
           <GripVertical size={12} aria-hidden="true" />
+          <span className="sr-only">{t('project.view.keyboard_drag_help')}</span>
         </button>
       )}
       <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />

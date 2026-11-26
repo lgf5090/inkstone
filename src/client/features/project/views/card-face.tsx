@@ -55,20 +55,25 @@ export function CardFace({ card, color, cover, chipProperties, excludePropertyId
   )
 }
 
-export function CardGrip({ label, onPointerDown }: {
+export function CardGrip({ label, onPointerDown, onKeyDown, dragging }: {
   label: string
   onPointerDown: (event: React.PointerEvent) => void
+  onKeyDown: (event: React.KeyboardEvent) => void
+  dragging: boolean
 }): ReactElement {
   return (
     <button
       type="button"
       className="pv-card-grip"
       aria-label={label}
+      aria-pressed={dragging}
       data-drag-handle=""
       onPointerDown={onPointerDown}
+      onKeyDown={onKeyDown}
       onClick={(event) => event.preventDefault()}
     >
       <GripVertical size={13} aria-hidden="true" />
+      <span className="sr-only">{t('project.view.keyboard_drag_help')}</span>
     </button>
   )
 }

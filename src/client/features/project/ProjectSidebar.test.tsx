@@ -92,6 +92,32 @@ describe('sidebar drag reorder (E-1/A-12)', () => {
     expect(api.reorderCategoryBoards).toHaveBeenCalledWith('cat1', ['b2', 'b1'])
   })
 
+  it('reorders a board with Enter, ArrowUp and Enter on its grip', async () => {
+    vi.mocked(api.reorderCategoryBoards).mockResolvedValue(undefined)
+    await mount()
+    const grips = [...view.container.querySelectorAll<HTMLButtonElement>('[data-sidebar-grip="board:b2"]')]
+    const grip = grips[grips.length - 1]!
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(grip.getAttribute('aria-pressed')).toBe('true')
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(api.reorderCategoryBoards).toHaveBeenCalledWith('cat1', ['b2', 'b1'])
+  })
+
+  it('moves a board down one place with the keyboard', async () => {
+    vi.mocked(api.fetchProjectCategories).mockResolvedValue({
+      categories: [{ id: 'cat1', userId: 'u1', name: 'Work', type: 'custom', collapsed: false, sortOrder: 0, createAt: 1, updateAt: 1, deleteAt: 0 }],
+      categoryBoards: [{ categoryId: 'cat1', boardId: 'b1', hidden: false, position: 0 }, { categoryId: 'cat1', boardId: 'b2', hidden: false, position: 1 }],
+    })
+    vi.mocked(api.reorderCategoryBoards).mockResolvedValue(undefined)
+    await mount()
+    const grip = view.container.querySelector<HTMLButtonElement>('[data-sidebar-grip="board:b1"]')!
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(api.reorderCategoryBoards).toHaveBeenCalledWith('cat1', ['b2', 'b1'])
+  })
+
   it('a finger held on a board grip files it into the folder it is released on', async () => {
     vi.mocked(api.addBoardToCategory).mockResolvedValue({ categoryId: 'cat1', boardId: 'b2', hidden: false, position: 1 })
     await mount()

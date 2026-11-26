@@ -24,6 +24,7 @@ import { prompt, useDialogFocus, useEscape } from '../../../components/overlay'
 import { createProjectCard } from '../api'
 import { useToday } from '../use-today'
 import { Legend, Seg, ViewHead, ViewShell } from './shell'
+import { usePointerSession } from '../../../lib/hooks'
 
 const MAX_CHIPS = 3
 const RIBBON_ROW_PX = 18
@@ -59,6 +60,7 @@ export function CalendarView(props: CalendarProps): ReactElement {
   const [anchor, setAnchor] = useState(() => new Date())
   const [selected, setSelected] = useState<string | null>(null)
   const [dropDay, setDropDay] = useState<string | null>(null)
+  const startPointerSession = usePointerSession()
   const todayStamp = useToday()
   const todayKey = dateKey(new Date(todayStamp))
   const keyOf = useCallback((stamp: number) => dateKey(new Date(stamp)), [])
@@ -152,25 +154,24 @@ export function CalendarView(props: CalendarProps): ReactElement {
     const startX = event.clientX
     const startY = event.clientY
     let moved = false
-    const move = (moveEvent: PointerEvent): void => {
-      if (!moved && Math.abs(moveEvent.clientX - startX) < 5 && Math.abs(moveEvent.clientY - startY) < 5) return
-      moved = true
-      moveEvent.preventDefault()
-      const under = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest('[data-calendar-day]')
-      setDropDay(under?.getAttribute('data-calendar-day') ?? null)
-    }
-    const up = (upEvent: PointerEvent): void => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      const under = document.elementFromPoint(upEvent.clientX, upEvent.clientY)?.closest('[data-calendar-day]')
-      const key = under?.getAttribute('data-calendar-day')
-      setDropDay(null)
-      if (!moved || !key) return
-      const target = cells.find((cell) => cell.key === key)
-      if (target) reschedule(card.id, target.date)
-    }
-    window.addEventListener('pointermove', move, { passive: false })
-    window.addEventListener('pointerup', up)
+    startPointerSession(event, {
+      onMove: (moveEvent) => {
+        if (!moved && Math.abs(moveEvent.clientX - startX) < 5 && Math.abs(moveEvent.clientY - startY) < 5) return
+        moved = true
+        moveEvent.preventDefault()
+        const under = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest('[data-calendar-day]')
+        setDropDay(under?.getAttribute('data-calendar-day') ?? null)
+      },
+      onCommit: (upEvent) => {
+        const under = document.elementFromPoint(upEvent.clientX, upEvent.clientY)?.closest('[data-calendar-day]')
+        const key = under?.getAttribute('data-calendar-day')
+        setDropDay(null)
+        if (!moved || !key) return
+        const target = cells.find((cell) => cell.key === key)
+        if (target) reschedule(card.id, target.date)
+      },
+      onCancel: () => setDropDay(null),
+    })
   }
 
   const quickAdd = async (day: Date): Promise<void> => {

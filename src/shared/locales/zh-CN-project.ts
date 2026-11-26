@@ -562,6 +562,7 @@ export const ZH_CN_PROJECT = {
     "project.boards.layout_cards": "卡片",
     "project.card.no_done_field": "该看板没有可用于勾选的状态或复选框字段",
     "project.view.drag_column": "拖动以调整 {title} 的位置",
+    "project.view.keyboard_drag_help": "按 Enter 拾取，方向键移动，再按 Enter 放下，Escape 取消。",
     "project.integrations.title": "集成",
     "project.integrations.open": "集成",
     "project.integrations.tokens": "API 令牌",

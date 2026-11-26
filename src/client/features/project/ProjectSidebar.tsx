@@ -16,7 +16,7 @@ import { readRandomIconPref, writeRandomIconPref } from './project-icon'
 import { categoryDropZone, planCategoryDrop } from './sidebar-drag'
 import { useBandDrag, type BandDragState } from './views/use-band-drag'
 import { isImeComposing } from '../../lib/ime'
-import { useEvent } from '../../lib/hooks'
+import { useEvent, usePointerSession } from '../../lib/hooks'
 import { PROJECT_SIDEBAR_MAX_WIDTH, PROJECT_SIDEBAR_MIN_WIDTH, readRecentBoardsPref, readSidebarWidthPref, rememberRecentBoardPref, useProjectBoardMarks, writeSidebarWidthPref } from './project-prefs'
 import {
   addBoardToCategory,
@@ -126,6 +126,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   const [contextLabel, setContextLabel] = useState<string>('')
   const [collapsedMap, setCollapsedMap] = useState<Map<string, boolean>>(new Map())
   const [width, setWidth] = useState(readSidebarWidthPref)
+  const startPointerSession = usePointerSession()
   const [iconBoard, setIconBoard] = useState<string | null>(null)
   const [iconTone, setIconTone] = useState<SkinTone>(0)
 
@@ -454,6 +455,8 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       isDragging={sidebarDrag.draggingId === `board:${board.id}`}
       buildItems={buildBoardMenu}
       onDragStart={sidebarDrag.start}
+      onDragKey={sidebarDrag.onKeyDown}
+      keyboardDragId={sidebarDrag.keyboardDragId}
       onContextMenu={openBoardContext}
     />
   )
@@ -486,8 +489,11 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       const targetId = target.slice('board:'.length)
       const categoryId = edgeForBoard(targetId)?.categoryId ?? ''
       if (!categoryId || boardId === targetId) return
+      const drawnOrder = [...(asideRef.current?.querySelectorAll<HTMLElement>('[data-sidebar-drop]') ?? [])]
+        .map((node) => node.dataset.sidebarDrop ?? '')
+      const forwards = drawnOrder.indexOf(source) < drawnOrder.indexOf(target)
       const ids = (edgesByCategory.get(categoryId) ?? []).toSorted((a, b) => a.position - b.position).map((e) => e.boardId).filter((id) => id !== boardId)
-      const at = ids.indexOf(targetId)
+      const at = ids.indexOf(targetId) + (forwards ? 1 : 0)
       if (at < 0) return
       ids.splice(at, 0, boardId)
       void guard(async () => { await reorderCategoryBoards(categoryId, ids) })
@@ -549,22 +555,15 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
         onPointerDown={(event) => {
           const startX = event.clientX
           const startWidth = width
-          const target = event.currentTarget
-          target.setPointerCapture(event.pointerId)
           let latest = startWidth
-          const move = (moveEvent: PointerEvent) => {
-            const next = Math.min(PROJECT_SIDEBAR_MAX_WIDTH, Math.max(PROJECT_SIDEBAR_MIN_WIDTH, startWidth + moveEvent.clientX - startX))
-            latest = next
-            asideRef.current?.style.setProperty('--pv-sidebar-w', `${next}px`)
-          }
-          const up = () => {
-            target.removeEventListener('pointermove', move)
-            target.removeEventListener('pointerup', up)
-            setWidth(latest)
-            writeSidebarWidthPref(latest)
-          }
-          target.addEventListener('pointermove', move)
-          target.addEventListener('pointerup', up)
+          startPointerSession(event, {
+            onMove: (moveEvent) => {
+              latest = Math.min(PROJECT_SIDEBAR_MAX_WIDTH, Math.max(PROJECT_SIDEBAR_MIN_WIDTH, startWidth + moveEvent.clientX - startX))
+              asideRef.current?.style.setProperty('--pv-sidebar-w', `${latest}px`)
+            },
+            onCommit: () => { setWidth(latest); writeSidebarWidthPref(latest) },
+            onCancel: () => { asideRef.current?.style.setProperty('--pv-sidebar-w', `${startWidth}px`); setWidth(startWidth) },
+          })
         }}
       />
       <div className="space-y-2 p-2">
@@ -737,9 +736,12 @@ function CategoryTreeItem({
             className="pv-side-grip"
             data-sidebar-grip={payload}
             aria-label={t('project.sidebar.drag_row', { title: node.name })}
+            aria-pressed={drag.keyboardDragId === payload}
             onPointerDown={(event) => drag.start(event, payload)}
+            onKeyDown={(event) => drag.onKeyDown(event, payload)}
           >
             <GripVertical size={12} aria-hidden="true" />
+            <span className="sr-only">{t('project.view.keyboard_drag_help')}</span>
           </button>
         )}
         <button
@@ -805,6 +807,8 @@ const BoardEntry = memo(function BoardEntry({
   isDragging,
   buildItems,
   onDragStart,
+  onDragKey,
+  keyboardDragId,
   onContextMenu,
 }: {
   board: ProjectBoardSummary
@@ -819,6 +823,8 @@ const BoardEntry = memo(function BoardEntry({
   isDragging: boolean
   buildItems: (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => MenuItem[]
   onDragStart: (event: React.PointerEvent, id: string) => void
+  onDragKey: (event: React.KeyboardEvent, id: string) => void
+  keyboardDragId: string | null
   onContextMenu: (event: ReactMouseEvent, board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => void
 }): ReactElement {
   const payload = `board:${board.id}`
@@ -841,9 +847,12 @@ const BoardEntry = memo(function BoardEntry({
         className="pv-side-grip"
         data-sidebar-grip={payload}
         aria-label={t('project.sidebar.drag_row', { title: board.title || t('project.boards.untitled') })}
+        aria-pressed={keyboardDragId === payload}
         onPointerDown={(event) => onDragStart(event, payload)}
+        onKeyDown={(event) => onDragKey(event, payload)}
       >
         <GripVertical size={12} aria-hidden="true" />
+        <span className="sr-only">{t('project.view.keyboard_drag_help')}</span>
       </button>
       <button
         type="button"

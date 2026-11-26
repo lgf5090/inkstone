@@ -54,7 +54,7 @@
 | P2-06 | done | F32 scope subscription cache by account; revalidate public share owner/archive state | account switch cannot leak watch state; archived/private share inaccessible | bdbb5afc2 |
 | P2-07 | done | F33 explicit loading/error/empty states and retry for silent catches | failed reads never masquerade as empty/no-access | cc5aa9c28 |
 | P2-08 | done | F34 reliable undo/redo and keyboard error handling | failed undo restores stack; dialog edits and drag order undo correctly | 8f8e210e4 |
-| P2-09 | pending | F35 keyboard equivalents for drag; pointercancel/unmount cleanup | Tab/arrow/Enter reorder works; cancelled pointer never mutates | - |
+| P2-09 | in_progress | F35 keyboard equivalents for drag; pointercancel/unmount cleanup | Tab/arrow/Enter reorder works; cancelled pointer never mutates | - |
 | P2-10 | done | F36 readable CSV values and spreadsheet-safe escaping | labels/ISO dates exported; formula payloads neutralized | 5ac0b42b2 |
 | P2-11 | done | F37 reject unknown property ids and redact invisible backreferences | unknown id 400; invisible references expose no ids | 525aca436 |
 | P2-12 | pending | F38 remove dead code, centralize API/network access, split giant components, i18n/style cleanup | gates pass; no unused public helpers; responsibilities separated | - |

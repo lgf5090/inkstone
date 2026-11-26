@@ -54,7 +54,7 @@ export function DependencyEdges({ links, geometry, rowHeight, columnPx, width, h
   )
 }
 
-export function ScheduleBar({ card, color, left, width, top, height, done, progress, conflict, selected, draggable, dragging, milestone, tip, onOpen, onPointerDown, onContextMenu, onDoubleClick, children }: {
+export function ScheduleBar({ card, color, left, width, top, height, done, progress, conflict, selected, draggable, dragging, milestone, tip, onOpen, onPointerDown, onKeyDown, onContextMenu, onDoubleClick, children }: {
   card: ProjectCard
   color: string
   left: number
@@ -71,6 +71,7 @@ export function ScheduleBar({ card, color, left, width, top, height, done, progr
   tip?: string
   onOpen: () => void
   onPointerDown?: (event: React.PointerEvent) => void
+  onKeyDown?: (event: React.KeyboardEvent) => void
   onContextMenu?: (event: React.MouseEvent) => void
   onDoubleClick?: () => void
   children?: React.ReactNode
@@ -102,6 +103,7 @@ export function ScheduleBar({ card, color, left, width, top, height, done, progr
       } as React.CSSProperties}
       onClick={onOpen}
       onPointerDown={onPointerDown}
+      onKeyDown={onKeyDown}
       onContextMenu={onContextMenu}
       onDoubleClick={onDoubleClick}
     >

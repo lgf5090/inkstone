@@ -36,6 +36,7 @@ import { useToday } from '../use-today'
 import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
 import { DependencyEdges, RowToggle, ScheduleBar, UnscheduledTray, type BarGeometry } from './schedule-parts'
+import { usePointerSession } from '../../../lib/hooks'
 
 const GANTT_ROW_H = 40
 const GANTT_BAR_H = 24
@@ -70,6 +71,9 @@ export function GanttView(props: GanttProps): ReactElement {
   const scale = fields.scheduleScale ?? 'day'
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [drag, setDrag] = useState<DragState | null>(null)
+  const startPointerSession = usePointerSession()
+  const pendingKeyboardRanges = useRef(new Map<string, { from: number, to: number }>())
+  const keyboardWriteQueue = useRef<Promise<void>>(Promise.resolve())
   const [draft, setDraft] = useState<{ row: number, from: number, to: number } | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<{ id: string, value: string } | null>(null)
@@ -126,8 +130,8 @@ export function GanttView(props: GanttProps): ReactElement {
       .reduce((sum, entry) => sum + (Number(entry.card.values[effortProperty.id]) || 0), 0)
     : 0)
 
-  const writeRange = (cardId: string, from: number, to: number): void => {
-    if (!propertyId) return
+  const writeRange = (cardId: string, from: number, to: number): Promise<void> => {
+    if (!propertyId) return Promise.resolve()
     const card = props.cards.find((entry) => entry.id === cardId)
     const current = card ? parseProjectDateValue(card.values[propertyId] ?? '') : null
     const fromDate = new Date(from)
@@ -147,7 +151,19 @@ export function GanttView(props: GanttProps): ReactElement {
       includeTime: current?.includeTime === true,
       timeZone: current?.timeZone ?? projectTimeZoneName(),
     })
-    void props.onPatchCard(cardId, { values: { [propertyId]: JSON.stringify(value) } })
+    return props.onPatchCard(cardId, { values: { [propertyId]: JSON.stringify(value) } })
+  }
+
+  const queueKeyboardRange = (cardId: string, from: number, to: number): void => {
+    pendingKeyboardRanges.current.set(cardId, { from, to })
+    const writeNext = async (): Promise<void> => {
+      const next = pendingKeyboardRanges.current.get(cardId)
+      if (!next) return
+      pendingKeyboardRanges.current.delete(cardId)
+      await writeRange(cardId, next.from, next.to)
+      await props.onRefresh()
+    }
+    keyboardWriteQueue.current = keyboardWriteQueue.current.then(writeNext, writeNext)
   }
 
   const shiftRange = (cardId: string, mode: 'start' | 'end', delta: number): void => {
@@ -170,27 +186,26 @@ export function GanttView(props: GanttProps): ReactElement {
     let columns = 0
     let moved = false
     setSelected(card.id)
-    const move = (moveEvent: PointerEvent): void => {
-      const delta = Math.round((moveEvent.clientX - startX) / columnPx)
-      if (delta === columns && moved) return
-      moved = true
-      columns = delta
-      setDrag({ id: card.id, mode, columns })
-    }
-    const up = (): void => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      setDrag(null)
-      if (!moved || columns === 0) return
-      if (mode === 'move') {
-        const next = projectTimelineDragRange({ from: range.start, to: range.end }, columns)
-        writeRange(card.id, next.from, next.to)
-        return
-      }
-      shiftRange(card.id, mode, columns)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+    startPointerSession(event, {
+      onMove: (moveEvent) => {
+        const delta = Math.round((moveEvent.clientX - startX) / columnPx)
+        if (delta === columns && moved) return
+        moved = true
+        columns = delta
+        setDrag({ id: card.id, mode, columns })
+      },
+      onCommit: () => {
+        setDrag(null)
+        if (!moved || columns === 0) return
+        if (mode === 'move') {
+          const next = projectTimelineDragRange({ from: range.start, to: range.end }, columns)
+          writeRange(card.id, next.from, next.to)
+          return
+        }
+        shiftRange(card.id, mode, columns)
+      },
+      onCancel: () => setDrag(null),
+    })
   }
 
   /** Dragging an empty stretch of a lane draws a ghost, then files a new card on those dates. */
@@ -206,20 +221,19 @@ export function GanttView(props: GanttProps): ReactElement {
     const from = columnAt(event.clientX)
     setDraft({ row: context.row, from, to: from })
     let latest = from
-    const move = (moveEvent: PointerEvent): void => {
-      latest = columnAt(moveEvent.clientX)
-      setDraft({ row: context.row, from, to: latest })
-    }
-    const up = (): void => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      setDraft(null)
-      const a = Math.min(from, latest)
-      const b = Math.max(from, latest)
-      void createOnSpan(row.laneKey, a, b)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+    startPointerSession(event, {
+      onMove: (moveEvent) => {
+        latest = columnAt(moveEvent.clientX)
+        setDraft({ row: context.row, from, to: latest })
+      },
+      onCommit: () => {
+        setDraft(null)
+        const a = Math.min(from, latest)
+        const b = Math.max(from, latest)
+        void createOnSpan(row.laneKey, a, b)
+      },
+      onCancel: () => setDraft(null),
+    })
   }
 
   const createOnSpan = async (laneKey: string, fromColumn: number, toColumn: number): Promise<void> => {
@@ -474,6 +488,21 @@ export function GanttView(props: GanttProps): ReactElement {
                 tip={`${card.title || t('project.board.untitled_card')}\n${shortDay(range.start)} → ${shortDay(range.end)}`}
                   onOpen={() => { if (!drag) props.onOpenCard(card.id) }}
                   onPointerDown={(event) => startBarDrag(event, card, 'move')}
+                  onKeyDown={(event) => {
+                    if (!planning || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+                    event.preventDefault()
+                    const delta = event.key === 'ArrowLeft' ? -1 : 1
+                    const base = pendingKeyboardRanges.current.get(card.id) ?? { from: range.start, to: range.end }
+                    if (event.shiftKey) {
+                      const shiftedStart = projectTimelineDragRange({ from: base.from, to: base.from }, delta).from
+                      const shiftedEnd = projectTimelineDragRange({ from: base.to, to: base.to }, delta).from
+                      const from = Math.min(base.to, shiftedStart)
+                      queueKeyboardRange(card.id, from, Math.max(from, shiftedEnd))
+                    } else {
+                      const next = projectTimelineDragRange({ from: base.from, to: base.to }, delta)
+                      queueKeyboardRange(card.id, next.from, next.to)
+                    }
+                  }}
                   onDoubleClick={() => { if (planning) setRenaming({ id: card.id, value: card.title }) }}
                   onContextMenu={(event) => {
                     if (!planning) return

@@ -122,8 +122,8 @@ describe('the table view', () => {
   it('renders a column per property and a row per card with display values', async () => {
     await mount()
     const headers = [...view.container.querySelectorAll('thead th')].map((th) => th.textContent)
-    expect(headers).toContain('Status')
-    expect(headers).toContain('Notes')
+    expect(headers.some((header) => header.includes('Status'))).toBe(true)
+    expect(headers.some((header) => header.includes('Notes'))).toBe(true)
     const rows = [...view.container.querySelectorAll('tbody tr[data-project-card]')]
     expect(rows).toHaveLength(3)
     expect(rows[0]!.textContent).toContain('Alpha')
@@ -239,6 +239,48 @@ describe('board column hide and cross-column drag (C-2)', () => {
       ['c2', 'c1', 'c3'],
     )
     expect(api.batchPatchProjectBoard).not.toHaveBeenCalled()
+  })
+
+  it('moves a card between columns with Enter, ArrowRight and Enter on its grip', async () => {
+    const onPatchCard = vi.fn<(id: string, patch: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined)
+    const onPatch = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>().mockResolvedValue(undefined)
+    const onDragCards = vi.fn<(patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]) => Promise<void>>().mockResolvedValue(undefined)
+    await mountBoard(onPatch, onPatchCard, onDragCards)
+    const grip = view.container.querySelector<HTMLButtonElement>('[data-drag-id="c1"] [data-drag-handle]')!
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(grip.getAttribute('aria-pressed')).toBe('true')
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(onDragCards).toHaveBeenCalledWith(
+      [{ id: 'c1', patch: { values: { ps: 'o2' } } }],
+      ['c1', 'c2', 'c3'],
+    )
+    expect(grip.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('cancels a keyboard pickup with Escape without writing', async () => {
+    const onPatch = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>().mockResolvedValue(undefined)
+    const onDragCards = vi.fn<(patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]) => Promise<void>>().mockResolvedValue(undefined)
+    await mountBoard(onPatch, vi.fn<(id: string, patch: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined), onDragCards)
+    const grip = view.container.querySelector<HTMLButtonElement>('[data-drag-id="c1"] [data-drag-handle]')!
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) })
+    await act(async () => { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+    expect(onDragCards).not.toHaveBeenCalled()
+    expect(grip.getAttribute('aria-pressed')).toBe('false')
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('.pv-card-title')!.focus() })
+    expect(grip.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('reorders columns with the keyboard grip', async () => {
+    const onPatch = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>().mockResolvedValue(undefined)
+    await mountBoard(onPatch, vi.fn<(id: string, patch: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined))
+    const grip = view.container.querySelector<HTMLButtonElement>('[data-column-grip="Open"]')!
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(onPatch).toHaveBeenCalledWith('v2', { fields: { columnOrder: ['o2', 'o1', ''] } })
   })
 })
 

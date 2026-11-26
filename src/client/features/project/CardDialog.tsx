@@ -595,9 +595,12 @@ export function CardDialog({ card, properties, members, people, contents, siblin
                     className="pv-block-grip"
                     data-content-grip={block.id}
                     aria-label={t('project.card.drag_block', { title: block.title || t('project.card.checkbox_block') })}
+                    aria-pressed={blockDrag.keyboardDragId === block.id}
                     onPointerDown={(event) => blockDrag.start(event, block.id)}
+                    onKeyDown={(event) => blockDrag.onKeyDown(event, block.id)}
                   >
                     <GripVertical size={13} aria-hidden="true" />
+                    <span className="sr-only">{t('project.view.keyboard_drag_help')}</span>
                   </button>
                 )}
                 <div className="min-w-0 flex-1">

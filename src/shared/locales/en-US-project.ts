@@ -562,6 +562,7 @@ export const EN_US_PROJECT = {
     "project.boards.layout_cards": "Cards",
     "project.card.no_done_field": "This board has no status or checkbox field to tick",
     "project.view.drag_column": "Drag to reorder {title}",
+    "project.view.keyboard_drag_help": "Press Enter to pick up, arrow keys to move, Enter to drop, and Escape to cancel.",
     "project.integrations.title": "Integrations",
     "project.integrations.open": "Integrations",
     "project.integrations.tokens": "API tokens",

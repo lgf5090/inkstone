@@ -60,6 +60,8 @@ interface ListRowApi {
   locale: string
   badgesFor: (cardId: string) => ProjectCardBadges
   onDragStart: (event: React.PointerEvent, id: string) => void
+  onDragKey: (event: React.KeyboardEvent, id: string) => void
+  keyboardDragId: string | null
   onCardContextMenu: (event: MouseEvent, card: ProjectCard) => void
   onToggleCardDone: (card: ProjectCard, done: boolean) => Promise<void>
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
@@ -104,7 +106,7 @@ const ListRow = memo(function ListRow({ card, child, api, expanded, renaming, dr
         style={{ paddingLeft: child ? '36px' : undefined }}
         onContextMenu={(event) => api.onCardContextMenu(event, card)}
       >
-        {!child && api.canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => api.onDragStart(event, card.id)} />}
+        {!child && api.canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => api.onDragStart(event, card.id)} onKeyDown={(event) => api.onDragKey(event, card.id)} dragging={api.keyboardDragId === card.id} />}
         {!child && subtasks.length > 0
           ? (
             <IconButton
@@ -309,6 +311,8 @@ export function ListView(props: ListProps): ReactElement {
     children, canEdit, canMarkDone, properties, priorityProperty, colorOf, dateProperty, shown, today, people, locale,
     badgesFor: props.badgesFor,
     onDragStart: drag.start,
+    onDragKey: drag.onKeyDown,
+    keyboardDragId: drag.keyboardDragId,
     onCardContextMenu: props.onCardContextMenu,
     onToggleCardDone: props.onToggleCardDone,
     onPatchCard: props.onPatchCard,
@@ -321,7 +325,7 @@ export function ListView(props: ListProps): ReactElement {
     onRenameCommit: commitRename,
     onRenameCancel: cancelRename,
     onCyclePriority: cyclePriority,
-  }), [children, canEdit, canMarkDone, properties, priorityProperty, colorOf, dateProperty, shown, today, people, locale, props.badgesFor, drag.start, props.onCardContextMenu, props.onToggleCardDone, props.onPatchCard, props.onOpenCard, props.onAddSubtask, props.onDeleteCard, toggleExpanded, openRename, changeRename, commitRename, cancelRename, cyclePriority])
+  }), [children, canEdit, canMarkDone, properties, priorityProperty, colorOf, dateProperty, shown, today, people, locale, props.badgesFor, drag.start, drag.onKeyDown, drag.keyboardDragId, props.onCardContextMenu, props.onToggleCardDone, props.onPatchCard, props.onOpenCard, props.onAddSubtask, props.onDeleteCard, toggleExpanded, openRename, changeRename, commitRename, cancelRename, cyclePriority])
 
   const columnItems: MenuItem[] = properties.map((property) => ({
     id: property.id,
