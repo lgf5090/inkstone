@@ -875,7 +875,7 @@ export const CALENDAR_TOOLS: readonly ToolDefinition[] = [
     },
     async commit(targetId, ctx) {
       const zone = await zoneOf(ctx)
-      const found = await loadEvent(ctx, targetId, true)
+      const found = await findEvent({ id: targetId }, ctx, zone, true)
       if (found.occurrenceStartMs !== undefined) {
         const duration = existingDurationMinutes(found.event, zone)
         await ask(() => found.store.applyRecurrenceChange(found.rawId, {

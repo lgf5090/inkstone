@@ -320,4 +320,25 @@ describe('deleting an event', () => {
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events WHERE user_id = ?').get(USER))
       .toMatchObject({ count: 0 })
   })
+
+  it('deletes only the approved occurrence of a repeating series', async () => {
+    const created = await executor().execute('calendar_create_event', {
+      title: 'Daily approved', start: '2026-11-04T09:00', recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    }, 'create-repeat') as { event: { id: string } }
+    const listed = await executor().execute('calendar_list_events', {
+      from: '2026-11-05', to: '2026-11-05',
+    }, 'list-repeat') as { events: Array<{ id: string }> }
+    const occurrence = listed.events.find(event => event.id.includes('::repeat-'))
+    expect(occurrence).toBeDefined()
+    const proposal = await executor().execute('calendar_delete_event', { id: occurrence!.id }, 'delete-occurrence') as { status: string }
+    expect(proposal.status).toBe('awaiting_reader_approval')
+    const pending = [...(await assistant.actionStatesForConversation(conversation.id)).values()]
+      .find(action => action.tool === 'calendar_delete_event')
+    await runApprovedAction(assistant, context(), pending!.id)
+    const after = await executor().execute('calendar_list_events', {
+      from: '2026-11-05', to: '2026-11-05',
+    }, 'list-after') as { events: Array<{ id: string }> }
+    expect(after.events).toHaveLength(0)
+    expect(await calendar.getEvent(created.event.id)).not.toBeNull()
+  })
 })
