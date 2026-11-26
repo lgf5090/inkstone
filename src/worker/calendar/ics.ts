@@ -994,6 +994,76 @@ export function expandRecurringEvents(
   return { occurrences, truncated }
 }
 
+const VTIMEZONE_START_MS = Date.parse('1970-01-01T00:00:00Z')
+const VTIMEZONE_END_MS = Date.parse('2101-01-01T00:00:00Z')
+const VTIMEZONE_STEP_MS = 7 * 24 * 60 * 60 * 1000
+const vtimezoneCache = new Map<string, string>()
+
+function offsetMinutes(zone: string, at: number): number {
+  const offset = Temporal.Instant.fromEpochMilliseconds(at).toZonedDateTimeISO(zone).offset
+  const match = /^([+-])(\d{2}):(\d{2})$/.exec(offset)
+  if (!match) throw new Error(`Unsupported timezone offset: ${offset}`)
+  return (match[1] === '-' ? -1 : 1) * (Number(match[2]) * 60 + Number(match[3]))
+}
+
+function offsetProperty(component: IcalComponent, name: string, minutes: number): void {
+  const sign = minutes < 0 ? '-' : '+'
+  const absolute = Math.abs(minutes)
+  const value = `${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`
+  const property = new ICAL.Property(name)
+  property.setValue(ICAL.UtcOffset.fromString(value))
+  component.addProperty(property)
+}
+
+function addObservance(
+  component: IcalComponent,
+  kind: 'standard' | 'daylight',
+  localStart: Temporal.PlainDateTime,
+  fromMinutes: number,
+  toMinutes: number,
+): void {
+  const observance = new ICAL.Component(kind)
+  observance.updatePropertyWithValue('dtstart', ICAL.Time.fromDateTimeString(localStart.toString({ smallestUnit: 'second' })))
+  offsetProperty(observance, 'tzoffsetfrom', fromMinutes)
+  offsetProperty(observance, 'tzoffsetto', toMinutes)
+  component.addSubcomponent(observance)
+}
+
+function vtimezoneFor(zone: string): string {
+  const cached = vtimezoneCache.get(zone)
+  if (cached) return cached
+  const component = new ICAL.Component('vtimezone')
+  component.updatePropertyWithValue('tzid', zone)
+  component.updatePropertyWithValue('x-lic-location', zone)
+  let previousAt = VTIMEZONE_START_MS
+  let previousOffset = offsetMinutes(zone, previousAt)
+  const initialLocal = Temporal.Instant.fromEpochMilliseconds(previousAt)
+    .toZonedDateTimeISO('UTC').toPlainDateTime().add({ minutes: previousOffset })
+  addObservance(component, 'standard', initialLocal, previousOffset, previousOffset)
+  for (let at = previousAt + VTIMEZONE_STEP_MS; at <= VTIMEZONE_END_MS; at += VTIMEZONE_STEP_MS) {
+    const currentOffset = offsetMinutes(zone, at)
+    if (currentOffset === previousOffset) continue
+    let low = previousAt
+    let high = at
+    while (high - low > 60_000) {
+      const middle = low + Math.max(60_000, Math.floor((high - low) / 120_000) * 60_000)
+      if (offsetMinutes(zone, middle) === previousOffset) low = middle
+      else high = middle
+    }
+    const transition = high
+    const nextOffset = offsetMinutes(zone, transition)
+    const localStart = Temporal.Instant.fromEpochMilliseconds(transition)
+      .toZonedDateTimeISO('UTC').toPlainDateTime().add({ minutes: previousOffset })
+    addObservance(component, nextOffset > previousOffset ? 'daylight' : 'standard', localStart, previousOffset, nextOffset)
+    previousAt = transition
+    previousOffset = nextOffset
+  }
+  const text = ICAL.stringify(component.jCal)
+  vtimezoneCache.set(zone, text)
+  if (vtimezoneCache.size > MAX_ZONE_CACHE_ENTRIES) vtimezoneCache.clear()
+  return text
+}
+
 const ICS_FOOTER = 'END:VCALENDAR\r\n'
 
 /**
@@ -1024,6 +1094,14 @@ export function* icsCalendarChunks(input: IcsSerializeInput): Generator<string> 
 
   const header = ICAL.stringify(calendar.jCal)
   yield header.slice(0, header.length - ICS_FOOTER.length)
+  const timeZones = new Set<string>()
+  for (const event of input.events) {
+    if (event.start.type === 'zoned' && event.start.timeZone) timeZones.add(event.start.timeZone)
+    if (event.end.type === 'zoned' && event.end.timeZone) timeZones.add(event.end.timeZone)
+  }
+  for (const zone of timeZones) {
+    if (zone !== 'UTC') yield vtimezoneFor(zone)
+  }
 
   for (const { event, uid } of ordered) {
     yield ICAL.stringify(veventFor(event, uid, input.organizerEmail).jCal)

@@ -422,6 +422,25 @@ describe('icsCalendarChunks', () => {
     }
   })
 
+  it('emits VTIMEZONE transitions for zoned events', () => {
+    const text = serializeIcsCalendar({
+      name: 'Zoned export',
+      timeZone: 'UTC',
+      events: [{
+        ...exportedEvent('zoned-event', 'Zoned event'),
+        start: { value: '2026-07-06T09:00:00-04:00[America/New_York]', type: 'zoned', timeZone: 'America/New_York' },
+        end: { value: '2026-07-06T10:00:00-04:00[America/New_York]', type: 'zoned', timeZone: 'America/New_York' },
+      }],
+    })
+    expect(text).toContain('BEGIN:VTIMEZONE')
+    expect(text).toContain('TZID:America/New_York')
+    expect(text).toContain('BEGIN:DAYLIGHT')
+    expect(text).toContain('BEGIN:STANDARD')
+    expect(text).toContain('TZOFFSETFROM:-0500')
+    expect(text).toContain('TZOFFSETTO:-0400')
+    expect(parseIcsCalendar({ content: text, defaultTimeZone: 'UTC', maxEvents: 10 }).events).toHaveLength(1)
+  })
+
   it('collects the encoded blocks while they fit the budget and reports nothing when they do not', () => {
     const input = {
       name: 'Three',
