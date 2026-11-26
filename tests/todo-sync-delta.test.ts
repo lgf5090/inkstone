@@ -45,6 +45,7 @@ const OTHER = 'user-b'
 
 let sqlite: DatabaseSync
 let db: D1Database
+let env: Env
 let app: Hono<AppBindings>
 
 function insertTask(id: string, title: string, extra: {
@@ -137,6 +138,7 @@ beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   db = makeD1(sqlite)
+  env = testBindings(db)
   app = new Hono<AppBindings>()
   app.use('*', async (c, next) => {
     c.set('userId', USER)
@@ -203,7 +205,7 @@ describe('the task delta', () => {
     const first = await get('/api/sync/todos?since=0') as TodosSyncResponse
     expect(first.cursor).toBe(1000)
 
-    await new AssistantStore(db, USER).updateTask('t1', { title: 'New title' })
+    await new AssistantStore(db, USER, env).updateTask('t1', { title: 'New title' })
     const next = await get('/api/sync/todos?since=1000') as TodosSyncResponse
 
     expect(next.todos.map((task) => task.title)).toEqual(['New title'])
@@ -212,7 +214,7 @@ describe('the task delta', () => {
   it('touches the parent row for step and tag changes', async () => {
     insertTask('t1', 'Task with children', { updatedAt: 1 })
     insertTag('t1', 'tag-1', 'old')
-    const store = new AssistantStore(db, USER)
+    const store = new AssistantStore(db, USER, env)
     const first = await get('/api/sync/todos?since=0') as TodosSyncResponse
 
     const step = await store.addStep('t1', 'one')
