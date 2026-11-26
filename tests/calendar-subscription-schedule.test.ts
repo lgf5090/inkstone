@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import {
+  deleteIcsSubscription,
   refreshDueIcsSubscriptions,
   refreshIcsSubscription,
   setIcsSubscriptionEnabled,
@@ -110,6 +111,87 @@ describe('scheduled calendar subscriptions', () => {
     expect(result.imported).toBe(1)
     expect(result.warnings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'invalid_event', uid: 'bad' })]))
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM calendar_events WHERE calendar_source = 'ics'").get()).toEqual({ count: 1 })
+  })
+
+  it('cleans every calendar-level dependent when an ICS subscription is deleted', async () => {
+    const calendarId = await insertSubscription('delete-me', 1, null)
+    const store = new CalendarStore(db, USER)
+    const event = await store.createEvent({
+      title: 'Deleted feed event',
+      start: { value: '2026-10-27T09:00:00', type: 'datetime' },
+      end: { value: '2026-10-27T10:00:00', type: 'datetime' },
+      calendarId,
+      source: 'ics',
+      externalId: 'delete-me-event',
+    })
+    await store.setEventReminders(event.id, [10], event.rev)
+    sqlite.prepare('INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(USER, event.id, 'guest@example.com', 'Guest', 'needs-action', 1)
+    sqlite.prepare(`INSERT INTO attachments
+      (id, user_id, scope, filename, mime, size, sha256, object_key, storage, created_at)
+      VALUES (?, ?, 'calendar', 'feed.txt', 'text/plain', 4, 'hash', ?, 'r2', ?)`)
+      .run('feed-attachment', USER, 'calendar/user/feed-attachment.txt', 1)
+    sqlite.prepare('INSERT INTO calendar_event_attachments (user_id, attachment_id, event_id, created_at) VALUES (?, ?, ?, ?)')
+      .run(USER, 'feed-attachment', event.id, 1)
+    sqlite.prepare('INSERT INTO calendar_shares (user_id, calendar_id, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .run(USER, calendarId, 'deleted-feed-share', 1, 1)
+    sqlite.prepare(`INSERT INTO calendar_members
+      (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'reader', 'accepted', 1, 1)`)
+      .run(USER, calendarId, 'guest-user')
+
+    await deleteIcsSubscription(env, USER, 'delete-me')
+
+    for (const table of ['calendar_events', 'calendar_event_reminders', 'calendar_event_attendees', 'calendar_event_attachments', 'attachments', 'calendar_shares', 'calendar_subscriptions']) {
+      const row = sqlite.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE user_id = ?`).get(USER) as { count: number }
+      expect(row.count, table).toBe(0)
+    }
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_members WHERE owner_user_id = ?').get(USER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_calendars WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
+    expect(sqlite.prepare('SELECT object_key FROM attachment_cleanup WHERE user_id = ?').get(USER))
+      .toEqual({ object_key: 'r2:calendar/user/feed-attachment.txt' })
+  })
+
+  it('removes stale ICS event dependents while preserving events in another calendar', async () => {
+    const calendarId = await insertSubscription('stale-cleanup', 1, null)
+    const store = new CalendarStore(db, USER)
+    const [home] = await store.ensureDefaultCalendar()
+    const stale = await store.createEvent({
+      title: 'Stale only',
+      start: { value: '2026-10-27T09:00:00', type: 'datetime' },
+      end: { value: '2026-10-27T10:00:00', type: 'datetime' },
+      calendarId,
+      source: 'ics',
+      externalId: 'stale-only',
+    })
+    const shared = await store.createEvent({
+      title: 'Stale but shared',
+      start: { value: '2026-10-28T09:00:00', type: 'datetime' },
+      end: { value: '2026-10-28T10:00:00', type: 'datetime' },
+      calendarIds: [calendarId, home.id],
+      source: 'ics',
+      externalId: 'stale-shared',
+    })
+    await store.setEventReminders(stale.id, [5], stale.rev)
+    sqlite.prepare('INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(USER, stale.id, 'stale@example.com', 'Stale', 'needs-action', 1)
+    sqlite.prepare(`INSERT INTO attachments
+      (id, user_id, scope, filename, mime, size, sha256, object_key, storage, created_at)
+      VALUES (?, ?, 'calendar', 'stale.txt', 'text/plain', 5, 'hash', ?, 'r2', ?)`)
+      .run('stale-attachment', USER, 'calendar/user/stale-attachment.txt', 1)
+    sqlite.prepare('INSERT INTO calendar_event_attachments (user_id, attachment_id, event_id, created_at) VALUES (?, ?, ?, ?)')
+      .run(USER, 'stale-attachment', stale.id, 1)
+
+    const result = await refreshIcsSubscription(env, USER, 'stale-cleanup')
+
+    expect(result.removed).toBe(1)
+    expect(await store.getEvent(stale.id)).toBeNull()
+    expect(await store.getEvent(shared.id)).toMatchObject({ calendarIds: [home.id] })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_reminders WHERE user_id = ?').get(USER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attendees WHERE user_id = ?').get(USER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attachments WHERE user_id = ?').get(USER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM attachments WHERE user_id = ?').get(USER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM attachment_cleanup WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
   })
 
   it('keeps UID-less feed events stable across refreshes', async () => {

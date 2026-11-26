@@ -112,7 +112,7 @@ export async function createIcsSubscription(
       warnings: parsed.warnings,
     }
   } catch (error) {
-    await removeCalendarData(env.DB, userId, calendar.id).catch((cleanupError) => {
+    await store.deleteCalendar(calendar.id, { mode: 'delete' }).catch((cleanupError) => {
       console.warn('[inkstone] Calendar subscription cleanup failed:', cleanupError instanceof Error ? cleanupError.message : cleanupError)
     })
     throw error
@@ -181,7 +181,7 @@ export async function deleteIcsSubscription(
   if (calendars.length <= 1) {
     throw ApiError.conflict('Create another calendar before deleting the last one')
   }
-  await removeCalendarData(env.DB, userId, row.calendar_id)
+  await store.deleteCalendar(row.calendar_id, { mode: 'delete' })
   await store.ensureDefaultCalendar()
 }
 
@@ -312,47 +312,12 @@ async function removeStaleEvents(
     .filter((row) => !row.external_id || !keepExternalIds.has(row.external_id))
     .map((row) => row.id)
   if (!stale.length) return 0
-  for (let index = 0; index < stale.length; index += 100) {
-    const ids = stale.slice(index, index + 100)
-    const membershipPlaceholders = ids.map((_, offset) => `?${offset + 3}`).join(', ')
-    const eventPlaceholders = ids.map((_, offset) => `?${offset + 2}`).join(', ')
-    await db.batch([
-      db.prepare(
-        `DELETE FROM calendar_event_calendars
-          WHERE user_id = ?1 AND calendar_id = ?2 AND event_id IN (${membershipPlaceholders})`,
-      ).bind(userId, calendarId, ...ids),
-      db.prepare(
-        `DELETE FROM calendar_events
-          WHERE user_id = ?1 AND id IN (${eventPlaceholders})
-            AND NOT EXISTS (
-              SELECT 1 FROM calendar_event_calendars m
-               WHERE m.user_id = ?1 AND m.event_id = calendar_events.id
-            )`,
-      ).bind(userId, ...ids),
-    ])
+  const store = new CalendarStore(db, userId)
+  let removed = 0
+  for (let index = 0; index < stale.length; index += 80) {
+    removed += await store.removeEventMembershipsAndDeleteOrphans(calendarId, stale.slice(index, index + 80))
   }
-  return stale.length
-}
-
-async function removeCalendarData(db: D1Database, userId: string, calendarId: string): Promise<void> {
-  await db.batch([
-    db.prepare(
-      `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2`,
-    ).bind(userId, calendarId),
-    db.prepare(
-      `DELETE FROM calendar_events
-        WHERE user_id = ?1 AND NOT EXISTS (
-          SELECT 1 FROM calendar_event_calendars m
-           WHERE m.user_id = ?1 AND m.event_id = calendar_events.id
-        )`,
-    ).bind(userId),
-    db.prepare(
-      `DELETE FROM calendar_subscriptions WHERE user_id = ?1 AND calendar_id = ?2`,
-    ).bind(userId, calendarId),
-    db.prepare(
-      `DELETE FROM calendar_calendars WHERE user_id = ?1 AND id = ?2`,
-    ).bind(userId, calendarId),
-  ])
+  return removed
 }
 
 async function loadSubscription(

@@ -1852,6 +1852,63 @@ export class CalendarStore {
     }
   }
 
+  async removeEventMembershipsAndDeleteOrphans(
+    calendarId: string,
+    eventIds: readonly string[],
+  ): Promise<number> {
+    if (eventIds.length === 0) return 0
+    let removed = 0
+    for (const ids of chunks(eventIds, SQL_CHUNK)) {
+      const eventParams = ids.map((_, index) => `?${index + 2}`).join(', ')
+      const membershipParams = ids.map((_, index) => `?${index + 3}`).join(', ')
+      const orphans = `SELECT e.id FROM calendar_events e
+                        WHERE e.user_id = ?1 AND e.id IN (${eventParams})
+                          AND NOT EXISTS (SELECT 1 FROM calendar_event_calendars m
+                                           WHERE m.user_id = e.user_id AND m.event_id = e.id)`
+      const nowParam = `?${ids.length + 2}`
+      const outcomes = await this.db.batch([
+        this.db.prepare(
+          `DELETE FROM calendar_event_calendars
+            WHERE user_id = ?1 AND calendar_id = ?2 AND event_id IN (${membershipParams})`,
+        ).bind(this.userId, calendarId, ...ids),
+        this.db.prepare(
+          `DELETE FROM calendar_reminder_snoozes
+            WHERE user_id = ?1 AND event_id IN (${orphans})`,
+        ).bind(this.userId, ...ids),
+        this.db.prepare(
+          `DELETE FROM calendar_event_reminders
+            WHERE user_id = ?1 AND event_id IN (${orphans})`,
+        ).bind(this.userId, ...ids),
+        this.db.prepare(
+          `DELETE FROM calendar_event_attendees
+            WHERE user_id = ?1 AND event_id IN (${orphans})`,
+        ).bind(this.userId, ...ids),
+        this.db.prepare(
+          `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
+           SELECT ${attachmentCleanupTargetSql('a.storage', 'a.object_key')}, ?1, ${nowParam}
+             FROM attachments a
+             JOIN calendar_event_attachments l ON l.user_id = a.user_id AND l.attachment_id = a.id
+            WHERE l.user_id = ?1 AND l.event_id IN (${orphans}) AND a.object_key IS NOT NULL`,
+        ).bind(this.userId, ...ids, Date.now()),
+        this.db.prepare(
+          `DELETE FROM attachments WHERE user_id = ?1 AND scope = 'calendar' AND id IN (
+             SELECT attachment_id FROM calendar_event_attachments
+              WHERE user_id = ?1 AND event_id IN (${orphans})
+           )`,
+        ).bind(this.userId, ...ids),
+        this.db.prepare(
+          `DELETE FROM calendar_event_attachments
+            WHERE user_id = ?1 AND event_id IN (${orphans})`,
+        ).bind(this.userId, ...ids),
+        this.db.prepare(
+          `DELETE FROM calendar_events WHERE user_id = ?1 AND id IN (${orphans})`,
+        ).bind(this.userId, ...ids),
+      ])
+      removed += Number(outcomes.at(-1)?.meta.changes ?? 0)
+    }
+    return removed
+  }
+
   /**
    * Apply an edit aimed at one occurrence of a series.
    *
