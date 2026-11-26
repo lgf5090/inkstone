@@ -37,10 +37,12 @@ function bundle(): ProjectBoardBundle {
 }
 
 let view: RenderedElement
-async function mount(custom?: ProjectBoardBundle, publicView = false): Promise<void> {
+async function mount(custom?: ProjectBoardBundle, publicView = false) {
+  const props = { bundle: custom ?? bundle(), canEdit: !publicView, publicView, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }
   await act(async () => {
-    view = renderElement(createElement(BoardViews, { bundle: custom ?? bundle(), canEdit: !publicView, publicView, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    view = renderElement(createElement(BoardViews, props))
   })
+  return props
 }
 /** Opens a SelectMenu by its accessible name and reads the rows it offers. */
 async function menuLabels(label: string): Promise<string[]> {
@@ -305,6 +307,26 @@ describe('multi-select and batch delete (B-10)', () => {
     expect(confirmed).toHaveBeenCalled()
     expect(batchDelete).toHaveBeenCalledWith('b1', { cardIds: ['c1', 'c2'] })
     expect(onRefresh).toHaveBeenCalled()
+    batchDelete.mockRestore()
+    confirmed.mockRestore()
+  })
+
+  it('drops hidden cards from the selection before a batch delete', async () => {
+    localStorage.clear()
+    const batchDelete = vi.spyOn(api, 'batchDeleteProjectBoard').mockResolvedValue(undefined)
+    const confirmed = vi.spyOn(overlay, 'confirm').mockResolvedValue(true)
+    const props = await mount()
+    for (const id of ['c1', 'c2']) {
+      const title = view.container.querySelector(`[data-project-card="${id}"] td button`) as HTMLButtonElement
+      await act(async () => { title.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true })) })
+    }
+    const filtered = bundle()
+    filtered.views[0]!.fields.filter = { operation: 'and', filters: [{ propertyId: 'pt', condition: 'isSet', values: [] }] }
+    await act(async () => { view.rerender(createElement(BoardViews, { ...props, bundle: filtered })) })
+    expect(view.container.querySelector('[role="toolbar"]')?.textContent).toContain(t('project.view.selected_count', { count: 1 }))
+    const del = [...view.container.querySelectorAll('[role="toolbar"] button')].find((button) => button.textContent === t('project.view.delete_selected')) as HTMLButtonElement
+    await act(async () => { del.click() })
+    expect(batchDelete).toHaveBeenCalledWith('b1', { cardIds: ['c1'] })
     batchDelete.mockRestore()
     confirmed.mockRestore()
   })

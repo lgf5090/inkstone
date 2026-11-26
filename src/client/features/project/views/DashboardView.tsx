@@ -165,7 +165,7 @@ export function DashboardView(props: DashboardProps): ReactElement {
         <div className="pv-kpis">
           <Kpi label={t('project.dashboard.total')} value={cards.length} color="var(--accent)" icon={<LayoutDashboard size={12} aria-hidden="true" />} />
           <Kpi label={t('project.dashboard.done')} value={buckets.done} note={`${percent}%`} color="var(--success)" icon={<CheckCircle2 size={12} aria-hidden="true" />} />
-          <Kpi label={t('project.dashboard.in_progress')} value={Math.max(0, buckets.later)} color="var(--warning)" icon={<Loader size={12} aria-hidden="true" />} />
+          <Kpi label={t('project.dashboard.in_progress')} value={buckets.overdue.length + buckets.soon.length + buckets.later} color="var(--warning)" icon={<Loader size={12} aria-hidden="true" />} />
           <Kpi label={t('project.dashboard.overdue')} value={buckets.overdue.length} color="var(--danger)" icon={<AlertTriangle size={12} aria-hidden="true" />} onClick={() => setFocus(focus === 'overdue' ? null : 'overdue')} />
           <Kpi label={t('project.dashboard.due_soon')} value={buckets.soon.length} color="var(--accent)" icon={<CalendarClock size={12} aria-hidden="true" />} onClick={() => setFocus(focus === 'soon' ? null : 'soon')} />
           <Kpi label={t('project.dashboard.unscheduled')} value={buckets.unscheduled} color="var(--text-tertiary)" icon={<CalendarClock size={12} aria-hidden="true" />} />

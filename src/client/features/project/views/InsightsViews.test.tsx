@@ -47,6 +47,26 @@ describe('the report panels the reference Stats view draws', () => {
     card('soon', { ps: 'open', pp: 'hi', pn: '6', pd: JSON.stringify({ from: projectDayToStamp(soon) }) }),
   ]
 
+  it('counts every scheduled unfinished card as in progress, including overdue and due soon', async () => {
+    const overdue = new Date()
+    overdue.setDate(overdue.getDate() - 1)
+    const soon = new Date()
+    soon.setDate(soon.getDate() + 1)
+    const later = new Date()
+    later.setDate(later.getDate() + 20)
+    await mountDashboard([
+      card('done', { ps: 'done' }),
+      card('overdue', { ps: 'open', pd: JSON.stringify({ from: projectDayToStamp(overdue) }) }),
+      card('soon', { ps: 'open', pd: JSON.stringify({ from: projectDayToStamp(soon) }) }),
+      card('later', { ps: 'open', pd: JSON.stringify({ from: projectDayToStamp(later) }) }),
+      card('unscheduled', { ps: 'open' }),
+    ])
+    const inProgress = [...view.container.querySelectorAll('.pv-kpi')].find((tile) => tile.textContent?.includes(t('project.dashboard.in_progress')))
+    const unscheduled = [...view.container.querySelectorAll('.pv-kpi')].find((tile) => tile.textContent?.includes(t('project.dashboard.unscheduled')))
+    expect(inProgress?.querySelector('.pv-kpi-value')?.textContent).toBe('3')
+    expect(unscheduled?.querySelector('.pv-kpi-value')?.textContent).toBe('1')
+  })
+
   it('draws a completion ring with the done fraction', async () => {
     await mountDashboard(cards)
     const ring = view.container.querySelector('.pv-ring')!

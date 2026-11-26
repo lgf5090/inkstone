@@ -255,6 +255,14 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     () => (viewType === 'board' || viewType === 'list' ? orderProjectCards(sorted, fields.cardOrder) : sorted),
     [sorted, fields.cardOrder, viewType],
   )
+  useEffect(() => {
+    const visible = new Set(cards.map((card) => card.id))
+    setSelected((current) => {
+      const next = current.filter((id) => visible.has(id))
+      return next.length === current.length ? current : next
+    })
+  }, [cards])
+  const visibleSelected = useMemo(() => selected.filter((id) => cards.some((card) => card.id === id)), [selected, cards])
 
   const badgesByCard = useMemo(() => {
     const contentsByCard = new Map<string, typeof bundle.contents>()
@@ -444,15 +452,15 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const batchDelete = useEvent(async (): Promise<void> => {
     const ok = await confirm({
       title: t('project.view.delete_selected'),
-      description: t('project.view.delete_selected_hint', { count: selected.length }),
+      description: t('project.view.delete_selected_hint', { count: visibleSelected.length }),
       tone: 'danger',
       confirmLabel: t('common.delete'),
     })
     if (!ok) return
-    await runBatch(() => batchDeleteProjectBoard(bundle.board.id, { cardIds: selected }))
+    await runBatch(() => batchDeleteProjectBoard(bundle.board.id, { cardIds: visibleSelected }))
   })
   const batchApply = useEvent(async (values: Record<string, string | null>): Promise<void> => {
-    const ok = await runBatch(() => batchPatchProjectBoard(bundle.board.id, { cards: selected.map((id) => ({ id, patch: { values } })) }))
+    const ok = await runBatch(() => batchPatchProjectBoard(bundle.board.id, { cards: visibleSelected.map((id) => ({ id, patch: { values } })) }))
     if (ok) setBatchOpen(false)
   })
 
@@ -581,7 +589,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             columns={columns}
             fields={fields}
             canEdit={canEdit}
-            selected={selected}
+            selected={visibleSelected}
             onSelected={setSelected}
             subtasksByParent={subtasksByParent}
             badgesFor={badgesFor}
@@ -753,11 +761,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           {t('project.view.hidden_count', { count: hiddenCount })}
         </p>
       )}
-      {canEdit && selected.length > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--accent-softer)] px-3 py-1.5" role="toolbar" aria-label={t('project.view.selected_count', { count: selected.length })}>
-          <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('project.view.selected_count', { count: selected.length })}</span>
+      {canEdit && visibleSelected.length > 0 && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--accent-softer)] px-3 py-1.5" role="toolbar" aria-label={t('project.view.selected_count', { count: visibleSelected.length })}>
+          <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('project.view.selected_count', { count: visibleSelected.length })}</span>
           <Button size="sm" variant="ghost" onClick={() => void batchDelete()}>{t('project.view.delete_selected')}</Button>
-          <Button size="sm" onClick={() => setBatchOpen(true)}>{t('project.view.batch_edit', { count: selected.length })}</Button>
+          <Button size="sm" onClick={() => setBatchOpen(true)}>{t('project.view.batch_edit', { count: visibleSelected.length })}</Button>
           <Button size="sm" variant="ghost" onClick={() => setSelected([])}>{t('project.view.clear_selection')}</Button>
         </div>
       )}
@@ -791,7 +799,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       {contextPoint && <Menu anchor={contextPoint} open onClose={() => setContextPoint(null)} items={contextItems} label={t('project.card.menu')} />}
       {batchOpen && (
         <BatchEditDialog
-          count={selected.length}
+          count={visibleSelected.length}
           properties={bundle.properties}
           members={bundle.members}
           people={bundle.people}
