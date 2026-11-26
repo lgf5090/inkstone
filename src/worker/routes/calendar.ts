@@ -458,13 +458,25 @@ calendarRoutes.get('/events/:id/extras', async (c) => {
 })
 
 calendarRoutes.post('/events/:id/snooze', async (c) => {
-  const id = pathId(c)
+  const rawId = c.req.param('id')
+  const marker = rawId.lastIndexOf('::repeat-')
+  const id = marker < 0 ? pathId(c) : parseEntityId(rawId.slice(0, marker), 'id')
+  const occurrenceStartMs = marker < 0 ? undefined : Number(rawId.slice(marker + '::repeat-'.length))
+  if (occurrenceStartMs !== undefined && (!Number.isSafeInteger(occurrenceStartMs) || occurrenceStartMs < 0)) {
+    throw ApiError.badRequest('Invalid occurrence id')
+  }
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
   const minutes = body.minutes
   if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
     throw ApiError.badRequest('minutes must be a whole number between 1 and 1440')
   }
-  return c.json(await store(c).snoozeEvent(id, minutes))
+  const target = await sharedEventTarget(c, id)
+  const event = target ? target.event : await store(c).getEvent(id)
+  if (!event) throw ApiError.notFound('Event not found')
+  if (occurrenceStartMs !== undefined && !event.recurrenceRule) {
+    throw ApiError.badRequest('Only a recurring event can snooze one occurrence')
+  }
+  return c.json(await (target ? target.store : store(c)).snoozeEvent(id, minutes, occurrenceStartMs))
 })
 
 calendarRoutes.get('/events/:id/reminders', async (c) => {

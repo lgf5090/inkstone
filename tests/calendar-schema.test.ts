@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import { SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import {
   CALENDAR_REQUIRED_COLUMNS,
   CALENDAR_REQUIRED_INDEXES,
@@ -59,6 +59,13 @@ beforeEach(() => {
 })
 
 describe('the calendar tables', () => {
+  it('ships the snooze occurrence column as an idempotent migration', () => {
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 428)).toEqual({
+      version: 428,
+      skipIfColumnExists: { table: 'calendar_reminder_snoozes', column: 'occurrence_start_ms' },
+      statements: ['ALTER TABLE calendar_reminder_snoozes ADD COLUMN occurrence_start_ms INTEGER'],
+    })
+  })
   it('are wired into the schema every boot runs', () => {
     for (const statement of CALENDAR_SCHEMA_STATEMENTS) {
       expect(SCHEMA_STATEMENTS.some((candidate) => candidate.includes(statement.slice(0, 60)))).toBe(true)

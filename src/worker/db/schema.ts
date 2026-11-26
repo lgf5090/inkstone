@@ -4833,6 +4833,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE attachments ADD COLUMN plaintext_size INTEGER`,
     ],
   },
+  {
+    version: 428,
+    skipIfColumnExists: { table: 'calendar_reminder_snoozes', column: 'occurrence_start_ms' },
+    statements: [
+      `ALTER TABLE calendar_reminder_snoozes ADD COLUMN occurrence_start_ms INTEGER`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

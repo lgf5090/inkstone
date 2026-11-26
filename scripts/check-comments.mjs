@@ -53304,7 +53304,7 @@ const allowed = new Map([
   ]],
   ["tests/webssh-schema.test.ts", [
     "// The project tables append 385–396 after this lane's own block; later migrations add assistant,",
-    "// email, query indexes, properties, webhooks, task reminders and attachment encryption through 427.",
+    "// email, query indexes, properties, webhooks, task reminders, attachment encryption and snooze occurrences through 428.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",

@@ -268,6 +268,21 @@ describe('event routes', () => {
     expect(reread.event).toMatchObject({ title: 'Current', rev: created.event.rev + 1 })
   })
 
+  it('accepts an occurrence id for snooze and rejects it on a one-off event', async () => {
+    const home = (await meta()).calendars[0]!
+    const recurring = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, {
+      id: 'snooze-series', recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    })))
+    const occurrence = Date.parse('2026-10-27T09:00:00Z')
+    const occurrenceId = `${recurring.event.id}::repeat-${occurrence}`
+    expect((await call('POST', `/events/${encodeURIComponent(occurrenceId)}/snooze`, { minutes: 5 })).status).toBe(200)
+    expect(sqlite.prepare('SELECT occurrence_start_ms FROM calendar_reminder_snoozes WHERE user_id = ? AND event_id = ?')
+      .get(ALICE, recurring.event.id)).toEqual({ occurrence_start_ms: occurrence })
+
+    const oneOff = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, { id: 'snooze-one-off' })))
+    expect((await call('POST', `/events/${encodeURIComponent(`${oneOff.event.id}::repeat-${occurrence}`)}/snooze`, { minutes: 5 })).status).toBe(400)
+  })
+
   it('requires the current master revision for recurrence changes', async () => {
     const home = (await meta()).calendars[0]!
     const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, {

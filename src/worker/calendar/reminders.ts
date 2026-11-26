@@ -267,7 +267,7 @@ export async function sweepCalendarReminders(
 
   // Snoozes are separate from leads: the reader asked for one more notification, not a new lead.
   const { results: dueSnoozes } = await env.DB.prepare(
-    `SELECT s.user_id, s.id AS snooze_id, e.title, e.start_ms
+    `SELECT s.user_id, s.id AS snooze_id, e.title, COALESCE(s.occurrence_start_ms, e.start_ms) AS start_ms
        FROM calendar_reminder_snoozes s
        JOIN calendar_events e ON e.user_id = s.user_id AND e.id = s.event_id
       WHERE s.notify_at <= ?1

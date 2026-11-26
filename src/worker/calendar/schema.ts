@@ -378,6 +378,7 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     event_id TEXT NOT NULL,
+    occurrence_start_ms INTEGER,
     notify_at INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -488,7 +489,7 @@ export const CALENDAR_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[
   calendar_preferences: ['user_id', 'preferences_json', 'updated_at'],
   calendar_reminder_fires: ['user_id', 'event_id', 'occurrence_start_ms', 'minutes', 'fired_at'],
   calendar_event_reminders: ['user_id', 'event_id', 'minutes', 'created_at'],
-  calendar_reminder_snoozes: ['user_id', 'id', 'event_id', 'notify_at', 'created_at'],
+  calendar_reminder_snoozes: ['user_id', 'id', 'event_id', 'occurrence_start_ms', 'notify_at', 'created_at'],
   calendar_event_attendees: ['user_id', 'event_id', 'email', 'name', 'status', 'created_at'],
   calendar_shares: ['user_id', 'calendar_id', 'slug', 'views', 'created_at', 'updated_at', 'last_viewed_at'],
   calendar_event_attachments: ['user_id', 'attachment_id', 'event_id', 'created_at'],

@@ -2159,9 +2159,12 @@ export class CalendarStore {
   }
 
   /** Park a one-off "remind me again" for an event. Replaces an earlier snooze on the same row. */
-  async snoozeEvent(id: string, minutes: number): Promise<{ notifyAt: number }> {
+  async snoozeEvent(id: string, minutes: number, occurrenceStartMs?: number): Promise<{ notifyAt: number }> {
     const event = await this.getEvent(id)
     if (!event) throw ApiError.notFound('Event not found')
+    if (occurrenceStartMs !== undefined && !event.recurrenceRule) {
+      throw ApiError.badRequest('Only a recurring event can snooze one occurrence')
+    }
     const now = Date.now()
     const notifyAt = now + minutes * 60_000
     await this.db.batch([
@@ -2169,9 +2172,10 @@ export class CalendarStore {
         'DELETE FROM calendar_reminder_snoozes WHERE user_id = ?1 AND event_id = ?2',
       ).bind(this.userId, id),
       this.db.prepare(
-        `INSERT INTO calendar_reminder_snoozes (user_id, id, event_id, notify_at, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)`,
-      ).bind(this.userId, newId(), id, notifyAt, now),
+        `INSERT INTO calendar_reminder_snoozes
+          (user_id, id, event_id, occurrence_start_ms, notify_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      ).bind(this.userId, newId(), id, occurrenceStartMs ?? null, notifyAt, now),
     ])
     return { notifyAt }
   }

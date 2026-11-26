@@ -297,6 +297,21 @@ describe('calendar reminder reliability', () => {
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_reminder_fires').get()).toEqual({ count: 1 })
   })
 
+  it('uses the snoozed occurrence start in reminder copy and links', async () => {
+    const store = new CalendarStore(db, USER)
+    const masterStart = Date.parse('2026-10-26T09:00:00Z')
+    const occurrenceStart = Date.parse('2026-10-27T09:00:00Z')
+    const id = await createEvent(masterStart, 'FREQ=DAILY;COUNT=3')
+    vi.spyOn(Date, 'now').mockReturnValue(occurrenceStart)
+    await store.snoozeEvent(id, 5, occurrenceStart)
+
+    expect((await sweepCalendarReminders(env, occurrenceStart + 5 * 60_000)).sent).toBe(1)
+    const notification = sqlite.prepare('SELECT body, link FROM chat_notifications WHERE user_id = ?').get(USER) as { body: string; link: string }
+    expect(notification.body).toContain('2026-10-27')
+    expect(notification.body).toContain('09:00')
+    expect(notification.link).toBe('calendar:2026-10-27')
+  })
+
   it('logs corrupt preferences and recurrence rules but still delivers the master reminder', async () => {
     const now = Date.parse('2026-10-26T08:00:00Z')
     const store = new CalendarStore(db, USER)
