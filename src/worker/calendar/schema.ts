@@ -106,6 +106,22 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_external
      ON calendar_events(user_id, calendar_source, external_scope, external_id)
      WHERE external_id IS NOT NULL`,
+  `CREATE VIRTUAL TABLE IF NOT EXISTS calendar_events_fts USING fts5(
+     title, description, content='calendar_events', content_rowid='rowid',
+     tokenize='unicode61 remove_diacritics 2'
+   )`,
+  `CREATE TRIGGER IF NOT EXISTS calendar_events_fts_insert AFTER INSERT ON calendar_events BEGIN
+     INSERT INTO calendar_events_fts(rowid, title, description) VALUES (new.rowid, new.title, new.description);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS calendar_events_fts_delete AFTER DELETE ON calendar_events BEGIN
+     INSERT INTO calendar_events_fts(calendar_events_fts, rowid, title, description)
+     VALUES ('delete', old.rowid, old.title, old.description);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS calendar_events_fts_update AFTER UPDATE ON calendar_events BEGIN
+     INSERT INTO calendar_events_fts(calendar_events_fts, rowid, title, description)
+     VALUES ('delete', old.rowid, old.title, old.description);
+     INSERT INTO calendar_events_fts(rowid, title, description) VALUES (new.rowid, new.title, new.description);
+   END`,
 
   `CREATE TABLE IF NOT EXISTS calendar_event_calendars (
     user_id TEXT NOT NULL,

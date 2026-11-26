@@ -384,6 +384,19 @@ describe('event ranges and revisions', () => {
       .toEqual({ count: 0, revSum: 0, maxUpdatedAt: 0 })
   })
 
+  it('keeps shared range and search queries inside the D1 bind ceiling', async () => {
+    sqlite.prepare(`INSERT INTO calendar_members
+      (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'reader', 'accepted', 1, 1)`)
+      .run(ALICE, calendar.id, BOB)
+    const strict = new CalendarStore(makeD1(sqlite, { maxBoundParameters: 100 }), BOB)
+    const ids = Array.from({ length: 90 }, (_, index) => `shared:${ALICE}:calendar-${index}`)
+    expect((await strict.listEvents(day('2026-10-01'), day('2026-11-01'), ids)).events).toEqual([])
+    expect(await strict.eventsRevision(day('2026-10-01'), day('2026-11-01'), ids))
+      .toEqual({ count: 0, revSum: 0, maxUpdatedAt: 0 })
+    expect((await strict.searchEvents('', 50, { calendarIds: ids })).results).toEqual([])
+  })
+
   it('bumps rev on update and refuses a stale revision', async () => {
     const created = await store.createEvent(eventInput())
     const updated = await store.updateEvent(created.id, { rev: created.rev, title: 'Renamed' })
@@ -630,6 +643,40 @@ describe('search', () => {
     expect((await store.searchEvents('', 50, { kind: 'task' })).results.map(entry => entry.event.id))
       .toEqual([task.id])
     expect(home.id).not.toBe(other.id)
+  })
+
+  it('searches accepted shared calendars and returns synthetic ids', async () => {
+    const sharedCalendar = await store.createCalendar({ id: 'shared-search-calendar', name: 'Shared search' })
+    const created = await store.createEvent(eventInput({
+      title: 'Shared design review', calendarId: sharedCalendar.id,
+    }))
+    sqlite.prepare(`INSERT INTO calendar_members
+      (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'reader', 'accepted', 1, 1)`)
+      .run(ALICE, sharedCalendar.id, BOB)
+    const bob = new CalendarStore(db, BOB)
+    const answer = await bob.searchEvents('design', 20)
+    expect(answer.results).toHaveLength(1)
+    expect(answer.results[0]).toMatchObject({
+      event: { id: `shared:${ALICE}:${created.id}`, title: 'Shared design review' },
+      calendarName: 'Shared search',
+    })
+    expect((await bob.listEvents(day('2026-10-01'), day('2026-11-01'))).events.map(event => event.id))
+      .toEqual([`shared:${ALICE}:${created.id}`])
+  })
+
+  it('searches location values without matching JSON keys and keeps FTS current', async () => {
+    const created = await store.createEvent(eventInput({
+      title: 'Original title', meta: { location: 'Room 3', custom: 'recurrence' },
+    }))
+    expect((await store.searchEvents('', 50, { location: 'recurrence' })).results).toEqual([])
+    expect((await store.searchEvents('', 50, { location: 'Room' })).results).toHaveLength(1)
+    expect((await store.searchEvents('original', 50)).results).toHaveLength(1)
+    await store.updateEvent(created.id, { rev: created.rev, title: 'Renamed title' })
+    expect((await store.searchEvents('original', 50)).results).toEqual([])
+    expect((await store.searchEvents('renamed', 50)).results).toHaveLength(1)
+    await store.deleteEvent(created.id, created.rev + 1)
+    expect((await store.searchEvents('renamed', 50)).results).toEqual([])
   })
 
   it('treats percent and underscore as literals', async () => {

@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import { initializeDatabase, SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import type { Env } from '../src/worker/env'
+import { makeD1 } from './doubles/d1-sqlite'
 import {
   CALENDAR_REQUIRED_COLUMNS,
   CALENDAR_REQUIRED_INDEXES,
@@ -66,6 +68,21 @@ describe('the calendar tables', () => {
       statements: ['ALTER TABLE calendar_reminder_snoozes ADD COLUMN occurrence_start_ms INTEGER'],
     })
   })
+  it('creates and rebuilds calendar FTS before applying its migration on an existing database', async () => {
+    await initializeDatabase({ DB: makeD1(sqlite) } as Env)
+    insertEvent('user-alice', 'existing-event')
+    sqlite.exec('DROP TRIGGER calendar_events_fts_update; DROP TRIGGER calendar_events_fts_delete; DROP TRIGGER calendar_events_fts_insert; DROP TABLE calendar_events_fts')
+    sqlite.prepare('DELETE FROM schema_migrations WHERE version = 429').run()
+    sqlite.prepare("DELETE FROM app_meta WHERE key = 'database-state-v1'").run()
+    await initializeDatabase({ DB: makeD1(sqlite) } as Env)
+    expect(tables().has('calendar_events_fts')).toBe(true)
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM calendar_events_fts WHERE calendar_events_fts MATCH 'Event'").get())
+      .toEqual({ count: 1 })
+    insertEvent('user-alice', 'after-upgrade')
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM calendar_events_fts WHERE calendar_events_fts MATCH 'Event'").get())
+      .toEqual({ count: 2 })
+  })
+
   it('are wired into the schema every boot runs', () => {
     for (const statement of CALENDAR_SCHEMA_STATEMENTS) {
       expect(SCHEMA_STATEMENTS.some((candidate) => candidate.includes(statement.slice(0, 60)))).toBe(true)

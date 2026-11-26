@@ -39414,7 +39414,6 @@ const allowed = new Map([
     "/**\n   * Replace one event's reminders.\n   *\n   * A reminder belongs to the row, so the write carries the row's revision: setting a reminder on an\n   * event somebody else just moved has to fail like any other stale write rather than stomp it.\n   */",
     "/** The guest list of one event, in the order the reader wrote it. */",
     "/** Replace one event's guest list. Same revision rule as the reminders: the row owns the list. */",
-    "/**\n   * Title and description search across every calendar, newest first.\n   *\n   * The pattern is escaped (`\\\\`, `%`, `_`) before it becomes a LIKE, so a reader typing `%` asks for\n   * a percent sign rather than for everything. `truncated` is answered by fetching one row past the\n   * limit instead of counting the whole match set.\n   */",
     "// ------------------------------------------------------------- preferences",
     "// ------------------------------------------------------------- subscriptions and connections",
     "/** Connections as the meta read exposes them: identifiers and state, never credentials. */",
@@ -39426,6 +39425,7 @@ const allowed = new Map([
     "/** Park a one-off \"remind me again\" for an event. Replaces an earlier snooze on the same row. */",
     "/** Guest lists for a page of events, one query per chunk rather than one per event. */",
     "/** Which of an owner's calendars this account may write through a shared membership. */",
+    "/**\n   * Title and description search across owned and accepted shared calendars.\n   *\n   * Plain word queries use FTS5 prefix matching; punctuation keeps the escaped LIKE behavior so `%`\n   * and `_` remain literal. `truncated` is answered by fetching one row past the limit for each scope.\n   */",
   ]],
   ["src/worker/calendar/subscriptions.ts", [
     "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds the next exponential retry, and repeated\n * failures pause the feed. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
@@ -53303,7 +53303,7 @@ const allowed = new Map([
   ]],
   ["tests/webssh-schema.test.ts", [
     "// The project tables append 385–396 after this lane's own block; later migrations add assistant,",
-    "// email, query indexes, properties, webhooks, task reminders, attachment encryption and snooze occurrences through 428.",
+    "// email, query indexes, properties, webhooks, task reminders, attachment encryption, snooze occurrences and calendar FTS through 429.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",

@@ -4840,6 +4840,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE calendar_reminder_snoozes ADD COLUMN occurrence_start_ms INTEGER`,
     ],
   },
+  {
+    version: 429,
+    statements: [
+      `INSERT INTO calendar_events_fts(calendar_events_fts) VALUES ('rebuild')`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -4854,6 +4860,9 @@ const DATABASE_STATE_KEY = 'database-state-v1'
 
 const TABLE_SCHEMA_STATEMENTS = SCHEMA_STATEMENTS.filter((statement) =>
   /^\s*CREATE TABLE IF NOT EXISTS/.test(statement),
+)
+const CALENDAR_SEARCH_SCHEMA_STATEMENTS = CALENDAR_SCHEMA_STATEMENTS.filter((statement) =>
+  /CREATE VIRTUAL TABLE IF NOT EXISTS calendar_events_fts|CREATE TRIGGER IF NOT EXISTS calendar_events_fts/.test(statement),
 )
 const INDEX_SCHEMA_STATEMENTS = SCHEMA_STATEMENTS.filter((statement) =>
   /^\s*CREATE (?:UNIQUE )?INDEX IF NOT EXISTS/.test(statement),
@@ -5178,6 +5187,7 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
     // never rewrites user data; running table creation before indexes also
     // lets a partially initialized database recover missing feature tables.
     await runStatements(db, TABLE_SCHEMA_STATEMENTS)
+    await runStatements(db, CALENDAR_SEARCH_SCHEMA_STATEMENTS)
   }
   // Ahead of the migrations, and that order is load-bearing: migration 155 drops the two columns this
   // reads, so a boot that ran the migrations first would delete a pending reminder out of the only place

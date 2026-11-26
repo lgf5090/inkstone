@@ -217,6 +217,7 @@ interface GroupRow {
 }
 
 interface EventRow {
+  user_id: string
   id: string
   title: string
   description: string
@@ -1204,49 +1205,53 @@ export class CalendarStore {
         const parsed = parseSharedCalendarId(id)
         return parsed ? [[parsed.ownerId, parsed.calendarId] as const] : []
       })
-      const sharedFilter = sharedPairs.length > 0
-        ? `AND (${sharedPairs.map(() => '(c.user_id = ? AND m.calendar_id = ?)').join(' OR ')})`
-        : 'AND 0'
-      const ordinary = await this.db.prepare(
-        `SELECT e.*, m.calendar_id AS shared_calendar_id, c.user_id AS shared_owner_id
-           FROM calendar_events e
-           JOIN calendar_event_calendars m
-             ON m.user_id = e.user_id AND m.event_id = e.id
-           JOIN calendar_calendars c
-             ON c.user_id = m.user_id AND c.id = m.calendar_id
-           JOIN calendar_members mem
-             ON mem.owner_user_id = c.user_id AND mem.calendar_id = c.id
-          WHERE mem.member_user_id = ? AND mem.status = 'accepted'
-            AND e.recurrence_rule IS NULL AND e.start_ms <= ? AND e.end_ms >= ?
-            ${sharedFilter}
-          ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC
-          LIMIT ?`,
-      ).bind(
-        this.userId, toMs, fromMs,
-        ...sharedPairs.flatMap(([ownerId, calendarId]) => [ownerId, calendarId]),
-        MAX_EVENTS_PER_QUERY + 1,
-      ).all<EventRow & { shared_calendar_id: string; shared_owner_id: string }>()
-      collectShared(ordinary.results)
-      const masters = await this.db.prepare(
-        `SELECT e.*, m.calendar_id AS shared_calendar_id, c.user_id AS shared_owner_id
-           FROM calendar_events e
-           JOIN calendar_event_calendars m
-             ON m.user_id = e.user_id AND m.event_id = e.id
-           JOIN calendar_calendars c
-             ON c.user_id = m.user_id AND c.id = m.calendar_id
-           JOIN calendar_members mem
-             ON mem.owner_user_id = c.user_id AND mem.calendar_id = c.id
-          WHERE mem.member_user_id = ? AND mem.status = 'accepted'
-            AND e.recurrence_rule IS NOT NULL AND e.start_ms <= ?
-            ${sharedFilter}
-          ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC
-          LIMIT ?`,
-      ).bind(
-        this.userId, toMs,
-        ...sharedPairs.flatMap(([ownerId, calendarId]) => [ownerId, calendarId]),
-        MAX_EVENTS_PER_QUERY + 1,
-      ).all<EventRow & { shared_calendar_id: string; shared_owner_id: string }>()
-      sharedMasters = masters.results ?? []
+      const pairChunks = sharedPairs.length > 0 ? chunks(sharedPairs, 40) : [[]]
+      for (const pairChunk of pairChunks) {
+        const sharedFilter = pairChunk.length > 0
+          ? `AND (${pairChunk.map(() => '(c.user_id = ? AND m.calendar_id = ?)').join(' OR ')})`
+          : requested === null ? '' : 'AND 0'
+        const pairValues = pairChunk.flatMap(([ownerId, calendarId]) => [ownerId, calendarId])
+        const ordinary = await this.db.prepare(
+          `SELECT e.*, m.calendar_id AS shared_calendar_id, c.user_id AS shared_owner_id
+             FROM calendar_events e
+             JOIN calendar_event_calendars m
+               ON m.user_id = e.user_id AND m.event_id = e.id
+             JOIN calendar_calendars c
+               ON c.user_id = m.user_id AND c.id = m.calendar_id
+             JOIN calendar_members mem
+               ON mem.owner_user_id = c.user_id AND mem.calendar_id = c.id
+            WHERE mem.member_user_id = ? AND mem.status = 'accepted'
+              AND e.recurrence_rule IS NULL AND e.start_ms <= ? AND e.end_ms >= ?
+              ${sharedFilter}
+            ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC
+            LIMIT ?`,
+        ).bind(
+          this.userId, toMs, fromMs,
+          ...pairValues,
+          MAX_EVENTS_PER_QUERY + 1,
+        ).all<EventRow & { shared_calendar_id: string; shared_owner_id: string }>()
+        collectShared(ordinary.results)
+        const masters = await this.db.prepare(
+          `SELECT e.*, m.calendar_id AS shared_calendar_id, c.user_id AS shared_owner_id
+             FROM calendar_events e
+             JOIN calendar_event_calendars m
+               ON m.user_id = e.user_id AND m.event_id = e.id
+             JOIN calendar_calendars c
+               ON c.user_id = m.user_id AND c.id = m.calendar_id
+             JOIN calendar_members mem
+               ON mem.owner_user_id = c.user_id AND mem.calendar_id = c.id
+            WHERE mem.member_user_id = ? AND mem.status = 'accepted'
+              AND e.recurrence_rule IS NOT NULL AND e.start_ms <= ?
+              ${sharedFilter}
+            ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC
+            LIMIT ?`,
+        ).bind(
+          this.userId, toMs,
+          ...pairValues,
+          MAX_EVENTS_PER_QUERY + 1,
+        ).all<EventRow & { shared_calendar_id: string; shared_owner_id: string }>()
+        sharedMasters.push(...(masters.results ?? []))
+      }
     }
 
     collectOwned(ownedMasters)
@@ -1321,31 +1326,39 @@ export class CalendarStore {
         const parsed = parseSharedCalendarId(id)
         return parsed ? [[parsed.ownerId, parsed.calendarId] as const] : []
       })
-      const sharedFilter = sharedPairs.length > 0
-        ? `AND (${sharedPairs.map(() => '(m.user_id = ? AND m.calendar_id = ?)').join(' OR ')})`
-        : 'AND 0'
-      const row = await this.db.prepare(
-        `SELECT COUNT(*) AS count, COALESCE(SUM(rev), 0) AS rev_sum,
-                COALESCE(MAX(updated_at), 0) AS updated_at
-           FROM (
-             SELECT e.user_id, e.id, e.rev, e.updated_at
-               FROM calendar_events e
-               JOIN calendar_event_calendars m
-                 ON m.user_id = e.user_id AND m.event_id = e.id
-               JOIN calendar_members mem
-                 ON mem.owner_user_id = m.user_id AND mem.calendar_id = m.calendar_id
-              WHERE mem.member_user_id = ? AND mem.status = 'accepted'
-                AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
-                ${sharedFilter}
-              GROUP BY e.user_id, e.id
-           )`,
-      ).bind(
-        this.userId, toMs, fromMs,
-        ...sharedPairs.flatMap(([ownerId, calendarId]) => [ownerId, calendarId]),
-      ).first<{ count: number; rev_sum: number; updated_at: number }>()
-      count += Number(row?.count ?? 0)
-      revSum += Number(row?.rev_sum ?? 0)
-      maxUpdatedAt = Math.max(maxUpdatedAt, Number(row?.updated_at ?? 0))
+      const pairChunks = sharedPairs.length > 0 ? chunks(sharedPairs, 40) : [[]]
+      const sharedRevisionRows = new Map<string, { rev: number; updatedAt: number }>()
+      for (const pairChunk of pairChunks) {
+        const sharedFilter = pairChunk.length > 0
+          ? `AND (${pairChunk.map(() => '(m.user_id = ? AND m.calendar_id = ?)').join(' OR ')})`
+          : requested === null ? '' : 'AND 0'
+        const pairValues = pairChunk.flatMap(([ownerId, calendarId]) => [ownerId, calendarId])
+        const { results } = await this.db.prepare(
+          `SELECT e.user_id, e.id, e.rev, e.updated_at
+             FROM calendar_events e
+             JOIN calendar_event_calendars m
+               ON m.user_id = e.user_id AND m.event_id = e.id
+             JOIN calendar_members mem
+               ON mem.owner_user_id = m.user_id AND mem.calendar_id = m.calendar_id
+            WHERE mem.member_user_id = ? AND mem.status = 'accepted'
+              AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
+              ${sharedFilter}
+            GROUP BY e.user_id, e.id`,
+        ).bind(
+          this.userId, toMs, fromMs,
+          ...pairValues,
+        ).all<{ user_id: string; id: string; rev: number; updated_at: number }>()
+        for (const row of results ?? []) {
+          sharedRevisionRows.set(`${row.user_id}\u0000${row.id}`, {
+            rev: Number(row.rev), updatedAt: Number(row.updated_at),
+          })
+        }
+      }
+      for (const row of sharedRevisionRows.values()) {
+        count += 1
+        revSum += row.rev
+        maxUpdatedAt = Math.max(maxUpdatedAt, row.updatedAt)
+      }
     }
     return { count, revSum, maxUpdatedAt }
   }
@@ -2379,11 +2392,10 @@ export class CalendarStore {
   }
 
   /**
-   * Title and description search across every calendar, newest first.
+   * Title and description search across owned and accepted shared calendars.
    *
-   * The pattern is escaped (`\\`, `%`, `_`) before it becomes a LIKE, so a reader typing `%` asks for
-   * a percent sign rather than for everything. `truncated` is answered by fetching one row past the
-   * limit instead of counting the whole match set.
+   * Plain word queries use FTS5 prefix matching; punctuation keeps the escaped LIKE behavior so `%`
+   * and `_` remain literal. `truncated` is answered by fetching one row past the limit for each scope.
    */
   async searchEvents(
     q: string,
@@ -2400,78 +2412,174 @@ export class CalendarStore {
     } = {},
   ): Promise<{ results: CalendarSearchResultDto[]; truncated: boolean }> {
     const max = Math.min(Math.max(1, limit), 50)
-    const conditions = ['user_id = ?']
-    const binds: Array<string | number> = [this.userId]
-    if (q) {
+    const requested = filters.calendarIds
+    const ownedIds = requested?.filter(id => !isSharedCalendarId(id)) ?? []
+    const sharedPairs = (requested?.filter(isSharedCalendarId) ?? []).flatMap((id) => {
+      const parsed = parseSharedCalendarId(id)
+      return parsed ? [[parsed.ownerId, parsed.calendarId] as const] : []
+    })
+    const wantsOwned = requested === undefined || ownedIds.length > 0
+    const wantsShared = requested === undefined || sharedPairs.length > 0
+    const ftsQuery = q && /^[\p{L}\p{N}\s]+$/u.test(q)
+      ? q.split(/\s+/).filter(Boolean).map(token => `"${token.replaceAll('"', '""')}"*`).join(' AND ')
+      : null
+    const ftsJoin = ftsQuery ? 'JOIN calendar_events_fts ON calendar_events_fts.rowid = e.rowid' : ''
+    const conditions: string[] = []
+    const binds: Array<string | number> = []
+    if (ftsQuery) {
+      conditions.push('calendar_events_fts MATCH ?')
+      binds.push(ftsQuery)
+    } else if (q) {
       const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`
-      conditions.push("(title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')")
+      conditions.push("(e.title LIKE ? ESCAPE '\\' OR e.description LIKE ? ESCAPE '\\')")
       binds.push(pattern, pattern)
     }
     if (filters.kind) {
-      conditions.push('kind = ?')
+      conditions.push('e.kind = ?')
       binds.push(filters.kind)
     }
     if (filters.attendee) {
       const pattern = `%${filters.attendee.replace(/[\\%_]/g, '\\$&')}%`
       conditions.push(`EXISTS (
         SELECT 1 FROM calendar_event_attendees a
-         WHERE a.user_id = calendar_events.user_id AND a.event_id = calendar_events.id
+         WHERE a.user_id = e.user_id AND a.event_id = e.id
            AND (a.email LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\')
       )`)
       binds.push(pattern, pattern)
     }
     if (filters.location) {
       const pattern = `%${filters.location.replace(/[\\%_]/g, '\\$&')}%`
-      conditions.push("(description LIKE ? ESCAPE '\\' OR meta_json LIKE ? ESCAPE '\\')")
-      binds.push(pattern, pattern)
+      conditions.push(`CASE WHEN json_valid(e.meta_json) THEN json_extract(e.meta_json, '$.location') END LIKE ? ESCAPE '\\'`)
+      binds.push(pattern)
     }
-    if (filters.recurring === true) conditions.push('recurrence_rule IS NOT NULL')
-    if (filters.recurring === false) conditions.push('recurrence_rule IS NULL')
-    if (filters.taskStatus === 'done') conditions.push("(kind = 'task' AND task_completed = 1)")
-    if (filters.taskStatus === 'open') conditions.push("(kind = 'task' AND task_completed = 0)")
+    if (filters.recurring === true) conditions.push('e.recurrence_rule IS NOT NULL')
+    if (filters.recurring === false) conditions.push('e.recurrence_rule IS NULL')
+    if (filters.taskStatus === 'done') conditions.push("(e.kind = 'task' AND e.task_completed = 1)")
+    if (filters.taskStatus === 'open') conditions.push("(e.kind = 'task' AND e.task_completed = 0)")
     if (filters.fromMs !== undefined) {
-      conditions.push('start_ms >= ?')
+      conditions.push('e.start_ms >= ?')
       binds.push(filters.fromMs)
     }
     if (filters.toMs !== undefined) {
-      conditions.push('start_ms <= ?')
+      conditions.push('e.start_ms <= ?')
       binds.push(filters.toMs)
     }
-    if (filters.calendarIds && filters.calendarIds.length > 0) {
-      conditions.push(`EXISTS (
-        SELECT 1 FROM calendar_event_calendars m
-         WHERE m.user_id = calendar_events.user_id AND m.event_id = calendar_events.id
-           AND m.calendar_id IN (${placeholders(filters.calendarIds.length)})
-      )`)
-      binds.push(...filters.calendarIds)
-    }
     const now = Date.now()
-    binds.push(now, now, max + 1)
-    const { results } = await this.db.prepare(
-      `SELECT * FROM calendar_events
-        WHERE ${conditions.join(' AND ')}
-        ORDER BY CASE WHEN start_ms >= ? THEN 0 ELSE 1 END, ABS(start_ms - ?) ASC, start_ms ASC, id ASC
-        LIMIT ?`,
-    ).bind(...binds).all<EventRow>()
-    const rows = results ?? []
-    const truncated = rows.length > max
-    const page = rows.slice(0, max)
-    const memberships = await this.membershipsFor(page.map((row) => row.id))
-    const calendarIds = [...new Set([...memberships.values()].flatMap((ids) => ids.slice(0, 1)))]
+    const entries = new Map<string, { row: EventRow; ownerId: string; shared: boolean }>()
+    const collect = (rows: EventRow[] | null | undefined, shared: boolean): void => {
+      for (const row of rows ?? []) {
+        const ownerId = shared ? row.user_id : this.userId
+        const key = shared ? sharedCalendarId(ownerId, row.id) : row.id
+        if (!entries.has(key)) entries.set(key, { row, ownerId, shared })
+      }
+    }
+    if (wantsOwned) {
+      const calendarFilter = requested === undefined
+        ? '1=1'
+        : ownedIds.length > 0
+          ? `EXISTS (SELECT 1 FROM calendar_event_calendars m
+                          WHERE m.user_id = e.user_id AND m.event_id = e.id
+                            AND m.calendar_id IN (${placeholders(ownedIds.length)}))`
+          : '0=1'
+      const { results } = await this.db.prepare(
+        `SELECT DISTINCT e.* FROM calendar_events e ${ftsJoin}
+          WHERE ${[...conditions, 'e.user_id = ?', calendarFilter].join(' AND ')}
+          ORDER BY CASE WHEN e.start_ms >= ? THEN 0 ELSE 1 END, ABS(e.start_ms - ?) ASC, e.start_ms ASC, e.id ASC
+          LIMIT ?`,
+      ).bind(...binds, this.userId, ...ownedIds, now, now, max + 1).all<EventRow>()
+      collect(results, false)
+    }
+    if (wantsShared) {
+      const pairChunks = sharedPairs.length > 0 ? chunks(sharedPairs, 40) : [[]]
+      for (const pairChunk of pairChunks) {
+        const sharedFilter = pairChunk.length > 0
+          ? `(${pairChunk.map(() => '(c.user_id = ? AND m.calendar_id = ?)').join(' OR ')})`
+          : requested === undefined ? '1=1' : '0=1'
+        const pairValues = pairChunk.flatMap(([ownerId, calendarId]) => [ownerId, calendarId])
+        const { results } = await this.db.prepare(
+          `SELECT DISTINCT e.* FROM calendar_events e
+             JOIN calendar_event_calendars m ON m.user_id = e.user_id AND m.event_id = e.id
+             JOIN calendar_calendars c ON c.user_id = m.user_id AND c.id = m.calendar_id
+             JOIN calendar_members mem ON mem.owner_user_id = c.user_id AND mem.calendar_id = c.id
+             ${ftsJoin}
+            WHERE ${[...conditions, "mem.member_user_id = ?", "mem.status = 'accepted'", sharedFilter].join(' AND ')}
+            ORDER BY CASE WHEN e.start_ms >= ? THEN 0 ELSE 1 END, ABS(e.start_ms - ?) ASC, e.start_ms ASC, e.id ASC
+            LIMIT ?`,
+        ).bind(...binds, this.userId, ...pairValues, now, now, max + 1).all<EventRow>()
+        collect(results, true)
+      }
+    }
+    const ordered = [...entries.values()].sort((left, right) => {
+      const leftFuture = left.row.start_ms >= now ? 0 : 1
+      const rightFuture = right.row.start_ms >= now ? 0 : 1
+      return leftFuture - rightFuture
+        || Math.abs(left.row.start_ms - now) - Math.abs(right.row.start_ms - now)
+        || left.row.start_ms - right.row.start_ms
+        || left.row.id.localeCompare(right.row.id)
+    })
+    const truncated = ordered.length > max
+    const page = ordered.slice(0, max)
+    const ownedRows = page.filter(entry => !entry.shared)
+    const ownedMemberships = await this.membershipsFor(ownedRows.map(entry => entry.row.id))
+    const sharedIdsByOwner = new Map<string, string[]>()
+    for (const entry of page) {
+      if (!entry.shared) continue
+      const ids = sharedIdsByOwner.get(entry.ownerId) ?? []
+      ids.push(entry.row.id)
+      sharedIdsByOwner.set(entry.ownerId, ids)
+    }
+    const sharedMemberships = new Map<string, string[]>()
+    for (const [ownerId, ids] of sharedIdsByOwner) {
+      for (const chunk of chunks(ids, SQL_CHUNK)) {
+        const { results } = await this.db.prepare(
+          `SELECT m.event_id, m.calendar_id FROM calendar_event_calendars m
+             JOIN calendar_members mem ON mem.owner_user_id = m.user_id AND mem.calendar_id = m.calendar_id
+            WHERE m.user_id = ? AND mem.member_user_id = ? AND mem.status = 'accepted'
+              AND m.event_id IN (${placeholders(chunk.length)})
+            ORDER BY m.position ASC, m.calendar_id ASC`,
+        ).bind(ownerId, this.userId, ...chunk).all<{ event_id: string; calendar_id: string }>()
+        for (const row of results ?? []) {
+          if (requested !== undefined && !sharedPairs.some(([owner, calendarId]) => owner === ownerId && calendarId === row.calendar_id)) continue
+          const key = sharedCalendarId(ownerId, row.event_id)
+          const calendarIds = sharedMemberships.get(key) ?? []
+          if (!calendarIds.includes(row.calendar_id)) calendarIds.push(row.calendar_id)
+          sharedMemberships.set(key, calendarIds)
+        }
+      }
+    }
+    const calendarRefs = new Map<string, Set<string>>()
+    for (const entry of page) {
+      const rawIds = entry.shared
+        ? sharedMemberships.get(sharedCalendarId(entry.ownerId, entry.row.id)) ?? []
+        : ownedMemberships.get(entry.row.id) ?? []
+      const refs = calendarRefs.get(entry.ownerId) ?? new Set<string>()
+      for (const id of rawIds) refs.add(id)
+      calendarRefs.set(entry.ownerId, refs)
+    }
     const calendars = new Map<string, { name: string; color: string }>()
-    for (const chunk of chunks(calendarIds, SQL_CHUNK)) {
-      const { results: found } = await this.db.prepare(
-        `SELECT id, name, color FROM calendar_calendars
-          WHERE user_id = ? AND id IN (${placeholders(chunk.length)})`,
-      ).bind(this.userId, ...chunk).all<{ id: string; name: string; color: string }>()
-      for (const row of found ?? []) calendars.set(row.id, { name: row.name, color: row.color })
+    for (const [ownerId, ids] of calendarRefs) {
+      for (const chunk of chunks([...ids], SQL_CHUNK)) {
+        const { results: found } = await this.db.prepare(
+          `SELECT id, name, color FROM calendar_calendars
+            WHERE user_id = ? AND id IN (${placeholders(chunk.length)})`,
+        ).bind(ownerId, ...chunk).all<{ id: string; name: string; color: string }>()
+        for (const row of found ?? []) calendars.set(`${ownerId}\u0000${row.id}`, { name: row.name, color: row.color })
+      }
     }
     const answers: CalendarSearchResultDto[] = []
-    for (const row of page) {
-      const ids = memberships.get(row.id) ?? []
-      const calendar = ids.length > 0 ? calendars.get(ids[0]!) : undefined
+    for (const entry of page) {
+      const rawIds = entry.shared
+        ? sharedMemberships.get(sharedCalendarId(entry.ownerId, entry.row.id)) ?? []
+        : ownedMemberships.get(entry.row.id) ?? []
+      const calendar = rawIds.length > 0 ? calendars.get(`${entry.ownerId}\u0000${rawIds[0]}`) : undefined
       if (!calendar) continue
-      answers.push({ event: toEventDto(row, ids), calendarName: calendar.name, calendarColor: calendar.color })
+      const ids = entry.shared ? rawIds.map(id => sharedCalendarId(entry.ownerId, id)) : rawIds
+      const event = toEventDto(entry.row, ids)
+      answers.push({
+        event: entry.shared ? { ...event, id: sharedCalendarId(entry.ownerId, entry.row.id), calendarId: ids[0] ?? '' } : event,
+        calendarName: calendar.name,
+        calendarColor: calendar.color,
+      })
     }
     return { results: answers, truncated }
   }
