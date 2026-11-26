@@ -217,7 +217,7 @@ async function busyFor(
   if (result.truncated || expansion.truncated) {
     throw new ApiError(503, 'storage_unavailable', 'Calendar availability cannot be read completely')
   }
-  return [...result.events, ...expansion.occurrences]
+  const blocks = [...result.events, ...expansion.occurrences]
     .filter(event => event.kind !== 'task')
     .map(event => ({
       startMs: temporalValueToEpochMs(event.start, preferences.timeZone),
@@ -225,6 +225,13 @@ async function busyFor(
     }))
     .filter(block => block.endMs > fromMs && block.startMs < toMs)
     .sort((left, right) => left.startMs - right.startMs)
+  const merged: Array<{ startMs: number; endMs: number }> = []
+  for (const block of blocks) {
+    const previous = merged.at(-1)
+    if (previous && block.startMs <= previous.endMs) previous.endMs = Math.max(previous.endMs, block.endMs)
+    else merged.push({ ...block })
+  }
+  return merged
 }
 
 calendarBookingRoutes.get('/scheduling/:slug', async (c) => {

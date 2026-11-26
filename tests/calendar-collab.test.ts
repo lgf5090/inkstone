@@ -437,6 +437,7 @@ describe('resources, booking links and snoozes', () => {
     const linkedStart = alignedStart(2 * 86_400_000)
     const bookedStart = alignedStart(3 * 86_400_000)
     await json(await call('POST', '/api/calendar/events', timedEvent(calendar.id, linkedStart)))
+    await json(await call('POST', '/api/calendar/events', timedEvent(calendar.id, linkedStart + 30 * 60_000)))
     await json(await call('POST', '/api/calendar/events', timedEvent(privateCalendar.calendar.id, bookedStart)))
 
     user = BOB
@@ -449,7 +450,7 @@ describe('resources, booking links and snoozes', () => {
     const publicRead = await json<{ busy: Array<{ startMs: number; endMs: number }> }>(
       await call('GET', `/api/public/calendar/scheduling/${link.slug}`),
     )
-    expect(publicRead.busy).toEqual([{ startMs: linkedStart, endMs: linkedStart + 60 * 60_000 }])
+    expect(publicRead.busy).toEqual([{ startMs: linkedStart, endMs: linkedStart + 90 * 60_000 }])
     const booked = await call('POST', `/api/public/calendar/scheduling/${link.slug}/book`, {
       startMs: bookedStart,
       name: 'Dana',
