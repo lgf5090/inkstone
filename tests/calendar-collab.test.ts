@@ -257,6 +257,23 @@ describe('recurrence exceptions', () => {
     expect(Array.isArray(master.event.meta.exdates)).toBe(true)
   })
 
+  it('deletes overrides together with their master', async () => {
+    const calendar = await defaultCalendar()
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/api/calendar/events', eventBody(calendar.id, {
+      title: 'Cascade series', recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    })))
+    const week = await range('2026-10-26T00:00:00Z', '2026-10-31T00:00:00Z')
+    const target = week.occurrences[0]!
+    expect((await call('POST', `/api/calendar/events/${created.event.id}/recurrence`, {
+      occurrenceStart: target.start, occurrenceEnd: target.end, scope: 'this', action: 'update', patch: { title: 'Override' },
+    })).status).toBe(200)
+    const master = await json<{ event: CalendarEventDto }>(await call('GET', `/api/calendar/events/${created.event.id}`))
+    expect((await call('DELETE', `/api/calendar/events/${created.event.id}?rev=${master.event.rev}`)).status).toBe(204)
+    const after = await range('2026-10-26T00:00:00Z', '2026-10-31T00:00:00Z')
+    expect(after.events).toHaveLength(0)
+    expect(after.occurrences).toHaveLength(0)
+  })
+
   it('splits a series for this-and-following and truncates the old rule', async () => {
     const calendar = await defaultCalendar()
     const created = await json<{ event: CalendarEventDto }>(await call('POST', '/api/calendar/events', eventBody(calendar.id, {

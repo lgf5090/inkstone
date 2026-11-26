@@ -1774,6 +1774,11 @@ export class CalendarStore {
     if (!row) throw ApiError.notFound('Event not found')
     if (row.rev !== rev) throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
     await this.assertEventWritable(id)
+    const overrides = await this.recurrenceOverrides(id)
+    for (const override of overrides) {
+      const event = await this.getEvent(override.id)
+      if (event) await this.deleteEvent(event.id, event.rev)
+    }
     const outcomes = await this.db.batch([
       this.db.prepare(
         `DELETE FROM calendar_event_calendars
