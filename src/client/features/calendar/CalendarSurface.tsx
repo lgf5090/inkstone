@@ -846,8 +846,9 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
         const event = app.getEvents().find(item => item.id === id)
         if (!event) return
         const masterId = event._recurrenceMasterId ?? id.split('::repeat-')[0]
-        if (!masterId) return
-        setRecurrenceRequest({ masterId, intent: 'save', before: event, after: event })
+        const masterRev = revs.get(masterId)
+        if (!masterId || masterRev === undefined) return
+        setRecurrenceRequest({ masterId, masterRev, intent: 'save', before: event, after: event })
       },
       onSelect: id => {
         const event = app.getEvents().find(item => item.id === id)
@@ -858,7 +859,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       },
       onOpenDetail: id => app.onEventDetailToggle(id),
     })
-  }, [app, appLocale, meta.preferences.weekStart, meta.preferences.eventDetailTrigger, meta.preferences.timeFormat, meta.preferences.workingHours, wide])
+  }, [app, appLocale, meta.preferences.weekStart, meta.preferences.eventDetailTrigger, meta.preferences.timeFormat, meta.preferences.workingHours, wide, revs])
 
   /**
    * The almanac line inside the month cells.

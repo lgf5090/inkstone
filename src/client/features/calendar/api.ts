@@ -269,6 +269,7 @@ export async function updateEventPatch(
 }
 
 export interface RecurrenceChangeBody {
+  rev: number
   occurrenceStart: TemporalValue
   occurrenceEnd: TemporalValue
   scope: 'this' | 'following' | 'all'

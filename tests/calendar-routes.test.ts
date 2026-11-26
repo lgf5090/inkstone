@@ -268,6 +268,24 @@ describe('event routes', () => {
     expect(reread.event).toMatchObject({ title: 'Current', rev: created.event.rev + 1 })
   })
 
+  it('requires the current master revision for recurrence changes', async () => {
+    const home = (await meta()).calendars[0]!
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, {
+      id: 'recurrence-revision', recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    })))
+    const body = {
+      occurrenceStart: created.event.start,
+      occurrenceEnd: created.event.end,
+      scope: 'all',
+      action: 'cancel',
+    }
+    expect((await call('POST', `/events/${created.event.id}/recurrence`, body)).status).toBe(400)
+    await json(await call('PATCH', `/events/${created.event.id}`, { rev: created.event.rev, title: 'Changed elsewhere' }))
+    expect((await call('POST', `/events/${created.event.id}/recurrence`, { ...body, rev: created.event.rev })).status).toBe(409)
+    const reread = await json<{ event: CalendarEventDto }>(await call('GET', `/events/${created.event.id}`))
+    expect(reread.event).toMatchObject({ title: 'Changed elsewhere', rev: created.event.rev + 1 })
+  })
+
   it('refuses a shared batch upsert that would remove a private membership', async () => {
     const sharedCalendar = (await meta()).calendars[0]!
     const privateCalendar = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {

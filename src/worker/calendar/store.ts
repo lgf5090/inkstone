@@ -123,6 +123,7 @@ type TimelineEventWrite = CalendarEventWriteInput & {
 }
 
 export interface RecurrenceChangeWrite {
+  rev: number
   occurrenceStart: TemporalValue
   occurrenceEnd: TemporalValue
   scope: 'this' | 'following' | 'all'
@@ -1725,12 +1726,11 @@ export class CalendarStore {
     })
   }
 
-  async updateEvent(id: string, patch: CalendarEventPatchInput): Promise<CalendarEventDto> {
-    const row = await this.eventRow(id)
-    if (!row) throw ApiError.notFound('Event not found')
-    if (row.rev !== patch.rev) throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
-    await this.assertEventWritable(id)
-
+  private async mergeEventPatch(
+    id: string,
+    row: EventRow,
+    patch: CalendarEventPatchInput,
+  ): Promise<TimelineEventWrite> {
     const start = patch.start ?? temporalFromRow(row.start_value, row.start_type, row.time_zone)
     const end = patch.end ?? temporalFromRow(row.end_value, row.end_type, row.time_zone)
     const needsZone = (patch.start !== undefined && patch.startMs === undefined)
@@ -1783,7 +1783,7 @@ export class CalendarStore {
     const calendarIds = patch.calendarIds ?? (await this.membershipsFor([id])).get(id) ?? []
     if (patch.calendarIds) await this.assertCalendarsForWrite(patch.calendarIds, false)
 
-    const merged: TimelineEventWrite = {
+    return {
       id,
       title: patch.title ?? row.title,
       description: patch.description ?? row.description,
@@ -1807,6 +1807,14 @@ export class CalendarStore {
       source: isCalendarSource(row.calendar_source) ? row.calendar_source : 'local',
       externalId: row.external_id,
     }
+  }
+
+  async updateEvent(id: string, patch: CalendarEventPatchInput): Promise<CalendarEventDto> {
+    const row = await this.eventRow(id)
+    if (!row) throw ApiError.notFound('Event not found')
+    if (row.rev !== patch.rev) throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
+    await this.assertEventWritable(id)
+    const merged = await this.mergeEventPatch(id, row, patch)
     const now = Date.now()
     const nextRev = patch.rev + 1
     const statements: D1PreparedStatement[] = [this.updateEventStatement(merged, patch.rev, now)]
@@ -1837,27 +1845,7 @@ export class CalendarStore {
       const event = await this.getEvent(override.id)
       if (event) await this.deleteEvent(event.id, event.rev)
     }
-    const outcomes = await this.db.batch([
-      this.db.prepare(
-        `DELETE FROM calendar_event_calendars
-          WHERE user_id = ?1 AND event_id = ?2
-            AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
-      ).bind(this.userId, id, rev),
-      this.db.prepare(
-        `DELETE FROM calendar_event_reminders
-          WHERE user_id = ?1 AND event_id = ?2
-            AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
-      ).bind(this.userId, id, rev),
-      this.db.prepare(
-        `DELETE FROM calendar_event_attendees
-          WHERE user_id = ?1 AND event_id = ?2
-            AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
-      ).bind(this.userId, id, rev),
-      ...eventAttachmentDeleteStatements(this.db, this.userId, id, rev),
-      this.db.prepare(
-        `DELETE FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3`,
-      ).bind(this.userId, id, rev),
-    ])
+    const outcomes = await this.db.batch(this.eventDeleteStatements(id, rev))
     // The event row is deleted last, so its outcome is the one that says whether the rev still held.
     if (!outcomes[outcomes.length - 1]?.meta.changes) {
       throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
@@ -1877,7 +1865,10 @@ export class CalendarStore {
     const master = await this.getEvent(masterId)
     if (!master) throw ApiError.notFound('Event not found')
     if (!master.recurrenceRule) throw ApiError.badRequest('The event does not repeat')
+    if (master.rev !== change.rev) throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
     await this.assertEventWritable(masterId)
+    const row = await this.eventRow(masterId)
+    if (!row) throw ApiError.notFound('Event not found')
     const zone = (await this.preferences()).timeZone
     const occurrenceStartMs = temporalValueToEpochMs(
       change.occurrenceStart,
@@ -1889,21 +1880,25 @@ export class CalendarStore {
     )
     if (occurrenceEndMs < occurrenceStartMs) throw ApiError.badRequest('An event cannot end before it starts')
     const key = temporalKey(change.occurrenceStart)
-    const overrides = await this.recurrenceOverrides(masterId)
-    const removeOverrides = async (rows: ReadonlyArray<{ id: string }>): Promise<void> => {
-      for (const row of rows) {
-        const event = await this.getEvent(row.id)
-        if (event) await this.deleteEvent(row.id, event.rev)
+    const now = Date.now()
+    const masterStatement = async (patch: CalendarEventPatchInput): Promise<D1PreparedStatement> => {
+      const merged = await this.mergeEventPatch(masterId, row, { ...patch, rev: change.rev })
+      return this.updateEventStatement(merged, change.rev, now)
+    }
+    const deleteSeries = async (): Promise<{ masterId: null }> => {
+      const outcomes = await this.db.batch([
+        ...this.recurrenceOverrideDeleteStatements(masterId, change.rev, '', [], now),
+        ...this.eventDeleteStatements(masterId, change.rev),
+      ])
+      if (!outcomes.at(-1)?.meta.changes) {
+        throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
       }
+      return { masterId: null }
     }
 
     if (change.scope === 'all') {
-      if (change.action === 'cancel') {
-        await removeOverrides(overrides)
-        await this.deleteEvent(masterId, master.rev)
-        return { masterId: null }
-      }
-      const patch = { ...change.patch!, rev: master.rev }
+      if (change.action === 'cancel') return deleteSeries()
+      const patch = { ...change.patch!, rev: change.rev }
       if (change.patch?.start && change.patch.startMs !== undefined) {
         patch.start = shiftTemporal(master.start, change.occurrenceStart, change.patch.start, zone)
         patch.startMs = temporalValueToEpochMs(patch.start, zone)
@@ -1915,64 +1910,75 @@ export class CalendarStore {
     }
 
     if (change.scope === 'this') {
-      if (change.action === 'cancel') {
-        await this.addExdate(master, change.occurrenceStart)
-        await removeOverrides(overrides.filter(row => row.recurrenceId === key))
-        return { masterId }
+      const meta: Record<string, unknown> = { ...master.meta }
+      const exdates = readMetaDates(meta, 'exdates')
+      if (!exdates.some(value => temporalKey(value) === key)) exdates.push(change.occurrenceStart)
+      meta.exdates = exdates
+      const statements = this.recurrenceOverrideDeleteStatements(
+        masterId, change.rev, 'AND recurrence_id = ?4', [key], now,
+      )
+      if (change.action === 'update') {
+        const patch = change.patch!
+        const exceptionMeta: Record<string, unknown> = { ...master.meta, recurrenceId: change.occurrenceStart }
+        delete exceptionMeta.recurrenceRule
+        delete exceptionMeta.exdates
+        delete exceptionMeta.rdates
+        const exceptionId = newId()
+        const exception = (await this.fillTimeline([{
+          title: patch.title ?? master.title,
+          description: patch.description ?? master.description,
+          kind: patch.kind ?? master.kind,
+          task: master.task,
+          conference: patch.conference !== undefined ? patch.conference : master.conference,
+          start: patch.start ?? change.occurrenceStart,
+          end: patch.end ?? change.occurrenceEnd,
+          allDay: patch.allDay ?? change.occurrenceStart.type === 'date',
+          calendarIds: master.calendarIds,
+          meta: exceptionMeta,
+          icon: master.icon,
+          color: patch.color !== undefined ? patch.color : master.color,
+          recurrenceParentId: masterId,
+          recurrenceId: key,
+          recurrenceRule: null,
+          source: 'local',
+        }]))[0]!
+        statements.push(
+          this.insertEventStatement(exception, exceptionId, now, null, { id: masterId, rev: change.rev }),
+          ...this.membershipInsertStatements(exceptionId, exception.calendarIds, change.rev, masterId),
+        )
       }
-      const patch = change.patch!
-      const meta: Record<string, unknown> = { ...master.meta, recurrenceId: change.occurrenceStart }
-      delete meta.recurrenceRule
-      delete meta.exdates
-      delete meta.rdates
-      const exception = await this.createEvent({
-        title: patch.title ?? master.title,
-        description: patch.description ?? master.description,
-        kind: patch.kind ?? master.kind,
-        task: master.task,
-        conference: patch.conference !== undefined ? patch.conference : master.conference,
-        start: patch.start ?? change.occurrenceStart,
-        end: patch.end ?? change.occurrenceEnd,
-        allDay: patch.allDay ?? change.occurrenceStart.type === 'date',
-        calendarIds: master.calendarIds,
-        meta,
-        icon: master.icon,
-        color: patch.color !== undefined ? patch.color : master.color,
-        recurrenceParentId: masterId,
-        recurrenceId: key,
-        recurrenceRule: null,
-        source: 'local',
-      })
-      try {
-        await this.addExdate(master, change.occurrenceStart)
-      } catch (error) {
-        await this.deleteEvent(exception.id, exception.rev).catch(() => { /* The exception is the row the caller's failure already names. */ })
-        throw error
+      statements.push(await masterStatement({ rev: change.rev, meta, recurrenceRule: master.recurrenceRule }))
+      const outcomes = await this.db.batch(statements)
+      if (!outcomes.at(-1)?.meta.changes) {
+        throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
       }
-      await removeOverrides(overrides.filter(row => row.recurrenceId === key))
       return { masterId }
     }
 
     const rule = master.recurrenceRule.replace(/^RRULE:/i, '').trim()
     const split = splitRule(rule, master.start, change.occurrenceStart, zone)
     const partitioned = partitionMetaDates(master.meta, occurrenceStartMs, zone)
-    const futureOverrides = overrides.filter(row => row.startMs >= occurrenceStartMs)
     if (change.action === 'cancel') {
-      if (split.pastCount === 0) {
-        await removeOverrides(overrides)
-        await this.deleteEvent(masterId, master.rev)
-        return { masterId: null }
+      if (split.pastCount === 0) return deleteSeries()
+      const outcomes = await this.db.batch([
+        ...this.recurrenceOverrideDeleteStatements(
+          masterId, change.rev, 'AND start_ms >= ?4', [occurrenceStartMs], now,
+        ),
+        await masterStatement({ rev: change.rev, recurrenceRule: split.past, meta: partitioned.past }),
+      ])
+      if (!outcomes.at(-1)?.meta.changes) {
+        throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
       }
-      await this.updateEvent(masterId, { rev: master.rev, recurrenceRule: split.past, meta: partitioned.past })
-      await removeOverrides(futureOverrides)
       return { masterId }
     }
+
     const patch = change.patch!
     if (split.pastCount === 0) {
-      await this.updateEvent(masterId, { ...patch, rev: master.rev })
+      await this.updateEvent(masterId, { ...patch, rev: change.rev })
       return { masterId }
     }
-    const series = await this.createEvent({
+    const seriesId = newId()
+    const series = (await this.fillTimeline([{
       title: patch.title ?? master.title,
       description: patch.description ?? master.description,
       kind: patch.kind ?? master.kind,
@@ -1987,33 +1993,98 @@ export class CalendarStore {
       color: patch.color !== undefined ? patch.color : master.color,
       recurrenceRule: split.future,
       source: 'local',
-    })
-    try {
-      await this.updateEvent(masterId, { rev: master.rev, recurrenceRule: split.past, meta: partitioned.past })
-    } catch (error) {
-      await this.deleteEvent(series.id, series.rev).catch(() => { /* The original failure is what the caller sees. */ })
-      throw error
+    }]))[0]!
+    const outcomes = await this.db.batch([
+      this.db.prepare(
+        `UPDATE calendar_events
+            SET recurrence_parent_id = ?1, rev = rev + 1, updated_at = ?2
+          WHERE user_id = ?3 AND recurrence_parent_id = ?4 AND start_ms >= ?5
+            AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?3 AND id = ?4 AND rev = ?6)`,
+      ).bind(seriesId, now, this.userId, masterId, occurrenceStartMs, change.rev),
+      this.insertEventStatement(series, seriesId, now, null, { id: masterId, rev: change.rev }),
+      ...this.membershipInsertStatements(seriesId, series.calendarIds, change.rev, masterId),
+      await masterStatement({ rev: change.rev, recurrenceRule: split.past, meta: partitioned.past }),
+    ])
+    if (!outcomes.at(-1)?.meta.changes) {
+      throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
     }
-    if (futureOverrides.length > 0) {
-      const ids = futureOverrides.map(row => row.id)
-      for (const chunk of chunks(ids, SQL_CHUNK)) {
-        await this.db.prepare(
-          `UPDATE calendar_events
-              SET recurrence_parent_id = ?1, rev = rev + 1, updated_at = ?2
-            WHERE user_id = ?3 AND id IN (${placeholders(chunk.length)})`,
-        ).bind(series.id, Date.now(), this.userId, ...chunk).run()
-      }
-    }
-    return { masterId: series.id }
+    return { masterId: seriesId }
   }
 
-  private async addExdate(master: CalendarEventDto, occurrenceStart: TemporalValue): Promise<void> {
-    const meta = { ...master.meta }
-    const exdates = readMetaDates(meta, 'exdates')
-    const key = temporalKey(occurrenceStart)
-    if (!exdates.some(value => temporalKey(value) === key)) exdates.push(occurrenceStart)
-    meta.exdates = exdates
-    await this.updateEvent(master.id, { rev: master.rev, meta })
+  private recurrenceOverrideDeleteStatements(
+    masterId: string,
+    masterRev: number,
+    predicate: string,
+    params: readonly (string | number)[],
+    now: number,
+  ): D1PreparedStatement[] {
+    const targets = `SELECT id FROM calendar_events
+                      WHERE user_id = ?1 AND recurrence_parent_id = ?2 ${predicate}`
+    const guard = 'EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)'
+    const nowParam = `?${4 + params.length}`
+    const values = [this.userId, masterId, masterRev, ...params]
+    return [
+      this.db.prepare(
+        `DELETE FROM calendar_event_calendars
+          WHERE user_id = ?1 AND event_id IN (${targets}) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `DELETE FROM calendar_reminder_snoozes
+          WHERE user_id = ?1 AND event_id IN (${targets}) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `DELETE FROM calendar_event_reminders
+          WHERE user_id = ?1 AND event_id IN (${targets}) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `DELETE FROM calendar_event_attendees
+          WHERE user_id = ?1 AND event_id IN (${targets}) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
+         SELECT ${attachmentCleanupTargetSql('a.storage', 'a.object_key')}, ?1, ${nowParam}
+           FROM attachments a
+           JOIN calendar_event_attachments l ON l.user_id = a.user_id AND l.attachment_id = a.id
+          WHERE l.user_id = ?1 AND l.event_id IN (${targets})
+            AND a.object_key IS NOT NULL AND ${guard}`,
+      ).bind(...values, now),
+      this.db.prepare(
+        `DELETE FROM attachments WHERE user_id = ?1 AND scope = 'calendar' AND id IN (
+           SELECT attachment_id FROM calendar_event_attachments
+            WHERE user_id = ?1 AND event_id IN (${targets})
+         ) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `DELETE FROM calendar_event_attachments
+          WHERE user_id = ?1 AND event_id IN (${targets}) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `DELETE FROM calendar_events
+          WHERE user_id = ?1 AND recurrence_parent_id = ?2 ${predicate} AND ${guard}`,
+      ).bind(...values),
+    ]
+  }
+
+  private eventDeleteStatements(id: string, rev: number): D1PreparedStatement[] {
+    const guard = 'EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)'
+    return [
+      this.db.prepare(
+        `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND event_id = ?2 AND ${guard}`,
+      ).bind(this.userId, id, rev),
+      this.db.prepare(
+        `DELETE FROM calendar_reminder_snoozes WHERE user_id = ?1 AND event_id = ?2 AND ${guard}`,
+      ).bind(this.userId, id, rev),
+      this.db.prepare(
+        `DELETE FROM calendar_event_reminders WHERE user_id = ?1 AND event_id = ?2 AND ${guard}`,
+      ).bind(this.userId, id, rev),
+      this.db.prepare(
+        `DELETE FROM calendar_event_attendees WHERE user_id = ?1 AND event_id = ?2 AND ${guard}`,
+      ).bind(this.userId, id, rev),
+      ...eventAttachmentDeleteStatements(this.db, this.userId, id, rev),
+      this.db.prepare(
+        'DELETE FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3',
+      ).bind(this.userId, id, rev),
+    ]
   }
 
   private async recurrenceOverrides(
@@ -2393,12 +2464,21 @@ export class CalendarStore {
     id: string,
     now: number,
     batchKey: string | null,
+    guard?: { id: string; rev: number },
   ): D1PreparedStatement {
+    const values = placeholders(EVENT_WRITE_COLUMNS.length)
+    const target = guard
+      ? `SELECT ?, ?, ${values}, ?, ?, ?, 1
+           WHERE EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ? AND id = ? AND rev = ?)`
+      : `VALUES (?, ?, ${values}, ?, ?, ?, 1)`
     return this.db.prepare(
       `INSERT INTO calendar_events (
          user_id, id, ${EVENT_WRITE_COLUMNS.join(', ')}, batch_key, created_at, updated_at, rev
-       ) VALUES (?, ?, ${placeholders(EVENT_WRITE_COLUMNS.length)}, ?, ?, ?, 1)`,
-    ).bind(this.userId, id, ...this.eventWriteValues(input), batchKey, now, now)
+       ) ${target}`,
+    ).bind(
+      this.userId, id, ...this.eventWriteValues(input), batchKey, now, now,
+      ...(guard ? [this.userId, guard.id, guard.rev] : []),
+    )
   }
 
   private upsertEventStatement(input: TimelineEventWrite, id: string, now: number): D1PreparedStatement {
@@ -2426,6 +2506,7 @@ export class CalendarStore {
     eventId: string,
     calendarIds: readonly string[],
     rev?: number,
+    guardEventId = eventId,
   ): D1PreparedStatement[] {
     return calendarIds.map((calendarId, position) => rev === undefined
       ? this.db.prepare(
@@ -2436,6 +2517,6 @@ export class CalendarStore {
         `INSERT INTO calendar_event_calendars (user_id, event_id, calendar_id, position)
          SELECT ?, ?, ?, ?
           WHERE EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ? AND id = ? AND rev = ?)`,
-      ).bind(this.userId, eventId, calendarId, position, this.userId, eventId, rev))
+      ).bind(this.userId, eventId, calendarId, position, this.userId, guardEventId, rev))
   }
 }

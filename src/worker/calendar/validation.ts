@@ -489,6 +489,7 @@ export const RECURRENCE_CHANGE_ACTIONS = ['update', 'cancel'] as const
 export type RecurrenceChangeAction = (typeof RECURRENCE_CHANGE_ACTIONS)[number]
 
 export interface RecurrenceChangeInput {
+  rev: number
   occurrenceStart: TemporalValue
   occurrenceEnd: TemporalValue
   scope: RecurrenceChangeScope
@@ -500,6 +501,7 @@ export interface RecurrenceChangeInput {
 export function parseRecurrenceChange(value: unknown, options: ParseEventOptions = {}): RecurrenceChangeInput {
   const record = requireRecord(value, 'recurrence')
   const fallback = options.defaultTimeZone ?? defaultTimeZone()
+  const rev = integerValue(record.rev, 'rev', 1, Number.MAX_SAFE_INTEGER)
   if (!(RECURRENCE_CHANGE_SCOPES as readonly string[]).includes(record.scope as string)) {
     throw ApiError.badRequest('scope must be this, following or all')
   }
@@ -510,9 +512,10 @@ export function parseRecurrenceChange(value: unknown, options: ParseEventOptions
   const occurrenceEnd = parseTemporalField(record.occurrenceEnd, 'occurrenceEnd', fallback).value
   const patch = record.patch === undefined || record.patch === null
     ? null
-    : parseEventPatch({ ...requireRecord(record.patch, 'patch'), rev: 1 }, options)
+    : parseEventPatch({ ...requireRecord(record.patch, 'patch'), rev }, options)
   if (record.action === 'update' && !patch) throw ApiError.badRequest('An update needs a patch')
   return {
+    rev,
     occurrenceStart,
     occurrenceEnd,
     scope: record.scope as RecurrenceChangeScope,

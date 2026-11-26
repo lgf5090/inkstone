@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
-import { CalendarStore, type CalendarEventWriteInput } from '../src/worker/calendar/store'
+import { CalendarStore, type CalendarEventWriteInput, type RecurrenceChangeWrite } from '../src/worker/calendar/store'
 import { parseEventInput, parsePreferences } from '../src/worker/calendar/validation'
 import type { CalendarDto } from '../src/shared/calendar/model'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -385,6 +385,45 @@ describe('event ranges and revisions', () => {
       ALICE,
       created.id,
     )).toBe(0)
+  })
+})
+
+describe('recurrence changes', () => {
+  function change(rev: number): RecurrenceChangeWrite {
+    return {
+      rev,
+      occurrenceStart: { value: '2026-10-27T09:00:00', type: 'datetime' },
+      occurrenceEnd: { value: '2026-10-27T10:00:00', type: 'datetime' },
+      scope: 'this',
+      action: 'update',
+      patch: { rev, title: 'Override' },
+    }
+  }
+
+  it('refuses a stale master revision without creating an override', async () => {
+    const master = await store.createEvent(eventInput({
+      id: 'stale-master', recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    }))
+    await store.updateEvent(master.id, { rev: master.rev, title: 'Changed elsewhere' })
+    await expect(store.applyRecurrenceChange(master.id, change(master.rev)))
+      .rejects.toMatchObject({ status: 409 })
+    expect(count('SELECT COUNT(*) AS count FROM calendar_events WHERE user_id = ?', ALICE)).toBe(1)
+    expect(await store.getEvent(master.id)).toMatchObject({ title: 'Changed elsewhere', rev: master.rev + 1 })
+  })
+
+  it('rolls back the override and EXDATE when the guarded master update fails', async () => {
+    const master = await store.createEvent(eventInput({
+      id: 'atomic-master', recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    }))
+    sqlite.exec(`CREATE TRIGGER fail_recurrence_master
+      BEFORE UPDATE ON calendar_events
+      WHEN OLD.id = 'atomic-master' AND NEW.meta_json LIKE '%exdates%'
+      BEGIN SELECT RAISE(ABORT, 'forced recurrence failure'); END`)
+    await expect(store.applyRecurrenceChange(master.id, change(master.rev)))
+      .rejects.toThrow('forced recurrence failure')
+    expect(count('SELECT COUNT(*) AS count FROM calendar_events WHERE user_id = ?', ALICE)).toBe(1)
+    expect(count('SELECT COUNT(*) AS count FROM calendar_event_calendars WHERE user_id = ?', ALICE)).toBe(1)
+    expect(await store.getEvent(master.id)).toMatchObject({ title: master.title, rev: master.rev, meta: {} })
   })
 })
 

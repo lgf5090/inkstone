@@ -41,6 +41,7 @@ export interface ConflictRequest {
 /** An edit aimed at one occurrence, before it is turned into an exception or a split. */
 export interface RecurrenceOccurrenceRequest {
   masterId: string
+  masterRev: number
   intent: 'save' | 'delete'
   before: Event
   after: Event | null
@@ -182,9 +183,11 @@ export class EventPersistence {
         const after = change.type === 'update' ? change.after : null
         this.revert(change)
         const masterId = before._recurrenceMasterId ?? before.id.split('::repeat-')[0] ?? ''
-        if (this.options.onRecurrenceOccurrence && masterId) {
+        const masterRev = this.options.revs.get(masterId)
+        if (this.options.onRecurrenceOccurrence && masterId && masterRev !== undefined) {
           this.options.onRecurrenceOccurrence({
             masterId,
+            masterRev,
             intent: change.type === 'delete' ? 'delete' : 'save',
             before,
             after,

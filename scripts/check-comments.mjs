@@ -39425,8 +39425,6 @@ const allowed = new Map([
     "/**\n   * Apply an edit aimed at one occurrence of a series.\n   *\n   * \"This\" writes an override row and hides the master occurrence with EXDATE; \"following\" truncates\n   * the master and starts a new series at the occurrence; \"all\" edits or deletes the master itself.\n   */",
     "/** Park a one-off \"remind me again\" for an event. Replaces an earlier snooze on the same row. */",
     "/** Guest lists for a page of events, one query per chunk rather than one per event. */",
-    "/* The exception is the row the caller's failure already names. */",
-    "/* The original failure is what the caller sees. */",
     "/** Which of an owner's calendars this account may write through a shared membership. */",
   ]],
   ["src/worker/calendar/subscriptions.ts", [

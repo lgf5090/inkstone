@@ -58,6 +58,7 @@ export function CalendarRecurrenceDialog({
         }
       }
       await api.applyRecurrenceChange(request.masterId, {
+        rev: request.masterRev,
         occurrenceStart: toEventInput(request.before, { fallbackTitle: t('calendar.event.untitled'), timeZone }).start,
         occurrenceEnd: toEventInput(request.before, { fallbackTitle: t('calendar.event.untitled'), timeZone }).end,
         scope,

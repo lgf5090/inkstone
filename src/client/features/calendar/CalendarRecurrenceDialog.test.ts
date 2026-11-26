@@ -24,7 +24,7 @@ describe('CalendarRecurrenceDialog', () => {
     const event = occurrence()
     const onApplied = vi.fn()
     renderElement(createElement(CalendarRecurrenceDialog, {
-      request: { masterId: 'master', intent: 'save', before: event, after: event },
+      request: { masterId: 'master', masterRev: 1, intent: 'save', before: event, after: event },
       timeZone: 'UTC', onClose: () => {}, onApplied,
     }))
     const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')
@@ -38,7 +38,7 @@ describe('CalendarRecurrenceDialog', () => {
     expect(apply).toBeTruthy()
     await act(async () => { apply!.click() })
     expect(applyMock).toHaveBeenCalledWith('master', expect.objectContaining({
-      scope: 'this', action: 'update', patch: expect.objectContaining({ title: 'Edited occurrence' }),
+      scope: 'this', action: 'update', rev: 1, patch: expect.objectContaining({ title: 'Edited occurrence' }),
     }))
     expect(onApplied).toHaveBeenCalled()
   })

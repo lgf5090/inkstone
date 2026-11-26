@@ -879,6 +879,7 @@ export const CALENDAR_TOOLS: readonly ToolDefinition[] = [
       if (found.occurrenceStartMs !== undefined) {
         const duration = existingDurationMinutes(found.event, zone)
         await ask(() => found.store.applyRecurrenceChange(found.rawId, {
+          rev: found.event.rev,
           occurrenceStart: zonedValue(found.occurrenceStartMs!, zone),
           occurrenceEnd: zonedValue(found.occurrenceStartMs! + duration * 60_000, zone),
           scope: 'this',
@@ -926,6 +927,7 @@ async function updateOccurrence(
   if (Object.keys(record).length === 1) throw new ToolError('Nothing was changed. Name at least one field to edit.')
   const patch = parseEventPatch(record, { defaultTimeZone: zone })
   const answer = await ask(() => found.store.applyRecurrenceChange(found.rawId, {
+    rev: found.event.rev,
     occurrenceStart: zonedValue(occurrenceStartMs, zone),
     occurrenceEnd: zonedValue(occurrenceStartMs + duration * 60_000, zone),
     scope: 'this',
@@ -956,6 +958,7 @@ async function moveOccurrence(
     allDay: timeline.allDay,
   }, { defaultTimeZone: zone })
   const answer = await ask(() => found.store.applyRecurrenceChange(found.rawId, {
+    rev: found.event.rev,
     occurrenceStart: zonedValue(found.occurrenceStartMs!, zone),
     occurrenceEnd: zonedValue(found.occurrenceStartMs! + existingDurationMinutes(found.event, zone) * 60_000, zone),
     scope: 'this',

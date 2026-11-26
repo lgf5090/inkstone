@@ -145,6 +145,7 @@ describe('account sharing', () => {
     })))
 
     const answer = await call('POST', `/api/calendar/events/${encodeURIComponent(created.event.id)}/recurrence`, {
+      rev: created.event.rev,
       occurrenceStart: created.event.start,
       occurrenceEnd: created.event.end,
       scope: 'all',
@@ -174,6 +175,7 @@ describe('account sharing', () => {
     await accept(ALICE, calendar.id)
     const sharedId = `shared:${ALICE}:${created.event.id}`
     const answer = await call('POST', `/api/calendar/events/${encodeURIComponent(sharedId)}/recurrence`, {
+      rev: created.event.rev,
       occurrenceStart: created.event.start,
       occurrenceEnd: created.event.end,
       scope: 'all',
@@ -240,6 +242,7 @@ describe('recurrence exceptions', () => {
     const target = week.occurrences[0]!
 
     const answer = await call('POST', `/api/calendar/events/${created.event.id}/recurrence`, {
+      rev: created.event.rev,
       occurrenceStart: target.start,
       occurrenceEnd: target.end,
       scope: 'this',
@@ -265,6 +268,7 @@ describe('recurrence exceptions', () => {
     const week = await range('2026-10-26T00:00:00Z', '2026-10-31T00:00:00Z')
     const target = week.occurrences[0]!
     expect((await call('POST', `/api/calendar/events/${created.event.id}/recurrence`, {
+      rev: created.event.rev,
       occurrenceStart: target.start, occurrenceEnd: target.end, scope: 'this', action: 'update', patch: { title: 'Override' },
     })).status).toBe(200)
     const master = await json<{ event: CalendarEventDto }>(await call('GET', `/api/calendar/events/${created.event.id}`))
@@ -283,6 +287,7 @@ describe('recurrence exceptions', () => {
     const month = await range('2026-10-01T00:00:00Z', '2026-11-30T00:00:00Z')
     const target = month.occurrences[1]!
     const split = await call('POST', `/api/calendar/events/${created.event.id}/recurrence`, {
+      rev: created.event.rev,
       occurrenceStart: target.start,
       occurrenceEnd: target.end,
       scope: 'following',
@@ -305,10 +310,13 @@ describe('recurrence exceptions', () => {
     const first = await range('2026-10-26T00:00:00Z', '2026-10-31T00:00:00Z')
     const cancelled = first.occurrences.find(event => event.start.value.startsWith('2026-10-28'))!
     expect((await call('POST', `/api/calendar/events/${created.event.id}/recurrence`, {
+      rev: created.event.rev,
       occurrenceStart: cancelled.start, occurrenceEnd: cancelled.end, scope: 'this', action: 'cancel',
     })).status).toBe(200)
     const target = first.occurrences.find(event => event.start.value.startsWith('2026-10-27'))!
+    const currentMaster = await json<{ event: CalendarEventDto }>(await call('GET', `/api/calendar/events/${created.event.id}`))
     expect((await call('POST', `/api/calendar/events/${created.event.id}/recurrence`, {
+      rev: currentMaster.event.rev,
       occurrenceStart: target.start, occurrenceEnd: target.end, scope: 'following', action: 'update', patch: { title: 'Following' },
     })).status).toBe(200)
     const after = await range('2026-10-26T00:00:00Z', '2026-11-01T00:00:00Z')
@@ -326,6 +334,7 @@ describe('recurrence exceptions', () => {
       recurrenceRule: 'FREQ=DAILY;COUNT=3',
     })))
     const response = await call('POST', `/api/calendar/events/${created.event.id}/recurrence`, {
+      rev: created.event.rev,
       occurrenceStart: created.event.start,
       occurrenceEnd: created.event.end,
       scope: 'all',
@@ -351,6 +360,7 @@ describe('recurrence exceptions', () => {
     const week = await range('2026-10-26T00:00:00Z', '2026-10-30T00:00:00Z')
     const target = week.occurrences[1]!
     expect((await call('POST', `/api/calendar/events/${created.event.id}/recurrence`, {
+      rev: created.event.rev,
       occurrenceStart: target.start,
       occurrenceEnd: target.end,
       scope: 'following',
