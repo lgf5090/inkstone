@@ -4883,6 +4883,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'project_webhook_deliveries', column: 'lease_until' },
     statements: ['ALTER TABLE project_webhook_deliveries ADD COLUMN lease_until INTEGER NOT NULL DEFAULT 0'],
   },
+  {
+    version: 435,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_project_reminders_pending
+         ON project_reminders(due_at, card_id, property_id) WHERE notified_at = 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

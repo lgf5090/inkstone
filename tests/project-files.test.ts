@@ -231,6 +231,20 @@ describe('project due reminders (F-10)', () => {
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications WHERE user_id = ?').get('alice')).toMatchObject({ count: 2 })
   })
 
+  it('skips an oversized subscriber group and reminds a later card in the same sweep', async () => {
+    const board = await makeBoard()
+    const now = Date.now()
+    const oversized = await createDueCard(board, 'Oversized', now + 60 * 60 * 1000)
+    const later = await createDueCard(board, 'Later', now + 2 * 60 * 60 * 1000)
+    const subscribe = sqlite.prepare(`INSERT INTO project_subscriptions (block_type, block_id, subscriber_id, notified_at, create_at, delete_at)
+      VALUES ('card', ?, ?, 0, 1, 0)`)
+    for (let index = 0; index < 101; index += 1) subscribe.run(oversized.id, index === 0 ? 'alice' : `outsider-${index}`)
+    subscribe.run(later.id, 'alice')
+    expect(await sweepProjectReminders(env, now)).toBe(1)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications WHERE user_id = ?').get('alice')).toMatchObject({ count: 1 })
+    expect(sqlite.prepare('SELECT notified_at FROM project_reminders WHERE card_id = ?').get(oversized.id)).toMatchObject({ notified_at: 0 })
+  })
+
   it('removes materialized reminders when their card is deleted or their board is archived', async () => {
     const due = Date.now() + 60 * 60 * 1000
     const deletedBoard = await makeBoard()

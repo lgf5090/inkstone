@@ -46,7 +46,11 @@
 
 | ID | Status | Task | Acceptance | Commit |
 |---|---|---|---|---|
-| P2-01 | pending | F27 paginate/on-demand bundle; FTS search; indexed reminders; streaming/multipart export | 5000-card board stays within response/time/memory budgets | - |
+| P2-01 | in_progress | F27 paginate/on-demand bundle; FTS search; indexed reminders; streaming/multipart export | 5000-card board stays within response/time/memory budgets | - |
+| P2-01a | in_progress | F27 reminder pending index and bounded starvation-free sweep | pending reminders use partial index; oversized subscriber groups do not block later cards | - |
+| P2-01b | pending | F27 project FTS index and tokenized search | title/content/comment/property search uses FTS and preserves field visibility | - |
+| P2-01c | pending | F27 keyset bundle pagination and on-demand card loading | initial bundle is bounded; deep links and older pages load without stale overwrite | - |
+| P2-01d | pending | F27 bounded streaming or multipart export | large exports avoid whole-ZIP memory and never return truncated success | - |
 | P2-02 | pending | F28 lazy views; virtualize board/list/gallery; stabilize derived props | large board interaction remains responsive; bundle size reduced | - |
 | P2-03 | done | F29 route all refreshes through one stale-response queue | delayed old response never overwrites newer local patch | b46e61fdd |
 | P2-04 | done | F30 clear hidden selections; refresh today; correct dashboard in-progress KPI | no invisible batch delete; midnight correct; KPI matches definition | c3153d1a0 |

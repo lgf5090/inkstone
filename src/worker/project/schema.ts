@@ -479,6 +479,8 @@ export const PROJECT_REMINDER_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_reminders_due
      ON project_reminders(notified_at, due_at, card_id, property_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_reminders_pending
+     ON project_reminders(due_at, card_id, property_id) WHERE notified_at = 0`,
   `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_value_insert AFTER INSERT ON project_card_values
    BEGIN
      ${projectReminderInsert('NEW.card_id', 'NEW.property_id')};
@@ -616,6 +618,7 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_sprint_cards_sprint',
   'idx_project_write_receipts_created',
   'idx_project_reminders_due',
+  'idx_project_reminders_pending',
   'idx_project_time_running',
 ]
 
