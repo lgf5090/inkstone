@@ -133,6 +133,14 @@ describe('card patches, shares and batches', () => {
     expect(parsed.values?.[id]).toBeNull()
   })
 
+  it('bounds the number of property values in one patch', () => {
+    const values = Object.fromEntries(Array.from({ length: PROJECT_LIMITS.propertiesPerBoard + 1 }, () => [
+      newProjectId('property'), 'x',
+    ]))
+    expect(ProjectCardPatchSchema.safeParse({ values }).success).toBe(false)
+    expect(ProjectCardPatchSchema.safeParse({ values: Object.fromEntries(Object.entries(values).slice(0, 1)) }).success).toBe(true)
+  })
+
   it('refuses a share password shorter than the minimum', () => {
     expect(ProjectSharePutSchema.safeParse({ password: 'abc' }).success).toBe(false)
     expect(ProjectSharePutSchema.safeParse({ password: null }).success).toBe(true)

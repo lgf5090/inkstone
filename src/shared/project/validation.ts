@@ -198,13 +198,16 @@ export const ProjectCardCreateSchema = z.object({
 })
 export type ProjectCardCreateInput = z.infer<typeof ProjectCardCreateSchema>
 
+const propertyPatchValues = z.record(projectId, z.union([propertyValue, z.null()]))
+  .refine((values) => Object.keys(values).length <= PROJECT_LIMITS.propertiesPerBoard, 'too many values')
+
 export const ProjectCardPatchSchema = z.object({
   title: title.optional(),
   icon: icon.optional(),
   parentId: z.union([projectId, z.literal('')]).optional(),
   contentOrder: z.array(z.union([projectId, z.array(projectId).max(64)]))
     .max(PROJECT_LIMITS.contentsPerCard).optional(),
-  values: z.record(projectId, z.union([propertyValue, z.null()])).optional(),
+  values: propertyPatchValues.optional(),
   recurrence: ProjectRecurrenceSchema.nullable().optional(),
 })
 export type ProjectCardPatchInput = z.infer<typeof ProjectCardPatchSchema>

@@ -19,6 +19,7 @@ import { applyCardValueEffects } from './enhance'
 import { assertProjectRelationValues, projectRelationTargets } from './relations'
 import { getProjectView, viewPatchStatements } from './views'
 import { assertProjectBatchStatementLimit, projectIdChunks, projectPlaceholders } from './d1'
+import { assertProjectValuesWritable } from './property-access'
 import { projectParentMapHasCycle } from '@shared/project/hierarchy'
 
 type ProjectBatchInput = z.infer<typeof ProjectBatchSchema>
@@ -85,6 +86,7 @@ export async function batchPatchProjectBoard(
   const properties = await readBoardProperties(db, board.id)
   const relationTargets = projectRelationTargets(properties)
   for (const { patch } of cards) {
+    await assertProjectValuesWritable(db, board.id, role, patch.values)
     await assertProjectRelationValues(db, properties, patch.values, userId)
   }
   const cardsById = await readCardsByIds(db, cards.map((entry) => entry.id))

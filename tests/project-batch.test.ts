@@ -175,13 +175,24 @@ describe('batch patch', () => {
     expect(response.status).toBe(404)
   })
 
+  it('rejects an unknown property before touching a card', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id, 'A')
+    const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, {
+      cards: [{ id: card.id, patch: { title: 'Changed', values: { [pid(99)]: 'x' } } }],
+    })
+    expect(response.status).toBe(400)
+    const result = await bundle('alice', board.id)
+    expect(result.cards.find((c) => c.id === card.id)!.title).toBe('A')
+  })
+
   it('rejects an over-limit batch before reading any rows', async () => {
     const board = await createBoard('alice')
     const bigValues: Record<string, string> = {}
     for (let index = 0; index < 6; index++) bigValues[pid(index + 10)] = 'x'
     const cards = Array.from({ length: 200 }, () => ({ id: missingId, patch: { values: bigValues } }))
     const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards })
-    expect(response.status).toBe(413)
+    expect(response.status, await response.clone().text()).toBe(413)
   })
 })
 

@@ -731,9 +731,6 @@ projectRoutes.post('/boards/:id/views', async (c) => {
 projectRoutes.patch('/boards/:id/batch', async (c) => {
   const { board, userId, role } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectBatchSchema)
-  for (const entry of input.cards ?? []) {
-    await assertProjectValuesWritable(c.env.DB, board.id, role, entry.patch.values)
-  }
   await batchPatchProjectBoard(c.env.DB, board, input, userId, Date.now(), role, c.env)
   return c.json({ ok: true })
 })

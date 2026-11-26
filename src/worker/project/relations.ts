@@ -7,10 +7,13 @@ import type {
   ProjectRole,
 } from '@shared/project/model'
 import { effectiveProjectRole, projectMultiValueIds } from '@shared/project/model'
+import { projectPropertyVisibleTo } from '@shared/project/property-config'
 import { isProjectId, PROJECT_LIMITS } from '@shared/project/limits'
 import type { ProjectRelationBackReference, ProjectRelationOption } from '@shared/project/relation'
 import { parseProjectRelationIds } from '@shared/project/relation'
 import { ApiError } from '../lib/errors'
+import { readBoardProperties } from './boards'
+import { projectRoleForBoard } from './visibility'
 
 interface BoardVisibilityRow {
   owner_id: string
@@ -153,24 +156,34 @@ export async function listBackReferences(
   toCardId: string,
   viewerId: string | undefined,
 ): Promise<ProjectRelationBackReference[]> {
+  if (!viewerId) return []
   const { results } = await db.prepare(
     `SELECT r.board_id, r.from_card_id, r.property_id FROM project_card_relations r
      JOIN project_cards c ON c.id = r.from_card_id AND c.delete_at = 0
      WHERE r.to_card_id = ?1 ORDER BY r.board_id, r.from_card_id, r.property_id`,
   ).bind(toCardId).all<{ board_id: string, from_card_id: string, property_id: string }>()
   const references: ProjectRelationBackReference[] = []
+  const roles = new Map<string, ProjectRole | null>()
+  const propertiesByBoard = new Map<string, Map<string, ProjectProperty>>()
   for (const row of results) {
-    const visible = await projectBoardVisibleTo(db, row.board_id, viewerId)
-    const card = visible
-      ? await db.prepare('SELECT title FROM project_cards WHERE id = ?1 AND delete_at = 0')
-        .bind(row.from_card_id).first<{ title: string }>()
-      : null
+    if (!roles.has(row.board_id)) roles.set(row.board_id, await projectRoleForBoard(db, row.board_id, viewerId))
+    const role = roles.get(row.board_id)
+    if (!role) continue
+    let properties = propertiesByBoard.get(row.board_id)
+    if (!properties) {
+      properties = new Map((await readBoardProperties(db, row.board_id)).map((property) => [property.id, property]))
+      propertiesByBoard.set(row.board_id, properties)
+    }
+    const property = properties.get(row.property_id)
+    if (!property || !projectPropertyVisibleTo(property, role)) continue
+    const card = await db.prepare('SELECT title FROM project_cards WHERE id = ?1 AND delete_at = 0')
+      .bind(row.from_card_id).first<{ title: string }>()
     references.push({
       boardId: row.board_id,
       fromCardId: row.from_card_id,
       propertyId: row.property_id,
       title: card?.title ?? null,
-      visible,
+      visible: true,
     })
   }
   return references

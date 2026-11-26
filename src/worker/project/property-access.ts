@@ -19,7 +19,8 @@ export async function assertProjectValuesWritable(
   const byId = new Map(properties.map((property) => [property.id, property]))
   for (const propertyId of Object.keys(values)) {
     const property = byId.get(propertyId)
-    if (property && !projectPropertyEditableBy(property, role)) {
+    if (!property) throw ApiError.badRequest(`unknown property ${propertyId}`)
+    if (!projectPropertyEditableBy(property, role)) {
       throw ApiError.forbidden(`property ${propertyId} is not editable by this role`)
     }
   }

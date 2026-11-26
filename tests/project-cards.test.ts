@@ -85,7 +85,11 @@ describe('creating a card', () => {
     addMember(board.id, 'bob', 'viewer')
     expect((await req('bob', 'POST', `/boards/${board.id}/cards`, { title: 'x' })).status).toBe(403)
     expect((await req(null, 'POST', `/boards/${board.id}/cards`, { title: 'x' })).status).toBe(401)
+    const unknownProperty = 'p'.repeat(27)
     expect((await req('alice', 'POST', `/boards/${board.id}/cards`, { values: { 'not-an-id': 'x' } })).status).toBe(400)
+    expect((await req('alice', 'POST', `/boards/${board.id}/cards`, { values: { [unknownProperty]: 'x' } })).status).toBe(400)
+    const card = await createCard('alice', board.id)
+    expect((await req('alice', 'PATCH', `/cards/${card.id}`, { values: { [unknownProperty]: 'x' } })).status).toBe(400)
   })
 
   it('enforces the per-board card ceiling', async () => {

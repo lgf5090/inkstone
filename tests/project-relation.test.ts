@@ -112,6 +112,31 @@ describe('the relation property', () => {
     expect(body.references[0]).toMatchObject({ fromCardId: card.id, title: 'Linked', visible: true })
   })
 
+  it('omits invisible backreferences instead of returning their ids', async () => {
+    const { boardA, boardB, relationId, target } = await setup()
+    await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
+    sqlite.prepare('DELETE FROM project_board_members WHERE board_id = ? AND user_id = ?').run(boardA.id, 'bob')
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)').run(boardB.id, 'bob', 'viewer')
+    const response = await req('bob', 'GET', `/cards/${target.id}/relations`)
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(((await response.json()) as { references: unknown[] }).references).toEqual([])
+  })
+
+  it('omits backreferences whose relation property is hidden from the viewer', async () => {
+    const { boardA, boardB, relationId, target } = await setup()
+    await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(boardB.id, 'bob', 'viewer')
+    sqlite.prepare(
+      `INSERT INTO project_property_configs (board_id, property_id, config, updated_at)
+       VALUES (?1, ?2, ?3, 1)
+       ON CONFLICT(board_id, property_id) DO UPDATE SET config = excluded.config`,
+    ).run(boardA.id, relationId, JSON.stringify({ targetBoardId: boardB.id, viewRoles: ['admin'] }))
+    const response = await req('bob', 'GET', `/cards/${target.id}/relations`)
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(((await response.json()) as { references: unknown[] }).references).toEqual([])
+  })
+
   it('returns a null placeholder and no target titles when the target board is hidden', async () => {
     const { boardA, boardB, relationId, target } = await setup()
     await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
