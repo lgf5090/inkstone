@@ -495,6 +495,7 @@ const TABLE_SPECS: Readonly<Record<string, TodoTableSpec>> = {
       colorRule('color'),
       flagRule('starred'),
       jsonRule('repeat_rule', MAX_REPEAT_RULE_CHARS),
+      idRule('spawned_next_id'),
       dayRule('planned_for'),
       idRule('note_id'),
       idRule('conversation_id'),

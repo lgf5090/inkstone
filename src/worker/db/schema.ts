@@ -4833,6 +4833,17 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE attachments ADD COLUMN plaintext_size INTEGER`,
     ],
   },
+  {
+    // A repeating completion files at most one successor. Existing completed repeats are marked as
+    // already spawned so reopening a legacy row cannot create a duplicate series.
+    version: 428,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'spawned_next_id' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN spawned_next_id TEXT`,
+      `UPDATE todos_tasks SET spawned_next_id = id
+        WHERE repeat_rule IS NOT NULL AND status = 'done' AND spawned_next_id IS NULL`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

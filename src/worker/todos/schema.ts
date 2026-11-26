@@ -65,6 +65,9 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     color TEXT,
     starred INTEGER NOT NULL DEFAULT 0,
     repeat_rule TEXT,
+    -- The next occurrence this completion already filed, or NULL when it has not filed one. The id is
+    -- also the atomic claim: a second completion cannot file another row for the same finished task.
+    spawned_next_id TEXT,
     -- The account's calendar day (YYYY-MM-DD) the reader picked this task into "today", or NULL when
     -- it was never picked. A day rather than a boolean: a row planned for yesterday stops equalling
     -- today when the calendar moves, so the membership needs no midnight sweep to clear itself.
@@ -487,7 +490,7 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'matrix_important', 'matrix_urgent', 'position',
     'due_at', 'start_at', 'completed_at',
     'completed_on', 'created_on',
-    'project_id', 'list_id', 'parent_id', 'icon', 'color', 'starred', 'repeat_rule', 'planned_for', 'note_id',
+    'project_id', 'list_id', 'parent_id', 'icon', 'color', 'starred', 'repeat_rule', 'spawned_next_id', 'planned_for', 'note_id',
     'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at', 'archived_at', 'time_estimate_ms',
   ],
   todos_reminders: ['user_id', 'id', 'task_id', 'remind_at', 'fired_at', 'created_at'],

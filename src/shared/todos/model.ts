@@ -581,6 +581,8 @@ export interface TodoTask extends Task {
   blocks: TaskRef[]
   starred: boolean
   repeat: RepeatRule | null
+  /** The next occurrence this completion already filed, or null when it has not filed one. */
+  spawnedNextId?: string | null
   /**
    * When the task may be begun, as an absolute instant, or null when the reader named no start.
    *

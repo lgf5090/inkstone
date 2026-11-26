@@ -5991,6 +5991,39 @@ export class AssistantStore {
     throw this.taskConflict(id, current)
   }
 
+  private taskInsertStatement(
+    input: NewTask,
+    id: string,
+    at: number,
+    createdOn: string,
+    parentId: string | null,
+    status: TaskStatus,
+    repeat: RepeatRule | null,
+    guard?: { currentId: string, nextId: string },
+  ): D1PreparedStatement {
+    const columns = `(id, user_id, title, description, status, priority, matrix_important, matrix_urgent,
+      due_at, start_at, project_id, list_id,
+      icon, color, starred, repeat_rule, spawned_next_id, note_id, conversation_id, created_at, updated_at,
+      completed_at, created_on, completed_on, planned_for, time_estimate_ms, archived_at, parent_id)`
+    const values = `(?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)`
+    const sql = guard
+      ? `INSERT INTO todos_tasks ${columns}
+         SELECT ${values.slice(1, -1)}
+          WHERE EXISTS (SELECT 1 FROM todos_tasks WHERE user_id = ?1 AND id = ?29 AND spawned_next_id = ?30)`
+      : `INSERT INTO todos_tasks ${columns} VALUES ${values}`
+    return this.db.prepare(sql).bind(
+      this.userId, id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
+      flagValue(input.important), flagValue(input.urgent),
+      input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null,
+      taskIconOrNull(input.icon), taskColorOrNull(input.color), input.starred ? 1 : 0,
+      repeat ? JSON.stringify(repeat) : null, null, input.noteId ?? null,
+      input.conversationId ?? null, at, at, !isTaskOpen(status) ? at : null,
+      createdOn, !isTaskOpen(status) ? createdOn : null, input.plannedFor ?? null,
+      input.timeEstimateMs ?? null, input.archivedAt ?? null, parentId,
+      ...(guard ? [guard.currentId, guard.nextId] : []),
+    )
+  }
+
   async createTask(input: NewTask, timeZone?: string): Promise<TodoTask> {
     const id = newId()
     const at = Date.now()
@@ -6002,23 +6035,7 @@ export class AssistantStore {
     const parentId = input.parentId ? await this.checkedTaskParent(id, input.parentId) : null
     // The task's birth rides in the same batch as the row it opens: a task whose history starts
     // late would replay as work the flow never saw arrive.
-    const insert = this.db.prepare(
-      `INSERT INTO todos_tasks
-         (id, user_id, title, description, status, priority, matrix_important, matrix_urgent,
-          due_at, start_at, project_id, list_id,
-          icon, color, starred, repeat_rule, note_id, conversation_id, created_at, updated_at,
-          completed_at, created_on, completed_on, planned_for, time_estimate_ms, archived_at, parent_id)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)`,
-    ).bind(
-      this.userId, id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
-      flagValue(input.important), flagValue(input.urgent),
-      input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null,
-      taskIconOrNull(input.icon), taskColorOrNull(input.color), input.starred ? 1 : 0,
-      repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
-      input.conversationId ?? null, at, at, !isTaskOpen(status) ? at : null,
-      createdOn, !isTaskOpen(status) ? createdOn : null, input.plannedFor ?? null,
-      input.timeEstimateMs ?? null, input.archivedAt ?? null, parentId,
-    )
+    const insert = this.taskInsertStatement(input, id, at, createdOn, parentId, status, repeat)
     await this.db.batch([insert, this.taskEvent(id, at, createdOn, 'born', null, status)])
     // The children are written in bulk: a create is one gesture, and before this each tag, step and
     // reminder cost its own round trip. A brand-new task has no links to clear, so its tags are
@@ -6129,13 +6146,15 @@ export class AssistantStore {
     taskId: string,
     times: readonly number[],
     at: number,
+    guardTaskId?: string,
   ): D1PreparedStatement {
     const rows = JSON.stringify(times.map((remindAt) => ({ id: newId(), remindAt })))
     return this.db.prepare(
       `INSERT INTO todos_reminders (user_id, id, task_id, remind_at, fired_at, created_at)
        SELECT ?1, json_extract(j.value, '$.id'), ?2, json_extract(j.value, '$.remindAt'), NULL, ?4
-         FROM json_each(?3) AS j`,
-    ).bind(this.userId, taskId, rows, at)
+         FROM json_each(?3) AS j
+        ${guardTaskId ? 'WHERE EXISTS (SELECT 1 FROM todos_tasks WHERE user_id = ?1 AND id = ?5)' : ''}`,
+    ).bind(this.userId, taskId, rows, at, ...(guardTaskId ? [guardTaskId] : []))
   }
 
   /**
@@ -6611,87 +6630,112 @@ export class AssistantStore {
     const row = existing ?? await this.getTask(id)
     if (!row) return null
     if (isTaskDone(row.status)) return { task: row, next: null }
-    const task = await this.applyTaskPatch(id, row, { status: 'done' }, timeZone, expectedRev)
-    if (!task) return null
-    if (!row.repeat) return { task, next: null }
-    const advanced = advanceRepeat(row.repeat, {
-      anchorDueAt: row.dueAt,
-      completedAt: task.completedAt ?? Date.now(),
-      timeZone,
-    })
-    // A series that has run out says so by producing no next row, and the finished row keeps its own
-    // rule untouched: the counter only moves when an occurrence is actually created, so a reopen and
-    // a second finish cannot spend a turn twice.
-    if (advanced.dueAt === null) return { task, next: null }
-    const nextInstant = advanced.dueAt
-    const anchorDue = row.dueAt
-    // The cycle is counted whether or not the finished row was owed on a day: it is also the day the
-    // next copy's pick lands on. What a task that never had a due date does not get by being
-    // finished is a due date — ticking a box is not the reader asking to be told when, and the old
-    // behaviour wrote the completion instant plus one period straight into `due_at`, so an undated
-    // task became a dated one the first time it was done.
-    const dueAt = anchorDue === null ? null : nextInstant
-    // Every pending reminder keeps its distance from the due date on the next occurrence, the way the
-    // single reminder used to. A task with no due date has no distance to keep, so its next copy
-    // carries none: a reminder anchored to nothing is not a reminder.
-    const offsets = anchorDue === null ? [] : (row.reminders ?? []).map((remindAt) => remindAt - anchorDue)
-    // A start date is a lead time before the due date, so it travels with the occurrence: shifting the
-    // due date forward without the start would make the next copy immediately actionable. A row with
-    // no due date has no distance to keep, so its next copy starts undated too.
-    const startAt = anchorDue === null || row.startAt == null
-      ? null
-      : nextInstant + (row.startAt - anchorDue)
-    // A task the reader picked into a My Day stays picked. The pick is not copied over as the old
-    // date, which has already passed by definition, but re-issued for the day this cycle opens on —
-    // dated or not, since the pick is what puts an undated repeat back in front of the reader.
-    const plannedFor = row.plannedFor === null ? null : localDate(nextInstant, timeZone)
-    const steps = await this.listSteps(id)
-    const next = await this.createTask({
-      title: row.title,
-      description: row.description,
-      priority: row.priority,
-      important: row.important ?? null,
-      urgent: row.urgent ?? null,
-      dueAt,
-      startAt,
-      // The task's own face and its own colour: a copy that lost them wore its list's instead, so a
-      // task the reader had given an identity of its own lost it one period at a time.
-      icon: row.icon,
-      color: row.color,
-      plannedFor,
-      projectId: row.projectId,
-      listId: row.listId,
-      starred: row.starred,
-      repeat: advanced.rule,
-      reminders: offsets.map((offset) => nextInstant + offset),
-      noteId: row.noteId,
-      conversationId: row.conversationId,
-      tags: row.tags.map((tag) => tag.name),
-      steps: steps.map((step) => step.text),
-    }, timeZone)
-    // The files come with the copy as links, not as copies of the bytes: a repeating task that shows
-    // the form it fills in every week has to keep showing it, or the next copy arrives empty-handed
-    // and the reader re-uploads the same file every period.
-    await this.copyTaskAttachments(id, next.id)
-    return { task, next }
-  }
+    const at = Date.now()
+    const completedAt = row.status === 'cancelled' ? at : (row.completedAt ?? at)
+    const completedOn = await this.taskDay(completedAt, timeZone)
+    const statements: D1PreparedStatement[] = []
+    let nextId: string | null = null
 
-  /**
-   * Copies one task's file links onto another, leaving the files where they are.
-   *
-   * A link is a name, not a second copy of the bytes: both tasks then show one file, and unlinking
-   * either leaves the other's link alone (and the purge deletes by task). The select reads only this
-   * account's rows and joins the file itself, so a link whose file is already gone is not carried
-   * over onto the new task as a pointer to nothing.
-   */
-  private async copyTaskAttachments(fromId: string, toId: string): Promise<void> {
-    await this.db.prepare(
-      `INSERT INTO todos_attachments (user_id, task_id, attachment_id, created_at)
-       SELECT ?1, ?2, ta.attachment_id, ?3
-         FROM todos_attachments ta
-         JOIN attachments a ON a.id = ta.attachment_id AND a.user_id = ta.user_id
-        WHERE ta.user_id = ?1 AND ta.task_id = ?4`,
-    ).bind(this.userId, toId, Date.now(), fromId).run()
+    if (row.repeat && !row.spawnedNextId) {
+      const advanced = advanceRepeat(row.repeat, {
+        anchorDueAt: row.dueAt,
+        completedAt,
+        timeZone,
+      })
+      if (advanced.dueAt !== null) {
+        nextId = newId()
+        const nextInstant = advanced.dueAt
+        const anchorDue = row.dueAt
+        const dueAt = anchorDue === null ? null : nextInstant
+        const offsets = anchorDue === null ? [] : (row.reminders ?? []).map((remindAt) => remindAt - anchorDue)
+        const startAt = anchorDue === null || row.startAt == null
+          ? null
+          : nextInstant + (row.startAt - anchorDue)
+        const plannedFor = row.plannedFor === null ? null : localDate(nextInstant, timeZone)
+        const nextInput: NewTask = {
+          title: row.title,
+          description: row.description,
+          priority: row.priority,
+          important: row.important ?? null,
+          urgent: row.urgent ?? null,
+          dueAt,
+          startAt,
+          icon: row.icon,
+          color: row.color,
+          plannedFor,
+          projectId: row.projectId,
+          listId: row.listId,
+          starred: row.starred,
+          repeat: advanced.rule,
+          reminders: offsets.map((offset) => nextInstant + offset),
+          noteId: row.noteId,
+          conversationId: row.conversationId,
+          timeEstimateMs: row.timeEstimateMs ?? null,
+        }
+        const nextCreatedOn = await this.taskDay(at, timeZone)
+        statements.push(this.taskInsertStatement(
+          nextInput, nextId, at, nextCreatedOn, null, 'todo', advanced.rule,
+          { currentId: id, nextId },
+        ))
+        statements.push(this.db.prepare(
+          `INSERT INTO todos_task_events (user_id, id, task_id, at, on_day, kind, from_status, to_status)
+           SELECT ?1, ?2, ?3, ?4, ?5, 'born', NULL, 'todo'
+            WHERE EXISTS (SELECT 1 FROM todos_tasks WHERE user_id = ?1 AND id = ?3)`,
+        ).bind(this.userId, newId(), nextId, at, nextCreatedOn))
+        if (row.tags.length) {
+          statements.push(this.db.prepare(
+            `INSERT INTO todos_tag_links (user_id, task_id, tag_id, created_at)
+             SELECT ?1, ?2, json_extract(j.value, '$.id'), ?4 FROM json_each(?3) AS j
+              WHERE EXISTS (SELECT 1 FROM todos_tasks WHERE user_id = ?1 AND id = ?5)`,
+          ).bind(this.userId, nextId, JSON.stringify(row.tags.map((tag) => ({ id: tag.id }))), at, nextId))
+        }
+        const steps = await this.listSteps(id)
+        if (steps.length) statements.push(this.stepInsertStatement(nextId, steps.map((step) => step.text), at, nextId))
+        if (nextInput.reminders?.length) statements.push(this.reminderInsertStatement(nextId, nextInput.reminders, at, nextId))
+        statements.push(this.db.prepare(
+          `INSERT INTO todos_attachments (user_id, task_id, attachment_id, created_at)
+           SELECT ?1, ?2, ta.attachment_id, ?3
+             FROM todos_attachments ta
+             JOIN attachments a ON a.id = ta.attachment_id AND a.user_id = ta.user_id
+            WHERE ta.user_id = ?1 AND ta.task_id = ?4
+              AND EXISTS (SELECT 1 FROM todos_tasks WHERE user_id = ?1 AND id = ?5)`,
+        ).bind(this.userId, nextId, at, id, nextId))
+      }
+    }
+
+    const guard = expectedRev === undefined ? '' : ' AND rev = ?7'
+    const update = this.db.prepare(
+      `UPDATE todos_tasks
+          SET status = 'done', completed_at = ?3, completed_on = ?4, updated_at = ?5,
+              rev = rev + 1, spawned_next_id = COALESCE(spawned_next_id, ?6)
+        WHERE user_id = ?1 AND id = ?2 AND ${TASK_LIVE_PREDICATE} AND status <> 'done'${guard}`,
+    ).bind(
+      this.userId, id, completedAt, completedOn, at, nextId,
+      ...(expectedRev === undefined ? [] : [expectedRev]),
+    )
+    statements.unshift(update)
+    statements.push(this.db.prepare(
+      `INSERT INTO todos_task_events (user_id, id, task_id, at, on_day, kind, from_status, to_status)
+       SELECT ?1, ?2, ?3, ?4, ?5, 'status', ?6, 'done'
+        WHERE EXISTS (
+          SELECT 1 FROM todos_tasks
+           WHERE user_id = ?1 AND id = ?3 AND status = 'done' AND completed_at = ?4
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM todos_task_events
+             WHERE user_id = ?1 AND task_id = ?3 AND kind = 'status' AND to_status = 'done' AND at = ?4
+          )`,
+    ).bind(this.userId, newId(), id, completedAt, completedOn, row.status))
+    const results = await this.db.batch(statements)
+    if (!(Number(results[0]?.meta?.changes ?? 0) > 0)) {
+      const current = await this.getTask(id)
+      if (current && isTaskDone(current.status)) return { task: current, next: null }
+      return await this.missingOrConflict(id)
+    }
+    const task = await this.getTask(id)
+    if (!task) return null
+    const next = nextId ? await this.getTask(nextId) : null
+    return { task, next }
   }
 
   /** By id, or by a title match that is unambiguous: the assistant must not guess which task was meant. */
@@ -7097,14 +7141,15 @@ export class AssistantStore {
    * `cleanStepTexts` has already trimmed, dropped empties and applied the ceiling, so the rows are
    * exactly the ones `addStep` would have written one at a time.
    */
-  private stepInsertStatement(taskId: string, texts: readonly string[], at: number): D1PreparedStatement {
+  private stepInsertStatement(taskId: string, texts: readonly string[], at: number, guardTaskId?: string): D1PreparedStatement {
     const rows = JSON.stringify(texts.map((text, position) => ({ id: newId(), text, position })))
     return this.db.prepare(
       `INSERT INTO todos_steps (id, user_id, task_id, text, done, position, created_at)
        SELECT json_extract(j.value, '$.id'), ?1, ?2, json_extract(j.value, '$.text'), 0,
               json_extract(j.value, '$.position'), ?4
-         FROM json_each(?3) AS j`,
-    ).bind(this.userId, taskId, rows, at)
+         FROM json_each(?3) AS j
+        ${guardTaskId ? 'WHERE EXISTS (SELECT 1 FROM todos_tasks WHERE user_id = ?1 AND id = ?5)' : ''}`,
+    ).bind(this.userId, taskId, rows, at, ...(guardTaskId ? [guardTaskId] : []))
   }
 
   /** Appends a step. Returns null when the task already holds the maximum, rather than growing forever. */
@@ -10493,6 +10538,7 @@ export interface TaskRow {
   color: string | null
   starred: number | null
   repeat_rule: string | null
+  spawned_next_id: string | null
   /** `TASK_REMINDER_TIMES`: the pending instants, comma-separated, or null when there are none. */
   reminder_times: string | null
   planned_for: string | null
@@ -10654,6 +10700,7 @@ export function toTask(
     blocks: extras.blocks,
     starred: (r.starred ?? 0) === 1,
     repeat: parseRepeatRule(parseJson(r.repeat_rule)),
+    spawnedNextId: r.spawned_next_id,
     reminders: extras.reminders,
     // The single reminder the quick-add preview and the assistant's task tool read: the next one to
     // fire, or none. `remindedAt` is always null now — delivery lives on the reminder row itself.
