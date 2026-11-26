@@ -78,6 +78,18 @@ describe('cross-board search respects visibility', () => {
     expect((await search('alice', '50_')).cards).toEqual([])
   })
 
+  it('rejects patterns beyond the production 50-byte LIKE ceiling', async () => {
+    const tooLong = await req('alice', 'GET', `/search?q=${'a'.repeat(49)}`)
+    expect(tooLong.status).toBe(400)
+    expect(((await tooLong.json()) as { error: { message: string } }).error.message).toBe('search query is too long')
+    const escaped = await req('alice', 'GET', `/search?q=${'%25'.repeat(49)}`)
+    expect(escaped.status).toBe(400)
+    const boundary = await req('alice', 'GET', `/search?q=${encodeURIComponent('中'.repeat(16))}`)
+    expect(boundary.status).toBe(200)
+    const beyond = await req('alice', 'GET', `/search?q=${encodeURIComponent('中'.repeat(17))}`)
+    expect(beyond.status).toBe(400)
+  })
+
   it('finds a card by a property value and still escapes LIKE wildcards there', async () => {
     const propertyId = 'p'.repeat(27)
     const created = await req('alice', 'POST', '/boards', {

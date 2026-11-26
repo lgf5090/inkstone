@@ -22,6 +22,7 @@ export const PROJECT_LIMITS = {
   idLength: 27,
   batchOperations: 200,
   searchResults: 50,
+  searchPatternBytes: 50,
   bundleContents: 2000,
   bundleComments: 2000,
   attachmentsPerBoard: 500,

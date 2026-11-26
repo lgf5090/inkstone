@@ -6,6 +6,7 @@ import { PROJECT_LIMITS } from '@shared/project/limits'
 import { ProjectStore } from './store'
 import { readBoardProperties } from './boards'
 import { projectPropertiesForRole } from './visibility'
+import { ApiError } from '../lib/errors'
 
 export interface ProjectSearchResult {
   boards: { id: string, title: string, icon: string }[]
@@ -18,6 +19,9 @@ const LIMIT = PROJECT_LIMITS.searchResults
 
 export async function searchProject(db: D1Database, userId: string, query: string): Promise<ProjectSearchResult> {
   const needle = `%${query.replace(/[%_\\]/g, '\\$&')}%`
+  if (new TextEncoder().encode(needle).byteLength > PROJECT_LIMITS.searchPatternBytes) {
+    throw ApiError.badRequest('search query is too long')
+  }
   const readable = await new ProjectStore(db, userId).boards()
   const boards = readable
     .filter((board) => board.title.toLowerCase().includes(query.toLowerCase()))
