@@ -28,7 +28,7 @@
 | P1-03 | done | F7 remap property config/formula/relation/permissions on move; rebuild copied relations; enforce quotas | moved/copy cards retain config and relation edges; target caps enforced | 30ef877f |
 | P1-04 | done | F10 make cross-category drag move and reorder atomically | source board appears only in target category at requested position | dd2a4c7b |
 | P1-05 | done | F11 make board/list drag one command; fix expanded subtask index | failed drag rolls back; expanded list drop lands on intended root | 9baaec50 |
-| P1-06 | done | F12 re-check role/field permission for Todo sync, notifications and trash attachments | viewer cannot mutate via Todo; private/trash data not delivered | pending hash |
+| P1-06 | done | F12 re-check role/field permission for Todo sync, notifications and trash attachments | viewer cannot mutate via Todo; private/trash data not delivered | 4046cc94 |
 | P1-07 | pending | F14 preserve relation edges on soft delete; prevent same-batch parent cycles; validate Sprint ownership | restore rebuilds references; A→B/B→A rejected; wrong Sprint card rejected | - |
 | P1-08 | pending | F15 validate imported schema and rewrite actor/author ids | unknown property/type/oversized metadata rejected; importer is author | - |
 | P1-09 | pending | F16 materialize reminders and create real notifications; filter notified/deleted/archived rows | due reminder arrives once; later cards are not starved | - |
@@ -94,4 +94,4 @@
 - 2026-11-25: P1-03 completed in `30ef877f`; moved properties remap formula/relation/rollup/permission config, copied cards rebuild relation edges, quotas are enforced, and time/sprint/source cursor follow the move.
 - 2026-11-25: P1-04 completed in `dd2a4c7b`; category reorder now atomically moves cross-category boards and validates board visibility.
 - 2026-11-25: P1-05 completed in `9baaec50`; board/list drag commits card values and manual order in one batch, and child rows no longer distort list drop indices.
-- 2026-11-25: P1-06 completed; Todo sync rechecks editor/field permissions, notifications recheck current board access, and trashed card attachments are hidden from non-admins.
+- 2026-11-25: P1-06 completed in `4046cc94`; Todo sync rechecks editor/field permissions, notifications recheck current board access, and trashed card attachments are hidden from non-admins.
