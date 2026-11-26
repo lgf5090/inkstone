@@ -43,6 +43,12 @@ export const DAY_HOUR_HEIGHTS = [48, 72, 96] as const
 /** Timed views always keep the complete day; working hours never hide an event. */
 export const FULL_DAY_HOURS = { firstHour: 0, lastHour: 24 } as const
 
+export const CALENDAR_COLOR_LABEL_KEYS = [
+  'calendar.color.red', 'calendar.color.orange', 'calendar.color.yellow', 'calendar.color.green',
+  'calendar.color.teal', 'calendar.color.blue', 'calendar.color.indigo', 'calendar.color.purple',
+  'calendar.color.pink', 'calendar.color.gray',
+] as const
+
 /** Preset calendar colours. These are calendar data, not design tokens; the API stores the hex. */
 export const CALENDAR_COLOR_PRESETS = [
   '#e5484d',

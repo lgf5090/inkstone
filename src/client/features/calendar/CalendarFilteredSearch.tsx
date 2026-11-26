@@ -1,5 +1,6 @@
 /** A filtered calendar search: keyword, calendar, date span and kind, in one panel. */
 import { useEffect, useState } from 'react'
+import { Temporal } from 'temporal-polyfill'
 import { CalendarDays, CalendarSearch } from 'lucide-react'
 import type { CalendarDto, CalendarEventDto, CalendarSearchResultDto } from '@shared/calendar/model'
 import { parseTemporalValue } from '@shared/calendar/model'
@@ -15,31 +16,33 @@ import * as api from './api'
 interface CalendarFilteredSearchProps {
   open: boolean
   calendars: readonly CalendarDto[]
+  timeZone: string
   onClose: () => void
   onPick: (result: CalendarSearchResultDto) => void
 }
 
-export function calendarSearchResultDate(result: CalendarSearchResultDto): Date | null {
+export function calendarSearchResultDate(result: CalendarSearchResultDto, timeZone: string): Date | null {
   try {
     const value = parseTemporalValue(result.event.start)
     if ('epochMilliseconds' in value) return new Date(value.epochMilliseconds)
-    return new Date(value.year, value.month - 1, value.day)
+    return new Date(Temporal.PlainDate.from({ year: value.year, month: value.month, day: value.day })
+      .toZonedDateTime({ timeZone }).epochMilliseconds)
   } catch {
     return null
   }
 }
 
-function resultLabel(result: CalendarSearchResultDto, locale: string): string {
-  const date = calendarSearchResultDate(result)
+function resultLabel(result: CalendarSearchResultDto, locale: string, timeZone: string): string {
+  const date = calendarSearchResultDate(result, timeZone)
   if (!date) return ''
   try {
-    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(date)
   } catch {
     return date.toLocaleString()
   }
 }
 
-export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: CalendarFilteredSearchProps) {
+export function CalendarFilteredSearch({ open, calendars, timeZone, onClose, onPick }: CalendarFilteredSearchProps) {
   const locale = useLocale()
   const [keyword, setKeyword] = useState('')
   const [calendarId, setCalendarId] = useState('')
@@ -58,8 +61,8 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
   const [editing, setEditing] = useState<CalendarSearchResultDto | null>(null)
 
   const submit = async (): Promise<void> => {
-    const fromMs = from ? new Date(`${from}T00:00:00`).getTime() : undefined
-    const toMs = to ? new Date(`${to}T23:59:59.999`).getTime() : undefined
+    const fromMs = from ? Temporal.PlainDate.from(from).toZonedDateTime({ timeZone }).epochMilliseconds : undefined
+    const toMs = to ? Temporal.PlainDate.from(to).add({ days: 1 }).toZonedDateTime({ timeZone }).epochMilliseconds : undefined
     if (fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
       setError(t('calendar.filtered_search.date_order'))
       return
@@ -206,7 +209,7 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{result.event.title}</span>
                             <span className="block truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
-                              {result.calendarName} · {resultLabel(result, locale)}
+                              {result.calendarName} · {resultLabel(result, locale, timeZone)}
                             </span>
                           </span>
                         </button>

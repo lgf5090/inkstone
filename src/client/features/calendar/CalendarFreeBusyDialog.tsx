@@ -1,22 +1,24 @@
 /**
  * A small "find a time" board: busy blocks from every selected calendar, and the open slots
- * between 09:00 and 18:00 the reader can start an event in.
+ * inside the account's configured working hours.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CalendarCheck } from 'lucide-react'
 import { Temporal } from 'temporal-polyfill'
-import type { CalendarBusyBlock, CalendarDto } from '@shared/calendar/model'
+import type { CalendarBusyBlock, CalendarDto, CalendarWorkingHours } from '@shared/calendar/model'
 import { t, localeTag } from '../../lib/i18n'
-import { addDaysKey, dateKey, parseDateKey } from '../../lib/time'
+import { addDaysKey } from '../../lib/time'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
 import { Checkbox, Field, Select } from '../../components/form'
 import { DatePicker } from '../../components/date-picker'
 import * as api from './api'
 
-const WORK_START_HOUR = 9
-const WORK_END_HOUR = 18
 const MIN_SLOT_MINUTES = 30
+
+function dateKeyInZone(date: Date, zone: string): string {
+  return Temporal.Instant.fromEpochMilliseconds(date.getTime()).toZonedDateTimeISO(zone).toPlainDate().toString()
+}
 
 interface Slot {
   startMs: number
@@ -24,10 +26,15 @@ interface Slot {
   label: string
 }
 
-function slotsForDay(key: string, zone: string, busy: readonly CalendarBusyBlock[]): Slot[] {
+function slotsForDay(
+  key: string,
+  zone: string,
+  busy: readonly CalendarBusyBlock[],
+  workingHours: CalendarWorkingHours,
+): Slot[] {
   const day = Temporal.PlainDate.from(key).toZonedDateTime(zone)
-  const windowStart = day.add({ hours: WORK_START_HOUR })
-  const windowEnd = day.add({ hours: WORK_END_HOUR })
+  const windowStart = day.add({ hours: workingHours.enabled ? workingHours.startHour : 0 })
+  const windowEnd = day.add({ hours: workingHours.enabled ? workingHours.endHour : 24 })
   const startMs = windowStart.epochMilliseconds
   const endMs = windowEnd.epochMilliseconds
   const clipped = busy
@@ -64,6 +71,7 @@ export function CalendarFreeBusyDialog({
   open,
   calendars,
   timeZone,
+  workingHours,
   initialDate,
   onClose,
   onPick,
@@ -71,11 +79,12 @@ export function CalendarFreeBusyDialog({
   open: boolean
   calendars: readonly CalendarDto[]
   timeZone: string
+  workingHours: CalendarWorkingHours
   initialDate: Date
   onClose: () => void
   onPick?: (start: Date, end: Date) => void
 }) {
-  const [startKey, setStartKey] = useState(() => dateKey(initialDate))
+  const [startKey, setStartKey] = useState(() => dateKeyInZone(initialDate, timeZone))
   const [days, setDays] = useState(7)
   const [selected, setSelected] = useState<string[]>(() => calendars.map(calendar => calendar.id))
   const [busy, setBusy] = useState<CalendarBusyBlock[]>([])
@@ -85,8 +94,9 @@ export function CalendarFreeBusyDialog({
 
   useEffect(() => {
     if (!open) return
+    setStartKey(dateKeyInZone(initialDate, timeZone))
     setSelected(calendars.map(calendar => calendar.id))
-  }, [open, calendars])
+  }, [open, initialDate, timeZone, calendars])
 
   useEffect(() => {
     if (!open) return
@@ -97,14 +107,12 @@ export function CalendarFreeBusyDialog({
       setError(null)
       return
     }
-    const from = parseDateKey(startKey)
-    const to = parseDateKey(addDaysKey(startKey, days))
-    from.setHours(0, 0, 0, 0)
-    to.setHours(0, 0, 0, 0)
+    const from = Temporal.PlainDate.from(startKey).toZonedDateTime(timeZone)
+    const to = Temporal.PlainDate.from(addDaysKey(startKey, days)).toZonedDateTime(timeZone)
     let cancelled = false
     setLoading(true)
     setError(null)
-    void api.getFreeBusy({ from: from.getTime(), to: to.getTime(), calendarIds: selected })
+    void api.getFreeBusy({ from: from.epochMilliseconds, to: to.epochMilliseconds, calendarIds: selected })
       .then((answer) => {
         if (cancelled) return
         setBusy(answer.busy)
@@ -115,7 +123,7 @@ export function CalendarFreeBusyDialog({
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [open, startKey, days, selected])
+  }, [open, startKey, days, selected, timeZone])
 
   const daysToShow = useMemo(
     () => Array.from({ length: days }, (_, index) => addDaysKey(startKey, index)),
@@ -189,7 +197,7 @@ export function CalendarFreeBusyDialog({
               <p role="status" className="text-[length:var(--text-11)] text-[var(--warning)]">{t('calendar.free_busy.truncated')}</p>
             )}
             {daysToShow.map((key) => {
-              const slots = slotsForDay(key, timeZone, busy)
+              const slots = slotsForDay(key, timeZone, busy, workingHours)
               const label = new Intl.DateTimeFormat(localeTag(), {
                 weekday: 'short',
                 month: 'short',

@@ -23,7 +23,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Input, Select, commitOnEnter } from '../../components/form'
 import { X, Trash2, Copy, CopyPlus, FolderInput, BookmarkPlus, Video, Download } from 'lucide-react'
 import * as api from './api'
-import { CALENDAR_COLOR_PRESETS } from './model'
+import { CALENDAR_COLOR_PRESETS, CALENDAR_COLOR_LABEL_KEYS } from './model'
 import { downloadCalendarText } from './calendar-download'
 import { CalendarFilePicker } from './CalendarFilePicker'
 import { CalendarEventTransferDialog } from './CalendarEventTransferDialog'
@@ -476,11 +476,11 @@ export function CalendarEventExtras({
         >
           {t('calendar.event.no_color')}
         </Button>
-        {CALENDAR_COLOR_PRESETS.map(color => (
+        {CALENDAR_COLOR_PRESETS.map((color, index) => (
           <button
             key={color}
             type="button"
-            aria-label={color}
+            aria-label={t(CALENDAR_COLOR_LABEL_KEYS[index]!)}
             aria-pressed={event?.color?.toLowerCase() === color}
             disabled={rev === null || readOnly || savingColor}
             onClick={() => changeColor(color)}

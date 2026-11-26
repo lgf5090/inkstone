@@ -1483,6 +1483,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       countdowns={(
         <CountdownsCard
           items={countdowns.items}
+          timeZone={meta.preferences.timeZone}
           loading={countdowns.loading}
           error={countdowns.error}
           onAdd={() => setCountdownEditing(null)}
@@ -1587,6 +1588,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
         {assistantChrome.view === 'month' && (
           <CountdownStrip
             items={countdowns.items}
+            timeZone={meta.preferences.timeZone}
             onOpen={(id) => {
               const item = countdowns.items.find(row => row.id === id) ?? null
               if (item) setCountdownEditing(item)
@@ -1699,6 +1701,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           key={countdownEditing?.id ?? 'new'}
           open
           item={countdownEditing}
+          timeZone={meta.preferences.timeZone}
           onClose={() => setCountdownEditing(undefined)}
           onSaved={() => { void countdowns.reload() }}
         />
@@ -1707,9 +1710,10 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       <CalendarFilteredSearch
         open={filteredSearchOpen}
         calendars={meta.calendars}
+        timeZone={meta.preferences.timeZone}
         onClose={() => setFilteredSearchOpen(false)}
         onPick={(result) => {
-          const date = calendarSearchResultDate(result)
+          const date = calendarSearchResultDate(result, meta.preferences.timeZone)
           if (date) app.setCurrentDate(date)
           app.highlightEvent(result.event.id)
           app.selectEvent(result.event.id)
@@ -1745,6 +1749,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
         open={freeBusyOpen}
         calendars={meta.calendars}
         timeZone={meta.preferences.timeZone}
+        workingHours={meta.preferences.workingHours}
         initialDate={app.getCurrentDate()}
         onClose={() => setFreeBusyOpen(false)}
         onPick={(start) => { setCreateStart(start) }}

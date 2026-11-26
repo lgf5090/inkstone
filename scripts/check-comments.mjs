@@ -1511,7 +1511,7 @@ const allowed = new Map([
     "/** A filtered calendar search: keyword, calendar, date span and kind, in one panel. */",
   ]],
   ["src/client/features/calendar/CalendarFreeBusyDialog.tsx", [
-    "/**\n * A small \"find a time\" board: busy blocks from every selected calendar, and the open slots\n * between 09:00 and 18:00 the reader can start an event in.\n */",
+    "/**\n * A small \"find a time\" board: busy blocks from every selected calendar, and the open slots\n * inside the account's configured working hours.\n */",
   ]],
   ["src/client/features/calendar/CalendarHeatmap.tsx", [
     "// The selection is a convenience; a full quota must not stop the grid from drawing.",

@@ -17,7 +17,7 @@ import {
 } from '@dayflow/react'
 import { cn } from '../../lib/cn'
 import { useLocale, t } from '../../lib/i18n'
-import { dateKey, narrowWeekdayLabels, startOfDay, startOfWeek, type WeekStartDay } from '../../lib/time'
+import { dateKey, narrowWeekdayLabels, startOfWeek, type WeekStartDay } from '../../lib/time'
 import { useThemeDark } from '../../lib/hooks'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
@@ -32,12 +32,6 @@ function addDays(date: Date, days: number): Date {
 
 function plainDateKey(date: Temporal.PlainDate): string {
   return date.toString()
-}
-
-function isSameDay(left: Date, right: Date): boolean {
-  return left.getFullYear() === right.getFullYear()
-    && left.getMonth() === right.getMonth()
-    && left.getDate() === right.getDate()
 }
 
 function visibleCalendarIds(app: ICalendarApp): Set<string> {
@@ -98,15 +92,21 @@ interface MiniMonthProps {
 export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots, version, onSelectDate, onRequestRange }: MiniMonthProps) {
   const locale = useLocale()
   const dark = useThemeDark()
-  const today = startOfDay(new Date())
+  const todayKey = Temporal.Instant.fromEpochMilliseconds(Date.now()).toZonedDateTimeISO(timeZone).toPlainDate().toString()
+  const currentZoned = Temporal.Instant.fromEpochMilliseconds(currentDate.getTime()).toZonedDateTimeISO(timeZone)
+  const currentAnchor = new Date(currentZoned.year, currentZoned.month - 1, currentZoned.day, 12)
   const calendarSystem = app.state.calendarSystem
-  const [displayMonth, setDisplayMonth] = useState(() => startOfCalendarMonth(currentDate, calendarSystem))
+  const [displayMonth, setDisplayMonth] = useState(() => startOfCalendarMonth(currentAnchor, calendarSystem))
   const cellsRef = useRef(new Map<string, HTMLButtonElement>())
-  const currentMonthKey = `${currentDate.getFullYear()}-${currentDate.getMonth()}`
-  const selectedKey = dateKey(currentDate)
+  const currentMonthKey = `${currentAnchor.getFullYear()}-${currentAnchor.getMonth()}`
+  const selectedKey = currentZoned.toPlainDate().toString()
+  const selectKey = (key: string): void => {
+    const at = Temporal.PlainDate.from(key).toZonedDateTime({ timeZone, plainTime: { hour: 12 } }).epochMilliseconds
+    onSelectDate(new Date(at))
+  }
 
   useEffect(() => {
-    setDisplayMonth(startOfCalendarMonth(currentDate, calendarSystem))
+    setDisplayMonth(startOfCalendarMonth(currentAnchor, calendarSystem))
     // A date picked in the main grid should bring the mini month back to that month.
   }, [currentMonthKey, calendarSystem])
 
@@ -160,7 +160,7 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
   const moveFocus = (day: Date, event: KeyboardEvent<HTMLButtonElement>, delta: number): void => {
     event.preventDefault()
     const next = addDays(day, delta)
-    onSelectDate(next)
+    selectKey(dateKey(next))
     window.setTimeout(() => cellsRef.current.get(dateKey(next))?.focus({ preventScroll: true }), 0)
   }
 
@@ -201,7 +201,7 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
               const selected = key === selectedKey
               const inMonth = day.getMonth() === displayMonth.getMonth()
               const dayDots = dots.get(key) ?? { colors: [], count: 0 }
-              const isToday = isSameDay(day, today)
+              const isToday = key === todayKey
               const accessibleLabel = [
                 dayLabelFormatter.format(day),
                 ...(isToday ? [t('calendar.sidebar.today')] : []),
@@ -220,7 +220,7 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
                   aria-current={isToday ? 'date' : undefined}
                   aria-label={accessibleLabel}
                   tabIndex={key === tabKey ? 0 : -1}
-                  onClick={() => onSelectDate(day)}
+                  onClick={() => selectKey(key)}
                   onKeyDown={(event) => {
                     if (event.key === 'ArrowLeft') moveFocus(day, event, -1)
                     else if (event.key === 'ArrowRight') moveFocus(day, event, 1)
@@ -231,7 +231,7 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
                     'relative mx-auto flex h-7 w-7 flex-col items-center justify-center rounded-[var(--r-sm)] text-[length:var(--text-11-5)]',
                     'transition-colors duration-[var(--dur-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]',
                     inMonth ? 'text-[var(--text-secondary)]' : 'text-[var(--text-quaternary)]',
-                    isSameDay(day, today) && !selected && 'font-semibold text-[var(--accent)]',
+                    isToday && !selected && 'font-semibold text-[var(--accent)]',
                     selected ? 'bg-[var(--accent)] font-semibold text-[var(--accent-contrast)]' : 'hover:bg-[var(--bg-hover)]',
                   )}
                 >
@@ -254,7 +254,7 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
         <Tooltip label={t('calendar.sidebar.today')}>
           <button
             type="button"
-            onClick={() => onSelectDate(new Date())}
+            onClick={() => selectKey(todayKey)}
             className="rounded-[var(--r-sm)] px-2 py-0.5 text-[length:var(--text-11-5)] font-medium text-[var(--accent)] hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
           >
             {t('calendar.sidebar.today')}
