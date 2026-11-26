@@ -125,6 +125,15 @@ describe('recurring tasks', () => {
     expect(rruleFor(ordinary, options({ now: Date.parse('2028-03-29T00:00:00Z') }))).toBe('FREQ=YEARLY')
   })
 
+  it('degrades statutory-workday and lunar rules instead of inventing an RRULE', () => {
+    const due = Date.parse('2026-03-05T09:00:00Z')
+    for (const freq of ['workday', 'lunar'] as const) {
+      const row = task({ id: freq, dueAt: due, repeat: { freq, interval: 1 } })
+      expect(rruleFor(row, options())).toBeNull()
+      expect(buildIcsCalendar([row], options())).not.toContain('RRULE')
+    }
+  })
+
   it('refuses an RRULE whose UTC anchor would drift across a daylight-saving change', () => {
     // 2026-03-08 is the US spring-forward: a fixed 02:00Z weekly series is not the 20:00 local series
     // the app keeps, so the window stops being flat and only the held occurrence is exported.

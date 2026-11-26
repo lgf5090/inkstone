@@ -2138,7 +2138,23 @@ export const useTodos = create<TodosState>((set, get) => ({
   },
 
   toggleTask: async (task) => {
-    await get().updateTask(task.id, { status: toggledStatus(task.status) })
+    const nextStatus = toggledStatus(task.status)
+    if (isTaskDone(nextStatus)) {
+      const children = get().tasks.filter((entry) => entry.parentId === task.id && isTaskOpen(entry.status))
+      if (children.length) {
+        const { confirm } = await import('../../components/overlay')
+        const completeChildren = await confirm({
+          title: t('todo.parent.complete_title'),
+          description: t('todo.parent.complete_description', { count: children.length }),
+          confirmLabel: t('todo.parent.complete_children'),
+          cancelLabel: t('todo.parent.complete_only'),
+        })
+        if (completeChildren) {
+          for (const child of children) await get().updateTask(child.id, { status: 'done' }, child.rev)
+        }
+      }
+    }
+    await get().updateTask(task.id, { status: nextStatus })
   },
 
   toggleTaskCollapsed: (id) => set((state) => ({

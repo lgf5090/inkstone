@@ -31,6 +31,22 @@ function utc(text: string): number {
   return Date.parse(text)
 }
 
+describe('statutory workday and lunar recurrence', () => {
+  it('steps over weekends and published holidays, but lands on a makeup workday', () => {
+    expect(new Date(nextOccurrence(utc('2026-11-06T09:00:00+08:00'), { freq: 'workday', interval: 1 }, 'Asia/Shanghai')).toISOString())
+      .toBe('2026-11-09T01:00:00.000Z')
+    expect(new Date(nextOccurrence(utc('2026-09-24T09:00:00+08:00'), { freq: 'workday', interval: 1 }, 'Asia/Shanghai')).toISOString())
+      .toBe('2026-09-28T01:00:00.000Z')
+    expect(new Date(nextOccurrence(utc('2026-10-09T09:00:00+08:00'), { freq: 'workday', interval: 1 }, 'Asia/Shanghai')).toISOString())
+      .toBe('2026-10-10T01:00:00.000Z')
+  })
+
+  it('keeps the same lunar month and day in the following year', () => {
+    expect(new Date(nextOccurrence(utc('2026-02-17T09:00:00+08:00'), { freq: 'lunar', interval: 1 }, 'Asia/Shanghai')).toISOString())
+      .toBe('2027-02-06T01:00:00.000Z')
+  })
+})
+
 describe('a stored repeat rule', () => {
   it('reads the shape this app writes', () => {
     expect(parseRepeatRule({ freq: 'weekly', interval: 2 })).toEqual({ freq: 'weekly', interval: 2 })
@@ -84,6 +100,11 @@ describe('a stored repeat rule', () => {
   it('reads the same rule twice', () => {
     const once = parseRepeatRule({ freq: 'daily', interval: 1, count: 3, produced: 2 })
     expect(parseRepeatRule(once)).toEqual(once)
+  })
+
+  it('reads statutory workday and lunar yearly rules', () => {
+    expect(parseRepeatRule({ freq: 'workday', interval: 1 })).toEqual({ freq: 'workday', interval: 1 })
+    expect(parseRepeatRule({ freq: 'lunar', interval: 1 })).toEqual({ freq: 'lunar', interval: 1 })
   })
 
   it('sorts and deduplicates the days a series steps over', () => {

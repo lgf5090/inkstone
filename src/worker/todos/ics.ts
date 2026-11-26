@@ -87,7 +87,7 @@ const UID_DOMAIN = 'todo.inkstone'
 /** RFC 5545 `PRIORITY` runs 1 (highest) to 9 (lowest); this maps the app's four words onto it. */
 const PRIORITY_TO_IC: Record<TaskPriority, number> = { urgent: 1, high: 3, medium: 5, low: 9 }
 
-const FREQ_TO_IC: Record<RepeatRule['freq'], string> = {
+const FREQ_TO_IC: Partial<Record<RepeatRule['freq'], string>> = {
   daily: 'DAILY',
   weekly: 'WEEKLY',
   monthly: 'MONTHLY',
@@ -176,8 +176,10 @@ export function rruleFor(task: IcsTask, options: IcsCalendarOptions): string | n
   if (!rule) return null
   if (!offsetStableAcrossWindow(task.dueAt, options.horizonMs, options.timezone)) return null
   if (!clampsAcrossPeriods(rule, task.dueAt, options.timezone)) return null
+  const frequency = FREQ_TO_IC[rule.freq]
+  if (!frequency) return null
   const interval = rule.interval > 1 ? `;INTERVAL=${rule.interval}` : ''
-  return `FREQ=${FREQ_TO_IC[rule.freq]}${interval}`
+  return `FREQ=${frequency}${interval}`
 }
 
 function eventLines(task: IcsTask, options: IcsCalendarOptions): string[] {

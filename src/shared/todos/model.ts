@@ -11,6 +11,8 @@ import type { Task, TaskPriority, TaskStatus } from '../assistant'
 import { isTaskDone, isTaskOpen } from './status'
 import { daysInMonth, getZonedParts, zonedTimeToUtc } from '../assistant-schedule'
 import { ORGANIZER_COLORS, organizerColorOrNull } from '../organizer-colors'
+import { holidayDay } from '../calendar/holidays'
+import { LUNAR_RANGE_END, leapDays, lunar2solar, monthDays, solar2lunar } from '../subscriptions/lunar'
 
 export const MIN_TODO_TIMESTAMP_MS = 0
 export const MAX_TODO_TIMESTAMP_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999)
@@ -20,7 +22,7 @@ export function isTodoTimestamp(value: unknown): value is number {
     && value >= MIN_TODO_TIMESTAMP_MS && value <= MAX_TODO_TIMESTAMP_MS
 }
 
-export const REPEAT_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const
+export const REPEAT_FREQUENCIES = ['daily', 'workday', 'weekly', 'monthly', 'yearly', 'lunar'] as const
 export type RepeatFrequency = (typeof REPEAT_FREQUENCIES)[number]
 
 /**
@@ -1120,6 +1122,36 @@ export function nthWeekdayOfMonth(year: number, month: number, weekday: number, 
   return day <= daysInMonth(year, month) ? day : day - 7
 }
 
+function workdayKey(parts: { year: number; month: number; day: number }): string {
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`
+}
+
+function nextWorkday(parts: { year: number; month: number; day: number }, interval: number): { year: number; month: number; day: number } {
+  let cursor = parts
+  let found = 0
+  for (let step = 0; step < 370 * interval; step += 1) {
+    cursor = shiftDays(cursor.year, cursor.month, cursor.day, 1)
+    const holiday = holidayDay(workdayKey(cursor))
+    const weekday = weekdayOf(cursor.year, cursor.month, cursor.day)
+    if (!holiday.makeup && (holiday.off || weekday === 0 || weekday === 6)) continue
+    found += 1
+    if (found === interval) return cursor
+  }
+  return cursor
+}
+
+function nextLunarYear(parts: { year: number; month: number; day: number }, interval: number): { year: number; month: number; day: number } {
+  const lunar = solar2lunar(parts.year, parts.month, parts.day)
+  if (!lunar) return shiftMonths(parts.year, parts.month, parts.day, interval * 12)
+  const year = lunar.year + interval
+  if (year > LUNAR_RANGE_END) return shiftMonths(parts.year, parts.month, parts.day, interval * 12)
+  const hasLeapMonth = lunar2solar({ year, month: lunar.month, day: 1, isLeap: true }) !== null
+  const isLeap = lunar.isLeap && hasLeapMonth
+  const days = isLeap ? leapDays(year) : monthDays(year, lunar.month)
+  const converted = lunar2solar({ year, month: lunar.month, day: Math.min(lunar.day, days), isLeap })
+  return converted ?? shiftMonths(parts.year, parts.month, parts.day, interval * 12)
+}
+
 /**
  * The due time of the next occurrence, in the reader's own calendar.
  *
@@ -1137,6 +1169,10 @@ export function nextOccurrence(dueAt: number, rule: RepeatRule, timeZone: string
   let next: { year: number; month: number; day: number }
   if (rule.freq === 'daily') {
     next = shiftDays(parts.year, parts.month, parts.day, interval)
+  } else if (rule.freq === 'workday') {
+    next = nextWorkday(parts, interval)
+  } else if (rule.freq === 'lunar') {
+    next = nextLunarYear(parts, interval)
   } else if (rule.freq === 'weekly') {
     next = rule.weekdays?.length
       ? nextWeekdayOn(parts, interval, rule.weekdays)
