@@ -319,6 +319,32 @@ describe('delete needs its own consent', () => {
     expect(await store.getTask(task.id)).toBeNull()
   })
 
+  it('replays the cached answer after the deleted task can no longer be read', async () => {
+    const task = await store.createTask({ title: 'Retire and retry' })
+    await switchPreferences(true, true)
+    const args = { operation_id: 'op-delete-replay-1', task_id: task.id }
+
+    const first = await callTool(DANGER, 'delete_todo', args)
+    expect(first.ok).toBe(true)
+    expect(await store.getTask(task.id)).toBeNull()
+    expect(await callTool(DANGER, 'delete_todo', args)).toEqual(first)
+  })
+
+  it('refuses the next write after the account and scope exhaust their minute budget', async () => {
+    await switchPreferences(true, false)
+    sqlite.prepare(
+      `INSERT INTO login_attempts (key, fails, last_fail_at, locked_until) VALUES (?1, 120, ?2, NULL)`,
+    ).run(`mcp-tool:${MCP_SCOPES.todoWrite}:${USER}`, Date.now())
+
+    const refused = await failureOf(WRITE, 'create_todo', {
+      operation_id: 'op-budget-refused-1',
+      title: 'Must not be written',
+    })
+    expect(refused).toMatchObject({ code: 'too_many_attempts', status: 429 })
+    expect(refused.message).toMatch(/Too many MCP tool attempts/)
+    expect(await store.listTasks({ view: 'all' })).toHaveLength(0)
+  })
+
   it('describes the trash the tool actually writes, rather than a deletion that never was', async () => {
     // A published description is a contract with the agent reading it. This one used to promise a
     // deletion "for good" with "no trash to restore from", while the handler has always stamped
@@ -584,7 +610,8 @@ describe('a task may name a note, and nothing else about it', () => {
   })
 
   it('never names a conversation, which no to-do tool can read', async () => {
-    const task = await store.createTask({ title: 'From a chat', conversationId: '0123456789abcdefghjkmnpqr9' })
+    const conversation = await store.createConversation('From a chat')
+    const task = await store.createTask({ title: 'From a chat', conversationId: conversation.id })
     const outcome = await callTool(READ, 'get_todo', { task_id: task.id })
     expect(outcome.ok).toBe(true)
     expect(JSON.stringify(outcome.body)).not.toContain('conversation')

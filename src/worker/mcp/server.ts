@@ -25,6 +25,7 @@ import { MAX_DEPS_PER_TASK } from '../assistant/store'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { PromptOptimizerStore } from '../tools/prompt-optimizer/store'
 import { iteratePrompt, optimizePrompt } from '../tools/prompt-optimizer/ai'
 import {
@@ -2007,6 +2008,17 @@ async function customTool(
  * two different grants: a key that may read notes must not read tasks through the same door. `customTool`
  * keeps its own name because that is what the note registrations already read as.
  */
+const MCP_READ_ATTEMPTS_PER_MINUTE = 600
+const MCP_WRITE_ATTEMPTS_PER_MINUTE = 120
+
+async function takeMcpToolBudget(env: Env, userId: string, scope: string, maxAttempts: number): Promise<void> {
+  await assertAttemptBudget(() => consumeAttemptBudget(env.DB, [{
+    key: `mcp-tool:${scope}:${userId}`,
+    maxAttempts,
+    windowMs: 60_000,
+  }]), 'Too many MCP tool attempts')
+}
+
 async function readTool(
   ctx: ServerContext,
   options: InkstoneMcpServerOptions,
@@ -2015,6 +2027,7 @@ async function readTool(
 ) {
   return safeTool(async () => {
     requireScope(ctx, options.auth, scope)
+    await takeMcpToolBudget(options.env, options.auth.userId, scope, MCP_READ_ATTEMPTS_PER_MINUTE)
     // The to-do read switch withholds the scope itself rather than inventing a second refusal: a key
     // minted before the switch, or before the account turned it off, is answered exactly as a key that
     // never carried `todos:read`. Notes keep their own premise — reads are what that endpoint is for.
@@ -2057,6 +2070,7 @@ async function writeTool(
     ) {
       throw ApiError.forbidden('MCP trash access is disabled in Inkstone settings')
     }
+    await takeMcpToolBudget(options.env, options.auth.userId, scope, MCP_WRITE_ATTEMPTS_PER_MINUTE)
     return structuredData(await callback())
   })
 }

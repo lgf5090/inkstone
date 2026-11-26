@@ -198,30 +198,6 @@ export async function createMcpTask(context: McpTodoContext, input: McpNewTask):
 export async function updateMcpTask(context: McpTodoContext, input: McpTaskPatch): Promise<Record<string, unknown>> {
   const store = storeFor(context)
   const timezone = await timezoneOf(store)
-  const existing = await readTask(store, input.taskId)
-  const dueAt = input.due === undefined ? undefined : input.due === null ? null : dueMillis(input.due, timezone)
-  const listId = await resolveListRef(store, input.list)
-  const noteId = await resolveNoteRef(context, input.note)
-  const repeat = repeatOf(input.repeat, input.repeatInterval, existing.repeat)
-
-  const patch: Partial<NewTask> = {
-    ...(input.title !== undefined ? { title: input.title.trim() } : {}),
-    ...(input.description !== undefined ? { description: input.description } : {}),
-    ...(input.priority !== undefined ? { priority: input.priority } : {}),
-    ...(dueAt !== undefined ? { dueAt } : {}),
-    ...(listId !== undefined ? { listId } : {}),
-    ...(input.parent === undefined ? {} : { parentId: input.parent }),
-    ...(input.waitsOn === undefined ? {} : { dependsOn: input.waitsOn }),
-    ...(input.tags !== undefined ? { tags: normalizeTagNames(input.tags) } : {}),
-    ...(input.starred !== undefined ? { starred: input.starred } : {}),
-    ...(repeat !== undefined ? { repeat } : {}),
-    ...(noteId !== undefined ? { noteId } : {}),
-    // An offset is measured from the due date this patch is asking for, falling back to the stored one:
-    // moving a task and its reminder in one request is the common case, and the route reads it the same.
-    ...(input.remind !== undefined
-      ? { remindAt: remindAtFor(dueAt === undefined ? existing.dueAt : dueAt, input.remind) }
-      : {}),
-  }
   return runIdempotent({
     db: context.env.DB,
     userId: context.userId,
@@ -229,19 +205,40 @@ export async function updateMcpTask(context: McpTodoContext, input: McpTaskPatch
     tool: 'update_todo',
     request: input,
     execute: async () => {
+      const existing = await readTask(store, input.taskId)
+      const dueAt = input.due === undefined ? undefined : input.due === null ? null : dueMillis(input.due, timezone)
+      const listId = await resolveListRef(store, input.list)
+      const noteId = await resolveNoteRef(context, input.note)
+      const repeat = repeatOf(input.repeat, input.repeatInterval, existing.repeat)
+      const patch: Partial<NewTask> = {
+        ...(input.title !== undefined ? { title: input.title.trim() } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.priority !== undefined ? { priority: input.priority } : {}),
+        ...(dueAt !== undefined ? { dueAt } : {}),
+        ...(listId !== undefined ? { listId } : {}),
+        ...(input.parent === undefined ? {} : { parentId: input.parent }),
+        ...(input.waitsOn === undefined ? {} : { dependsOn: input.waitsOn }),
+        ...(input.tags !== undefined ? { tags: normalizeTagNames(input.tags) } : {}),
+        ...(input.starred !== undefined ? { starred: input.starred } : {}),
+        ...(repeat !== undefined ? { repeat } : {}),
+        ...(noteId !== undefined ? { noteId } : {}),
+        ...(input.remind !== undefined
+          ? { remindAt: remindAtFor(dueAt === undefined ? existing.dueAt : dueAt, input.remind) }
+          : {}),
+      }
       let task = Object.keys(patch).length ? await asMcpRefusal(() => store.updateTask(existing.id, patch)) : existing
       if (!task) throw ApiError.notFound('Task not found')
       let next: TodoTask | null = null
       if (isTaskDone(input.status)) {
-        // Ticking a repeating task files its next occurrence here too, so an agent cannot leave a repeat
-        // row finished and never coming back — the one state the app itself refuses to write.
         const done = await store.completeTask(task.id, timezone)
         if (!done) throw ApiError.notFound('Task not found')
         task = done.task
         next = done.next
         await store.recordActivity('task.completed', task.title)
       } else if (input.status !== undefined && input.status !== task.status) {
-        task = (await store.updateTask(task.id, { status: input.status })) ?? task
+        const updated = await store.updateTask(task.id, { status: input.status })
+        if (!updated) throw ApiError.notFound('Task not found')
+        task = updated
       }
       return {
         task: presentTask(task, context.scopes),
@@ -254,7 +251,6 @@ export async function updateMcpTask(context: McpTodoContext, input: McpTaskPatch
 export async function completeMcpTask(context: McpTodoContext, input: { operationId: string; taskId: string }): Promise<Record<string, unknown>> {
   const store = storeFor(context)
   const timezone = await timezoneOf(store)
-  const existing = await readTask(store, input.taskId)
   return runIdempotent({
     db: context.env.DB,
     userId: context.userId,
@@ -262,6 +258,7 @@ export async function completeMcpTask(context: McpTodoContext, input: { operatio
     tool: 'complete_todo',
     request: input,
     execute: async () => {
+      const existing = await readTask(store, input.taskId)
       const result = await store.completeTask(existing.id, timezone)
       if (!result) throw ApiError.notFound('Task not found')
       await store.recordActivity('task.completed', result.task.title)
@@ -275,7 +272,6 @@ export async function completeMcpTask(context: McpTodoContext, input: { operatio
 
 export async function deleteMcpTask(context: McpTodoContext, input: { operationId: string; taskId: string }): Promise<Record<string, unknown>> {
   const store = storeFor(context)
-  const existing = await readTask(store, input.taskId)
   return runIdempotent({
     db: context.env.DB,
     userId: context.userId,
@@ -283,6 +279,7 @@ export async function deleteMcpTask(context: McpTodoContext, input: { operationI
     tool: 'delete_todo',
     request: input,
     execute: async () => {
+      const existing = await readTask(store, input.taskId)
       await store.deleteTask(existing.id)
       await store.recordActivity('task.deleted', existing.title)
       return { deleted: true, task_id: existing.id }
