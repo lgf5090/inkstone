@@ -26,7 +26,7 @@
 | P1-01 | done | F5 mint idempotency key before first write; retry 429 with Retry-After; sequence outbox; isolate 5xx | lost response does not duplicate; FIFO; one failure does not block shared queue | 7f45b0c4 |
 | P1-02 | done | F6 make move/copy/import/attachment delete recoverable and atomic | injected mid-batch/R2 failures leave no visible half-state or orphan bytes | 40e9aa47 |
 | P1-03 | done | F7 remap property config/formula/relation/permissions on move; rebuild copied relations; enforce quotas | moved/copy cards retain config and relation edges; target caps enforced | 30ef877f |
-| P1-04 | done | F10 make cross-category drag move and reorder atomically | source board appears only in target category at requested position | pending hash |
+| P1-04 | done | F10 make cross-category drag move and reorder atomically | source board appears only in target category at requested position | dd2a4c7b |
 | P1-05 | pending | F11 make board/list drag one command; fix expanded subtask index | failed drag rolls back; expanded list drop lands on intended root | - |
 | P1-06 | pending | F12 re-check role/field permission for Todo sync, notifications and trash attachments | viewer cannot mutate via Todo; private/trash data not delivered | - |
 | P1-07 | pending | F14 preserve relation edges on soft delete; prevent same-batch parent cycles; validate Sprint ownership | restore rebuilds references; A→B/B→A rejected; wrong Sprint card rejected | - |
@@ -92,4 +92,4 @@
 - 2026-11-25: P1-01 completed in `7f45b0c4`; first write and replay share an idempotency key, 429/5xx retry without stopping the shared queue, and queue timestamps are monotonic.
 - 2026-11-25: P1-02 completed in `40e9aa47`; oversized multi-step writes reject before mutation, relation edges commit with copies/imports, account import rolls back earlier boards, and attachment deletion leaves retryable cleanup rows.
 - 2026-11-25: P1-03 completed in `30ef877f`; moved properties remap formula/relation/rollup/permission config, copied cards rebuild relation edges, quotas are enforced, and time/sprint/source cursor follow the move.
-- 2026-11-25: P1-04 completed; category reorder now atomically moves cross-category boards and validates board visibility.
+- 2026-11-25: P1-04 completed in `dd2a4c7b`; category reorder now atomically moves cross-category boards and validates board visibility.
