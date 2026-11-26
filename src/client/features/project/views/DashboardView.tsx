@@ -17,6 +17,7 @@ import { projectEffortStats, projectPriorityBuckets, projectPriorityProperty, pr
 import { t, useLocale } from '../../../lib/i18n'
 import { ViewHead, ViewShell } from './shell'
 import { useProjectPeople } from '../people-context'
+import { useToday } from '../use-today'
 import { fetchBoardActivity } from '../api'
 
 const DAY_MS = 86_400_000
@@ -84,7 +85,7 @@ export function DashboardView(props: DashboardProps): ReactElement {
     return () => controller.abort()
   }, [boardId])
 
-  const today = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
+  const today = useToday()
   const buckets = useMemo(() => {
     const overdue: ProjectCard[] = []
     const soon: ProjectCard[] = []

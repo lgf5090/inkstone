@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectCard, ProjectFilterClause, ProjectFilterGroup, ProjectProperty } from './model'
 import { emptyProjectFilterGroup } from './model'
+import { projectDayToStamp } from './date'
 import { groupProjectCards, matchProjectFilterGroup, matchProjectViewSearch, orderProjectCards, projectFilterPrefill, projectGroupKeys, projectGroupLabel, projectKanbanDropOrder, projectPropertyDisplayText, sortProjectCards, sortProjectViewsAlphabetically } from './view-eval'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u2', createAt: 1_000_000, updateAt: 2_000_000, deleteAt: 0 }
@@ -62,11 +63,12 @@ describe('filter conditions (§6.4)', () => {
   })
 
   it('date is equals a single, contains a range, and createdTime uses the open half-day window', () => {
-    const single = card('s', { pd: '{"from":5000}' })
-    const range = card('r', { pd: '{"from":1000,"to":9000}' })
-    expect(matchProjectFilterGroup(single, group('and', [clause('pd', 'is', ['5000'])]), props)).toBe(true)
-    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'is', ['5000'])]), props)).toBe(true)
-    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'is', ['9500'])]), props)).toBe(false)
+    const day = (date: number) => projectDayToStamp(new Date(2026, 10, date))
+    const single = card('s', { pd: JSON.stringify({ from: day(15) }) })
+    const range = card('r', { pd: JSON.stringify({ from: day(15), to: day(19) }) })
+    expect(matchProjectFilterGroup(single, group('and', [clause('pd', 'is', [String(day(15))])]), props)).toBe(true)
+    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'is', [String(day(15))])]), props)).toBe(true)
+    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'is', [String(day(20))])]), props)).toBe(false)
     const c = { ...card('c'), createAt: 200_000_000 }
     expect(matchProjectFilterGroup(c, group('and', [clause('pc', 'is', ['200000000'])]), props)).toBe(true)
     expect(matchProjectFilterGroup(c, group('and', [clause('pc', 'isBefore', ['300000000'])]), props)).toBe(true)
@@ -77,11 +79,23 @@ describe('filter conditions (§6.4)', () => {
   })
 
   it('isAfter prefers the range end and isBefore reads the start', () => {
-    const range = card('r', { pd: '{"from":1000,"to":9000}' })
-    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'isAfter', ['5000'])]), props)).toBe(true)
-    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'isAfter', ['9500'])]), props)).toBe(false)
-    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'isBefore', ['500'])]), props)).toBe(false)
-    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'isBefore', ['2000'])]), props)).toBe(true)
+    const day = (date: number) => projectDayToStamp(new Date(2026, 10, date))
+    const range = card('r', { pd: JSON.stringify({ from: day(15), to: day(19) }) })
+    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'isAfter', [String(day(18))])]), props)).toBe(true)
+    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'isAfter', [String(day(19))])]), props)).toBe(false)
+    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'isBefore', [String(day(15))])]), props)).toBe(false)
+    expect(matchProjectFilterGroup(range, group('and', [clause('pd', 'isBefore', [String(day(16))])]), props)).toBe(true)
+  })
+
+  it('matches date filters by the stored zone and includes the end day', () => {
+    const zone = 'Pacific/Auckland'
+    const from = projectDayToStamp(new Date(2026, 10, 15), false, zone)
+    const to = projectDayToStamp(new Date(2026, 10, 19), false, zone)
+    const target = projectDayToStamp(new Date(2026, 10, 19), false, zone)
+    const ranged = card('r', { pd: JSON.stringify({ from, to, timeZone: zone }) })
+    expect(matchProjectFilterGroup(ranged, group('and', [clause('pd', 'is', [String(target)])]), props)).toBe(true)
+    expect(matchProjectFilterGroup(ranged, group('and', [clause('pd', 'isBefore', [String(from)])]), props)).toBe(false)
+    expect(matchProjectFilterGroup(ranged, group('and', [clause('pd', 'isAfter', [String(to)])]), props)).toBe(false)
   })
 
   it('evaluates nested (A and B) or C', () => {

@@ -23,6 +23,7 @@ import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { useEvent } from '../../../lib/hooks'
 import { CardBadges, OptionChip } from '../CardBadges'
 import { useProjectPeople } from '../people-context'
+import { useToday } from '../use-today'
 import { CardGrip, DropLine } from './card-face'
 import { QuickAdd, ViewHead, ViewShell } from './shell'
 import { useDragSort } from './use-drag-sort'
@@ -233,7 +234,7 @@ export function ListView(props: ListProps): ReactElement {
   const [renaming, setRenaming] = useState<{ id: string, value: string } | null>(null)
   const [columnsOpen, setColumnsOpen] = useState(false)
   const columnsAnchor = useRef<HTMLButtonElement>(null)
-  const today = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
+  const today = useToday()
   const priorityProperty = useMemo(() => projectPriorityProperty(properties), [properties])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const dateProperty = useMemo(() => properties.find((property) => property.type === 'date'), [properties])

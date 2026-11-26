@@ -24,6 +24,7 @@ import {
 import { t, useLocale } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox } from '../../../components/form'
+import { useToday } from '../use-today'
 import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
 import { DependencyEdges, RowToggle, ScheduleBar, UnscheduledTray, type BarGeometry } from './schedule-parts'
@@ -52,7 +53,7 @@ export function TimelineView(props: TimelineProps): ReactElement {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [showTray, setShowTray] = useState(true)
   const viewport = useRef<HTMLDivElement | null>(null)
-  const today = useMemo(() => Date.now(), [])
+  const today = useToday()
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const isDone = useCallback((card: ProjectCard) => isProjectCardDone(card, properties), [properties])
 

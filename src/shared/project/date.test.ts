@@ -125,6 +125,17 @@ describe('moving a value to a new start day', () => {
     expect(moved).toEqual({ from: 5000, to: 6000, includeTime: true, timeZone: 'Asia/Shanghai' })
     expect(moveProjectDateValue({ from: 1000, includeTime: false }, 5000)).toEqual({ from: 5000 })
   })
+
+  it('moves an all-day range by calendar days across a DST boundary', () => {
+    const value = {
+      from: projectDayToStamp(new Date(2026, 2, 7), false, 'America/New_York'),
+      to: projectDayToStamp(new Date(2026, 2, 9), false, 'America/New_York'),
+      timeZone: 'America/New_York',
+    }
+    const moved = moveProjectDateValue(value, projectDayToStamp(new Date(2026, 2, 10), false, value.timeZone))
+    expect(projectStampToInput(moved.from!, false, value.timeZone)).toBe('2026-03-10')
+    expect(projectStampToInput(moved.to!, false, value.timeZone)).toBe('2026-03-12')
+  })
 })
 
 describe('recording the zone a day was picked in', () => {
@@ -140,5 +151,25 @@ describe('recording the zone a day was picked in', () => {
     const winter = projectDateValue(new Date(2026, 6, 15), { timeZone: 'America/New_York' }).from!
     expect(new Date(summer).getUTCHours()).toBe(17)
     expect(new Date(winter).getUTCHours()).toBe(16)
+  })
+
+  it('keeps the stored zone when reading a calendar range', () => {
+    const value = {
+      from: projectDayToStamp(new Date(2026, 10, 15), false, 'Pacific/Auckland'),
+      to: projectDayToStamp(new Date(2026, 10, 19), false, 'Pacific/Auckland'),
+      timeZone: 'Pacific/Auckland',
+    }
+    const range = projectValueToCalendarRange(value)!
+    expect([range.start.getFullYear(), range.start.getMonth() + 1, range.start.getDate()]).toEqual([2026, 11, 15])
+    const last = new Date(range.end)
+    last.setDate(last.getDate() - 1)
+    expect([last.getFullYear(), last.getMonth() + 1, last.getDate()]).toEqual([2026, 11, 19])
+  })
+
+  it('does not apply the stored zone a second time to an includeTime instant', () => {
+    const stamp = new Date(2026, 10, 15, 1, 30).getTime()
+    const expected = new Date(stamp)
+    expected.setHours(0, 0, 0, 0)
+    expect(projectStampToDay(stamp, true, 'Pacific/Auckland').getTime()).toBe(expected.getTime())
   })
 })

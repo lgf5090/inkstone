@@ -23,6 +23,7 @@ import { optionColorItems } from '../card-menu'
 import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { useEvent } from '../../../lib/hooks'
 import { useProjectPeople } from '../people-context'
+import { useToday } from '../use-today'
 import { QuickAdd, ViewShell } from './shell'
 import { CardFace, CardGrip, DropLine, SubtaskProgress, SubtaskRows } from './card-face'
 import { useDragSort, type DragDropTarget, type DragOverStore } from './use-drag-sort'
@@ -97,7 +98,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
     ? fields.visiblePropertyIds.map((id) => properties.find((property) => property.id === id)).filter((property): property is ProjectProperty => Boolean(property))
     : properties), [fields.visiblePropertyIds, properties])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
-  const todayStamp = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
+  const todayStamp = useToday()
 
   const onDrop = (cardId: string, target: DragDropTarget): void => {
     const bulk = selected.length > 1 && selectedSet.has(cardId)

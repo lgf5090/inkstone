@@ -11,10 +11,9 @@ import { CalendarRange, Maximize2, Plus, Settings2, Trash2, ZoomIn, ZoomOut } fr
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectScheduleScale, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
 import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
-import { projectDateValue, projectTimeZoneName } from '@shared/project/date'
+import { parseProjectDateValue, projectDateValue, projectTimeZoneName } from '@shared/project/date'
 import {
   PROJECT_TIMELINE_COLUMN_PX,
-  PROJECT_TIMELINE_DAY_MS,
   projectCardDays,
   projectCardProgress,
   projectScheduleConflicts,
@@ -32,6 +31,7 @@ import { SelectMenu } from '../../../components/select-menu'
 import { prompt } from '../../../components/overlay'
 import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { createProjectCard } from '../api'
+import { useToday } from '../use-today'
 import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
 import { DependencyEdges, RowToggle, ScheduleBar, UnscheduledTray, type BarGeometry } from './schedule-parts'
@@ -75,7 +75,7 @@ export function GanttView(props: GanttProps): ReactElement {
   const [showTray, setShowTray] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
   const viewport = useRef<HTMLDivElement | null>(null)
-  const today = useMemo(() => Date.now(), [])
+  const today = useToday()
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const isDone = useCallback((card: ProjectCard) => isProjectCardDone(card, properties), [properties])
   const planning = canEdit && Boolean(propertyId)
@@ -124,16 +124,35 @@ export function GanttView(props: GanttProps): ReactElement {
 
   const writeRange = (cardId: string, from: number, to: number): void => {
     if (!propertyId) return
-    const value = projectDateValue(new Date(from), { to: to === from ? undefined : new Date(to), timeZone: projectTimeZoneName() })
+    const card = props.cards.find((entry) => entry.id === cardId)
+    const current = card ? parseProjectDateValue(card.values[propertyId] ?? '') : null
+    const fromDate = new Date(from)
+    const toDate = to === from ? undefined : new Date(to)
+    if (current?.includeTime === true) {
+      if (current.from !== undefined) {
+        const previous = new Date(current.from)
+        fromDate.setHours(previous.getHours(), previous.getMinutes(), previous.getSeconds(), previous.getMilliseconds())
+      }
+      if (toDate && current.to !== undefined) {
+        const previous = new Date(current.to)
+        toDate.setHours(previous.getHours(), previous.getMinutes(), previous.getSeconds(), previous.getMilliseconds())
+      }
+    }
+    const value = projectDateValue(fromDate, {
+      to: toDate,
+      includeTime: current?.includeTime === true,
+      timeZone: current?.timeZone ?? projectTimeZoneName(),
+    })
     void props.onPatchCard(cardId, { values: { [propertyId]: JSON.stringify(value) } })
   }
 
   const shiftRange = (cardId: string, mode: 'start' | 'end', delta: number): void => {
     const range = daysByCard.get(cardId)
     if (!range) return
-    const shift = delta * PROJECT_TIMELINE_DAY_MS
-    const from = mode === 'start' ? Math.min(range.end, range.start + shift) : range.start
-    const to = mode === 'end' ? Math.max(from, range.end + shift) : range.end
+    const shiftedStart = projectTimelineDragRange({ from: range.start, to: range.start }, delta).from
+    const shiftedEnd = projectTimelineDragRange({ from: range.end, to: range.end }, delta).from
+    const from = mode === 'start' ? Math.min(range.end, shiftedStart) : range.start
+    const to = mode === 'end' ? Math.max(from, shiftedEnd) : range.end
     writeRange(cardId, from, to)
   }
 

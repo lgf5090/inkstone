@@ -69,7 +69,7 @@ export function projectDayToStamp(day: Date, includeTime = false, timeZone?: str
 
 /** Reader: a stored stamp becomes the calendar day it was picked on, in the zone it was picked in. */
 export function projectStampToDay(stamp: number, includeTime = false, timeZone?: string): Date {
-  if (timeZone) {
+  if (timeZone && !includeTime) {
     const wall = wallClock(stamp, timeZone)
     return new Date(wall.year, wall.month - 1, wall.day)
   }
@@ -155,10 +155,10 @@ export function projectCalendarRangeToValue(start: Date, end: Date, timeZone?: s
 /** Calendar reader: no `to` means the range covers exactly the `from` day. */
 export function projectValueToCalendarRange(value: ProjectDateValue): { start: Date, end: Date } | null {
   if (value.from === undefined) return null
-  const start = projectStampToDay(value.from, value.includeTime === true)
+  const start = projectStampToDay(value.from, value.includeTime === true, value.timeZone)
   const end = value.to === undefined
     ? new Date(start)
-    : projectStampToDay(value.to, value.includeTime === true)
+    : projectStampToDay(value.to, value.includeTime === true, value.timeZone)
   end.setDate(end.getDate() + 1)
   return { start, end }
 }
@@ -170,7 +170,19 @@ export function projectValueToCalendarRange(value: ProjectDateValue): { start: D
  */
 export function moveProjectDateValue(value: ProjectDateValue, from: number): ProjectDateValue {
   const moved: ProjectDateValue = { from }
-  if (value.to !== undefined) moved.to = value.to + (value.from === undefined ? 0 : from - value.from)
+  if (value.to !== undefined) {
+    if (value.from === undefined || value.includeTime === true) {
+      moved.to = value.to + (value.from === undefined ? 0 : from - value.from)
+    } else {
+      const start = projectStampToDay(value.from, false, value.timeZone)
+      const end = projectStampToDay(value.to, false, value.timeZone)
+      const next = projectStampToDay(from, false, value.timeZone)
+      const days = Math.round((Date.UTC(end.getFullYear(), end.getMonth(), end.getDate())
+        - Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) / PROJECT_ONE_DAY_MS)
+      next.setDate(next.getDate() + days)
+      moved.to = projectDayToStamp(next, false, value.timeZone)
+    }
+  }
   if (value.includeTime === true) moved.includeTime = true
   if (value.timeZone !== undefined) moved.timeZone = value.timeZone
   return moved

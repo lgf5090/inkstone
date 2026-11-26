@@ -43,15 +43,25 @@ function localMidnight(stamp: number): number {
   return day.getTime()
 }
 
+function addLocalDays(stamp: number, days: number): number {
+  const day = new Date(localMidnight(stamp))
+  day.setDate(day.getDate() + days)
+  return day.getTime()
+}
+
+function localDayNumber(stamp: number): number {
+  const day = new Date(localMidnight(stamp))
+  return Math.round(Date.UTC(day.getFullYear(), day.getMonth(), day.getDate()) / PROJECT_TIMELINE_DAY_MS)
+}
+
 /**
  * The window the axis draws: every dated card, padded by three days each side, or the fortnight
  * around today when nothing is dated yet — an empty axis still has to say what dates it covers.
  */
 export function projectTimelineWindow(ranges: readonly TimelineRange[], today: number, padDays = 3): { start: number, end: number } {
-  const pad = padDays * PROJECT_TIMELINE_DAY_MS
   if (ranges.length === 0) {
     const base = localMidnight(today)
-    return { start: base - 7 * PROJECT_TIMELINE_DAY_MS, end: base + 7 * PROJECT_TIMELINE_DAY_MS }
+    return { start: addLocalDays(base, -7), end: addLocalDays(base, 7) }
   }
   let min = Infinity
   let max = -Infinity
@@ -59,7 +69,7 @@ export function projectTimelineWindow(ranges: readonly TimelineRange[], today: n
     if (range.from < min) min = range.from
     if (range.to > max) max = range.to
   }
-  return { start: localMidnight(min) - pad, end: localMidnight(max) + pad }
+  return { start: addLocalDays(min, -padDays), end: addLocalDays(max, padDays) }
 }
 
 export interface TimelineDay {
@@ -73,7 +83,7 @@ export interface TimelineDay {
 export function projectTimelineDays(window: { start: number, end: number }, today: number): TimelineDay[] {
   const todayStamp = localMidnight(today)
   const days: TimelineDay[] = []
-  for (let stamp = window.start; stamp <= window.end; stamp += PROJECT_TIMELINE_DAY_MS) {
+  for (let stamp = localMidnight(window.start); stamp <= localMidnight(window.end); stamp = addLocalDays(stamp, 1)) {
     const date = new Date(stamp)
     const weekday = date.getDay()
     days.push({ stamp, weekend: weekday === 0 || weekday === 6, today: stamp === todayStamp, monthStart: date.getDate() === 1 })
@@ -83,9 +93,8 @@ export function projectTimelineDays(window: { start: number, end: number }, toda
 
 /** Where a bar sits inside the window, in whole columns; a range is inclusive of its last day. */
 export function projectTimelineBar(range: TimelineRange, window: { start: number, end: number }): { left: number, width: number } {
-  const day = PROJECT_TIMELINE_DAY_MS
-  const left = Math.round((range.from - window.start) / day)
-  const last = Math.round((range.to - window.start) / day)
+  const left = localDayNumber(range.from) - localDayNumber(window.start)
+  const last = localDayNumber(range.to) - localDayNumber(window.start)
   return { left, width: Math.max(1, last - left + 1) }
 }
 
@@ -144,8 +153,7 @@ export function projectTimelineRows(cards: readonly ProjectCard[], collapsed: Re
  * writer turns both ends back into stored stamps so the move cannot quietly become a single day.
  */
 export function projectTimelineDragRange(range: TimelineRange, columns: number): TimelineRange {
-  const shift = Math.round(columns) * PROJECT_TIMELINE_DAY_MS
-  return { from: range.from + shift, to: range.to + shift }
+  return { from: addLocalDays(range.from, Math.round(columns)), to: addLocalDays(range.to, Math.round(columns)) }
 }
 
 /** Which column a pointer at `offsetX` is over, clamped into the drawn window. */
@@ -266,5 +274,5 @@ export function projectScheduleSpanDays(ranges: readonly TimelineRange[]): numbe
     if (range.from < min) min = range.from
     if (range.to > max) max = range.to
   }
-  return Math.max(1, Math.round((max - min) / PROJECT_TIMELINE_DAY_MS) + 1)
+  return Math.max(1, localDayNumber(max) - localDayNumber(min) + 1)
 }
