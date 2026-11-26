@@ -5,13 +5,14 @@ import { Temporal } from 'temporal-polyfill'
 import {
   IcsParseError,
   encodeIcsChunks,
+  expandRecurringEvents,
   icsCalendarChunks,
   icsExternalId,
   parseIcsCalendar,
   serializeIcsCalendar,
 } from '../src/worker/calendar/ics'
 import type { IcsParseInput } from '../src/worker/calendar/ics'
-import type { CalendarEventInput, TemporalValue } from '../src/shared/calendar/model'
+import type { CalendarEventDto, CalendarEventInput, TemporalValue } from '../src/shared/calendar/model'
 
 function fixture(name: string): string {
   return readFileSync(resolve(process.cwd(), 'tests/fixtures/calendar', name), 'utf8')
@@ -134,32 +135,40 @@ describe('parseIcsCalendar', () => {
     expect(event.meta?.recurrenceId).toBeUndefined()
   })
 
-  it('flattens EXDATE, RDATE and RECURRENCE-ID instances without duplicates', () => {
+  it('preserves a recurring master, EXDATE/RDATE and its override', () => {
     const result = parseFixture('exceptions.ics')
-    expect(result.events).toHaveLength(5)
+    expect(result.events).toHaveLength(2)
+    const master = byUid(result.events, 'daily-1@example.com')
+    const override = result.events.find(event => event.title === 'Moved standup')!
+    expect(master.recurrenceRule).toBe('FREQ=DAILY;COUNT=5')
+    expect(master.meta?.exdates).toHaveLength(2)
+    expect(master.meta?.rdates).toHaveLength(1)
+    expect(override.recurrenceRule).toBeNull()
+    expect((override.meta?.recurrenceId as TemporalValue).value).toBe('2025-02-06T10:00:00+00:00[UTC]')
+    expect(override.start.value).toBe('2025-02-06T12:00:00+00:00[UTC]')
+    expect(result.warnings.find(warning => warning.code === 'flattened')?.message)
+      .toContain('preserved without flattening')
+    const output = serializeIcsCalendar({ name: 'Exceptions', timeZone: 'UTC', events: result.events })
+    expect(output.match(/UID:daily-1@example\.com/g)).toHaveLength(2)
+    expect(output).toContain('RECURRENCE-ID:20250206T100000Z')
+    expect(parseIcsCalendar({ content: output, defaultTimeZone: 'UTC', maxEvents: 10 }).events).toHaveLength(2)
+  })
 
-    const starts = result.events.map((event) => event.start.value).sort()
-    expect(starts).toEqual([
-      '2025-02-03T10:00:00+00:00[UTC]',
-      '2025-02-05T10:00:00+00:00[UTC]',
-      '2025-02-06T12:00:00+00:00[UTC]',
-      '2025-02-07T10:00:00+00:00[UTC]',
-      '2025-02-10T10:00:00+00:00[UTC]',
-    ])
-
-    const recurrenceIds = result.events.map((event) => {
-      return (event.meta?.recurrenceId as TemporalValue | undefined)?.value
+  it('expands an old exception series in the current range', () => {
+    const result = parseIcsCalendar({
+      defaultTimeZone: 'UTC', maxEvents: 10,
+      content: [
+        'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Audit//EN', 'BEGIN:VEVENT', 'UID:old',
+        'DTSTART:20190107T090000Z', 'DTEND:20190107T100000Z', 'RRULE:FREQ=WEEKLY;BYDAY=MO',
+        'EXDATE:20261123T090000Z', 'SUMMARY:Old weekly', 'END:VEVENT', 'END:VCALENDAR', '',
+      ].join('\r\n'),
     })
-    expect(recurrenceIds.filter((value): value is string => Boolean(value))).toHaveLength(5)
-    expect(new Set(recurrenceIds).size).toBe(5)
-    expect(result.events.every((event) => event.recurrenceRule === null)).toBe(true)
-    expect(result.events.every((event) => event.meta?.recurrenceRule === undefined)).toBe(true)
-    expect(byUid(result.events, 'daily-1@example.com')).toBeDefined()
-    expect(result.events.find((event) => event.title === 'Moved standup')?.start.value)
-      .toBe('2025-02-06T12:00:00+00:00[UTC]')
-    expect(result.warnings.filter((warning) => warning.code === 'flattened')).toHaveLength(1)
-    expect(result.warnings.find((warning) => warning.code === 'flattened')?.message)
-      .toContain('5 independent occurrences')
+    const stored = result.events.map((event, index) => ({
+      ...event, id: event.id ?? `old-${index}`, calendarId: 'cal', calendarIds: ['cal'], rev: 1,
+      recurrenceParentId: null, recurrenceId: null, recurrenceCancelled: false, source: 'local' as const, externalId: null,
+    })) as CalendarEventDto[]
+    const expanded = expandRecurringEvents(stored, Date.parse('2026-11-23T00:00:00Z'), Date.parse('2026-12-01T00:00:00Z'), 'UTC')
+    expect(expanded.occurrences.map(event => event.start.value)).toEqual(['2026-11-30T09:00:00+00:00[UTC]'])
   })
 
   it('resolves a DST boundary in the event zone rather than in UTC', () => {

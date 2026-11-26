@@ -30,10 +30,8 @@ const MAX_ICS_PROPERTY_CHARS = 64 * 1024
 const MAX_ICS_COMPONENT_DEPTH = 4
 const MAX_CATEGORIES = 100
 const MAX_META_DATES = 500
-const MAX_FLATTEN_ITERATIONS = 100_000
 const MAX_ZONE_CACHE_ENTRIES = 500
 const ICS_CONTROL_CHARS = /[\u0000-\u001F\u007F]/
-const FLATTEN_WINDOW_YEARS = 2
 
 /** A stable per-calendar external id; flattened occurrences need their recurrence id in the key. */
 export async function icsExternalId(
@@ -563,110 +561,37 @@ interface EventGroup {
   duplicateMasters: IcalComponent[]
 }
 
-function flattenSeries(
+function importSeries(
   group: EventGroup,
   defaultTimeZone: string,
   limit: number,
   events: CalendarEventInput[],
   warnings: IcsWarning[],
 ): void {
-  const master = group.master
-  if (!master) return
-  const uid = group.uid
-  const warningContext: WarningContext = { warnings, ...(uid ? { uid } : {}), line: group.line }
-  const masterStart = readTimeProperty(master, 'dtstart', warningContext)
-  if (!masterStart) {
-    addWarning(warningContext, 'invalid_event', 'The recurring event has no usable DTSTART and was skipped.')
-    return
-  }
-  let icalEvent: InstanceType<typeof ICAL.Event>
-  try {
-    icalEvent = new ICAL.Event(master)
-  } catch {
-    addWarning(warningContext, 'invalid_event', 'The recurring event could not be read and was skipped.')
-    return
-  }
-  for (const exception of group.exceptions) {
-    try {
-      icalEvent.relateException(exception)
-    } catch {
-      addWarning(warningContext, 'invalid_event', 'A recurrence exception could not be related to its series.')
+  const warningContext: WarningContext = { warnings, ...(group.uid ? { uid: group.uid } : {}), line: group.line }
+  const master = group.master ? mapSingleEvent(group.master, group.uid, group.line, defaultTimeZone, warnings) : null
+  const exceptions = group.exceptions
+    .map(exception => mapSingleEvent(exception, group.uid, group.line, defaultTimeZone, warnings))
+    .filter((event): event is CalendarEventInput => Boolean(event))
+  if (master) {
+    const exdates = Array.isArray(master.meta?.exdates) ? [...master.meta.exdates] : []
+    for (const exception of exceptions) {
+      const recurrenceId = exception.meta?.recurrenceId
+      if (!recurrenceId || typeof recurrenceId !== 'object' || Array.isArray(recurrenceId)) continue
+      const value = (recurrenceId as TemporalValue).value
+      if (!exdates.some(entry => entry && typeof entry === 'object' && (entry as TemporalValue).value === value)) {
+        exdates.push(recurrenceId)
+      }
     }
+    if (exdates.length > 0) master.meta = { ...master.meta, exdates }
+    if (events.length >= limit) throw new IcsParseError('too_many_events', `The calendar has more than ${limit} events.`)
+    events.push(master)
   }
-
-  const masterContext = resolveTimeContext(
-    masterStart.property,
-    masterStart.time,
-    defaultTimeZone,
-    warningContext,
-  )
-  const windowEnd = masterStart.time.clone()
-  windowEnd.year = masterStart.time.year + FLATTEN_WINDOW_YEARS
-  const exceptionContexts = new Map<IcalComponent, TimeContext>()
-  const iterator = icalEvent.iterator()
-  let emitted = 0
-  let iterations = 0
-
-  try {
-    for (;;) {
-      const next = iterator.next() as IcalTime | null
-      if (!next) break
-      iterations += 1
-      if (iterations > MAX_FLATTEN_ITERATIONS) {
-        throw new IcsParseError('too_many_events', 'The recurring event expands beyond the supported occurrence limit.')
-      }
-      if (next.compare(windowEnd) > 0) break
-      const details = icalEvent.getOccurrenceDetails(next)
-      const item = details.item
-      if (isCancelled(item.component, warningContext)) {
-        addWarning(warningContext, 'cancelled_event', 'A cancelled occurrence was skipped.')
-        continue
-      }
-      let timeContext: TimeContext
-      if (item === icalEvent) {
-        timeContext = masterContext
-      } else {
-        const cached = exceptionContexts.get(item.component)
-        if (cached) {
-          timeContext = cached
-        } else {
-          const dtstart = readTimeProperty(item.component, 'dtstart', warningContext)
-          timeContext = dtstart
-            ? resolveTimeContext(dtstart.property, dtstart.time, defaultTimeZone, warningContext)
-            : masterContext
-          exceptionContexts.set(item.component, timeContext)
-        }
-      }
-      if (events.length >= limit) {
-        throw new IcsParseError('too_many_events', `The calendar has more than ${limit} events.`)
-      }
-      events.push(mapEvent({
-        component: item.component,
-        fallback: master,
-        uid: uid ?? '',
-        uidLine: group.line,
-        startTime: details.startDate,
-        endTime: details.endDate,
-        timeContext,
-        recurrenceId: details.recurrenceId,
-        recurrenceIdContext: masterContext,
-        keepRecurrenceRule: false,
-        flattened: true,
-        warnings,
-      }))
-      emitted += 1
-    }
-  } catch (error) {
-    if (error instanceof IcsParseError) throw error
-    addWarning(warningContext, 'invalid_recurrence', 'The recurrence rule could not be expanded and the series was skipped.')
-    return
+  for (const event of exceptions) {
+    if (events.length >= limit) throw new IcsParseError('too_many_events', `The calendar has more than ${limit} events.`)
+    events.push(event)
   }
-
-  addWarning(
-    warningContext,
-    'flattened',
-    `The recurring event was flattened to ${emitted} independent occurrences within a ${FLATTEN_WINDOW_YEARS}-year window.`,
-  )
+  addWarning(warningContext, 'flattened', 'The recurring series and its exceptions were preserved without flattening.')
 }
 
 function assertComponentDepth(node: unknown, depth: number): void {
@@ -833,7 +758,7 @@ export function parseIcsCalendar(input: IcsParseInput): IcsParseResult {
         || group.master.hasProperty('exdate')
         || group.master.hasProperty('rdate')
       if (hasExceptions) {
-        flattenSeries(group, defaultTimeZone, limit, events, warnings)
+        importSeries(group, defaultTimeZone, limit, events, warnings)
         continue
       }
       const event = mapSingleEvent(group.master, group.uid, group.line, defaultTimeZone, warnings)
@@ -1090,15 +1015,7 @@ export function* icsCalendarChunks(input: IcsSerializeInput): Generator<string> 
   const header = ICAL.stringify(calendar.jCal)
   yield header.slice(0, header.length - ICS_FOOTER.length)
 
-  const usedUids = new Set<string>()
-  for (const { event, uid: baseUid } of ordered) {
-    let uid = baseUid
-    let suffix = 1
-    while (usedUids.has(uid)) {
-      suffix += 1
-      uid = `${baseUid}-${suffix}`
-    }
-    usedUids.add(uid)
+  for (const { event, uid } of ordered) {
     yield ICAL.stringify(veventFor(event, uid, input.organizerEmail).jCal)
   }
 
