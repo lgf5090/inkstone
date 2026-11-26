@@ -35,13 +35,13 @@ function fixture(): ProjectBoardBundle {
     properties: [
       { id: 'p1', name: 'Notes, "quoted"', type: 'text', options: [] },
       { id: 'p2', name: 'Hours', type: 'number', options: [] },
-      { id: 'p3', name: 'Tags', type: 'multiSelect', options: [] },
+      { id: 'p3', name: 'Tags', type: 'multiSelect', options: [{ id: 'a', value: 'Alpha', color: '' }, { id: 'b', value: 'Beta', color: '' }] },
       { id: 'p4', name: 'Due', type: 'date', options: [] },
     ],
     views: [{ id: 'v1', boardId: 'b1', title: 'V', viewType: 'calendar', fields: emptyProjectViewFields(), position: 0, ...stamps }],
     cards: [{
       id: 'c1', boardId: 'b1', parentId: '', title: 'Title, "x"', icon: '', isTemplate: false, contentOrder: [],
-      values: { p1: '#hash #second 中文', p2: '3.5', p3: '["a","b"]', p4: '{"from":1000}' }, ...stamps,
+      values: { p1: '#hash #second 中文', p2: '3.5', p3: '["a","b"]', p4: '{"from":1000,"timeZone":"UTC"}' }, ...stamps,
     }],
     contents: [], comments: [], members: [], people: {}, role: 'admin', cursor: 20, propertyRevision: 20,
   }
@@ -51,7 +51,20 @@ describe('CSV export', () => {
   it('round-trips commas, quotes, multiple hashes, Chinese and multi-values cell for cell', () => {
     const rows = parseCsv(projectBoardToCsv(fixture()))
     expect(rows[0]).toEqual(['Name', 'Notes, "quoted"', 'Hours', 'Tags', 'Due'])
-    expect(rows[1]).toEqual(['Title, "x"', '#hash #second 中文', '3.5', 'a|b', '{"from":1000}'])
+    expect(rows[1]).toEqual(['Title, "x"', '#hash #second 中文', '3.5', 'Alpha|Beta', '1970-01-01'])
+  })
+
+  it('exports option labels and inclusive ISO date ranges', () => {
+    const bundle = fixture()
+    bundle.properties = [
+      { id: 'status', name: 'Status', type: 'select', options: [{ id: 'ready', value: 'Ready', color: '' }] },
+      { id: 'due', name: 'Due', type: 'date', options: [] },
+    ]
+    bundle.cards[0]!.values = {
+      status: 'ready',
+      due: JSON.stringify({ from: Date.UTC(2026, 10, 15), to: Date.UTC(2026, 10, 19), timeZone: 'UTC' }),
+    }
+    expect(parseCsv(projectBoardToCsv(bundle))[1]).toEqual(['Title, "x"', 'Ready', '2026-11-15 – 2026-11-19'])
   })
 
   it('marks cells a spreadsheet would evaluate, while a negative number keeps its numeric cell', () => {
@@ -63,6 +76,8 @@ describe('CSV export', () => {
     expect(rows[1]![2]).toBe("'=1+1")
     bundle.cards[0]!.values.p2 = '-2.5'
     expect(parseCsv(projectBoardToCsv(bundle))[1]![2]).toBe('-2.5')
+    bundle.cards[0]!.title = '  =HYPERLINK("https://evil.example")'
+    expect(parseCsv(projectBoardToCsv(bundle))[1]![0]).toBe("'  =HYPERLINK(\"https://evil.example\")")
   })
 
   it('starts with a UTF-8 BOM and uses CRLF row endings', () => {
@@ -74,7 +89,7 @@ describe('CSV export', () => {
   it('filters to visible properties in board order and appends the calendar date', () => {
     const rows = parseCsv(projectBoardToCsv(fixture(), { visiblePropertyIds: ['p3', 'p1'], viewType: 'calendar', dateDisplayPropertyId: 'p4' }))
     expect(rows[0]).toEqual(['Name', 'Notes, "quoted"', 'Tags', 'Due'])
-    expect(rows[1]).toEqual(['Title, "x"', '#hash #second 中文', 'a|b', '{"from":1000}'])
+    expect(rows[1]).toEqual(['Title, "x"', '#hash #second 中文', 'Alpha|Beta', '1970-01-01'])
   })
 
   it('exports the server-stamped author and time columns from the card, not the value bag', () => {
@@ -84,7 +99,7 @@ describe('CSV export', () => {
       { id: 'ct', name: 'Created time', type: 'createdTime', options: [] },
     ]
     const rows = parseCsv(projectBoardToCsv(bundle))
-    expect(rows[1]).toEqual(['Title, "x"', 'u1', '10'])
+    expect(rows[1]).toEqual(['Title, "x"', 'u1', '1970-01-01T00:00:00.010Z'])
   })
 
   it('names people in person, multiPerson and author columns', () => {

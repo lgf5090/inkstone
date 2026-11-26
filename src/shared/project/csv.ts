@@ -8,6 +8,7 @@
  */
 import type { ProjectBoardBundle, ProjectCard, ProjectPeople, ProjectProperty } from './model'
 import { projectPersonLabel } from './model'
+import { parseProjectDateValue, projectStampToDay } from './date'
 
 export interface ProjectCsvOptions {
   visiblePropertyIds?: string[]
@@ -26,8 +27,9 @@ const BOM = '\uFEFF'
  * is hidden by Excel itself; a plain negative number is not a formula and keeps its numeric cell.
  */
 function formulaSafe(value: string): string {
-  if (/^[=+@\t\r]/.test(value)) return `'${value}`
-  if (/^-(?![\d.])/.test(value)) return `'${value}`
+  const trimmed = value.trimStart()
+  if (/^[=+@\t\r\n]/.test(trimmed)) return `'${value}`
+  if (/^-(?![\d.])/.test(trimmed)) return `'${value}`
   return value
 }
 
@@ -37,6 +39,17 @@ function escapeCell(value: string): string {
 
 function escapeNumberCell(raw: string): string {
   return /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw.trim()) ? raw : escapeCell(raw)
+}
+
+function csvDate(value: string): string {
+  const parsed = parseProjectDateValue(value)
+  if (parsed?.from === undefined) return value
+  const day = (stamp: number): string => {
+    const date = projectStampToDay(stamp, parsed.includeTime === true, parsed.timeZone)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  }
+  const from = day(parsed.from)
+  return parsed.to === undefined || parsed.to === parsed.from ? from : `${from} – ${day(parsed.to)}`
 }
 
 function exportCell(card: ProjectCard, property: ProjectProperty, people: ProjectPeople): string {
@@ -51,17 +64,24 @@ function exportCell(card: ProjectCard, property: ProjectProperty, people: Projec
       return escapeCell(projectPersonLabel(people, card.modifiedBy))
     case 'person':
       return escapeCell(projectPersonLabel(people, raw))
+    case 'select':
+      return escapeCell(property.options.find((option) => option.id === raw)?.value ?? raw)
+    case 'date':
+      return escapeCell(csvDate(raw))
     case 'createdTime':
-      return escapeCell(String(card.createAt))
+      return escapeCell(new Date(card.createAt).toISOString())
     case 'updatedTime':
-      return escapeCell(String(card.updateAt))
+      return escapeCell(new Date(card.updateAt).toISOString())
     default: {
       if (MULTI_VALUE_TYPES.has(property.type)) {
         try {
           const parsed: unknown = JSON.parse(raw)
           if (Array.isArray(parsed)) {
             const ids = parsed.map(String)
-            return escapeCell((property.type === 'multiPerson' ? ids.map((id) => projectPersonLabel(people, id)) : ids).join('|'))
+            const labels = ids.map((id) => property.type === 'multiPerson'
+              ? projectPersonLabel(people, id)
+              : property.options.find((option) => option.id === id)?.value ?? id)
+            return escapeCell(labels.join('|'))
           }
         } catch {
           // A scalar masquerading as a multi-value falls through to ordinary text.
