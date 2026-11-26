@@ -88,6 +88,19 @@ describe('writing a task', () => {
     expect(updated?.repeat).toEqual({ freq: 'weekly', interval: 1 })
   })
 
+  it('does not write a status event when a stale revision is refused', async () => {
+    const task = await store.createTask({ title: 'Guarded status' })
+    await store.updateTask(task.id, { priority: 'high' })
+
+    await expect(store.updateTask(task.id, { status: 'in_progress' }, 'UTC', task.rev))
+      .rejects.toMatchObject({ status: 409 })
+
+    const events = sqlite.prepare(
+      `SELECT COUNT(*) AS n FROM todos_task_events WHERE user_id = ?1 AND task_id = ?2 AND kind = 'status'`,
+    ).get(USER, task.id) as { n: number }
+    expect(events.n).toBe(0)
+  })
+
   it('moves a reminder with its due date', async () => {
     const due = Date.parse('2026-10-20T09:00:00Z')
     const task = await store.createTask({ title: 'Call', dueAt: due, remindAt: due - HOUR })

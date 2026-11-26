@@ -366,6 +366,12 @@ describe('a series deciding whether it owes another occurrence', () => {
     expect(next.rule.produced).toBe(2)
   })
 
+  it('does not spend a counted occurrence on an excluded landing day', () => {
+    const next = at({ count: 2, produced: 1, excludedDays: ['2026-03-19'] })
+    expect(next.dueAt).toBe(Date.parse('2026-03-26T09:00:00Z'))
+    expect(next.rule.produced).toBe(2)
+  })
+
   it('counts a rule written before the counter existed as its series first occurrence', () => {
     // The only reading that does not restart a series the reader has already run: an absent counter
     // is 1, so `count: 1` means "this row was the whole series".

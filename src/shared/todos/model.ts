@@ -1207,7 +1207,6 @@ export function advanceRepeat(
   for (let skips = 0; excluded && excluded.has(zonedDay(candidate, opts.timeZone)); skips += 1) {
     if (skips >= MAX_REPEAT_SKIPS) return { dueAt: null, stopped: 'until', rule }
     candidate = nextOccurrence(candidate, rule, opts.timeZone)
-    if (rule.count != null && produced + skips + 1 >= rule.count) return { dueAt: null, stopped: 'count', rule }
   }
   if (rule.untilAt != null && candidate > rule.untilAt) return { dueAt: null, stopped: 'until', rule }
   return { dueAt: candidate, rule: { ...rule, produced: produced + 1 } }

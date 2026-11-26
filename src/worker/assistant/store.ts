@@ -5946,6 +5946,28 @@ export class AssistantStore {
     ).bind(this.userId, newId(), taskId, at, onDay, kind, fromStatus, toStatus)
   }
 
+  private taskStatusEventStatement(
+    taskId: string,
+    at: number,
+    onDay: string,
+    fromStatus: TaskStatus,
+    toStatus: TaskStatus,
+  ): D1PreparedStatement {
+    return this.db.prepare(
+      `INSERT INTO todos_task_events (user_id, id, task_id, at, on_day, kind, from_status, to_status)
+       SELECT ?1, ?2, ?3, ?4, ?5, 'status', ?6, ?7
+        WHERE EXISTS (
+          SELECT 1 FROM todos_tasks
+           WHERE user_id = ?1 AND id = ?3 AND status = ?7 AND updated_at = ?4
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM todos_task_events
+             WHERE user_id = ?1 AND task_id = ?3 AND kind = 'status'
+               AND from_status = ?6 AND to_status = ?7 AND at = ?4
+          )`,
+    ).bind(this.userId, newId(), taskId, at, onDay, fromStatus, toStatus)
+  }
+
   /**
    * Writes one task's named columns and moves its revision on.
    *
@@ -6385,11 +6407,10 @@ export class AssistantStore {
         // and its day is the account's calendar day of that instant, so a completion's row and its
         // event cannot disagree about when it happened. A patch naming the status the row already
         // has moves nothing and records nothing.
-        event = this.taskEvent(
+        event = this.taskStatusEventStatement(
           id,
           completedAt ?? at,
           completedOn ?? (await this.taskDay(at, timeZone)),
-          'status',
           existing.status,
           patch.status,
         )
