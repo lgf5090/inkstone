@@ -196,8 +196,10 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
         />
       )
     case 'formula':
-    case 'rollup':
-      return <span className="text-[length:var(--text-12)] text-[var(--text-secondary)] tabular">{value || t('project.value.empty')}</span>
+    case 'rollup': {
+      const error = card?.valueErrors?.[property.id]
+      return <span role={error ? 'alert' : undefined} className="text-[length:var(--text-12)] text-[var(--text-secondary)] tabular">{error ? `#${error}` : value || t('project.value.empty')}</span>
+    }
     case 'createdBy':
     case 'updatedBy':
     case 'createdTime':

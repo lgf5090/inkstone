@@ -413,6 +413,7 @@ export interface ProjectCard {
   /** Content and comment ids in reading order; a nested array threads comments under one block. */
   contentOrder: (string | string[])[]
   values: Record<string, string>
+  valueErrors?: Record<string, string>
   /** A repeating card spawns its next instance when completed; absent is an ordinary card. */
   recurrence?: ProjectRecurrence | null
   completedAt?: number

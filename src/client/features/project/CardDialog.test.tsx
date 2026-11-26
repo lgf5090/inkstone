@@ -84,6 +84,17 @@ describe('the card dialog', () => {
     expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { values: { ps: 'o2' } })
   })
 
+  it('shows a formula error instead of an empty cell', async () => {
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, {
+        card: { ...card, valueErrors: { pf: 'unknown reference Missing' } },
+        properties: [...properties, { id: 'pf', name: 'Formula', type: 'formula', options: [], config: { expression: '{Missing}' } }],
+        members: [], people: {}, contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
+      }))
+    })
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe('#unknown reference Missing')
+  })
+
   it('posts a comment and appends it to the list', async () => {
     const comment: ProjectComment = { id: 'm1', cardId: 'c1', boardId: 'b1', authorId: 'u1', body: 'Hello', createAt: 1, updateAt: 1, deleteAt: 0 }
     vi.mocked(api.createCardComment).mockResolvedValue(comment)

@@ -14,7 +14,7 @@ import type {
   ProjectRole,
   ProjectView,
 } from '@shared/project/model'
-import { evaluateProjectFormula } from '@shared/project/formula'
+import { evaluateProjectFormulaResult, projectFormulaDependencyOrder, projectFormulaReferenceValue } from '@shared/project/formula'
 import { evaluateProjectRollup, projectRollupCycleIds, projectRollupOrder } from '@shared/project/rollup'
 import { projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
 import { PROJECT_LIMITS } from '@shared/project/limits'
@@ -201,24 +201,6 @@ export async function readProjectBoardBundle(
     properties,
     role,
   ))
-  const formulaProperties = visibleProperties.filter((property) => property.type === 'formula' && property.config?.expression)
-  if (formulaProperties.length > 0) {
-    for (const card of cards) {
-      const byName = new Map<string, string>()
-      for (const property of visibleProperties) {
-        if (property.type === 'formula') continue
-        const value = card.values[property.id] ?? ''
-        byName.set(property.name.trim().toLowerCase(), value)
-        byName.set(property.id.toLowerCase(), value)
-      }
-      for (const property of formulaProperties) {
-        const result = evaluateProjectFormula(property.config!.expression!, byName)
-        card.values[property.id] = result
-        byName.set(property.name.trim().toLowerCase(), result)
-        byName.set(property.id.toLowerCase(), result)
-      }
-    }
-  }
   const relationProperties = visibleProperties.filter(
     (property) => property.type === 'relation' && property.config?.targetBoardId,
   )
@@ -241,6 +223,39 @@ export async function readProjectBoardBundle(
       for (const property of relationProperties) {
         const ids = edges.get(`${card.id}|${property.id}`) ?? []
         card.values[property.id] = ids.length ? JSON.stringify(ids) : ''
+      }
+    }
+  }
+  const formulaProperties = visibleProperties.filter((property) => property.type === 'formula' && property.config?.expression)
+  if (formulaProperties.length > 0) {
+    const { order, cycles, dependencies } = projectFormulaDependencyOrder(visibleProperties)
+    const byId = new Map(visibleProperties.map((property) => [property.id, property]))
+    for (const card of cards) {
+      const errors = (card.valueErrors ??= {})
+      const byName = new Map<string, string>()
+      for (const property of visibleProperties) {
+        if (property.type === 'formula') continue
+        const value = projectFormulaReferenceValue(card, property)
+        byName.set(property.name.trim().toLowerCase(), value)
+        byName.set(property.id.toLowerCase(), value)
+      }
+      for (const propertyId of cycles) {
+        card.values[propertyId] = ''
+        errors[propertyId] = 'formula cycle'
+      }
+      for (const propertyId of order) {
+        const property = byId.get(propertyId)!
+        const failedDependency = (dependencies.get(propertyId) ?? []).find((id) => card.valueErrors?.[id])
+        if (failedDependency) {
+          card.values[propertyId] = ''
+          errors[propertyId] = 'formula dependency failed'
+          continue
+        }
+        const result = evaluateProjectFormulaResult(property.config!.expression!, byName)
+        card.values[propertyId] = result.value
+        if (result.error) errors[propertyId] = result.error
+        byName.set(property.name.trim().toLowerCase(), result.value)
+        byName.set(property.id.toLowerCase(), result.value)
       }
     }
   }
@@ -300,8 +315,12 @@ export async function readProjectBoardBundle(
     }
     const computed = new Map<string, string>()
     for (const card of cards) {
+      const errors = (card.valueErrors ??= {})
       for (const property of rollupProperties) {
-        if (cycles.has(property.id)) card.values[property.id] = ''
+        if (cycles.has(property.id)) {
+          card.values[property.id] = ''
+          errors[property.id] = 'rollup cycle'
+        }
       }
     }
     for (const propertyId of order) {

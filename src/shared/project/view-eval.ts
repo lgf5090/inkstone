@@ -67,6 +67,8 @@ export function projectFilterPrefill(filter: ProjectFilterGroup | undefined): Re
 
 /** Human-readable cell text shared by the table cells and the compact list rows. */
 export function projectPropertyDisplayText(card: ProjectCard, property: ProjectProperty, people?: ProjectPeople, locale?: string): string {
+  const error = card.valueErrors?.[property.id]
+  if (error) return `#${error}`
   const raw = card.values[property.id] ?? ''
   switch (property.type) {
     case 'select': return raw ? projectOptionLabel(property, raw) : ''

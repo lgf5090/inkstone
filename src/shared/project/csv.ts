@@ -40,7 +40,8 @@ function escapeNumberCell(raw: string): string {
 }
 
 function exportCell(card: ProjectCard, property: ProjectProperty, people: ProjectPeople): string {
-  const raw = card.values[property.id] ?? ''
+  const error = card.valueErrors?.[property.id]
+  const raw = error ? `#${error}` : card.values[property.id] ?? ''
   switch (property.type) {
     case 'number':
       return escapeNumberCell(raw)
