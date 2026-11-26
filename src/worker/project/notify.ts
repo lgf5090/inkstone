@@ -34,6 +34,33 @@ export async function notifyProjectAssignment(
   }
 }
 
+export async function notifyProjectReminder(
+  db: D1Database,
+  env: AppBindings['Bindings'],
+  input: {
+    boardId: string
+    cardId: string
+    propertyId: string
+    dueAt: number
+    cardTitle: string
+    subscriberIds: readonly string[]
+  },
+): Promise<string[]> {
+  const delivered: string[] = []
+  for (const subscriberId of new Set(input.subscriberIds)) {
+    if (!await projectRoleForBoard(db, input.boardId, subscriberId)) continue
+    if (await notificationLevel(db, input.boardId, subscriberId) === 'off') continue
+    await new AssistantStore(db, subscriberId, env).createNotification({
+      id: `project-reminder:${input.boardId}:${input.cardId}:${input.propertyId}:${input.dueAt}:${subscriberId}`,
+      title: `Due: ${input.cardTitle}`.slice(0, 200),
+      body: input.cardTitle,
+      link: `project:${input.boardId}:${input.cardId}`,
+    })
+    delivered.push(subscriberId)
+  }
+  return delivered
+}
+
 export async function notifyProjectComment(
   db: D1Database,
   env: AppBindings['Bindings'],

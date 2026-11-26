@@ -7707,6 +7707,7 @@ export class AssistantStore {
   }
 
   async createNotification(input: {
+    id?: string
     title: string
     body: string
     automationId?: string | null
@@ -7721,14 +7722,15 @@ export class AssistantStore {
     link?: string | null
     subscriptionId?: string | null
   }): Promise<AssistantNotification> {
-    const id = newId()
+    const id = input.id ?? newId()
     const at = Date.now()
     const title = input.title.slice(0, 200)
     const body = input.body.slice(0, 8000)
     const link = (input.link ?? '').trim().slice(0, NOTIFICATION_LINK_MAX_CHARS) || null
     await this.write(
       `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, link, subscription_id, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)
+       ON CONFLICT(user_id, id) DO NOTHING`,
       id, title, body, input.automationId ?? null, link, input.subscriptionId ?? null, at,
     )
     return { id, title, body, automationId: input.automationId ?? null, link, subscriptionId: input.subscriptionId ?? null, readAt: null, createdAt: at }

@@ -431,6 +431,114 @@ export const PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_write_receipts(created_at)`,
 ]
 
+const PROJECT_REMINDER_DUE_SQL = `CASE WHEN json_valid(v.value)
+  THEN COALESCE(json_extract(v.value, '$.from'), CAST(v.value AS INTEGER))
+  ELSE CAST(v.value AS INTEGER) END`
+
+function projectReminderInsert(cardIdSql?: string, propertyIdSql?: string, boardIdSql?: string, preserveNotifiedAt = false): string {
+  const notifiedAtSql = preserveNotifiedAt
+    ? `CASE WHEN COALESCE((SELECT MAX(prior.notified_at) FROM project_subscriptions prior
+                         WHERE prior.block_type = 'card' AND prior.block_id = v.card_id AND prior.delete_at = 0), 0) >= ${PROJECT_REMINDER_DUE_SQL}
+            THEN ${PROJECT_REMINDER_DUE_SQL} ELSE 0 END`
+    : '0'
+  return `INSERT INTO project_reminders (card_id, property_id, due_at, board_id, notified_at, created_at)
+    SELECT v.card_id, v.property_id, ${PROJECT_REMINDER_DUE_SQL}, c.board_id, ${notifiedAtSql}, CAST(unixepoch() * 1000 AS INTEGER)
+    FROM project_card_values v
+    JOIN project_cards c ON c.id = v.card_id AND c.delete_at = 0
+    JOIN project_boards b ON b.id = c.board_id AND b.delete_at = 0 AND b.archived = 0
+    JOIN project_properties p ON p.id = v.property_id AND p.board_id = c.board_id AND p.type = 'date'
+    WHERE ${PROJECT_REMINDER_DUE_SQL} > 0
+      ${cardIdSql ? `AND v.card_id = ${cardIdSql}` : ''}
+      ${propertyIdSql ? `AND v.property_id = ${propertyIdSql}` : ''}
+      ${boardIdSql ? `AND c.board_id = ${boardIdSql}` : ''}
+      AND EXISTS (SELECT 1 FROM project_subscriptions s
+                  WHERE s.block_type = 'card' AND s.block_id = v.card_id AND s.delete_at = 0)
+    ON CONFLICT(card_id, property_id, due_at) DO NOTHING`
+}
+
+export const PROJECT_REMINDER_BACKFILL_STATEMENT = projectReminderInsert(undefined, undefined, undefined, true)
+
+export const PROJECT_REMINDER_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_reminders (
+    card_id TEXT NOT NULL,
+    property_id TEXT NOT NULL,
+    due_at INTEGER NOT NULL,
+    board_id TEXT NOT NULL,
+    notified_at INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (card_id, property_id, due_at)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_reminders_due
+     ON project_reminders(notified_at, due_at, card_id, property_id)`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_value_insert AFTER INSERT ON project_card_values
+   BEGIN
+     ${projectReminderInsert('NEW.card_id', 'NEW.property_id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_value_update AFTER UPDATE ON project_card_values
+   BEGIN
+     DELETE FROM project_reminders
+      WHERE card_id = NEW.card_id AND property_id = NEW.property_id
+        AND due_at <> (SELECT ${PROJECT_REMINDER_DUE_SQL.replaceAll('v.value', 'NEW.value')}
+                       FROM project_card_values v WHERE v.card_id = NEW.card_id AND v.property_id = NEW.property_id);
+     ${projectReminderInsert('NEW.card_id', 'NEW.property_id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_value_delete AFTER DELETE ON project_card_values
+   BEGIN
+     DELETE FROM project_reminders WHERE card_id = OLD.card_id AND property_id = OLD.property_id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_card_state AFTER UPDATE OF delete_at, board_id ON project_cards
+   WHEN OLD.delete_at IS NOT NEW.delete_at OR OLD.board_id IS NOT NEW.board_id
+   BEGIN
+     DELETE FROM project_reminders WHERE card_id = NEW.id;
+     ${projectReminderInsert('NEW.id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_card_delete AFTER DELETE ON project_cards
+   BEGIN
+     DELETE FROM project_reminders WHERE card_id = OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_board_state AFTER UPDATE OF delete_at, archived ON project_boards
+   WHEN OLD.delete_at IS NOT NEW.delete_at OR OLD.archived IS NOT NEW.archived
+   BEGIN
+     DELETE FROM project_reminders WHERE board_id = NEW.id;
+     ${projectReminderInsert(undefined, undefined, 'NEW.id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_board_delete AFTER DELETE ON project_boards
+   BEGIN
+     DELETE FROM project_reminders WHERE board_id = OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_property_state AFTER UPDATE OF type ON project_properties
+   WHEN OLD.type IS NOT NEW.type
+   BEGIN
+     DELETE FROM project_reminders WHERE board_id = NEW.board_id AND property_id = NEW.id;
+     ${projectReminderInsert(undefined, 'NEW.id', 'NEW.board_id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_property_delete AFTER DELETE ON project_properties
+   BEGIN
+     DELETE FROM project_reminders WHERE board_id = OLD.board_id AND property_id = OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_subscription_insert AFTER INSERT ON project_subscriptions
+   WHEN NEW.block_type = 'card' AND NEW.delete_at = 0
+   BEGIN
+     ${projectReminderInsert('NEW.block_id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_subscription_update AFTER UPDATE OF delete_at ON project_subscriptions
+   WHEN OLD.delete_at IS NOT NEW.delete_at
+   BEGIN
+     DELETE FROM project_reminders
+      WHERE card_id = NEW.block_id
+        AND NOT EXISTS (SELECT 1 FROM project_subscriptions s
+                        WHERE s.block_type = 'card' AND s.block_id = NEW.block_id AND s.delete_at = 0);
+     ${projectReminderInsert('NEW.block_id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_subscription_delete AFTER DELETE ON project_subscriptions
+   BEGIN
+     DELETE FROM project_reminders
+      WHERE card_id = OLD.block_id
+        AND NOT EXISTS (SELECT 1 FROM project_subscriptions s
+                        WHERE s.block_type = 'card' AND s.block_id = OLD.block_id AND s.delete_at = 0);
+   END`,
+]
+
 export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_boards',
   'project_board_members',
@@ -459,6 +567,7 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_sprints',
   'project_sprint_cards',
   'project_write_receipts',
+  'project_reminders',
 ]
 
 export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
@@ -496,6 +605,7 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_sprints_board',
   'idx_project_sprint_cards_sprint',
   'idx_project_write_receipts_created',
+  'idx_project_reminders_due',
 ]
 
 export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -536,6 +646,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   project_subscriptions: [
     'block_type', 'block_id', 'subscriber_id', 'notified_at', 'create_at', 'delete_at',
   ],
+  project_reminders: ['card_id', 'property_id', 'due_at', 'board_id', 'notified_at', 'created_at'],
   project_shares: [
     // The public link is read-only; comments are internal discussion unless the owner opts in.
     'slug', 'board_id', 'user_id', 'password_hash', 'expires_at', 'views', 'show_comments', 'created_at',
