@@ -22,7 +22,7 @@ const exportBudget = createMinuteBudget(30, 'Too many calendar exports. Try agai
 
 export const calendarCsvRoutes = new Hono<AppBindings>()
 calendarCsvRoutes.use('*', requireAuth)
-calendarCsvRoutes.use('*', async (c, next) => {
+calendarCsvRoutes.use('/csv/*', async (c, next) => {
   if (c.req.method !== 'GET' && c.req.method !== 'HEAD') importBudget(c.get('userId'))
   await next()
 })

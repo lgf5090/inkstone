@@ -13,6 +13,7 @@ import type {
 } from '../src/shared/calendar/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
+import { calendarCsvRoutes } from '../src/worker/routes/calendar-csv'
 import { calendarRoutes } from '../src/worker/routes/calendar'
 import type { AppBindings } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -198,6 +199,25 @@ describe('group routes', () => {
 })
 
 describe('event routes', () => {
+  it('does not apply the CSV import budget to ordinary calendar writes', async () => {
+    const home = (await meta()).calendars[0]!
+    const mounted = new Hono<AppBindings>()
+    mounted.onError((err, c) => errorResponse(c, err))
+    mounted.use('*', async (c, next) => {
+      c.set('userId', ALICE)
+      await next()
+    })
+    mounted.route(TREE, calendarCsvRoutes)
+    mounted.route(TREE, calendarRoutes)
+    for (let index = 0; index < 11; index += 1) {
+      const response = await mounted.fetch(new Request(`http://localhost${TREE}/events`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(eventBody(home.id, { id: `budget-${index}` })),
+      }), env(), ctx)
+      expect(response.status, `write ${index + 1}`).toBe(200)
+    }
+  })
   it('creates, lists, patches and deletes an event', async () => {
     const home = (await meta()).calendars[0]!
     const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id)))
