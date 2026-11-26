@@ -5,13 +5,13 @@
  * turned into a server-side exception ("this"), a split ("following") or a master edit ("all").
  * Nothing is written until the reader answers; the optimistic change was already reverted.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { CalendarEventInput } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
-import { Segmented } from '../../components/form'
+import { Field, Input, Segmented, Textarea } from '../../components/form'
 import type { RecurrenceOccurrenceRequest } from './persistence'
 import { toEventInput } from './model'
 import * as api from './api'
@@ -32,7 +32,14 @@ export function CalendarRecurrenceDialog({
   const [scope, setScope] = useState<Scope>('this')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [title, setTitle] = useState(request.after?.title ?? request.before.title)
+  const [description, setDescription] = useState(request.after?.description ?? '')
   const deleting = request.intent === 'delete'
+
+  useEffect(() => {
+    setTitle(request.after?.title ?? request.before.title)
+    setDescription(request.after?.description ?? '')
+  }, [request])
 
   const apply = async (): Promise<void> => {
     setSaving(true)
@@ -42,8 +49,8 @@ export function CalendarRecurrenceDialog({
       if (!deleting && request.after) {
         const after = toEventInput(request.after, { fallbackTitle: t('calendar.event.untitled'), timeZone })
         patch = {
-          title: after.title,
-          description: after.description,
+          title: title.trim() || t('calendar.event.untitled'),
+          description: description.trim(),
           start: after.start,
           end: after.end,
           allDay: after.allDay,
@@ -84,6 +91,16 @@ export function CalendarRecurrenceDialog({
       )}
     >
       <div className="space-y-3 pt-1">
+        {!deleting && (
+          <>
+            <Field label={t('calendar.event.title_field')}>
+              <Input value={title} onChange={event => setTitle(event.target.value)} disabled={saving} />
+            </Field>
+            <Field label={t('calendar.event.description')}>
+              <Textarea value={description} onChange={event => setDescription(event.target.value)} disabled={saving} rows={3} />
+            </Field>
+          </>
+        )}
         <Segmented
           value={scope}
           onChange={setScope}

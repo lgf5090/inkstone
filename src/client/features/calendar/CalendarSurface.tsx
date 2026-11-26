@@ -839,9 +839,11 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       interceptEvents: wide,
       onAdd: () => setQuickAddOpen(true),
       onRecurring: id => {
-        app.selectEvent(id)
-        app.highlightEvent(id)
-        app.onEventDetailToggle(id)
+        const event = app.getEvents().find(item => item.id === id)
+        if (!event) return
+        const masterId = event._recurrenceMasterId ?? id.split('::repeat-')[0]
+        if (!masterId) return
+        setRecurrenceRequest({ masterId, intent: 'save', before: event, after: event })
       },
       onSelect: id => {
         const event = app.getEvents().find(item => item.id === id)
