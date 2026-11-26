@@ -50,18 +50,22 @@ describe('createFolderTree', () => {
     expect(resolved.get('')).toBe('/docs')
   })
 
-  it('drops the files of a folder it could not make and reports which one failed', async () => {
+  it('drops the whole subtree of a folder it could not make and reports which one failed', async () => {
     const failed: string[] = []
+    const calls: string[] = []
     const api: FolderUploadApi = {
       mkdir: async (body) => {
+        calls.push(`${body.parentPath}/${body.name}`)
         if (body.name === 'bad') throw new Error('nope')
         return {}
       },
     }
-    const plan = planFolderUpload([file('bad/a.jpg'), file('good/b.jpg')])
+    const plan = planFolderUpload([file('bad/a.jpg'), file('bad/child/deep.jpg'), file('good/b.jpg')])
     const resolved = await createFolderTree(api, 'primary', '/', plan, (path) => failed.push(path))
     expect(failed).toEqual(['bad'])
+    expect(calls).toEqual(['//bad', '//good'])
     expect(resolved.has('bad')).toBe(false)
+    expect(resolved.has('bad/child')).toBe(false)
     expect(resolved.get('good')).toBe('/good')
   })
 

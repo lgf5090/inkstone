@@ -8,7 +8,7 @@ import {
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
 import { Button } from '../../../components/primitives'
-import { Input, Segmented, commitOnEnter } from '../../../components/form'
+import { Input, Segmented, Select, commitOnEnter } from '../../../components/form'
 import { Modal } from '../../../components/overlay'
 import { planBatchRename, type BatchRenameMode } from './batch-rename'
 
@@ -243,6 +243,97 @@ export function MoveDialog({
       {error
         ? <p id={errorId} role="alert" className="mt-2 text-[length:var(--text-11)] text-[var(--danger)]">{error}</p>
         : <p id={hintId} className="mt-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('clouddrive.dialog.move_hint')}</p>}
+    </Modal>
+  )
+}
+
+export function CrossMountDialog({
+  open,
+  count,
+  mode,
+  mounts,
+  initialMountId,
+  initialPath,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean
+  count: number
+  mode: 'copy' | 'move'
+  mounts: { id: string; name: string }[]
+  initialMountId: string
+  initialPath: string
+  busy: boolean
+  onClose: () => void
+  onSubmit: (mountId: string, destination: string) => Promise<boolean>
+}) {
+  const [mountId, setMountId] = useState(initialMountId)
+  const [path, setPath] = useState(initialPath)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const mountIdForInput = useId()
+  const pathId = useId()
+  const errorId = useId()
+
+  useOpenReset(open, () => {
+    setMountId(initialMountId)
+    setPath(initialPath)
+    setError(null)
+  }, inputRef)
+
+  const submit = async () => {
+    let normalized: string
+    try {
+      normalized = normalizeCloudDrivePath(path.trim(), { allowRoot: true })
+    } catch {
+      setError(t('clouddrive.error.path_invalid'))
+      return
+    }
+    setError(null)
+    if (await onSubmit(mountId, normalized)) onClose()
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t(mode === 'copy' ? 'clouddrive.dialog.copy_to' : 'clouddrive.dialog.move')}
+      description={t('clouddrive.selection.count', { count })}
+      width={480}
+      dismissible={!busy}
+      footer={(
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>{t('clouddrive.dialog.cancel')}</Button>
+          <Button variant="primary" loading={busy} onClick={() => void submit()}>
+            {t(mode === 'copy' ? 'clouddrive.action.copy' : 'clouddrive.action.move')}
+          </Button>
+        </>
+      )}
+    >
+      <div className="flex flex-col gap-3">
+        <label htmlFor={mountIdForInput} className="flex flex-col gap-1 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+          {t('clouddrive.dialog.destination_mount')}
+          <Select id={mountIdForInput} value={mountId} onChange={(event) => setMountId(event.target.value)} disabled={busy}>
+            {mounts.map((mount) => <option key={mount.id} value={mount.id}>{mount.name}</option>)}
+          </Select>
+        </label>
+        <label htmlFor={pathId} className="flex flex-col gap-1 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+          {t('clouddrive.dialog.move_path')}
+          <Input
+            id={pathId}
+            ref={inputRef}
+            value={path}
+            onChange={(event) => { setPath(event.target.value); setError(null) }}
+            onKeyDown={(event) => commitOnEnter(event, () => void submit())}
+            disabled={busy}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
+          />
+        </label>
+        <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('clouddrive.dialog.cross_mount_hint')}</p>
+        {error && <p id={errorId} role="alert" className="text-[length:var(--text-11)] text-[var(--danger)]">{error}</p>}
+      </div>
     </Modal>
   )
 }

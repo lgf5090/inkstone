@@ -11,6 +11,13 @@ export interface FileClipboard {
   ids: string[]
 }
 
+/** Row-level facts loaded outside the listing request; absent means unknown, not false. */
+export interface EntryIndicators {
+  sharedIds: ReadonlySet<string>
+  offlineIds: ReadonlySet<string>
+  versionCounts: Readonly<Record<string, number>>
+}
+
 export function selectModeFor(event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }): SelectMode {
   if (event.shiftKey) return 'range'
   if (event.metaKey || event.ctrlKey) return 'toggle'
@@ -26,6 +33,9 @@ export interface FileViewProps {
   selected: ReadonlySet<string>
   focusedId: string | null
   showCheckboxes: boolean
+  /** Status badges are a list column and an inline row in the compact layouts. */
+  showBadges?: boolean
+  indicators?: EntryIndicators
   readOnly: boolean
   onFocusEntry: (id: string) => void
   onSelect: (entry: CloudDriveEntry, mode: SelectMode) => void

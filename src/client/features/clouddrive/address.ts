@@ -21,6 +21,9 @@ export type CloudDrivePage =
   | 'jobs'
   | 'tasks'
   | 'sync'
+  | 'activity'
+  | 'backups'
+  | 'vault'
   | 'keys'
   | 'maintenance'
   | 'settings'
@@ -50,6 +53,9 @@ const PAGES: readonly [string, CloudDrivePage][] = [
   ['/clouddrive/jobs', 'jobs'],
   ['/clouddrive/tasks', 'tasks'],
   ['/clouddrive/sync', 'sync'],
+  ['/clouddrive/activity', 'activity'],
+  ['/clouddrive/backups', 'backups'],
+  ['/clouddrive/vault', 'vault'],
   ['/clouddrive/keys', 'keys'],
   ['/clouddrive/maintenance', 'maintenance'],
   ['/clouddrive/settings', 'settings'],
@@ -112,6 +118,9 @@ export function cloudDrivePath(page: CloudDrivePage, mountId: string, path = '/'
     jobs: '/clouddrive/jobs',
     tasks: '/clouddrive/tasks',
     sync: '/clouddrive/sync',
+    activity: '/clouddrive/activity',
+    backups: '/clouddrive/backups',
+    vault: '/clouddrive/vault',
     keys: '/clouddrive/keys',
     maintenance: '/clouddrive/maintenance',
     settings: '/clouddrive/settings',

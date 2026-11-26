@@ -117,6 +117,7 @@ clouddriveVersionRoutes.on(['GET', 'HEAD'], '/files/:id/versions/:version/conten
     rangeHeader: c.req.header('range'),
     ifNoneMatch: null,
     download: c.req.query('download') === '1',
+    cacheControl: 'private, max-age=31536000, immutable',
     file: {
       // A version has no row id of its own; the pair names its entity tag fallback.
       id: `${file.id}@${version.version}`,

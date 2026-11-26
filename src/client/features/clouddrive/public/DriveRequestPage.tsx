@@ -1,27 +1,18 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { HardDrive, LockKeyhole, Upload } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Input } from '../../../components/form'
 import { Button, Spinner } from '../../../components/primitives'
 import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../../lib/autocomplete'
-
-interface RequestInfo {
-  name: string
-  hasPassword: boolean
-  expiresAt: number | null
-  maxFiles: number
-  maxBytes: number
-  maxFileBytes: number
-  receivedFiles: number
-  receivedBytes: number
-}
+import { CloudDriveApiError } from '../api'
+import { cloudDrivePublicApi, type PublicRequestInfo } from './api'
 
 type Phase = 'loading' | 'ready' | 'locked' | 'unavailable'
 
 export function DriveRequestPage({ slug }: { slug: string }) {
   const [phase, setPhase] = useState<Phase>('loading')
-  const [info, setInfo] = useState<RequestInfo | null>(null)
+  const [info, setInfo] = useState<PublicRequestInfo | null>(null)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -29,24 +20,14 @@ export function DriveRequestPage({ slug }: { slug: string }) {
   const [done, setDone] = useState<string[]>([])
   const fileInput = useRef<HTMLInputElement>(null)
 
-  const load = async () => {
-    const response = await fetch(`/api/public/clouddrive/requests/${encodeURIComponent(slug)}`, { credentials: 'same-origin' })
-    if (!response.ok) {
-      setPhase('unavailable')
-      return
-    }
-    const value = await response.json() as RequestInfo
-    setInfo(value)
-    setPhase(value.hasPassword ? 'locked' : 'ready')
-  }
+  const load = useCallback(() => cloudDrivePublicApi.fileRequest(slug), [slug])
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/public/clouddrive/requests/${encodeURIComponent(slug)}`, { credentials: 'same-origin' })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(String(response.status))
-        return await response.json() as RequestInfo
-      })
+    setPhase('loading')
+    setInfo(null)
+    setError('')
+    void load()
       .then((value) => {
         if (cancelled) return
         setInfo(value)
@@ -54,33 +35,28 @@ export function DriveRequestPage({ slug }: { slug: string }) {
       })
       .catch(() => { if (!cancelled) setPhase('unavailable') })
     return () => { cancelled = true }
-  }, [slug])
+  }, [load])
 
   const unlock = async (event: FormEvent) => {
     event.preventDefault()
     setSubmitting(true)
     setError('')
     try {
-      const response = await fetch(`/api/public/clouddrive/requests/${encodeURIComponent(slug)}/verify`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'X-Inkstone-Client': '1', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      })
-      if (response.status === 401) {
+      await cloudDrivePublicApi.verifyRequest(slug, password)
+      setPhase('ready')
+    } catch (caught) {
+      if (caught instanceof CloudDriveApiError && caught.status === 401) {
         setError(t('clouddrive.request.locked'))
         return
       }
-      if (response.status === 429) {
+      if (caught instanceof CloudDriveApiError && caught.status === 429) {
         setError(t('clouddrive.error.too_many_attempts'))
         return
       }
-      if (!response.ok) {
+      if (caught instanceof CloudDriveApiError) {
         setPhase('unavailable')
         return
       }
-      setPhase('ready')
-    } catch {
       setError(t('clouddrive.error.internal'))
     } finally {
       setSubmitting(false)
@@ -103,38 +79,26 @@ export function DriveRequestPage({ slug }: { slug: string }) {
           setError(t('clouddrive.request.file_too_large', { size: formatBytes(info.maxFileBytes) }))
           continue
         }
-        const response = await fetch(
-          `/api/public/clouddrive/requests/${encodeURIComponent(slug)}/upload?name=${encodeURIComponent(file.name)}`,
-          {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-              'X-Inkstone-Client': '1',
-              'Content-Type': file.type || 'application/octet-stream',
-              ...(password ? { 'X-CloudDrive-Request-Password': password } : {}),
-            },
-            body: file,
-          },
-        )
-        if (response.status === 401) {
-          setPhase('locked')
-          setError(t('clouddrive.request.locked'))
-          break
+        try {
+          const payload = await cloudDrivePublicApi.uploadToRequest(slug, file, password)
+          saved.push(payload.name ?? file.name)
+        } catch (caught) {
+          if (caught instanceof CloudDriveApiError && caught.status === 401) {
+            setPhase('locked')
+            setError(t('clouddrive.request.locked'))
+            break
+          }
+          if (caught instanceof CloudDriveApiError && caught.status === 429) {
+            setError(t('clouddrive.error.too_many_attempts'))
+            break
+          }
+          setError(t('clouddrive.request.upload_failed'))
         }
-        if (response.status === 429) {
-          setError(t('clouddrive.error.too_many_attempts'))
-          break
-        }
-        const payload = await response.json().catch(() => null) as { name?: string; error?: { message?: string } } | null
-        if (!response.ok) {
-          setError(payload?.error?.message ?? t('clouddrive.request.upload_failed'))
-          continue
-        }
-        saved.push(payload?.name ?? file.name)
       }
       if (saved.length > 0) {
         setDone((current) => [...saved, ...current].slice(0, 20))
-        await load()
+        const value = await load()
+        setInfo(value)
         setPhase('ready')
       }
     } catch {
@@ -155,9 +119,22 @@ export function DriveRequestPage({ slug }: { slug: string }) {
           <HardDrive size={18} aria-hidden />
           <span className="text-[length:var(--text-12)] font-medium tracking-wide">{t('clouddrive.title')}</span>
         </header>
-        {phase === 'loading' && <div className="flex items-center justify-center py-12"><Spinner /></div>}
+        {phase === 'loading' && (
+          <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 py-12 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+            <Spinner /><span>{t('clouddrive.loading')}</span>
+          </div>
+        )}
         {phase === 'unavailable' && (
-          <p role="status" className="py-8 text-center text-[length:var(--text-13)] text-[var(--text-tertiary)]">{t('clouddrive.request.unavailable')}</p>
+          <div role="alert" className="flex flex-col items-center gap-3 py-8 text-center text-[length:var(--text-13)] text-[var(--text-tertiary)]">
+            <p>{t('clouddrive.request.unavailable')}</p>
+            <Button variant="secondary" onClick={() => {
+              setPhase('loading')
+              void load().then((value) => {
+                setInfo(value)
+                setPhase(value.hasPassword ? 'locked' : 'ready')
+              }).catch(() => setPhase('unavailable'))
+            }}>{t('clouddrive.retry')}</Button>
+          </div>
         )}
         {phase === 'locked' && (
           <form onSubmit={unlock} className="flex flex-col gap-3">

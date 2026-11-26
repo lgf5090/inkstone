@@ -1,0 +1,1 @@
+export { AssistantDock } from './AssistantDock'

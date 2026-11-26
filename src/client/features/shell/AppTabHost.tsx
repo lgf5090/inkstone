@@ -42,7 +42,7 @@ const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
   memos: lazy(() => import('../memos/MemosApp').then((module) => ({ default: module.MemosApp }))),
   'blog-admin': lazy(() => import('../blog-admin/BlogAdminApp').then((module) => ({ default: module.BlogAdminApp }))),
   nav: lazy(() => import('../nav/NavApp').then((module) => ({ default: module.NavApp }))),
-  clouddrive: lazy(() => import('../clouddrive/ClouddriveApp').then((module) => ({ default: module.ClouddriveApp }))),
+  clouddrive: lazy(() => import('../clouddrive').then((module) => ({ default: module.ClouddriveApp }))),
   reading: ReadingApp,
   subscriptions: lazy(() => import('../subscriptions/SubscriptionsApp').then((module) => ({ default: module.SubscriptionsApp }))),
   todo: lazy(() => import('../todos/TodosApp').then((module) => ({ default: module.TodosApp }))),

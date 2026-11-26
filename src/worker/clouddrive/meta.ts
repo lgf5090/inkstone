@@ -14,6 +14,7 @@ export interface CloudDriveMetaRow {
   inherit_footer: number
   inherit_hide: number
   inherit_password: number
+  vault: number
   created_at: number
   updated_at: number
 }
@@ -24,6 +25,7 @@ export interface EffectiveCloudDriveMeta {
   hidePatterns: string[]
   passwordHash: string
   passwordPath: string | null
+  vaultPath: string | null
 }
 
 const META_TEXT_MAX = 20_000
@@ -143,17 +145,19 @@ export async function upsertMetaRow(
     inheritFooter: boolean
     inheritHide: boolean
     inheritPassword: boolean
+    vault?: boolean
   },
   password: { hash: string | null } | null,
 ): Promise<CloudDriveMetaRow> {
   const now = Date.now()
   const existing = await getMetaRow(db, userId, mountId, path)
   const passwordHash = password ? password.hash ?? '' : existing?.password_hash ?? ''
+  const vault = input.vault ?? existing?.vault === 1
   await db.prepare(
     `INSERT INTO CloudDrive_meta
        (user_id, mount_id, path, header_md, footer_md, hide_patterns, password_hash,
-        inherit_header, inherit_footer, inherit_hide, inherit_password, created_at, updated_at)
-     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12)
+        inherit_header, inherit_footer, inherit_hide, inherit_password, vault, created_at, updated_at)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?13)
      ON CONFLICT(user_id, mount_id, path) DO UPDATE SET
        header_md = excluded.header_md,
        footer_md = excluded.footer_md,
@@ -163,11 +167,12 @@ export async function upsertMetaRow(
        inherit_footer = excluded.inherit_footer,
        inherit_hide = excluded.inherit_hide,
        inherit_password = excluded.inherit_password,
+       vault = excluded.vault,
        updated_at = excluded.updated_at`,
   ).bind(
     userId, mountId, path, input.header, input.footer, JSON.stringify(input.hidePatterns), passwordHash,
     input.inheritHeader ? 1 : 0, input.inheritFooter ? 1 : 0, input.inheritHide ? 1 : 0, input.inheritPassword ? 1 : 0,
-    now,
+    vault ? 1 : 0, now,
   ).run()
   return (await getMetaRow(db, userId, mountId, path))!
 }
@@ -255,12 +260,14 @@ function resolveMeta(rows: readonly CloudDriveMetaRow[], path: string): Effectiv
     if (candidate !== path && !inherited) break
     if (candidate === path && !row.password_hash && row.inherit_password !== 1) break
   }
+  const vaultPath = chain.map((candidate) => byPath.get(candidate)).find((row) => row?.vault === 1)?.path ?? null
   return {
     header: resolveText('header_md', 'inherit_header'),
     footer: resolveText('footer_md', 'inherit_footer'),
     hidePatterns,
     passwordHash,
     passwordPath,
+    vaultPath,
   }
 }
 

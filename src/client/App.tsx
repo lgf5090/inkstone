@@ -53,10 +53,10 @@ const ImgbedPublicApp = lazy(() =>
   import('./features/imgbed/public/PublicApp').then((module) => ({ default: module.PublicApp })),
 )
 const DriveRequestPage = lazy(() =>
-  import('./features/clouddrive/public/DriveRequestPage').then((module) => ({ default: module.DriveRequestPage })),
+  import('./features/clouddrive/public').then((module) => ({ default: module.DriveRequestPage })),
 )
 const DriveSharePage = lazy(() =>
-  import('./features/clouddrive/public/DriveSharePage').then((module) => ({ default: module.DriveSharePage })),
+  import('./features/clouddrive/public').then((module) => ({ default: module.DriveSharePage })),
 )
 const SettingsPanel = lazy(() =>
   import('./features/settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel })),

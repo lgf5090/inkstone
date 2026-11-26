@@ -11,6 +11,7 @@ import type { CloudDriveEntry, CloudDriveUploadConflict } from '@shared/clouddri
 import { useSession } from '../../../store/session'
 import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
 import { useCloudDriveStore } from '../store'
+import { sha256File } from './hash'
 
 export type TransferKind = 'upload' | 'download'
 export type TransferStatus = 'queued' | 'running' | 'success' | 'error' | 'cancelled'
@@ -60,15 +61,50 @@ interface TransferState {
 
 const HISTORY_VERSION = 'v1'
 const HISTORY_LIMIT = 100
+const PART_RETRY_ATTEMPTS = 3
+const PART_RETRY_BASE_MS = 300
+const PART_RETRY_MAX_MS = 5_000
 /** The reader's own ceiling on parts in flight, clamped to the deployment's policy as well. */
 function concurrencyLimit(): number {
   const wanted = useCloudDriveStore.getState().prefs.uploadConcurrency
   const policy = Number(useCloudDriveStore.getState().bootstrap?.settings.uploadConcurrentParts)
   const serverCap = Number.isFinite(policy) && policy >= 1 ? Math.min(8, Math.round(policy)) : 8
-  return Math.min(serverCap, Math.max(1, Math.round(wanted)))
+  const preferred = Number.isFinite(wanted) ? Math.max(1, Math.round(wanted)) : 3
+  return Math.min(serverCap, preferred)
 }
 
 const controllers = new Map<string, AbortController>()
+let activePartRequests = 0
+const waitingPartRequests: { resolve: () => void; reject: (error: Error) => void; signal: AbortSignal }[] = []
+
+function acquirePartSlot(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(abortError())
+  if (waitingPartRequests.length === 0 && activePartRequests < concurrencyLimit()) {
+    activePartRequests += 1
+    return Promise.resolve()
+  }
+  return new Promise((resolve, reject) => {
+    const waiter = {
+      resolve: () => { signal.removeEventListener('abort', onAbort); resolve() },
+      reject: (error: Error) => reject(error),
+      signal,
+    }
+    const onAbort = () => {
+      const index = waitingPartRequests.indexOf(waiter)
+      if (index >= 0) waitingPartRequests.splice(index, 1)
+      signal.removeEventListener('abort', onAbort)
+      waiter.reject(abortError())
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    waitingPartRequests.push(waiter)
+  })
+}
+
+function releasePartSlot(): void {
+  const next = waitingPartRequests.shift()
+  if (next) next.resolve()
+  else activePartRequests = Math.max(0, activePartRequests - 1)
+}
 let historyUserId: string | null = null
 let transferSequence = 0
 
@@ -192,7 +228,53 @@ async function putBytes(url: string, body: Blob, signal: AbortSignal): Promise<v
   )
 }
 
-async function runUpload(item: TransferItem, signal: AbortSignal): Promise<void> {
+function retryablePartError(error: unknown): boolean {
+  if (isAbort(error)) return false
+  if (error instanceof CloudDriveApiError) {
+    return error.status === 408 || error.status === 429 || error.status >= 500
+  }
+  return error instanceof TypeError
+}
+
+export function partRetryDelay(attempt: number): number {
+  return Math.min(PART_RETRY_MAX_MS, PART_RETRY_BASE_MS * 2 ** Math.max(0, attempt))
+}
+
+function waitForRetry(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(abortError())
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+      reject(abortError())
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/** Retry only transient part failures; a rejected part must not restart the whole file. */
+export async function putPartWithRetry(url: string, body: Blob, signal: AbortSignal): Promise<void> {
+  for (let attempt = 0; attempt < PART_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      await acquirePartSlot(signal)
+      try {
+        await putBytes(url, body, signal)
+      } finally {
+        releasePartSlot()
+      }
+      return
+    } catch (error) {
+      if (!retryablePartError(error) || attempt === PART_RETRY_ATTEMPTS - 1) throw error
+      await waitForRetry(partRetryDelay(attempt), signal)
+    }
+  }
+}
+
+async function runUpload(item: TransferItem, signal: AbortSignal): Promise<number> {
   const file = item.file
   if (!file) throw new TransferError('clouddrive.transfers.file_unavailable')
   if (signal.aborted) throw abortError()
@@ -216,6 +298,7 @@ async function runUpload(item: TransferItem, signal: AbortSignal): Promise<void>
     uploaded = resumed.uploadedParts
     patchItem(item.id, { parentPath: resumed.path.slice(0, resumed.path.lastIndexOf('/') || 1) })
   } else {
+    const checksum = await sha256File(file)
     const init = await clouddriveApi.initUpload({
       mountId: item.mountId,
       parentPath: item.parentPath ?? '/',
@@ -223,7 +306,13 @@ async function runUpload(item: TransferItem, signal: AbortSignal): Promise<void>
       size: item.size,
       mime: item.mime || 'application/octet-stream',
       conflict: item.conflict ?? 'rename',
+      sha256: checksum,
     })
+    if (!init.session) {
+      if (!init.skipped) throw new TransferError('clouddrive.error.internal')
+      patchItem(item.id, { entryId: init.existing?.id ?? null, transferred: 0 })
+      return 0
+    }
     sessionId = init.session.id
     strategy = init.session.strategy
     partSize = init.session.partSize
@@ -237,47 +326,77 @@ async function runUpload(item: TransferItem, signal: AbortSignal): Promise<void>
     throw abortError()
   }
 
+  if (strategy === 'dedupe') {
+    const completed = await clouddriveApi.completeUpload(sessionId)
+    if (!completed.entry) throw new TransferError('clouddrive.error.internal')
+    patchItem(item.id, { entryId: completed.entry.id, transferred: 0 })
+    return 0
+  }
+
   if (strategy === 'direct') {
     await putBytes(`/api/clouddrive/uploads/${encodeURIComponent(sessionId)}/content`, file, signal)
     patchItem(item.id, { transferred: file.size })
   } else {
     const done = new Set(uploaded)
+    const pending: { part: number; chunk: Blob }[] = []
     let transferred = 0
     for (let part = 1; part <= totalParts; part += 1) {
-      if (signal.aborted) throw abortError()
       const start = (part - 1) * partSize
       const chunk = file.slice(start, Math.min(file.size, start + partSize))
-      if (done.has(part)) {
-        transferred += chunk.size
-        patchItem(item.id, { transferred: Math.min(file.size, transferred) })
-        continue
-      }
-      await putBytes(`/api/clouddrive/uploads/${encodeURIComponent(sessionId)}/parts/${part}`, chunk, signal)
-      transferred += chunk.size
-      patchItem(item.id, { transferred: Math.min(file.size, transferred) })
+      if (done.has(part)) transferred += chunk.size
+      else pending.push({ part, chunk })
     }
+    patchItem(item.id, { transferred })
+    let next = 0
+    let failure: unknown = null
+    const worker = async () => {
+      while (failure === null && !signal.aborted) {
+        if (signal.aborted) throw abortError()
+        const current = pending[next++]
+        if (!current) return
+        try {
+          await putPartWithRetry(
+            `/api/clouddrive/uploads/${encodeURIComponent(sessionId)}/parts/${current.part}`,
+            current.chunk,
+            signal,
+          )
+          transferred += current.chunk.size
+          patchItem(item.id, { transferred: Math.min(file.size, transferred) })
+        } catch (error) {
+          if (failure === null) failure = error
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(concurrencyLimit(), pending.length) }, () => worker()))
+    if (failure !== null) throw failure
+    if (signal.aborted) throw abortError()
   }
 
   if (signal.aborted) throw abortError()
-  await clouddriveApi.completeUpload(sessionId)
+  const completed = await clouddriveApi.completeUpload(sessionId)
+  if (completed.skipped) {
+    patchItem(item.id, { entryId: completed.existing?.id ?? null, transferred: 0 })
+    return 0
+  }
   patchItem(item.id, { transferred: file.size })
+  return file.size
 }
 
-function saveBlob(blob: Blob, name: string): void {
-  const url = URL.createObjectURL(blob)
+function saveNativeDownload(url: string, name: string): void {
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = name
   anchor.rel = 'noopener'
   document.body.append(anchor)
-  anchor.click()
-  anchor.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  try {
+    anchor.click()
+  } finally {
+    anchor.remove()
+  }
 }
 
-async function runDownload(item: TransferItem, signal: AbortSignal): Promise<void> {
-  if (!item.entryId) throw new TransferError('clouddrive.error.not_found')
-  const response = await fetch(clouddriveApi.contentUrl(item.entryId, true), {
+async function downloadResponse(item: TransferItem, signal: AbortSignal): Promise<Response> {
+  const response = await fetch(clouddriveApi.contentUrl(item.entryId!, true), {
     credentials: 'same-origin',
     signal,
   })
@@ -289,31 +408,53 @@ async function runDownload(item: TransferItem, signal: AbortSignal): Promise<voi
       response.status,
     )
   }
+  return response
+}
 
+async function runDownload(item: TransferItem, signal: AbortSignal): Promise<number> {
+  if (!item.entryId) throw new TransferError('clouddrive.error.not_found')
+  const url = clouddriveApi.contentUrl(item.entryId, true)
+  const picker = (window as Window & {
+    showSaveFilePicker?: (options: { suggestedName: string }) => Promise<FileSystemFileHandle>
+  }).showSaveFilePicker
+
+  // Safari, Firefox and mobile browsers hand the same-origin response straight to their native
+  // download manager. No fetch and no object URL means the browser, not this queue, owns the bytes.
+  if (!picker) {
+    saveNativeDownload(url, item.name)
+    return item.size
+  }
+
+  let handle: FileSystemFileHandle
+  try {
+    handle = await picker.call(window, { suggestedName: item.name })
+  } catch (error) {
+    if (isAbort(error)) throw abortError()
+    throw error
+  }
+  if (signal.aborted) throw abortError()
+  const response = await downloadResponse(item, signal)
   const total = Number(response.headers.get('content-length')) || item.size
   if (total > 0 && total !== item.size) patchItem(item.id, { size: total })
-  const reader = response.body?.getReader()
-  if (!reader) throw new CloudDriveApiError('internal', 'The download stream is unavailable', 0)
+  if (!response.body) throw new CloudDriveApiError('internal', 'The download stream is unavailable', 0)
 
-  const chunks: BlobPart[] = []
   let received = 0
   let lastReport = 0
-  for (;;) {
-    if (signal.aborted) throw abortError()
-    const { done, value } = await reader.read()
-    if (done) break
-    if (value) {
-      chunks.push(value)
-      received += value.byteLength
+  const progress = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      received += chunk.byteLength
       const now = Date.now()
       if (now - lastReport > 200) {
         lastReport = now
         patchItem(item.id, { transferred: received })
       }
-    }
-  }
+      controller.enqueue(chunk)
+    },
+  })
+  const writable = await handle.createWritable()
+  await response.body.pipeThrough(progress).pipeTo(writable, { signal })
   patchItem(item.id, { transferred: received })
-  saveBlob(new Blob(chunks, { type: response.headers.get('content-type') ?? item.mime }), item.name)
+  return received
 }
 
 async function runTransfer(id: string): Promise<void> {
@@ -323,9 +464,10 @@ async function runTransfer(id: string): Promise<void> {
   controllers.set(id, controller)
   patchItem(id, { status: 'running', transferred: 0, errorKey: null, finishedAt: null })
   try {
-    if (item.kind === 'upload') await runUpload(item, controller.signal)
-    else await runDownload(item, controller.signal)
-    patchItem(id, { status: 'success', transferred: item.size, finishedAt: Date.now() })
+    const transferred = item.kind === 'upload'
+      ? await runUpload(item, controller.signal)
+      : await runDownload(item, controller.signal)
+    patchItem(id, { status: 'success', transferred, finishedAt: Date.now() })
   } catch (error) {
     if (controller.signal.aborted || isAbort(error)) {
       patchItem(id, { status: 'cancelled', finishedAt: Date.now() })

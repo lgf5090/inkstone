@@ -589,3 +589,19 @@ describe('every account-scoped table leads its key with the account', () => {
     )`])).toEqual([])
   })
 })
+
+describe('a CloudDrive database created before the second remediation', () => {
+  it('receives the upload checksum and folder vault columns on reboot', async () => {
+    const sqlite = await installed()
+    sqlite.exec('ALTER TABLE CloudDrive_upload_sessions DROP COLUMN sha256')
+    sqlite.exec('ALTER TABLE CloudDrive_meta DROP COLUMN vault')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version IN (432, 433)')
+    expect(columnsOf(sqlite, 'CloudDrive_upload_sessions')).not.toContain('sha256')
+    expect(columnsOf(sqlite, 'CloudDrive_meta')).not.toContain('vault')
+
+    await reboot(sqlite)
+
+    expect(columnsOf(sqlite, 'CloudDrive_upload_sessions')).toContain('sha256')
+    expect(columnsOf(sqlite, 'CloudDrive_meta')).toContain('vault')
+  })
+})

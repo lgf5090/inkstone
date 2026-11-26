@@ -148,6 +148,8 @@ describe('distributed upload and read', () => {
     expect(session.session).toMatchObject({ strategy: 'distributed', totalParts: 1 })
     const upload = await request(h, 'PUT', `/api/clouddrive/uploads/${session.session.id}/parts/1`, new Uint8Array(size).fill(7) as unknown as BodyInit)
     expect(upload.status).toBe(200)
+    const resumed = await request(h, 'GET', `/api/clouddrive/uploads/${session.session.id}`)
+    expect((await resumed.json() as { session: { uploadedParts: number[] } }).session.uploadedParts).toEqual([1])
     const complete = await request(h, 'POST', `/api/clouddrive/uploads/${session.session.id}/complete`, '{}', { 'Content-Type': 'application/json' })
     expect(complete.status).toBe(200)
     const entry = (await complete.json() as { entry: { id: string } }).entry

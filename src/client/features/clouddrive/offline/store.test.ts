@@ -1,7 +1,64 @@
-import { describe, expect, it, vi } from 'vitest'
-import { offlineRefusal, readOfflineResponse } from './store'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { CloudDriveEntry } from '@shared/clouddrive/model'
+import { getOffline, listOffline, offlineRefusal, putOffline, readOfflineResponse, removeOffline } from './store'
 
 const MIB = 1024 * 1024
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+function requestOf<T>(result: T): IDBRequest<T> {
+  const request = { result } as unknown as IDBRequest<T>
+  queueMicrotask(() => (request.onsuccess as (() => void) | null)?.())
+  return request
+}
+
+function installIndexedDb() {
+  const opened: string[] = []
+  const databases = new Map<string, Map<IDBValidKey, unknown>>()
+  const factory = {
+    open(name: string) {
+      opened.push(name)
+      const rows = databases.get(name) ?? new Map<IDBValidKey, unknown>()
+      databases.set(name, rows)
+      const store = {
+        getAll: () => requestOf([...rows.values()]),
+        get: (key: IDBValidKey) => requestOf(rows.get(key)),
+        put: (value: unknown) => {
+          const key = (value as { id: IDBValidKey }).id
+          rows.set(key, value)
+          return requestOf(key)
+        },
+        delete: (key: IDBValidKey) => { rows.delete(key); return requestOf(undefined) },
+      }
+      const db = {
+        objectStoreNames: { contains: () => true },
+        createObjectStore: vi.fn(),
+        transaction: () => ({ objectStore: () => store }),
+        close: vi.fn(),
+      }
+      const request = {
+        result: null as unknown as IDBDatabase,
+        onupgradeneeded: null as (() => void) | null,
+        onsuccess: null as (() => void) | null,
+        onerror: null as (() => void) | null,
+      }
+      queueMicrotask(() => {
+        request.result = db as unknown as IDBDatabase
+        request.onupgradeneeded?.()
+        request.onsuccess?.()
+      })
+      return request
+    },
+  }
+  vi.stubGlobal('indexedDB', factory as unknown as IDBFactory)
+  return opened
+}
+
+function entry(id: string): CloudDriveEntry {
+  return { id, name: `${id}.txt`, mime: 'text/plain', size: 3, mountId: 'primary', path: `/${id}.txt` } as CloudDriveEntry
+}
 
 function meta(id: string, size: number) {
   return { id, name: `${id}.txt`, mime: 'text/plain', size, savedAt: 1, mountId: 'primary', path: `/${id}.txt` }
@@ -22,6 +79,33 @@ describe('offlineRefusal', () => {
 
   it('does not count the copy a re-save replaces against itself', () => {
     expect(offlineRefusal([meta('a', 20 * MIB)], 'a', 5 * MIB, limits)).toBeNull()
+  })
+})
+
+describe('offline account isolation', () => {
+  it('uses a separate database and identical entry ids for each user', async () => {
+    const opened = installIndexedDb()
+    await putOffline('user-a', entry('same'), new Blob(['aaa'], { type: 'text/plain' }))
+    await putOffline('user-b', entry('same'), new Blob(['bbb'], { type: 'text/plain' }))
+
+    expect(opened).toEqual([
+      'inkstone-clouddrive-offline.user-a',
+      'inkstone-clouddrive-offline.user-a',
+      'inkstone-clouddrive-offline.user-b',
+      'inkstone-clouddrive-offline.user-b',
+    ])
+    expect((await listOffline('user-a')).map((row) => row.name)).toEqual(['same.txt'])
+    expect(await (await getOffline('user-a', 'same'))?.blob.text()).toBe('aaa')
+    expect(await (await getOffline('user-b', 'same'))?.blob.text()).toBe('bbb')
+
+    await removeOffline('user-b', 'same')
+    expect(await getOffline('user-b', 'same')).toBeNull()
+    expect(await (await getOffline('user-a', 'same'))?.blob.text()).toBe('aaa')
+  })
+
+  it('refuses to open an unscoped anonymous cache', async () => {
+    installIndexedDb()
+    await expect(listOffline('')).rejects.toThrow('offline_user_required')
   })
 })
 

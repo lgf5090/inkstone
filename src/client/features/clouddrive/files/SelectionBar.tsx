@@ -13,6 +13,7 @@ export interface SelectionBarProps {
   onDownload: () => void
   onShare: () => void
   onCopy: () => void
+  onCopyTo: () => void
   onCut: () => void
   onMove: () => void
   onRenameBatch: () => void
@@ -31,6 +32,7 @@ export function SelectionBar({
   onDownload,
   onShare,
   onCopy,
+  onCopyTo,
   onCut,
   onMove,
   onRenameBatch,
@@ -53,6 +55,9 @@ export function SelectionBar({
       </Button>
       <Button size="sm" variant="secondary" icon={<Copy size={13} />} onClick={onCopy} disabled={!writable || external || busy}>
         {t('clouddrive.action.copy')}
+      </Button>
+      <Button size="sm" variant="secondary" icon={<FolderInput size={13} />} onClick={onCopyTo} disabled={!writable || external || busy}>
+        {t('clouddrive.action.copy_to')}
       </Button>
       <Button size="sm" variant="secondary" icon={<Scissors size={13} />} onClick={onCut} disabled={!writable || external || busy}>
         {t('clouddrive.action.cut')}

@@ -10,12 +10,16 @@
 import { Hono, type Context } from 'hono'
 import type { AppBindings, Env } from '../env'
 import { ApiError } from '../lib/errors'
+import { requireOwner } from '../middleware/auth'
 import { newId } from '../lib/id'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { decodeCursor, encodeCursor } from './lib'
 import { cloudDriveUsage, readCloudDriveSettings } from './store'
 import { purgeTrashEntries } from './store-files'
 import { deleteUploadPartObjects } from './distributed'
+import { createSnapshot } from './snapshots'
+import { recordActivity } from './activity'
+import { ensureScheduledJobs } from './job-seeds'
 
 export const clouddriveJobRoutes = new Hono<AppBindings>()
 
@@ -24,6 +28,7 @@ const HANDLERS = [
   'purge_share_sessions',
   'purge_trash',
   'refresh_storage_usage',
+  'backup_snapshot',
 ] as const
 type JobHandler = (typeof HANDLERS)[number]
 
@@ -66,44 +71,8 @@ interface RunRow {
   duration_ms: number | null
 }
 
-interface BuiltinSeed {
-  id: string
-  name: string
-  handler: JobHandler
-  intervalSec: number
-}
-
-const BUILTIN_SEEDS: readonly BuiltinSeed[] = [
-  {
-    id: 'builtin_cleanup_upload_sessions',
-    name: 'Clean up expired upload sessions',
-    handler: 'cleanup_upload_sessions',
-    intervalSec: 86_400,
-  },
-  {
-    id: 'builtin_purge_share_sessions',
-    name: 'Purge expired share sessions',
-    handler: 'purge_share_sessions',
-    intervalSec: 3_600,
-  },
-  {
-    id: 'builtin_purge_trash',
-    name: 'Purge trash past its retention',
-    handler: 'purge_trash',
-    intervalSec: 86_400,
-  },
-  {
-    id: 'builtin_refresh_storage_usage',
-    name: 'Refresh storage usage',
-    handler: 'refresh_storage_usage',
-    intervalSec: 21_600,
-  },
-]
-
-clouddriveJobRoutes.use('*', async (c, next) => {
-  if (!c.get('userId')) throw ApiError.unauthenticated()
-  await next()
-})
+clouddriveJobRoutes.use('/jobs', requireOwner)
+clouddriveJobRoutes.use('/jobs/*', requireOwner)
 
 function userIdOf(c: Context<AppBindings>): string {
   return c.get('userId')
@@ -197,24 +166,6 @@ function runView(row: RunRow) {
   }
 }
 
-async function ensureScheduledJobs(db: D1Database, userId: string, now = Date.now()): Promise<void> {
-  const row = await db.prepare(
-    `SELECT COUNT(*) AS count FROM CloudDrive_scheduled_jobs WHERE user_id = ?`,
-  ).bind(userId).first<{ count: number }>()
-  if ((row?.count ?? 0) > 0) return
-  await db.batch(BUILTIN_SEEDS.map((seed) => db.prepare(
-    `INSERT OR IGNORE INTO CloudDrive_scheduled_jobs
-       (user_id, id, name, handler, schedule_type, interval_sec, cron, enabled, builtin, config,
-        last_run_at, next_run_after, lock_until, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'interval', ?, NULL, 1, 1, '{}', NULL, ?, NULL, ?, ?)`,
-  ).bind(
-    userId, seed.id, seed.name, seed.handler, seed.intervalSec,
-    // The first pass is due at once: a reader who never opened the jobs page still has expired
-    // upload sessions holding R2 bytes, and the sweep is what releases them.
-    now, now, now,
-  )))
-}
-
 /**
  * Seed the built-in sweeps for every CloudDrive owner that has never opened the jobs page.
  *
@@ -225,7 +176,8 @@ async function ensureScheduledJobs(db: D1Database, userId: string, now = Date.no
 export async function seedMissingCloudDriveJobs(db: D1Database, now = Date.now(), limit = 50): Promise<number> {
   const { results } = await db.prepare(
     `SELECT DISTINCT m.user_id FROM CloudDrive_mounts m
-      WHERE NOT EXISTS (SELECT 1 FROM CloudDrive_scheduled_jobs j WHERE j.user_id = m.user_id)
+      WHERE NOT EXISTS (SELECT 1 FROM CloudDrive_scheduled_jobs j
+                         WHERE j.user_id = m.user_id AND j.id = 'builtin_backup_snapshot')
       LIMIT ?`,
   ).bind(Math.max(1, Math.min(200, limit))).all<{ user_id: string }>()
   const userIds = (results ?? []).map((row) => row.user_id)
@@ -568,10 +520,17 @@ async function purgeTrash(env: Env, userId: string, now: number): Promise<Record
 }
 
 async function refreshStorageUsage(env: Env, userId: string, now: number): Promise<Record<string, unknown>> {
-  const usage = await cloudDriveUsage(env.DB, userId, env)
+  // This built-in is the periodic source-of-truth calibration for the quota counter cache.
+  const usage = await cloudDriveUsage(env.DB, userId, env, { force: true })
   await env.DB.prepare(`UPDATE CloudDrive_storages SET last_used_at = ? WHERE user_id = ?`)
     .bind(now, userId).run()
   return { ...usage }
+}
+
+async function backupSnapshot(env: Env, userId: string): Promise<Record<string, unknown>> {
+  const snapshot = await createSnapshot(env, userId, `Automatic backup ${new Date().toISOString()}`)
+  await recordActivity(env.DB, userId, { action: 'backup', targetPath: '/', detail: snapshot.id })
+  return { snapshotId: snapshot.id, items: snapshot.item_count, bytes: snapshot.total_bytes }
 }
 
 async function executeHandler(
@@ -589,6 +548,8 @@ async function executeHandler(
       return await purgeTrash(env, userId, now)
     case 'refresh_storage_usage':
       return await refreshStorageUsage(env, userId, now)
+    case 'backup_snapshot':
+      return await backupSnapshot(env, userId)
   }
 }
 

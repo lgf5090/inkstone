@@ -1,29 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { HardDrive, LockKeyhole } from 'lucide-react'
+import { FileArchive, HardDrive, LockKeyhole, Save } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Input } from '../../../components/form'
 import { Button, Spinner } from '../../../components/primitives'
 import { NON_CREDENTIAL_AUTOCOMPLETE } from '../../../lib/autocomplete'
-
-interface ShareMeta {
-  name: string
-  path: string
-  targetKind: 'file' | 'folder'
-  size?: number | null
-  mime?: string | null
-  locked: boolean
-  hasPassword: boolean
-  expiresAt?: number | null
-  allowDownload: boolean
-  disabled: boolean
-}
+import { CloudDriveApiError } from '../api'
+import { useSession } from '../../../store/session'
+import { cloudDrivePublicApi, type PublicShareEntry, type PublicShareMeta } from './api'
 
 type Phase = 'loading' | 'ready' | 'locked' | 'unavailable' | 'expired'
-/** `path` is relative to the share root: the owner's own directory layout is never handed out. */
-type ShareEntry = { name: string; path: string; kind: 'file' | 'folder'; size: number; mime: string; modifiedAt: number }
-
-const SHARE_API = '/api/public/clouddrive/shares'
+type FolderStatus = 'loading' | 'ready' | 'error'
 
 /** The types the share route is willing to draw in place; it adds PDF to the app-wide inline list. */
 function isRenderable(mime: string): boolean {
@@ -35,25 +22,27 @@ function isRenderable(mime: string): boolean {
 
 export function DriveSharePage({ slug }: { slug: string }) {
   const [phase, setPhase] = useState<Phase>('loading')
-  const [meta, setMeta] = useState<ShareMeta | null>(null)
+  const [meta, setMeta] = useState<PublicShareMeta | null>(null)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [entries, setEntries] = useState<ShareEntry[]>([])
+  const [entries, setEntries] = useState<PublicShareEntry[]>([])
   const [sharePath, setSharePath] = useState('/')
+  const [folderStatus, setFolderStatus] = useState<FolderStatus>('loading')
+  const [folderReloadKey, setFolderReloadKey] = useState(0)
   const [cursor, setCursor] = useState<string | null>(null)
   const [total, setTotal] = useState<number | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [loadMoreError, setLoadMoreError] = useState(false)
   const [previewPath, setPreviewPath] = useState<string | null>(null)
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set())
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const signedIn = useSession((state) => Boolean(state.user))
 
-  const load = useCallback(async () => {
-    const response = await fetch(`${SHARE_API}/${encodeURIComponent(slug)}`, { credentials: 'same-origin' })
-    if (!response.ok) throw new Error(String(response.status))
-    return await response.json() as ShareMeta
-  }, [slug])
+  const load = useCallback(() => cloudDrivePublicApi.share(slug), [slug])
 
-  const applyMeta = useCallback((value: ShareMeta) => {
+  const applyMeta = useCallback((value: PublicShareMeta) => {
     setMeta(value)
     setSharePath('/')
     setPhase(value.disabled ? 'unavailable' : value.locked ? 'locked' : 'ready')
@@ -61,6 +50,9 @@ export function DriveSharePage({ slug }: { slug: string }) {
 
   useEffect(() => {
     let cancelled = false
+    setPhase('loading')
+    setMeta(null)
+    setError('')
     void load()
       .then((value) => { if (!cancelled) applyMeta(value) })
       .catch(() => { if (!cancelled) setPhase('unavailable') })
@@ -72,78 +64,92 @@ export function DriveSharePage({ slug }: { slug: string }) {
     setSubmitting(true)
     setError('')
     try {
-      const response = await fetch(`${SHARE_API}/${encodeURIComponent(slug)}/verify`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'X-Inkstone-Client': '1', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      })
-      if (response.status === 401) {
-        setError(t('clouddrive.error.share_locked'))
-        return
-      }
-      if (response.status === 429) {
-        setError(t('clouddrive.error.too_many_attempts'))
-        return
-      }
-      if (!response.ok) {
-        setPhase(response.status === 404 ? 'expired' : 'unavailable')
-        return
-      }
+      await cloudDrivePublicApi.verifyShare(slug, password)
       // The name, size and type only come back once the link is unlocked, so the metadata has to be
       // re-read rather than assumed.
       const value = await load()
       applyMeta(value)
-    } catch {
+    } catch (caught) {
+      if (caught instanceof CloudDriveApiError && caught.status === 401) {
+        setError(t('clouddrive.error.share_locked'))
+        return
+      }
+      if (caught instanceof CloudDriveApiError && caught.status === 429) {
+        setError(t('clouddrive.error.too_many_attempts'))
+        return
+      }
+      if (caught instanceof CloudDriveApiError && caught.status === 404) {
+        setPhase('expired')
+        return
+      }
+      if (caught instanceof CloudDriveApiError) {
+        setPhase('unavailable')
+        return
+      }
       setError(t('clouddrive.error.internal'))
     } finally {
       setSubmitting(false)
     }
   }
 
-  const contentUrl = (path: string, download: boolean) => download
-    ? `/d/${encodeURIComponent(slug)}/raw?path=${encodeURIComponent(path)}`
-    : `${SHARE_API}/${encodeURIComponent(slug)}/content?path=${encodeURIComponent(path)}`
+  const contentUrl = (path: string, download: boolean) => cloudDrivePublicApi.shareContentUrl(slug, path, download)
 
-  const fetchFolder = useCallback(async (at: string | null) => {
-    const search = new URLSearchParams({ path: sharePath })
-    if (at) search.set('cursor', at)
-    const response = await fetch(`${SHARE_API}/${encodeURIComponent(slug)}/list?${search.toString()}`, { credentials: 'same-origin' })
-    if (!response.ok) throw new Error(String(response.status))
-    return await response.json() as { entries: ShareEntry[]; cursor: string | null; total: number }
-  }, [sharePath, slug])
+  const saveToDrive = async () => {
+    setSaving(true)
+    setSaveError('')
+    try {
+      const saved = await cloudDrivePublicApi.saveShare(slug, '/')
+      setSaveError(t('clouddrive.share.saved', { value0: saved.entry.name }))
+    } catch (caught) {
+      setSaveError(caught instanceof CloudDriveApiError && caught.status === 401
+        ? t('clouddrive.share.sign_in_to_save')
+        : t('clouddrive.share.save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const fetchFolder = useCallback(
+    (at: string | null) => cloudDrivePublicApi.listShare(slug, sharePath, at),
+    [sharePath, slug],
+  )
 
   useEffect(() => {
     if (phase !== 'ready' || meta?.targetKind !== 'folder') return
     let cancelled = false
     setPreviewPath(null)
     setPicked(new Set())
+    setEntries([])
+    setCursor(null)
+    setTotal(null)
+    setLoadMoreError(false)
+    setFolderStatus('loading')
     void fetchFolder(null)
       .then((value) => {
         if (cancelled) return
         setEntries(value.entries)
         setCursor(value.cursor)
         setTotal(value.total)
+        setFolderStatus('ready')
       })
       .catch(() => {
         if (cancelled) return
-        setEntries([])
-        setCursor(null)
-        setTotal(null)
+        setFolderStatus('error')
       })
     return () => { cancelled = true }
-  }, [phase, meta?.targetKind, fetchFolder])
+  }, [phase, meta?.targetKind, fetchFolder, folderReloadKey])
 
   const loadMore = async () => {
     if (!cursor || loadingMore) return
     setLoadingMore(true)
+    setLoadMoreError(false)
     try {
       const value = await fetchFolder(cursor)
       setEntries((current) => [...current, ...value.entries])
       setCursor(value.cursor)
       setTotal(value.total)
     } catch {
-      setCursor(null)
+      setLoadMoreError(true)
     } finally {
       setLoadingMore(false)
     }
@@ -183,10 +189,18 @@ export function DriveSharePage({ slug }: { slug: string }) {
           <span className="text-[length:var(--text-12)] font-medium tracking-wide">{t('clouddrive.title')}</span>
         </header>
         {phase === 'loading' && (
-          <div className="flex items-center justify-center py-12"><Spinner /></div>
+          <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 py-12 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+            <Spinner /><span>{t('clouddrive.loading')}</span>
+          </div>
         )}
         {phase === 'unavailable' && (
-          <p role="status" className="py-8 text-center text-[length:var(--text-13)] text-[var(--text-tertiary)]">{t('clouddrive.share.unavailable')}</p>
+          <div role="alert" className="flex flex-col items-center gap-3 py-8 text-center text-[length:var(--text-13)] text-[var(--text-tertiary)]">
+            <p>{t('clouddrive.share.unavailable')}</p>
+            <Button variant="secondary" onClick={() => {
+              setPhase('loading')
+              void load().then(applyMeta).catch(() => setPhase('unavailable'))
+            }}>{t('clouddrive.retry')}</Button>
+          </div>
         )}
         {phase === 'expired' && (
           <p role="status" className="py-8 text-center text-[length:var(--text-13)] text-[var(--text-tertiary)]">{t('clouddrive.share.expired')}</p>
@@ -234,14 +248,41 @@ export function DriveSharePage({ slug }: { slug: string }) {
             {meta.targetKind === 'file' && !meta.allowDownload && !preview && (
               <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.share.no_download')}</p>
             )}
+            <div className="flex flex-wrap items-center gap-2">
+              {signedIn && meta.allowDownload && (
+                <Button size="sm" variant="secondary" icon={<Save size={13} />} loading={saving} onClick={() => void saveToDrive()}>
+                  {t('clouddrive.share.save_to_drive')}
+                </Button>
+              )}
+              {meta.targetKind === 'folder' && meta.allowDownload && (
+                <a
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--r-md)] bg-[var(--accent)] px-4 text-[length:var(--text-12)] font-medium text-[var(--accent-contrast)]"
+                  href={cloudDrivePublicApi.shareZipUrl(slug)}
+                >
+                  <FileArchive size={14} aria-hidden />{t('clouddrive.share.download_zip')}
+                </a>
+              )}
+            </div>
+            {saveError && <p role="status" className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{saveError}</p>}
             {meta.targetKind === 'folder' && (
               <div className="flex flex-col gap-1">
                 {sharePath !== '/' && <button type="button" className="self-start text-[length:var(--text-11)] text-[var(--accent)]" onClick={goUp}>{t('clouddrive.toolbar.back')}</button>}
-                {total !== null && (
+                {folderStatus === 'loading' && (
+                  <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 py-6 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+                    <Spinner /><span>{t('clouddrive.loading')}</span>
+                  </div>
+                )}
+                {folderStatus === 'error' && (
+                  <div role="alert" className="flex flex-col items-center gap-3 py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+                    <p>{t('clouddrive.share.folder_load_failed')}</p>
+                    <Button variant="secondary" onClick={() => setFolderReloadKey((key) => key + 1)}>{t('clouddrive.retry')}</Button>
+                  </div>
+                )}
+                {folderStatus === 'ready' && total !== null && (
                   <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('clouddrive.share.folder_total', { count: total })}</p>
                 )}
-                {entries.length === 0 && <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.share.folder_empty')}</p>}
-                {entries.map((entry) => (
+                {folderStatus === 'ready' && entries.length === 0 && <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.share.folder_empty')}</p>}
+                {folderStatus === 'ready' && entries.map((entry) => (
                   <div key={entry.path} className="flex min-w-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5">
                     {entry.kind === 'file' && meta.allowDownload && (
                       <input
@@ -286,9 +327,10 @@ export function DriveSharePage({ slug }: { slug: string }) {
                     <span className="hidden shrink-0 text-[length:var(--text-10)] tabular-nums text-[var(--text-quaternary)] sm:inline">{new Date(entry.modifiedAt).toLocaleString()}</span>
                   </div>
                 ))}
+                {loadMoreError && <p role="alert" className="text-[length:var(--text-11)] text-[var(--danger)]">{t('clouddrive.share.folder_load_failed')}</p>}
                 {cursor && (
                   <Button size="sm" variant="secondary" loading={loadingMore} onClick={() => void loadMore()} className="self-start">
-                    {t('clouddrive.search.load_more')}
+                    {t(loadMoreError ? 'clouddrive.retry' : 'clouddrive.search.load_more')}
                   </Button>
                 )}
                 {picked.size > 0 && meta.allowDownload && (

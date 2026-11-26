@@ -6,9 +6,9 @@
  * multipart session: uploads stream through `put`, and a direct link is always null.
  */
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
+import { knownLengthByteStream } from '../../lib/body-stream'
 import {
   DriverError,
-  asBytes,
   driverEntryMime,
   type DriverContext,
   type DriverEntry,
@@ -195,13 +195,24 @@ class R2BindingDriver extends HttpDriverBase implements MountDriver {
   }
 
   async upload(path: string, body: Uint8Array | ReadableStream, options: DriverUploadOptions): Promise<void> {
-    const bytes = await asBytes(body)
-    if (bytes.byteLength !== options.size) throw DriverError.invalid('The upload body does not match the declared size')
+    if (body instanceof Uint8Array && body.byteLength !== options.size) {
+      throw DriverError.invalid('The upload body does not match the declared size')
+    }
     const key = this.key(path)
-    await this.bucket().put(key, bytes, {
-      httpMetadata: { contentType: options.contentType ?? driverEntryMime(driverFileName(path)) },
-    })
-    options.onProgress?.(bytes.byteLength, bytes.byteLength)
+    const { stream, completed } = knownLengthByteStream(body, {
+      maxBytes: options.size,
+      expectedBytes: options.size,
+      tooLarge: () => DriverError.invalid('The upload body is larger than its declared size'),
+      mismatched: () => DriverError.invalid('The upload body does not match its declared size'),
+    }, options.size)
+    const object = (await Promise.all([
+      this.bucket().put(key, stream, {
+        httpMetadata: { contentType: options.contentType ?? driverEntryMime(driverFileName(path)) },
+      }),
+      completed,
+    ]))[0]!
+    if (object.size !== options.size) throw DriverError.invalid('The stored upload does not match the declared size')
+    options.onProgress?.(options.size, options.size)
   }
 
   async mkdir(path: string): Promise<void> {

@@ -75,7 +75,8 @@ export function parseKeyScopes(value: unknown): CloudDriveKeyScope[] {
 }
 
 export function apiKeyAllows(scopes: readonly CloudDriveKeyScope[], required: CloudDriveKeyScope): boolean {
-  return scopes.includes(required)
+  if (required === 'webdav') return scopes.includes('webdav')
+  return scopes.includes('webdav') || scopes.includes(required)
 }
 
 /** A prefix of `/` is the whole drive; otherwise the path must be the prefix or live under it. */

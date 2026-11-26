@@ -24,6 +24,7 @@ export const EN_US_CLOUDDRIVE_MEDIA = {
   'clouddrive.viewer.counter': '{index} of {count}',
   'clouddrive.viewer.reset_zoom': 'Reset zoom',
   'clouddrive.viewer.image_failed': 'This image could not be loaded',
+  'clouddrive.viewer.heic_failed': 'This browser cannot preview HEIC/HEIF. Download the file to view it.',
   'clouddrive.viewer.media_failed': 'This file could not be played',
   'clouddrive.viewer.unsupported': 'This file cannot be previewed here',
   'clouddrive.viewer.video': 'Video',
@@ -83,5 +84,11 @@ export const EN_US_CLOUDDRIVE_MEDIA = {
   'clouddrive.settings.webdav_password_set': 'A password is set. Leave blank to keep it.',
   'clouddrive.settings.empty_trash': 'Empty trash',
   'clouddrive.settings.empty_trash_done': 'Permanently deleted {count} items',
+  'clouddrive.settings.empty_trash_failed': 'Could not empty the trash',
+  'clouddrive.settings.config_backup': 'Export configuration',
+  'clouddrive.settings.config_backup_busy': 'Exporting configuration…',
+  'clouddrive.settings.config_backup_done': 'Configuration export started',
+  'clouddrive.settings.config_backup_failed': 'Could not export configuration',
+  'clouddrive.settings.config_backup_hint': 'Includes mount mappings, tags, share policies and sync settings. Credentials and password hashes are excluded.',
 
 } as const

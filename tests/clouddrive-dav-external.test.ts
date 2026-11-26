@@ -169,6 +169,18 @@ describe('cloud drive WebDAV external mounts', () => {
     expect(response.headers.get('location')).toBe('https://cdn.example.com/file.txt')
   })
 
+  it('enforces read-only API keys at the WebDAV method boundary', async () => {
+    await setupWebdav()
+    const readKey = await call('POST', '/api/clouddrive/api-keys', { name: 'reader', scopes: ['webdav:read'], pathPrefix: '/' })
+    expect(readKey.status).toBe(201)
+    expect((await dav('PROPFIND', '/', `apikey:${readKey.body.token}`, undefined, { Depth: '1' })).status).toBe(207)
+    expect((await dav('PUT', '/blocked.txt', `apikey:${readKey.body.token}`, 'x')).status).toBe(401)
+
+    const writeKey = await call('POST', '/api/clouddrive/api-keys', { name: 'writer', scopes: ['webdav:write'], pathPrefix: '/' })
+    expect(writeKey.status).toBe(201)
+    expect((await dav('PUT', '/allowed.txt', `apikey:${writeKey.body.token}`, 'x')).status).toBe(201)
+  })
+
   it('refuses writes to a read-only external mount', async () => {
     await setupWebdav()
     await createMount('readonly', { apiKeyVisible: true, readOnly: true })

@@ -1,0 +1,10 @@
+[data-clouddrive-files] .cd-list-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--cd-row-height);
+}
+
+[data-clouddrive-files] .cd-grid-item,
+[data-clouddrive-files] .cd-gallery-thumb {
+  content-visibility: auto;
+  contain-intrinsic-size: auto calc(var(--cd-icon-size) + 12px);
+}
