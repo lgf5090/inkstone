@@ -13,6 +13,7 @@ import * as api from './api'
 vi.mock('./api', async (importOriginal) => ({
   ...await importOriginal<typeof import('./api')>(),
   fetchProjectBoardBundle: vi.fn(),
+  patchProjectCard: vi.fn(),
   fetchBoardLinks: vi.fn().mockResolvedValue([]),
   fetchBoardCursor: vi.fn(),
   fetchProjectBoards: vi.fn().mockResolvedValue([]),
@@ -84,6 +85,27 @@ describe('the card deep link (R3-13)', () => {
   })
 })
 describe('the convergence poll (R3-15)', () => {
+  it('does not let a delayed visibility response overwrite a newer local card patch', async () => {
+    vi.useFakeTimers()
+    await mount()
+    await act(async () => { navigateToAddress(`/project/boards/${BOARD_ID}`, 'card=c1') })
+    let resolveOld!: (value: ProjectBoardBundle) => void
+    const oldRead = new Promise<ProjectBoardBundle>((resolve) => { resolveOld = resolve })
+    vi.mocked(api.fetchProjectBoardBundle).mockImplementationOnce(() => oldRead)
+    await act(async () => { await vi.advanceTimersByTimeAsync(6_000) })
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
+    const updated = { ...bundle().cards[0]!, title: 'Local title', updateAt: 100 }
+    vi.mocked(api.patchProjectCard).mockResolvedValue(updated)
+    const title = document.querySelector<HTMLInputElement>(`[role="dialog"] input[aria-label="${t('project.board.title_column')}"]`)!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(title, 'Local title'); title.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { title.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { title: 'Local title' })
+    await act(async () => { resolveOld(bundle()); await oldRead })
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Local title')
+    expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Alpha')
+  })
+
   it('skips the whole-board read when the cursor has not moved', async () => {
     vi.useFakeTimers()
     vi.mocked(api.fetchBoardCursor).mockResolvedValue(1)

@@ -67,7 +67,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const refresh = useMemo(
     () => createRefreshQueue(
       () => fetchProjectBoardBundle(boardId),
-      (result) => setBundle(result),
+      (result) => setBundle((current) => current && result.cursor < current.cursor ? current : result),
       () => refreshBoard.current === boardId,
     ),
     [boardId],
@@ -149,22 +149,19 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   }
 
   useEffect(() => {
-    const controller = new AbortController()
+    let alive = true
     setStatus('loading')
     setError(null)
-    fetchProjectBoardBundle(boardId, controller.signal)
-      .then((result) => {
-        setBundle(result)
-        setStatus('ready')
-      })
+    void refresh()
+      .then(() => { if (alive) setStatus('ready') })
       .catch((err: unknown) => {
-        if (controller.signal.aborted) return
+        if (!alive) return
         const isNotFound = typeof err === 'object' && err !== null && 'status' in err && (err as { status: number }).status === 404
         setStatus(isNotFound ? 'notfound' : 'error')
         setError(err instanceof Error ? err.message : String(err))
       })
-    return () => controller.abort()
-  }, [boardId])
+    return () => { alive = false }
+  }, [boardId, refresh])
 
   // Realtime fallback (D-11): the sync hub notifies members on writes, but a tab that misses the
   // notification (or a deployment without the DO) still converges via a quiet 30s refetch.
@@ -177,7 +174,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       fetchBoardCursor(boardId, controller.signal)
         .then(async (cursor) => {
           if (cursor <= (bundleRef.current?.cursor ?? 0)) return
-          setBundle(await fetchProjectBoardBundle(boardId, controller.signal))
+          await refresh()
         })
         .catch(() => { /* best-effort convergence poll: a failed refetch keeps the last good bundle */ return undefined })
     }
@@ -186,9 +183,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     const onVisibility = () => {
       if (typeof document !== 'undefined' && !document.hidden && Date.now() - lastRefetch > 5_000) {
         lastRefetch = Date.now()
-        fetchProjectBoardBundle(boardId, controller.signal)
-          .then((fresh) => setBundle(fresh))
-          .catch(() => { /* best-effort wake-up refetch: the interval still converges on its next beat */ return undefined })
+        void refresh().catch(() => { /* best-effort wake-up refetch: the interval still converges on its next beat */ return undefined })
       }
     }
     if (typeof document !== 'undefined') {
@@ -201,7 +196,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       }
       controller.abort()
     }
-  }, [boardId])
+  }, [boardId, refresh])
 
   const addCard = useCallback(async () => {
     const trimmed = title.trim()
@@ -210,7 +205,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     try {
       const values = projectFilterPrefill(bundle.views.find((view) => view.id === activeViewId)?.fields.filter)
       const card = await createProjectCard(boardId, readRandomIconPref() ? { title: trimmed, values, icon: await randomProjectIcon() } : { title: trimmed, values })
-      setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current))
+      setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, card.createAt), cards: [...current.cards, card] } : current)
       undoStack.push({
         undo: async () => { await deleteProjectCard(card.id); await refresh() },
         redo: async () => { await undeleteProjectCard(card.id); await refresh() },
@@ -227,7 +222,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     const ok = await confirm({ title: t('project.board.delete_card'), tone: 'danger', confirmLabel: t('project.boards.delete_confirm') })
     if (!ok) return
     await deleteProjectCard(cardId)
-    setBundle((current) => (current ? { ...current, cards: current.cards.filter((card) => card.id !== cardId) } : current))
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, Date.now()), cards: current.cards.filter((card) => card.id !== cardId) } : current)
     undoStack.push({
       undo: async () => { await undeleteProjectCard(cardId); await refresh() },
       redo: async () => { await deleteProjectCard(cardId); await refresh() },
@@ -237,7 +232,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const patchCard = useCallback(async (id: string, patch: Record<string, unknown>) => {
     const previous = bundle?.cards.find((card) => card.id === id)
     const updated = await patchProjectCard(id, patch)
-    setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === id ? updated : card)) } : current))
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, updated.updateAt), cards: current.cards.map((card) => (card.id === id ? updated : card)) } : current)
     if (previous) {
       undoStack.push({
         undo: async () => { await patchProjectCard(id, { title: previous.title, values: previous.values, icon: previous.icon, parentId: previous.parentId, contentOrder: previous.contentOrder, recurrence: previous.recurrence ?? null }); await refresh() },
@@ -251,6 +246,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     await batchPatchProjectBoard(boardId, { cards: patches })
     setBundle((current) => current ? {
       ...current,
+      cursor: Math.max(current.cursor, Date.now()),
       cards: current.cards.map((card) => {
         const values = patches.find((entry) => entry.id === card.id)?.patch.values as Record<string, string | null> | undefined
         if (!values) return card
@@ -282,7 +278,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       ? { ...property, options: [...property.options, { id: newProjectId('property'), value, color: '' }] }
       : property))
     const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, propertyRevision: bundle.propertyRevision })
-    setBundle((current) => (current ? { ...current, properties: result.properties, propertyRevision: result.propertyRevision } : current))
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, result.propertyRevision), properties: result.properties, propertyRevision: result.propertyRevision } : current)
   }, [bundle, boardId])
 
   // Renaming a column renames the option, so every card wearing it and every other view of it agree.
@@ -292,7 +288,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       ? { ...property, options: property.options.map((option) => (option.id === optionId ? { ...option, value } : option)) }
       : property))
     const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, propertyRevision: bundle.propertyRevision })
-    setBundle((current) => (current ? { ...current, properties: result.properties, propertyRevision: result.propertyRevision } : current))
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, result.propertyRevision), properties: result.properties, propertyRevision: result.propertyRevision } : current)
   }, [bundle, boardId])
 
   const setGroupOptionColor = useCallback(async (propertyId: string, optionId: string, color: string) => {
@@ -301,40 +297,40 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       ? { ...property, options: property.options.map((option) => (option.id === optionId ? { ...option, color } : option)) }
       : property))
     const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, propertyRevision: bundle.propertyRevision })
-    setBundle((current) => (current ? { ...current, properties: result.properties, propertyRevision: result.propertyRevision } : current))
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, result.propertyRevision), properties: result.properties, propertyRevision: result.propertyRevision } : current)
   }, [bundle, boardId])
 
   const setIcon = useCallback(async (icon: string) => {
     await useProjectStore.getState().setBoardIcon(boardId, icon)
-    setBundle((current) => (current ? { ...current, board: { ...current.board, icon } } : current))
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, Date.now()), board: { ...current.board, icon } } : current)
   }, [boardId])
 
   const addView = useCallback(async (viewType: ProjectViewType) => {
     const view = await createProjectView(boardId, viewType)
-    setBundle((current) => (current ? { ...current, views: [...current.views, view] } : current))
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, view.createAt), views: [...current.views, view] } : current)
   }, [boardId])
 
   const saveProps = useCallback(async (properties: ProjectProperty[], deletedIds: string[]) => {
     if (!bundle) return
     const result = await patchProjectBoard(boardId, { updatedCardProperties: properties, deletedCardProperties: deletedIds, propertyRevision: bundle.propertyRevision })
-    setBundle((current) => (current ? { ...current, properties: result.properties, propertyRevision: result.propertyRevision } : current))
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, result.propertyRevision), properties: result.properties, propertyRevision: result.propertyRevision } : current)
   }, [bundle, boardId])
 
   const patchView = useCallback(async (viewId: string, patch: ProjectViewPatch) => {
     const view = await patchProjectView(viewId, patch)
-    setBundle((current) => (current ? { ...current, views: current.views.map((entry) => (entry.id === viewId ? view : entry)) } : current))
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, view.updateAt), views: current.views.map((entry) => (entry.id === viewId ? view : entry)) } : current)
   }, [])
 
   const removeView = useCallback(async (viewId: string) => {
     const ok = await confirm({ title: t('project.view.delete'), tone: 'danger', confirmLabel: t('common.delete') })
     if (!ok) return
     await deleteProjectView(viewId)
-    setBundle((current) => (current ? { ...current, views: current.views.filter((entry) => entry.id !== viewId) } : current))
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, Date.now()), views: current.views.filter((entry) => entry.id !== viewId) } : current)
   }, [])
 
   const copyView = useCallback(async (viewId: string) => {
     const view = await duplicateProjectView(viewId)
-    setBundle((current) => (current ? { ...current, views: [...current.views, view] } : current))
+    setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, view.createAt), views: [...current.views, view] } : current)
   }, [])
 
   const guard = useCallback((action: () => Promise<void>): Promise<void> => {
@@ -461,7 +457,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
               onChange={(templateId) => {
                 if (!templateId) return
                 void createCardFromTemplate(boardId, templateId)
-                  .then((card) => setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current)))
+                  .then((card) => setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, card.createAt), cards: [...current.cards, card] } : current))
                   .catch((reason: unknown) => { useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' }) })
               }}
               options={bundle.cards.filter((card) => card.isTemplate).map((card) => ({ value: card.id, label: card.title }))}
@@ -484,7 +480,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         onAddGroupOption={addGroupOption}
         onRenameGroupOption={renameGroupOption}
         onSetGroupOptionColor={setGroupOptionColor}
-        onCardCreated={(card) => setBundle((current) => (current ? { ...current, cards: [...current.cards, card] } : current))}
+        onCardCreated={(card) => setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, card.createAt), cards: [...current.cards, card] } : current)}
         onRefresh={refresh}
       />
       </div>
@@ -511,7 +507,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           onClose={() => setShowMembers(false)}
           onBoardPatched={(patch) => guard(async () => {
             const result = await patchProjectBoard(boardId, patch)
-            setBundle((current) => (current ? { ...current, board: result.board } : current))
+            setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, result.board.updateAt), board: result.board } : current)
           })}
         />
       )}
@@ -563,8 +559,8 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           detailTruncated={Boolean(bundle.contentsTruncated || bundle.commentsTruncated)}
           onClose={() => setOpenCardId(null)}
           onDelete={(id) => void removeCard(id)}
-          onUpdated={(updated) => setBundle((current) => (current ? { ...current, cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current))}
-          onRefresh={() => { void fetchProjectBoardBundle(boardId).then(setBundle).catch(() => { /* best-effort: dialog stays usable if the refetch fails */ return undefined }) }}
+          onUpdated={(updated) => setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, updated.updateAt), cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current)}
+          onRefresh={() => { void refresh().catch(() => { /* best-effort: dialog stays usable if the refetch fails */ return undefined }) }}
           onOpenCard={setOpenCardId}
         />
       )}
