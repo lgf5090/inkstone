@@ -42,6 +42,14 @@ const CALENDAR_HOME_BODY = `<?xml version="1.0" encoding="utf-8"?>
   </D:prop>
 </D:propfind>`
 
+const CALENDAR_HOME_VERIFICATION_BODY = `<?xml version="1.0" encoding="utf-8"?>
+<D:propfind xmlns:D="DAV:">
+  <D:prop>
+    <D:resourcetype/>
+    <D:current-user-privilege-set/>
+  </D:prop>
+</D:propfind>`
+
 export interface ResolvedPreset {
   preset: CaldavPreset
   serverUrl: URL
@@ -196,6 +204,12 @@ export async function discoverCalendarConnection(
   if (!calendarHomeUrl) {
     const discovered = await discoverCalendarHome(preset.serverUrl, preset.username, password)
     calendarHomeUrl = discovered.calendarHomeUrl
+  } else {
+    const authorization = `Basic ${toBase64(utf8(`${preset.username}:${password}`))}`
+    const xml = await propfind(new URL(calendarHomeUrl), CALENDAR_HOME_VERIFICATION_BODY, authorization)
+    if (!extractFirstText(xml, 'resourcetype')) {
+      throw new ApiError(502, 'internal', 'The calendar server did not confirm a CalDAV calendar home')
+    }
   }
   return {
     baseUrl: canonicalBaseUrl(preset.serverUrl),
@@ -262,7 +276,7 @@ async function propfind(url: URL, body: string, authorization: string): Promise<
   if (isRedirectResponse(response)) {
     throw new ApiError(502, 'internal', 'The calendar server redirected discovery, which is not followed')
   }
-  if (!response.ok) {
+  if (response.status !== 207) {
     throw new ApiError(502, 'internal', `The calendar server refused discovery (${response.status})`)
   }
   const xml = await readStreamTextWithinLimit(response.body, MAX_DISCOVERY_BYTES)

@@ -10,6 +10,7 @@ import {
   loadCalendarCredential,
 } from '../src/worker/calendar/connections'
 import {
+  discoverCalendarConnection,
   discoverCalendarHome,
   parseCalendarPrivileges,
   resolvePreset,
@@ -238,6 +239,26 @@ describe('CalDAV presets and address validation', () => {
 })
 
 describe('CalDAV discovery', () => {
+  it('verifies a preset calendar home before storing the connection', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      calls.push(String(input))
+      return new Response(multistatus('<D:resourcetype><D:collection/></D:resourcetype>'), { status: 207 })
+    })
+    const result = await discoverCalendarConnection({
+      preset: 'nextcloud', serverUrl: 'https://cloud.example.com/', username: 'alice', password: 'secret-password', writable: false,
+    })
+    expect(result.calendarHomeUrl).toBe('https://cloud.example.com/remote.php/dav/calendars/alice/')
+    expect(calls).toEqual([result.calendarHomeUrl])
+  })
+
+  it('rejects a preset endpoint that does not answer with a DAV multistatus', async () => {
+    vi.stubGlobal('fetch', async () => new Response('ok', { status: 200 }))
+    await expect(discoverCalendarConnection({
+      preset: 'nextcloud', serverUrl: 'https://cloud.example.com/', username: 'alice', password: 'secret-password', writable: false,
+    })).rejects.toMatchObject({ status: 502 })
+  })
+
   it('sends Basic auth, follows the principal to the home, and never returns the password', async () => {
     const calls = stubDiscovery()
     const result = await discoverCalendarHome(new URL('https://dav.example.com/'), 'alice', 'secret-password')

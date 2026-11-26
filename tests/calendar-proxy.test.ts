@@ -224,6 +224,15 @@ describe('proxy method and header allowlists', () => {
 })
 
 describe('proxy route', () => {
+  it('refuses a CalDAV connection without a verified calendar home', async () => {
+    const id = await seedBasic()
+    sqlite.prepare('UPDATE calendar_connections SET calendar_home_url = NULL WHERE user_id = ? AND id = ?').run(USER, id)
+    const calls = stubFetch(() => Response.json({}))
+    const response = await request(`/connections/${id}/proxy`, json({ method: 'PROPFIND', path: 'work/' }))
+    expect(response.status).toBe(409)
+    expect(calls).toHaveLength(0)
+  })
+
   it('injects Basic auth, forwards only allowlisted headers, and returns only safe response headers', async () => {
     const id = await seedBasic()
     const calls = stubFetch(() => new Response('<multistatus/>', {

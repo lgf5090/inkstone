@@ -300,6 +300,9 @@ function proxyBody(method: string, raw: unknown): string | undefined {
 }
 
 function proxyBaseFor(connection: CalendarConnectionRecord): string {
+  if (connection.kind === 'caldav' && !connection.calendarHomeUrl) {
+    throw ApiError.conflict('This CalDAV connection has no verified calendar home. Reconnect it')
+  }
   const raw = connection.calendarHomeUrl ?? connection.baseUrl
   const url = validateConnectionUrl(raw)
   if (connection.kind === 'google' && url.origin !== new URL(GOOGLE_CALENDAR_API_BASE).origin) {
