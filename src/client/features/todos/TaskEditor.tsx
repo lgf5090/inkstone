@@ -59,6 +59,7 @@ import { isTaskDone } from '@shared/todos/status'
 import { TODO_TEMPLATE_MAX } from '@shared/constants'
 import type { TodoTemplate } from '@shared/types'
 import { TaskHistory } from './TaskHistory'
+import { TaskAttachments } from './TaskAttachments'
 import { draftToTemplate, templateToDraft } from './todo-templates'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
@@ -1532,6 +1533,7 @@ export function TaskEditor() {
           </div>
         </div>
 
+        {existing && <TaskAttachments key={`attachments-${existing.id}`} taskId={existing.id} />}
         {existing && <TaskHistory key={existing.id} taskId={existing.id} />}
       </div>
     </Modal>

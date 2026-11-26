@@ -21821,6 +21821,9 @@ const allowed = new Map([
     "// The route answers these two for the file rather than for the slice, so they are assigned.",
     "/**\n     * The address this account may post mail to, and the three verbs that own it.\n     *\n     * One address per account, so `create` both issues the first one and rotates an existing one: the\n     * old token stops resolving the moment the new row lands. The address is read back rather than\n     * hashed because the owner's settings screen has to show it again — the token is the capability.\n     */",
     "/**\n     * One task's history — its birth and every move between statuses, newest first.\n     *\n     * Read when the panel's history section is opened rather than with the task, so a panel that is\n     * opened to change a title does not pay for a table nobody asked to see.\n     */",
+    "/** Upload one file through the task route, which owns storage validation and the link row. */",
+    "/** The files linked to one live task, in the route's own order. */",
+    "/** Remove one task link without deleting the shared stored file. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/** Replace the address without a reload. A no-op on the address that is already up. */",
@@ -53827,6 +53830,12 @@ const allowed = new Map([
     "// A package may also name the file itself (`@resvg/resvg-wasm/index_bg.wasm`); its `exports`",
     "// map decides the real path, and Node's own wasm loader would otherwise try to resolve the",
     "// module's imports as packages (`wbg`) instead of handing back a module.",
+  ]],
+  ["src/client/features/todos/TaskAttachments.tsx", [
+    "/**\n * The files linked to one saved task.\n *\n * The task route owns upload validation and the link rows; this shelf only asks for those links,\n * refreshes after the shared upload helper finishes, and removes one link at a time. Preview and\n * download use the same file-preview modal and stored-file URL as the attachment hub.\n */",
+  ]],
+  ["src/client/features/todos/task-attachments.test.tsx", [
+    "/**\n * The saved task's attachment shelf.\n *\n * These cases drive the shelf at its HTTP and component boundaries: a read on mount, an explicit\n * loading/empty/error/retry sequence, the shared upload helper followed by a refresh, the project's\n * preview/download door, and an unlink whose failure leaves the row in place. The editor cases pin\n * the other half of the contract: a draft has no attachment shelf and asks for no task files.\n */",
   ]],
 ])
 const found = new Map()

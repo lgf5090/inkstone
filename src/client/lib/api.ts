@@ -1822,6 +1822,24 @@ export const api = {
     exportJson: () => request<TodoExportDocument>('/api/todos/export?format=json'),
     exportCsv: () => request<string>('/api/todos/export?format=csv'),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
+    /** Upload one file through the task route, which owns storage validation and the link row. */
+    uploadAttachment: (id: string, file: File) => {
+      const formData = new FormData()
+      formData.set('file', file)
+      return request<{ attachment: Attachment }>(`/api/todos/${encodeURIComponent(id)}/attachments`, {
+        method: 'POST',
+        formData,
+      })
+    },
+    /** The files linked to one live task, in the route's own order. */
+    attachments: (id: string, signal?: AbortSignal) =>
+      request<{ attachments: Attachment[] }>(`/api/todos/${encodeURIComponent(id)}/attachments`, { signal }),
+    /** Remove one task link without deleting the shared stored file. */
+    removeAttachment: (id: string, attachmentId: string) =>
+      request<{ deleted: true }>(
+        `/api/todos/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`,
+        { method: 'DELETE' },
+      ),
     /**
      * One task's history — its birth and every move between statuses, newest first.
      *

@@ -80,6 +80,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
         lists: async () => ({ lists: [] }),
         tags: async () => ({ tags: [] }),
         get: async (id: string) => ({ task: row(id, 'Weekly report'), steps: [] }),
+        attachments: async () => ({ attachments: [] }),
         create: async (body: Record<string, unknown>) => {
           created.bodies.push(body)
           return { task: row('new', String(body.title ?? '')) }
@@ -125,10 +126,11 @@ beforeEach(async () => {
   useSession.setState({ ...originalSession, settings: mergeSettings({ todo: { templates: [TEMPLATE] } }) })
 })
 
-afterEach(() => {
+afterEach(async () => {
   act(() => { view?.unmount() })
   view = null
   document.body.innerHTML = ''
+  await new Promise<void>((resolve) => { setTimeout(resolve, 500) })
   useTodos.setState(original, true)
   useSession.setState(originalSession, true)
 })

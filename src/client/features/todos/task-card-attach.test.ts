@@ -39,11 +39,6 @@ vi.mock('../../lib/api', () => {
         super(message)
       }
     },
-    request: async (path: string, init: { method?: string; formData?: FormData } = {}) => {
-      service.uploads.push({ path, init })
-      if (service.fail) throw service.fail
-      return { attachment: { id: 'file-1', filename: 'a.txt', mime: 'text/plain', size: 1, url: '/api/files/file-1', createdAt: 0 } }
-    },
     api: {
       todos: {
         list: async () => ({
@@ -51,6 +46,13 @@ vi.mock('../../lib/api', () => {
         }),
         lists: async () => ({ lists: [] }),
         tags: async () => ({ tags: [] }),
+        uploadAttachment: async (id: string, file: File) => {
+          const formData = new FormData()
+          formData.set('file', file)
+          service.uploads.push({ path: `/api/todos/${id}/attachments`, init: { method: 'POST', formData } })
+          if (service.fail) throw service.fail
+          return { attachment: { id: 'file-1', noteId: null, filename: 'a.txt', mime: 'text/plain', size: 1, width: null, height: null, url: '/api/files/file-1', createdAt: 0 } }
+        },
         move: async (id: string, body: Record<string, unknown>) => {
           service.moves.push({ id, body })
           return { task: null }
