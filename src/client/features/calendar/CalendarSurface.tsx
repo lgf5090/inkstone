@@ -74,7 +74,7 @@ import { cellLabel } from './almanac'
 import type { CalendarCountdownDto } from '@shared/calendar/countdown'
 import { navigateToPath } from '../../lib/app-history'
 import { holidayPresets } from './holidays'
-import { enqueueOutbox, flushOutbox, removeOutbox } from './offline-outbox'
+import { enqueueOutbox, flushOutbox, outboxEventIds, removeOutbox } from './offline-outbox'
 import { CalendarQuickAdd } from './CalendarQuickAdd'
 import { attachCalendarChrome } from './calendar-chrome'
 import { CalendarPrintSheet } from './CalendarPrintSheet'
@@ -475,6 +475,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const [recurrenceRequest, setRecurrenceRequest] = useState<RecurrenceOccurrenceRequest | null>(null)
   const [freeBusyOpen, setFreeBusyOpen] = useState(false)
   const [historyVersion, setHistoryVersion] = useState(0)
+  useEffect(() => history.subscribe(() => setHistoryVersion(version => version + 1)), [history])
   const historyView = useMemo(() => ({ canUndo: history.canUndo, canRedo: history.canRedo }), [history, historyVersion])
   const [resourcesOpen, setResourcesOpen] = useState(false)
   const [schedulingOpen, setSchedulingOpen] = useState(false)
@@ -714,6 +715,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     truncated: boolean,
     options: { mirror?: boolean; updateRevisions?: boolean } = {},
   ): Set<string> => {
+    const queued = accountRef.current ? outboxEventIds(accountRef.current) : new Set<string>()
     const plan = planEventSnapshot({
       dtos,
       existing: app.getEvents().filter(event => !isRecurrenceOccurrence(event)),
@@ -722,7 +724,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       truncated,
       mirror: options.mirror,
       updateRevisions: options.updateRevisions,
-      hasPending: id => persistenceRef.current?.hasPending(id) === true,
+      hasPending: id => queued.has(id) || persistenceRef.current?.hasPending(id) === true,
     })
     for (const [id, rev] of plan.revisions) revs.set(id, rev)
     if (plan.add.length > 0 || plan.update.length > 0) {

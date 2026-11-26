@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../lib/api'
 import type { CalendarEventInput } from '@shared/calendar/model'
-import { clearOutbox, enqueueOutbox, flushOutbox, readOutbox, removeOutbox } from './offline-outbox'
+import { clearOutbox, enqueueOutbox, flushOutbox, outboxEventIds, readOutbox, removeOutbox } from './offline-outbox'
 import * as api from './api'
 
 vi.mock('./api', () => ({
@@ -43,6 +43,13 @@ describe('the offline calendar outbox', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0]).toMatchObject({ kind: 'save', eventId: 'e1', baseRev: 7 })
     expect((entries[0] as { input: CalendarEventInput }).input.title).toBe('Second')
+  })
+
+  it('exposes durable queued event ids for range mirroring', async () => {
+    await enqueueOutbox('u1', { kind: 'save', eventId: 'new', input: input('new', 'New'), baseRev: null, at: 1 })
+    await enqueueOutbox('u1', { kind: 'delete', eventId: 'gone', rev: 4, at: 2 })
+    expect([...outboxEventIds('u1')].sort()).toEqual(['gone', 'new'])
+    expect(outboxEventIds('other')).toEqual(new Set())
   })
 
   it('creates new rows, conditionally patches existing rows and deletes with the recorded revision', async () => {

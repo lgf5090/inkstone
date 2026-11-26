@@ -25,45 +25,103 @@ export class CalendarEditHistory {
   private replaying = false
   /** Ids a replay touched; their echo through the write queue must not start a new history entry. */
   private replayPending = new Set<string>()
+  private replayPositions = new Map<string, { stack: 'undo' | 'redo'; index: number }>()
+  private listeners = new Set<() => void>()
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+
+  private changed(): void {
+    for (const listener of this.listeners) listener()
+  }
 
   get isReplaying(): boolean {
     return this.replaying
   }
 
   get canUndo(): boolean {
-    return this.undoStack.length > 0
+    return this.undoStack.length > 0 && this.replayPending.size === 0
   }
 
   get canRedo(): boolean {
-    return this.redoStack.length > 0
+    return this.redoStack.length > 0 && this.replayPending.size === 0
   }
 
   /** Called after a change has reached the API; a replay of history never records again. */
   record(entry: EditHistoryEntry): void {
     if (this.replaying) return
-    if (this.replayPending.delete(entry.id)) return
+    if (this.replayPending.delete(entry.id)) {
+      this.replayPositions.delete(entry.id)
+      this.changed()
+      return
+    }
     this.undoStack.push(entry)
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift()
     this.redoStack = []
+    this.changed()
+  }
+
+  finishReplay(id: string): void {
+    if (!this.replayPending.delete(id)) return
+    this.replayPositions.delete(id)
+    this.changed()
+  }
+
+  failReplay(id: string): void {
+    if (!this.replayPending.delete(id)) return
+    const position = this.replayPositions.get(id)
+    this.replayPositions.delete(id)
+    if (!position) {
+      this.changed()
+      return
+    }
+    const source = position.stack === 'undo' ? this.redoStack : this.undoStack
+    const target = position.stack === 'undo' ? this.undoStack : this.redoStack
+    const index = source.map(entry => entry.id).lastIndexOf(id)
+    if (index < 0) {
+      this.changed()
+      return
+    }
+    const [entry] = source.splice(index, 1)
+    if (entry) target.splice(Math.min(position.index, target.length), 0, entry)
+    this.changed()
+  }
+
+  remapReplay(previousId: string, nextId: string): void {
+    if (!this.replayPending.delete(previousId)) return
+    this.replayPending.add(nextId)
+    const position = this.replayPositions.get(previousId)
+    if (position) {
+      this.replayPositions.delete(previousId)
+      this.replayPositions.set(nextId, position)
+    }
   }
 
   undo(app: ICalendarApp, entryId?: string): boolean {
+    if (this.replayPending.size > 0) return false
     const index = entryId === undefined
       ? this.undoStack.length - 1
       : this.undoStack.map(entry => entry.id).lastIndexOf(entryId)
     if (index < 0) return false
     const [entry] = this.undoStack.splice(index, 1)
     if (!entry) return false
+    this.replayPositions.set(entry.id, { stack: 'undo', index })
     this.apply(app, entry.before, entry.after)
     this.redoStack.push(entry)
+    this.changed()
     return true
   }
 
   redo(app: ICalendarApp): boolean {
+    if (this.replayPending.size > 0) return false
     const entry = this.redoStack.pop()
     if (!entry) return false
+    this.replayPositions.set(entry.id, { stack: 'redo', index: this.redoStack.length })
     this.apply(app, entry.after, entry.before)
     this.undoStack.push(entry)
+    this.changed()
     return true
   }
 

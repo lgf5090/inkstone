@@ -1743,7 +1743,6 @@ const allowed = new Map([
     "/** The calendars and preferences the last visit showed, or null. */",
     "// Truncated or hand-edited: drop it rather than guess what the reader's calendars are.",
     "// Quota or a disabled store: the shell falls back to its skeleton, which is the old behaviour.",
-    "/** v1 stored the full `CalendarMetaDto`, including subscription URLs and connection usernames. */",
     "// A storage that cannot remove the old entry also cannot have served it to us now.",
   ]],
   ["src/client/features/calendar/history.test.ts", [

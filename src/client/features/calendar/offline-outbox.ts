@@ -66,6 +66,10 @@ export function readOutbox(userId: string): OutboxEntry[] {
   }
 }
 
+export function outboxEventIds(userId: string): Set<string> {
+  return new Set(readOutbox(userId).map(entry => entry.eventId))
+}
+
 function writeOutbox(userId: string, entries: readonly OutboxEntry[]): void {
   if (entries.length > MAX_ENTRIES) {
     throw new Error(`The calendar offline queue is full (${MAX_ENTRIES} events).`)

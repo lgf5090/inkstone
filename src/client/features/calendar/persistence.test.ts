@@ -47,6 +47,15 @@ function fakeApp(): { app: ICalendarApp; emit: (change: EventChange) => void; ap
   }
 }
 
+function fakeHistory(record = vi.fn()): CalendarEditHistory {
+  return {
+    record,
+    finishReplay: vi.fn(),
+    failReplay: vi.fn(),
+    remapReplay: vi.fn(),
+  } as unknown as CalendarEditHistory
+}
+
 function serverEventDto(rev: number, overrides: Partial<CalendarEventDto> = {}): CalendarEventDto {
   return {
     id: 'evt-1',
@@ -90,10 +99,11 @@ describe('event persistence rollback', () => {
     const fake = fakeApp()
     const onError = vi.fn()
     const record = vi.fn()
+    const history = fakeHistory(record)
     const persistence = new EventPersistence({
       app: fake.app,
       revs: new Map([['evt-1', 1]]),
-      history: { record } as unknown as CalendarEditHistory,
+      history,
       timeZone: () => 'UTC',
       fallbackTitle: () => 'Untitled',
       onServerState: vi.fn(),
@@ -114,6 +124,7 @@ describe('event persistence rollback', () => {
     await vi.advanceTimersByTimeAsync(300)
 
     expect(onError).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(history.failReplay)).toHaveBeenCalledWith('evt-1')
     expect(record).not.toHaveBeenCalled()
     expect(fake.applied[0]?.changes).toMatchObject({
       update: [{
@@ -130,7 +141,7 @@ describe('event persistence rollback', () => {
     const persistence = new EventPersistence({
       app: fake.app,
       revs: new Map([['evt-1', 1]]),
-      history: { record: vi.fn() } as unknown as CalendarEditHistory,
+      history: fakeHistory(),
       timeZone: () => 'UTC',
       fallbackTitle: () => 'Untitled',
       onServerState: vi.fn(),
@@ -158,7 +169,7 @@ describe('event persistence rollback', () => {
     const persistence = new EventPersistence({
       app: fake.app,
       revs: new Map(),
-      history: { record: vi.fn() } as unknown as CalendarEditHistory,
+      history: fakeHistory(),
       timeZone: () => 'UTC',
       fallbackTitle: () => 'Untitled',
       onServerState: vi.fn(),
@@ -185,7 +196,7 @@ describe('event persistence rollback', () => {
     const persistence = new EventPersistence({
       app: fake.app,
       revs,
-      history: { record: vi.fn() } as unknown as CalendarEditHistory,
+      history: fakeHistory(),
       timeZone: () => 'UTC',
       fallbackTitle: () => 'Untitled',
       onServerState: vi.fn(),
@@ -272,11 +283,12 @@ describe('write conflicts', () => {
     const onServerState = vi.fn()
     const onError = vi.fn()
     const record = vi.fn()
+    const history = fakeHistory(record)
     const revs = new Map([['evt-1', 1]])
     const persistence = new EventPersistence({
       app: fake.app,
       revs,
-      history: { record } as unknown as CalendarEditHistory,
+      history,
       timeZone: () => 'UTC',
       fallbackTitle: () => 'Untitled',
       onServerState,
@@ -286,7 +298,7 @@ describe('write conflicts', () => {
       onReadOnlyEdit: vi.fn(),
     })
     persistence.start()
-    return { fake, onConflict, onServerState, onError, record, revs, persistence }
+    return { fake, onConflict, onServerState, onError, record, history, revs, persistence }
   }
 
   async function conflictWhileSavingEdit(
@@ -335,6 +347,7 @@ describe('write conflicts', () => {
     expect(api.updateEvent).toHaveBeenCalledTimes(1)
     expect(context.onServerState).toHaveBeenCalledWith('evt-1')
     expect(context.fake.applied).toHaveLength(0)
+    expect(vi.mocked(context.history.failReplay)).toHaveBeenCalledWith('evt-1')
     expect(context.record).not.toHaveBeenCalled()
     context.persistence.dispose()
   })
@@ -425,8 +438,8 @@ describe('occurrence edits and offline writes', () => {
   function options(fake: ReturnType<typeof fakeApp>, overrides: Record<string, unknown>) {
     return {
       app: fake.app,
-      revs: new Map([['master::repeat-1', 2]]),
-      history: { record: vi.fn() } as unknown as CalendarEditHistory,
+      revs: new Map([['master', 2]]),
+      history: fakeHistory(),
       timeZone: () => 'UTC',
       fallbackTitle: () => 'Untitled',
       onServerState: vi.fn(),
@@ -479,7 +492,7 @@ describe('occurrence edits and offline writes', () => {
     vi.mocked(api.updateEvent).mockRejectedValue(new ApiError(0, 'offline', 'network down'))
     const persistence = new EventPersistence(options(fake, {
       onOffline,
-      history: { record },
+      history: fakeHistory(record),
       revs: new Map([['evt-1', 1]]),
     }))
     persistence.start()

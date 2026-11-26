@@ -11,9 +11,8 @@
  */
 import type { CalendarMetaDto } from '@shared/calendar/model'
 
-const STORAGE_KEY = 'inkstone.calendar.first-paint.v2'
-/** v1 stored the full `CalendarMetaDto`, including subscription URLs and connection usernames. */
-const LEGACY_KEYS = ['inkstone.calendar.first-paint.v1'] as const
+const STORAGE_KEY = 'inkstone.calendar.first-paint.v3'
+const LEGACY_KEYS = ['inkstone.calendar.first-paint.v1', 'inkstone.calendar.first-paint.v2'] as const
 const MAX_BYTES = 256 * 1024
 
 function readStorage(): Storage | null {
@@ -45,7 +44,7 @@ export function readFirstPaintMeta(userId: string, storage: Storage | null = rea
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw) as { version?: number; meta?: CalendarMetaDto }
-    if (parsed.version !== 1 || !parsed.meta || !Array.isArray(parsed.meta.calendars)) return null
+    if (parsed.version !== 2 || !parsed.meta || !Array.isArray(parsed.meta.calendars)) return null
     return parsed.meta
   } catch {
     // Truncated or hand-edited: drop it rather than guess what the reader's calendars are.
@@ -66,8 +65,19 @@ export function saveFirstPaintMeta(
       storage.removeItem(keyFor(userId))
       return
     }
-    const serialized = JSON.stringify({ version: 1, meta })
-    if (serialized.length > MAX_BYTES) {
+    const projected: CalendarMetaDto = {
+      calendars: meta.calendars.map(calendar => ({ ...calendar, subscriptionId: null })),
+      groups: meta.groups,
+      subscriptions: [],
+      connections: [],
+      invites: [],
+      resources: [],
+      schedulingLinks: [],
+      preferences: { ...meta.preferences, organizerEmail: '', reminderEmail: '' },
+      preferencesInitialized: meta.preferencesInitialized,
+    }
+    const serialized = JSON.stringify({ version: 2, meta: projected })
+    if (new TextEncoder().encode(serialized).byteLength > MAX_BYTES) {
       storage.removeItem(keyFor(userId))
       return
     }
