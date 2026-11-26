@@ -328,6 +328,30 @@ describe('event ranges and revisions', () => {
     expect(first.id).not.toBe(both.id)
   })
 
+  it('filters shared range rows and revisions by the requested synthetic calendar', async () => {
+    const second = await store.createCalendar({ id: 'cal-second', name: 'Shared second' })
+    const firstEvent = await store.createEvent(eventInput({ title: 'First only' }))
+    await store.createEvent(eventInput({ title: 'Second only', calendarId: second.id }))
+    sqlite.prepare(`INSERT INTO calendar_members
+      (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(ALICE, calendar.id, BOB, 'reader', 'accepted', 1, 1)
+    sqlite.prepare(`INSERT INTO calendar_members
+      (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(ALICE, second.id, BOB, 'reader', 'accepted', 1, 1)
+
+    const bob = new CalendarStore(db, BOB)
+    const sharedFirst = `shared:${ALICE}:${calendar.id}`
+    const page = await bob.listEvents(day('2026-10-01'), day('2026-11-01'), [sharedFirst])
+    expect(page.events.map(event => event.id)).toEqual([`shared:${ALICE}:${firstEvent.id}`])
+    expect(page.events[0]?.calendarId).toBe(sharedFirst)
+    const revision = await bob.eventsRevision(day('2026-10-01'), day('2026-11-01'), [sharedFirst])
+    expect(revision).toMatchObject({ count: 1, revSum: firstEvent.rev })
+    expect((await bob.listEvents(day('2026-10-01'), day('2026-11-01'), ['shared:other:calendar'])).events)
+      .toEqual([])
+  })
+
   it('bumps rev on update and refuses a stale revision', async () => {
     const created = await store.createEvent(eventInput())
     const updated = await store.updateEvent(created.id, { rev: created.rev, title: 'Renamed' })
