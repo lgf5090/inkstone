@@ -451,6 +451,8 @@ describe('resources, booking links and snoozes', () => {
       await call('GET', `/api/public/calendar/scheduling/${link.slug}`),
     )
     expect(publicRead.busy).toEqual([{ startMs: linkedStart, endMs: linkedStart + 90 * 60_000 }])
+    const throttleKeys = sqlite.prepare('SELECT key FROM login_attempts').all() as Array<{ key: string }>
+    expect(throttleKeys.some(row => row.key === `calendar-booking:owner:${ALICE}:day`)).toBe(true)
     const booked = await call('POST', `/api/public/calendar/scheduling/${link.slug}/book`, {
       startMs: bookedStart,
       name: 'Dana',

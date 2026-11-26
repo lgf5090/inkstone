@@ -35,6 +35,7 @@ const BODY_LIMIT = 16 * 1024
 const MAX_PUBLIC_RANGE_MS = 14 * 24 * 60 * 60 * 1000
 const SLOT_INTERVAL_MINUTES = 15
 const SLOT_INTERVAL_MS = SLOT_INTERVAL_MINUTES * 60 * 1000
+const OWNER_BOOKING_DAILY_LIMIT = 300
 
 function parseDays(raw: unknown): number[] {
   if (!Array.isArray(raw) || raw.length === 0) throw ApiError.badRequest('days must name weekdays')
@@ -195,11 +196,12 @@ async function publicLink(c: Context<AppBindings>): Promise<{ row: SchedulingLin
   return { row, userId: row.user_id }
 }
 
-async function throttle(c: Context<AppBindings>, slug: string): Promise<void> {
+async function throttle(c: Context<AppBindings>, slug: string, userId: string): Promise<void> {
   const ip = requestClientIp(c)
   await assertAttemptBudget(async () => {
     await consumeAttemptBudget(c.env.DB, [
       { key: `calendar-booking:${slug}:ip:${ip}`, maxAttempts: 30, windowMs: 10 * 60 * 1000 },
+      { key: `calendar-booking:owner:${userId}:day`, maxAttempts: OWNER_BOOKING_DAILY_LIMIT, windowMs: 24 * 60 * 60 * 1000 },
     ])
   })
 }
@@ -235,8 +237,8 @@ async function busyFor(
 }
 
 calendarBookingRoutes.get('/scheduling/:slug', async (c) => {
-  await throttle(c, publicSlug(c))
   const { row, userId } = await publicLink(c)
+  await throttle(c, row.slug, userId)
   const preferences = await new CalendarStore(c.env.DB, userId).preferences()
   const now = Date.now()
   const busy = await busyFor(c, row, now, now + MAX_PUBLIC_RANGE_MS)
@@ -317,12 +319,13 @@ async function reserve(
 }
 
 calendarBookingRoutes.post('/scheduling/:slug/book', async (c) => {
-  await throttle(c, publicSlug(c))
   const { row, userId } = await publicLink(c)
+  await throttle(c, row.slug, userId)
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   const startMs = body.startMs
   if (typeof startMs !== 'number') throw ApiError.badRequest('startMs is required')
   if (body.email !== undefined && typeof body.email !== 'string') throw ApiError.badRequest('email is invalid')
+  if (typeof body.company === 'string' && body.company.trim()) throw ApiError.badRequest('That time cannot be booked')
   const guestName = typeof body.name === 'string' ? body.name.trim() : ''
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
   return c.json(await reserve(c, row, userId, startMs, guestName, email))
@@ -452,8 +455,8 @@ function bookingForm(row: SchedulingLinkRow, slots: OfferedSlot[], slug: string,
 
 calendarBookingPageRoutes.get('/:slug', async (c) => {
   const slug = publicSlug(c)
-  await throttle(c, slug)
   const { row, userId } = await publicLink(c)
+  await throttle(c, slug, userId)
   const preferences = await new CalendarStore(c.env.DB, userId).preferences()
   const now = Date.now()
   const busy = await busyFor(c, row, now, now + MAX_PUBLIC_RANGE_MS)
@@ -467,8 +470,8 @@ calendarBookingPageRoutes.get('/:slug', async (c) => {
 
 calendarBookingPageRoutes.post('/:slug/book', async (c) => {
   const slug = publicSlug(c)
-  await throttle(c, slug)
   const { row, userId } = await publicLink(c)
+  await throttle(c, slug, userId)
   const body = await c.req.parseBody()
   const value = (field: string): string => typeof body[field] === 'string' ? String(body[field]).trim() : ''
   const locale = (c.req.header('accept-language') ?? '').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
