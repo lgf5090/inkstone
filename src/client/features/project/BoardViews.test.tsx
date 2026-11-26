@@ -37,9 +37,9 @@ function bundle(): ProjectBoardBundle {
 }
 
 let view: RenderedElement
-async function mount(custom?: ProjectBoardBundle): Promise<void> {
+async function mount(custom?: ProjectBoardBundle, publicView = false): Promise<void> {
   await act(async () => {
-    view = renderElement(createElement(BoardViews, { bundle: custom ?? bundle(), canEdit: true, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
+    view = renderElement(createElement(BoardViews, { bundle: custom ?? bundle(), canEdit: !publicView, publicView, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }))
   })
 }
 /** Opens a SelectMenu by its accessible name and reads the rows it offers. */
@@ -56,6 +56,33 @@ beforeEach(async () => {
   await initI18n()
 })
 afterEach(() => { view?.unmount() })
+
+describe('public views', () => {
+  it('renders dashboard, sprint and collection without member-only requests', async () => {
+    const activity = vi.spyOn(api, 'fetchBoardActivity').mockResolvedValue([])
+    const files = vi.spyOn(api, 'listBoardFiles').mockResolvedValue([])
+    const sprints = vi.spyOn(api, 'fetchProjectSprints').mockResolvedValue([])
+    const detail = vi.spyOn(api, 'fetchProjectSprintDetail').mockResolvedValue({} as never)
+    try {
+      for (const viewType of ['dashboard', 'sprint', 'collection'] as const) {
+        const b = bundle()
+        b.views = [{ id: 'v1', boardId: 'b1', title: viewType, viewType, fields: emptyProjectViewFields(), position: 0, ...stamps }]
+        await mount(b, true)
+        expect(view.container.querySelector(`[data-view="${viewType}"]`)).not.toBeNull()
+        view.unmount()
+      }
+      expect(activity).not.toHaveBeenCalled()
+      expect(files).not.toHaveBeenCalled()
+      expect(sprints).not.toHaveBeenCalled()
+      expect(detail).not.toHaveBeenCalled()
+    } finally {
+      activity.mockRestore()
+      files.mockRestore()
+      sprints.mockRestore()
+      detail.mockRestore()
+    }
+  })
+})
 
 describe('the table view', () => {
   it('renders a column per property and a row per card with display values', async () => {

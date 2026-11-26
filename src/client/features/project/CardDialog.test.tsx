@@ -111,6 +111,25 @@ describe('the card dialog', () => {
     expect(document.body.textContent).toContain('Hello')
   })
 
+  it('edits a text block in place and persists the new body', async () => {
+    const block = { id: 'text1', cardId: 'c1', boardId: 'b1', type: 'text' as const, title: 'Old body', fields: {}, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
+    vi.mocked(api.patchCardContent).mockResolvedValue({ ...block, title: 'New body' })
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, {
+        card, properties, members: [], people: {}, contents: [block], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
+      }))
+    })
+    const edit = document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.card.edit_content')}"]`)!
+    await act(async () => { edit.click() })
+    const textarea = document.body.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${t('project.card.edit_content')}"]`)!
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(textarea, 'New body'); textarea.dispatchEvent(new Event('input', { bubbles: true })) })
+    const save = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('common.save'))!
+    await act(async () => { save.click() })
+    expect(api.patchCardContent).toHaveBeenCalledWith('text1', { title: 'New body' })
+    expect(document.body.textContent).toContain('New body')
+  })
+
   it('toggles a checkbox content block through patchCardContent', async () => {
     const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'checkbox' as const, title: 'Step', fields: { checked: false }, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
     vi.mocked(api.patchCardContent).mockResolvedValue({ ...block, fields: { checked: true } })

@@ -304,7 +304,7 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
           </div>
         </div>
       </Modal>
-      {automationsOpen && <AutomationsDialog boardId={boardId} onClose={() => setAutomationsOpen(false)} />}
+      {automationsOpen && <AutomationsDialog boardId={boardId} properties={draft} onClose={() => setAutomationsOpen(false)} />}
       {integrationsOpen && <IntegrationsDialog boardId={boardId} onClose={() => setIntegrationsOpen(false)} />}
     </>
   )

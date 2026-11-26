@@ -73,6 +73,8 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   const answerIn = locale === 'zh-CN' ? 'Answer in Simplified Chinese.' : 'Answer in English.'
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
+  const [editingBlockId, setEditingBlockId] = useState<string | null>(null)
+  const [blockDraft, setBlockDraft] = useState('')
 
   const run = useCallback(async (action: () => Promise<void>): Promise<void> => {
     try {
@@ -276,6 +278,20 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   const toggleBlock = async (block: ProjectContent, checked: boolean) => {
     await run(async () => {
       const updated = await patchCardContent(block.id, { fields: { ...block.fields, checked } })
+      setBlocks((current) => current.map((entry) => (entry.id === block.id ? updated : entry)))
+    })
+  }
+
+  const editBlock = (block: ProjectContent) => {
+    setEditingBlockId(block.id)
+    setBlockDraft(block.title)
+  }
+
+  const saveBlockEdit = async (block: ProjectContent) => {
+    const title = blockDraft
+    setEditingBlockId(null)
+    await run(async () => {
+      const updated = await patchCardContent(block.id, { title })
       setBlocks((current) => current.map((entry) => (entry.id === block.id ? updated : entry)))
     })
   }
@@ -496,10 +512,21 @@ export function CardDialog({ card, properties, members, people, contents, siblin
                           ? (block.fields.attachmentId && files.some((file) => file.id === block.fields.attachmentId)
                             ? <a className="text-[length:var(--text-13)] text-[var(--accent)]" href={projectFileUrl(block.fields.attachmentId)} target="_blank" rel="noreferrer">{block.title}</a>
                             : <ArchivedFile />)
-                          : <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{block.title}</p>}
+                          : editingBlockId === block.id
+                            ? (
+                              <div className="space-y-2">
+                                <Textarea className="w-full" rows={3} value={blockDraft} aria-label={t('project.card.edit_content')} onChange={(event) => setBlockDraft(event.target.value)} />
+                                <div className="flex gap-2">
+                                  <Button size="sm" variant="primary" onClick={() => void saveBlockEdit(block)}>{t('common.save')}</Button>
+                                  <Button size="sm" variant="ghost" onClick={() => setEditingBlockId(null)}>{t('common.cancel')}</Button>
+                                </div>
+                              </div>
+                            )
+                            : <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{block.title}</p>}
                 </div>
                 {canEdit && (
                   <>
+                    {block.type === 'text' && <IconButton label={t('project.card.edit_content')} size="sm" onClick={() => editBlock(block)}><Pencil size={14} /></IconButton>}
                     <IconButton label={t('project.card.move_up')} size="sm" onClick={() => moveBlock(block, 'up')}><ChevronUp size={14} /></IconButton>
                     <IconButton label={t('project.card.move_down')} size="sm" onClick={() => moveBlock(block, 'down')}><ChevronDown size={14} /></IconButton>
                     <IconButton label={t('common.delete')} size="sm" onClick={() => void removeBlock(block)}><Trash2 size={14} /></IconButton>

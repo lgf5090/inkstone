@@ -537,11 +537,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     if (!active) return <ViewEmpty title={t('project.board.empty_cards')} />
     switch (viewType) {
       case 'collection':
-        return <CollectionView boardId={bundle.board.id} canEdit={canEdit} onOpenCard={onOpenCard} />
+        return <CollectionView boardId={bundle.board.id} canEdit={canEdit} onOpenCard={onOpenCard} publicView={publicView} />
       case 'sprint':
-        return <SprintView boardId={bundle.board.id} cards={cards} canEdit={canEdit} onOpenCard={onOpenCard} />
+        return <SprintView boardId={bundle.board.id} cards={cards} canEdit={canEdit} onOpenCard={onOpenCard} publicView={publicView} />
       case 'dashboard':
-        return <DashboardView boardId={bundle.board.id} cards={cards} properties={bundle.properties} datePropertyId={projectViewPropertyId(fields.dateDisplayPropertyId)} onOpenCard={onOpenCard} />
+        return <DashboardView boardId={bundle.board.id} cards={cards} properties={bundle.properties} datePropertyId={projectViewPropertyId(fields.dateDisplayPropertyId)} onOpenCard={onOpenCard} publicView={publicView} />
       case 'chart':
         return <ChartView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} onPatchFields={patchFields} />
       case 'calendar':

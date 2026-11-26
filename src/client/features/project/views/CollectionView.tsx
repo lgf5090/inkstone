@@ -17,10 +17,11 @@ import { useUi } from '../../../store/ui'
 import { ViewEmpty, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { deleteProjectFile, listBoardFiles, projectFileUrl, uploadBoardFile } from '../api'
 
-export function CollectionView({ boardId, canEdit, onOpenCard }: {
+export function CollectionView({ boardId, canEdit, onOpenCard, publicView = false }: {
   boardId: string
   canEdit: boolean
   onOpenCard: (id: string) => void
+  publicView?: boolean
 }): ReactElement {
   const locale = useLocale()
   const [files, setFiles] = useState<ProjectAttachment[] | null>(null)
@@ -37,7 +38,10 @@ export function CollectionView({ boardId, canEdit, onOpenCard }: {
   const toast = useUi((state) => state.toast)
 
   const load = useCallback(async () => { setFiles(await listBoardFiles(boardId)) }, [boardId])
-  useEffect(() => { void load().catch(() => setFiles([])) }, [load])
+  useEffect(() => {
+    if (publicView) { setFiles([]); return }
+    void load().catch(() => setFiles([]))
+  }, [load, publicView])
 
   const shown = useMemo(() => (files ?? [])
     .filter((file) => !category || fileCategory(file.mime) === category)

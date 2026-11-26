@@ -35,6 +35,7 @@ export interface DashboardProps {
   cards: ProjectCard[]
   properties: ProjectProperty[]
   datePropertyId?: string
+  publicView?: boolean
   onOpenCard: (id: string) => void
 }
 
@@ -80,10 +81,11 @@ export function DashboardView(props: DashboardProps): ReactElement {
   const effortProperty = properties.find((property) => property.type === 'number')
 
   useEffect(() => {
+    if (props.publicView) return
     const controller = new AbortController()
     fetchBoardActivity(boardId, controller.signal).then(setActivity).catch(() => { if (!controller.signal.aborted) setActivity([]) })
     return () => controller.abort()
-  }, [boardId])
+  }, [boardId, props.publicView])
 
   const today = useToday()
   const buckets = useMemo(() => {
