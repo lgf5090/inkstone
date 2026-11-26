@@ -38,7 +38,7 @@
 | P1-13 | done | F21 fix Gantt Delete/person lanes, table subtasks and author swimlanes | dialog keypress does not mutate; person cards render; filtered children do not leak | 4347672d9 |
 | P1-14 | done | F22 make text blocks editable; automation UI uses property/option selectors; public views avoid member APIs | edit persists; no internal id typing; public dashboard/sprint/collection render | 14f24ed44 |
 | P1-15 | done | F23 route automation writes through permission/relation/effect pipeline and return fresh card | automation cannot bypass editRoles; response includes automation result | 3c37bca54 |
-| P1-16 | pending | F24 serialize content_order; unique running timer; uncapped time totals | concurrent edits preserve order; double start rejected; totals include all entries | - |
+| P1-16 | done | F24 serialize content_order; unique running timer; uncapped time totals | concurrent edits preserve order; double start rejected; totals include all entries | 4a7f57885 |
 | P1-17 | pending | F25 cap search pattern to production-safe bytes and add regression coverage | >50-byte query is safely truncated/rejected before D1 | - |
 | P1-18 | pending | F26 webhook claim/lease, stable delivery id, cleanup and secret encryption | concurrent drain sends once; retries dedupe; old rows pruned; export hides usable secret | - |
 
