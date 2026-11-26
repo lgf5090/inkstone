@@ -101,15 +101,16 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
     if (!header || !labels || !dates || !content || !timeColumn || !firstRow) return
     const columns = firstRow.querySelectorAll('.df-week-time-grid-cell').length
     if (columns < 1) return
+    const selected = options.app.getCurrentDate()
+    const key = `${columns}:${selected.toDateString()}`
+    if (header.dataset.inkstoneHeader === key) return
+    header.dataset.inkstoneHeader = key
     const headerRect = header.getBoundingClientRect()
     const contentRect = content.getBoundingClientRect()
     const column = contentRect.width / columns
     if (column <= 0) return
     const timeWidth = timeColumn.getBoundingClientRect().width
     const shift = contentRect.left - headerRect.left - timeWidth
-    const selected = options.app.getCurrentDate()
-    const key = `${columns}:${Math.round(column)}:${Math.round(shift)}:${Math.round(timeWidth)}:${selected.toDateString()}`
-    header.dataset.inkstoneHeader = key
     for (const grid of [labels, dates]) {
       grid.style.gridTemplateColumns = `repeat(${columns}, ${column}px)`
       grid.style.width = `${column * columns}px`

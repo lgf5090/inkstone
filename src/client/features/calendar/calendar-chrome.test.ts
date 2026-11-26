@@ -10,6 +10,7 @@ function fakeApp(events: Array<{ id: string; meta?: Record<string, unknown> }> =
     highlightEvent: vi.fn(),
     onEventDetailToggle: vi.fn(),
     getEvents: vi.fn(() => events),
+    getCurrentDate: vi.fn(() => new Date('2026-11-27T12:00:00Z')),
   } as unknown as ICalendarApp
 }
 
@@ -166,6 +167,40 @@ describe('calendar chrome bridge', () => {
     root.append(document.createElement('span'))
     await new Promise(resolve => setTimeout(resolve, 60))
     expect(event.style.backgroundColor).toBe('')
+    cleanup()
+  })
+
+  it('skips compact header layout reads when its cache key is unchanged', async () => {
+    document.body.innerHTML = `<div id="root">
+      <div class="df-compact-header">
+        <div class="df-compact-header-labels">${Array.from({ length: 7 }, () => '<span class="df-compact-header-label-cell"><span class="df-compact-header-label">M</span></span>').join('')}</div>
+        <div class="df-compact-header-dates">${Array.from({ length: 7 }, () => '<button class="df-compact-header-date-button"><span class="df-compact-header-date-pill">1</span></button>').join('')}</div>
+      </div>
+      <div class="df-week-time-grid-content"><div class="df-time-grid-row">${Array.from({ length: 7 }, () => '<div class="df-week-time-grid-cell"></div>').join('')}</div></div>
+      <div class="df-week-time-grid-time-column"></div>
+    </div>`
+    const root = document.getElementById('root')!
+    const header = root.querySelector<HTMLElement>('.df-compact-header')!
+    const content = root.querySelector<HTMLElement>('.df-week-time-grid-content')!
+    const timeColumn = root.querySelector<HTMLElement>('.df-week-time-grid-time-column')!
+    const headerLayout = vi.spyOn(header, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 700 } as DOMRect)
+    const contentLayout = vi.spyOn(content, 'getBoundingClientRect').mockReturnValue({ left: 40, width: 700 } as DOMRect)
+    const timeLayout = vi.spyOn(timeColumn, 'getBoundingClientRect').mockReturnValue({ width: 40 } as DOMRect)
+    const cleanup = attachCalendarChrome({
+      root, app: fakeApp(), locale: 'en-US', weekStart: 0, detailTrigger: 'click',
+      addLabel: 'New event', untitledLabel: 'Untitled', allDayLabel: 'All day',
+      interceptEvents: true, onAdd: vi.fn(), onRecurring: vi.fn(), onSelect: vi.fn(), onOpenDetail: vi.fn(),
+    })
+    await new Promise(resolve => setTimeout(resolve, 60))
+    expect(headerLayout).toHaveBeenCalled()
+    headerLayout.mockClear()
+    contentLayout.mockClear()
+    timeLayout.mockClear()
+    root.append(document.createElement('span'))
+    await new Promise(resolve => setTimeout(resolve, 60))
+    expect(headerLayout).not.toHaveBeenCalled()
+    expect(contentLayout).not.toHaveBeenCalled()
+    expect(timeLayout).not.toHaveBeenCalled()
     cleanup()
   })
 
