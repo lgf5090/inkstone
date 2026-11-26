@@ -200,14 +200,16 @@ export async function setIcsSubscriptionEnabled(
 }
 
 const DUE_REFRESH_INTERVAL_MS = 15 * 60 * 1000
-const DUE_REFRESH_RETRY_MS = 60 * 60 * 1000
-const DUE_REFRESH_LIMIT = 3
+const DUE_REFRESH_RETRY_BASE_MS = 5 * 60 * 1000
+const DUE_REFRESH_RETRY_MAX_MS = 24 * 60 * 60 * 1000
+const DUE_REFRESH_MAX_FAILURES = 8
+const DUE_REFRESH_LIMIT = 20
 
 /**
  * Refresh a few due ICS feeds on each cron fire.
  *
- * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of
- * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.
+ * `last_sync_at` spaces successful runs; `last_error_at` holds the next exponential retry, and repeated
+ * failures pause the feed. The limit keeps one slow feed from spending the whole scheduled budget.
  */
 export async function refreshDueIcsSubscriptions(env: Env, now = Date.now()): Promise<number> {
   const { results } = await env.DB.prepare(
@@ -217,7 +219,7 @@ export async function refreshDueIcsSubscriptions(env: Env, now = Date.now()): Pr
         AND (last_error_at IS NULL OR last_error_at <= ?2)
       ORDER BY COALESCE(last_sync_at, 0) ASC
       LIMIT ?3`,
-  ).bind(now - DUE_REFRESH_INTERVAL_MS, now - DUE_REFRESH_RETRY_MS, DUE_REFRESH_LIMIT)
+  ).bind(now - DUE_REFRESH_INTERVAL_MS, now, DUE_REFRESH_LIMIT)
     .all<{ user_id: string; id: string }>()
   const outcomes = await Promise.all((results ?? []).map(async (row) => {
     try {
@@ -344,7 +346,7 @@ async function touchSubscription(
         SET last_sync_at = ?3, last_error_code = NULL, last_error_at = NULL,
             sync_state_json = ?4, updated_at = ?3
       WHERE user_id = ?1 AND id = ?2`,
-  ).bind(userId, id, at, JSON.stringify(state)).run()
+  ).bind(userId, id, at, JSON.stringify({ ...state, failures: 0 })).run()
 }
 
 async function markSubscriptionError(
@@ -353,12 +355,28 @@ async function markSubscriptionError(
   id: string,
   code: string,
 ): Promise<void> {
+  const row = await db.prepare(
+    'SELECT sync_state_json FROM calendar_subscriptions WHERE user_id = ?1 AND id = ?2',
+  ).bind(userId, id).first<{ sync_state_json: string }>()
+  if (!row) return
+  const state = readSyncState(row.sync_state_json)
+  const failures = Math.min(state.failures + 1, DUE_REFRESH_MAX_FAILURES)
   const now = Date.now()
+  const retryAt = now + Math.min(
+    DUE_REFRESH_RETRY_BASE_MS * (2 ** (failures - 1)),
+    DUE_REFRESH_RETRY_MAX_MS,
+  )
   await db.prepare(
     `UPDATE calendar_subscriptions
-        SET last_error_code = ?3, last_error_at = ?4, updated_at = ?4
+        SET last_error_code = ?3, last_error_at = ?4,
+            sync_state_json = ?5, enabled = CASE WHEN ?6 >= ?7 THEN 0 ELSE enabled END,
+            updated_at = ?8
       WHERE user_id = ?1 AND id = ?2`,
-  ).bind(userId, id, code, now).run()
+  ).bind(
+    userId, id, code, retryAt,
+    JSON.stringify({ etag: state.etag, lastModified: state.lastModified, failures }),
+    failures, DUE_REFRESH_MAX_FAILURES, now,
+  ).run()
 }
 
 function subscriptionHost(raw: string | null): string | null {
@@ -385,15 +403,18 @@ function subscriptionRowToDto(row: SubscriptionRow): CalendarSubscriptionDto {
   }
 }
 
-function readSyncState(raw: string): { etag: string | null; lastModified: string | null } {
+function readSyncState(raw: string): { etag: string | null; lastModified: string | null; failures: number } {
   try {
-    const parsed = JSON.parse(raw) as { etag?: unknown; lastModified?: unknown }
+    const parsed = JSON.parse(raw) as { etag?: unknown; lastModified?: unknown; failures?: unknown }
     return {
       etag: typeof parsed.etag === 'string' ? parsed.etag : null,
       lastModified: typeof parsed.lastModified === 'string' ? parsed.lastModified : null,
+      failures: typeof parsed.failures === 'number' && Number.isInteger(parsed.failures)
+        ? Math.max(0, Math.min(parsed.failures, DUE_REFRESH_MAX_FAILURES))
+        : 0,
     }
   } catch {
-    return { etag: null, lastModified: null }
+    return { etag: null, lastModified: null, failures: 0 }
   }
 }
 

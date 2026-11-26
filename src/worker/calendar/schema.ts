@@ -136,6 +136,9 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
      ON calendar_subscriptions(user_id, calendar_id)`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_subscriptions_connection
      ON calendar_subscriptions(user_id, connection_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_calendar_subscriptions_due
+     ON calendar_subscriptions(kind, enabled, last_sync_at, last_error_at)
+     WHERE url IS NOT NULL`,
 
   `CREATE TABLE IF NOT EXISTS calendar_connections (
     user_id TEXT NOT NULL,

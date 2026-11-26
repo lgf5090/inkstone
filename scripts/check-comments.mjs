@@ -39428,7 +39428,7 @@ const allowed = new Map([
     "/** Which of an owner's calendars this account may write through a shared membership. */",
   ]],
   ["src/worker/calendar/subscriptions.ts", [
-    "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of\n * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
+    "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds the next exponential retry, and repeated\n * failures pause the feed. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
   ]],
   ["src/worker/calendar/templates.ts", [
     "/** Reusable event drafts; the palette stores fields, not dates. */",

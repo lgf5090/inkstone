@@ -77,6 +77,35 @@ describe('scheduled calendar subscriptions', () => {
     expect(paused.last_sync_at).toBeNull()
   })
 
+  it('refreshes more than three due feeds and indexes the scheduler query', async () => {
+    for (let index = 0; index < 5; index += 1) await insertSubscription(`capacity-${index}`, 1, null)
+    expect(await refreshDueIcsSubscriptions(env, Date.now())).toBe(5)
+    const indexes = sqlite.prepare("PRAGMA index_list('calendar_subscriptions')").all() as Array<{ name: string }>
+    expect(indexes.map(index => index.name)).toContain('idx_calendar_subscriptions_due')
+  })
+
+  it('backs off failed feeds exponentially and pauses them after repeated failures', async () => {
+    vi.useFakeTimers()
+    const startedAt = Date.parse('2026-11-27T00:00:00Z')
+    vi.setSystemTime(startedAt)
+    await insertSubscription('backoff', 1, null)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('busy', { status: 503 })))
+    let expectedRetryAt = startedAt
+    for (let failure = 1; failure <= 8; failure += 1) {
+      vi.setSystemTime(expectedRetryAt)
+      await expect(refreshIcsSubscription(env, USER, 'backoff')).rejects.toMatchObject({ status: 502 })
+      const row = sqlite.prepare(
+        'SELECT enabled, last_error_at, sync_state_json FROM calendar_subscriptions WHERE user_id = ? AND id = ?',
+      ).get(USER, 'backoff') as { enabled: number; last_error_at: number; sync_state_json: string }
+      const delay = Math.min(5 * 60 * 1000 * (2 ** (failure - 1)), 24 * 60 * 60 * 1000)
+      expectedRetryAt += delay
+      expect(row.last_error_at).toBe(expectedRetryAt)
+      expect(JSON.parse(row.sync_state_json).failures).toBe(failure)
+      expect(row.enabled).toBe(failure === 8 ? 0 : 1)
+      if (failure === 1) expect(await refreshDueIcsSubscriptions(env, expectedRetryAt - 1)).toBe(0)
+    }
+  })
+
   it('refuses a manual refresh while the subscription is paused', async () => {
     await insertSubscription('paused', 0, null)
     await expect(refreshIcsSubscription(env, USER, 'paused')).rejects.toMatchObject({ status: 409 })
