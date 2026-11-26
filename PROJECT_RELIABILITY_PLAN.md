@@ -49,8 +49,8 @@
 | P2-01 | in_progress | F27 paginate/on-demand bundle; FTS search; indexed reminders; streaming/multipart export | 5000-card board stays within response/time/memory budgets | - |
 | P2-01a | done | F27 reminder pending index and bounded starvation-free sweep | pending reminders use partial index; oversized subscriber groups do not block later cards | 5f2da1e91 |
 | P2-01b | done | F27 project FTS index and tokenized search | title/content/comment/property search uses FTS and preserves field visibility | 37257187c |
-| P2-01c | in_progress | F27 keyset bundle pagination and on-demand card loading | initial bundle is bounded; deep links and older pages load without stale overwrite | - |
-| P2-01d | pending | F27 bounded streaming or multipart export | large exports avoid whole-ZIP memory and never return truncated success | - |
+| P2-01c | done | F27 keyset bundle pagination and on-demand card loading | initial bundle is bounded; deep links and older pages load without stale overwrite | 321cfc7db |
+| P2-01d | in_progress | F27 bounded streaming or multipart export | large exports avoid whole-ZIP memory and never return truncated success | - |
 | P2-02 | pending | F28 lazy views; virtualize board/list/gallery; stabilize derived props | large board interaction remains responsive; bundle size reduced | - |
 | P2-03 | done | F29 route all refreshes through one stale-response queue | delayed old response never overwrites newer local patch | b46e61fdd |
 | P2-04 | done | F30 clear hidden selections; refresh today; correct dashboard in-progress KPI | no invisible batch delete; midnight correct; KPI matches definition | c3153d1a0 |
@@ -107,3 +107,4 @@
 - 2026-11-27: P2-09 completed in `1d26ce4e8`; card/column/sidebar/content grips support Enter/arrow keyboard sorting, pointer sessions cancel on pointercancel/Escape and dispose silently on unmount, and Gantt keyboard date changes accumulate through a serialized queue; 723 related tests, typechecks, static gates, production build and headed Chrome keyboard-drag verification passed.
 - 2026-11-27: P2-01a completed in `5f2da1e91`; pending reminders gained a partial index and the sweep now pages with a due/card/property cursor while skipping oversized subscriber groups; 324 project tests, typechecks, static gates and production build passed.
 - 2026-11-27: P2-01b completed in `37257187c`; project title/content/comment/value documents are maintained in FTS5 with a migration backfill, token-prefix search and runtime field visibility filtering; 327 project tests, typechecks, static gates and production build passed.
+- 2026-11-27: P2-01c completed in `321cfc7db`; interactive bundles now load 200-card keyset pages, page reads scope values/details/relations, single-card deep links reuse formula/rollup/redaction, and refresh replays loaded cursors through one queue; 727 related tests, forced typechecks, static gates and production build passed, with headed Chrome confirming 200/205 → 205, refresh replay and a page-external card opening at 201/205.
