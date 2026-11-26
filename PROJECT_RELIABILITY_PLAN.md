@@ -40,7 +40,7 @@
 | P1-15 | done | F23 route automation writes through permission/relation/effect pipeline and return fresh card | automation cannot bypass editRoles; response includes automation result | 3c37bca54 |
 | P1-16 | done | F24 serialize content_order; unique running timer; uncapped time totals | concurrent edits preserve order; double start rejected; totals include all entries | 4a7f57885 |
 | P1-17 | done | F25 cap search pattern to production-safe bytes and add regression coverage | >50-byte query is safely truncated/rejected before D1 | 04fb59372 |
-| P1-18 | pending | F26 webhook claim/lease, stable delivery id, cleanup and secret encryption | concurrent drain sends once; retries dedupe; old rows pruned; export hides usable secret | - |
+| P1-18 | done | F26 webhook claim/lease, stable delivery id, cleanup and secret encryption | concurrent drain sends once; retries dedupe; old rows pruned; export hides usable secret | c07a60ce0 |
 
 ## P2 Product completeness, performance and UX
 
