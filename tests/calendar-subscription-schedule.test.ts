@@ -56,6 +56,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 describe('scheduled calendar subscriptions', () => {
@@ -80,6 +81,21 @@ describe('scheduled calendar subscriptions', () => {
     await expect(refreshIcsSubscription(env, USER, 'paused')).rejects.toMatchObject({ status: 409 })
     await setIcsSubscriptionEnabled(env, USER, 'paused', true)
     await expect(refreshIcsSubscription(env, USER, 'paused')).resolves.toMatchObject({ imported: 1 })
+  })
+
+  it('times out a response body that never finishes', async () => {
+    await insertSubscription('slow-body', 1, null)
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('example.com/feed')) {
+        return new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 })
+      }
+      return Response.json({ Status: 0, Answer: [{ type: 1, data: '93.184.216.34' }] })
+    }))
+    const pending = refreshIcsSubscription(env, USER, 'slow-body')
+    const assertion = expect(pending).rejects.toMatchObject({ status: 502 })
+    await vi.advanceTimersByTimeAsync(15_000)
+    await assertion
   })
 
   it('keeps valid feed events when another event fails validation', async () => {

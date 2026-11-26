@@ -65,7 +65,7 @@ export async function createIcsSubscription(
   const url = validateFeedUrl(input.url)
   const store = new CalendarStore(env.DB, userId)
   const preferences = await store.preferences()
-  const feed = await fetchFeed(url, { etag: null, lastModified: null }, preferences.timeZone)
+  const feed = await fetchFeed(url, { etag: null, lastModified: null })
   const parsed = parseFeed(feed.text, preferences.timeZone)
   const name = (input.name?.trim() || parsed.name || url.hostname).slice(0, 80)
   const color = normalizeColor(input.color) ?? colorFor(name)
@@ -133,7 +133,7 @@ export async function refreshIcsSubscription(
   const url = validateFeedUrl(row.url)
   let feed: FeedResult
   try {
-    feed = await fetchFeed(url, state, preferences.timeZone)
+    feed = await fetchFeed(url, state)
   } catch (error) {
     await markSubscriptionError(env.DB, userId, subscriptionId, 'fetch_failed')
     throw error
@@ -461,21 +461,22 @@ function validateFeedUrl(raw: string): URL {
 async function fetchFeed(
   url: URL,
   state: { etag: string | null; lastModified: string | null },
-  _timeZone: string,
 ): Promise<FeedResult> {
   let current = url
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    // The literal check above cannot see a hostname that resolves to a private address. Resolving it
-    // first (DoH, cached for five minutes) closes that gap; a resolver outage is not an answer about
-    // the name, so only a conclusive block or an empty answer stops the fetch.
     const verdict = await resolvePublicHost(current.hostname)
     if (verdict === 'blocked') throw ApiError.badRequest('That address is not reachable from this deployment')
     if (verdict === 'unresolved') throw ApiError.badRequest('The calendar address does not resolve')
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-    let response: Response
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort()
+        reject(new ApiError(502, 'internal', 'The calendar feed took too long to download'))
+      }, FETCH_TIMEOUT_MS)
+    })
     try {
-      response = await fetch(current.href, {
+      const response = await Promise.race([fetch(current.href, {
         redirect: NO_REDIRECT,
         signal: controller.signal,
         headers: {
@@ -484,44 +485,38 @@ async function fetchFeed(
           ...(state.etag ? { 'if-none-match': state.etag } : {}),
           ...(state.lastModified ? { 'if-modified-since': state.lastModified } : {}),
         },
-      })
-    } catch {
-      controller.abort()
+      }), deadline])
+      if (response.status === 304) {
+        return { notModified: true, text: '', etag: state.etag, lastModified: state.lastModified }
+      }
+      if (isRedirectResponse(response)) {
+        const location = response.headers.get('location')
+        if (!location || hop === MAX_REDIRECTS) {
+          throw new ApiError(502, 'internal', 'The calendar feed redirected too many times')
+        }
+        current = validateFeedUrl(new URL(location, current).href)
+        continue
+      }
+      if (!response.ok) {
+        throw new ApiError(502, 'internal', `The calendar feed answered ${response.status}`)
+      }
+      const declared = Number(response.headers.get('content-length') ?? '')
+      if (Number.isFinite(declared) && declared > MAX_ICS_BYTES) {
+        throw ApiError.tooLarge('That calendar feed is too large')
+      }
+      const text = await Promise.race([readStreamTextWithinLimit(response.body, MAX_ICS_BYTES), deadline])
+      if (text === null) throw ApiError.tooLarge('That calendar feed is too large')
+      return {
+        notModified: false,
+        text,
+        etag: response.headers.get('etag'),
+        lastModified: response.headers.get('last-modified'),
+      }
+    } catch (error) {
+      if (error instanceof ApiError) throw error
       throw new ApiError(502, 'internal', 'The calendar feed could not be reached')
     } finally {
-      clearTimeout(timeout)
-    }
-    if (response.status === 304) {
-      return { notModified: true, text: '', etag: state.etag, lastModified: state.lastModified }
-    }
-    if (isRedirectResponse(response)) {
-      const location = response.headers.get('location')
-      if (!location || hop === MAX_REDIRECTS) {
-        controller.abort()
-        throw new ApiError(502, 'internal', 'The calendar feed redirected too many times')
-      }
-      current = validateFeedUrl(new URL(location, current).href)
-      continue
-    }
-    if (!response.ok) {
-      controller.abort()
-      throw new ApiError(502, 'internal', `The calendar feed answered ${response.status}`)
-    }
-    const declared = Number(response.headers.get('content-length') ?? '')
-    if (Number.isFinite(declared) && declared > MAX_ICS_BYTES) {
-      controller.abort()
-      throw ApiError.tooLarge('That calendar feed is too large')
-    }
-    const text = await readStreamTextWithinLimit(response.body, MAX_ICS_BYTES)
-    if (text === null) {
-      controller.abort()
-      throw ApiError.tooLarge('That calendar feed is too large')
-    }
-    return {
-      notModified: false,
-      text,
-      etag: response.headers.get('etag'),
-      lastModified: response.headers.get('last-modified'),
+      if (timer !== undefined) clearTimeout(timer)
     }
   }
   throw new ApiError(502, 'internal', 'The calendar feed could not be reached')

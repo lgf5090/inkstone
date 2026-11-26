@@ -39432,9 +39432,6 @@ const allowed = new Map([
   ]],
   ["src/worker/calendar/subscriptions.ts", [
     "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of\n * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
-    "// The literal check above cannot see a hostname that resolves to a private address. Resolving it",
-    "// first (DoH, cached for five minutes) closes that gap; a resolver outage is not an answer about",
-    "// the name, so only a conclusive block or an empty answer stops the fetch.",
   ]],
   ["src/worker/calendar/templates.ts", [
     "/** Reusable event drafts; the palette stores fields, not dates. */",
