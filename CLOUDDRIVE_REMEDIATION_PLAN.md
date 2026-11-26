@@ -65,7 +65,7 @@
 - [ ] FEAT-13 媒体增强：HEIC、续播、转码评估
 - [ ] FEAT-14 大列表虚拟滚动
 - [ ] QA-01 单元、类型、静态门禁与构建
-- [ ] QA-02 外部浏览器关键链路验收
+- [x] QA-02 外部浏览器关键链路验收
 - [ ] QA-03 真实外部驱动冒烟与性能基线
 
 ## 任务记录
@@ -84,7 +84,7 @@
 | FEAT-14 | IN PROGRESS | 8b35bf97 | 列表/网格/相册启用 content-visibility；大列表性能实测待做 |
 | UX-01～06 | DONE | 05e2192d | 7 文件 16 项 UX 测试、i18n、ESLint、Stylelint 通过；构建通过 |
 | UX-09 | IN PROGRESS | 84248129 | 新增 gates:full；全量类型、测试与构建待跑 |
-| QA-02 | IN PROGRESS | - | 有头 Chrome 上传→列表通过；配置导出按钮通过；剩余链路待验 |
+| QA-02 | DONE | - | 有头 Chrome：上传→列表、配置导出、分享改名、评论发布、列菜单、移动端 Inspector/ESC/焦点归还通过 |
 | SEC-01～07 | DONE | ba025d0c | 分享/Meta/ACL/缩略图 87 项回归通过；Key 前缀不随挂载路径漂移 |
 | SEC-14 | DONE | ba025d0c | ACL 用户名探测 5 次后 429 |
 | SEC-08 | DONE | dc694940 | 公开请求 5 项通过；未知长度有界缓冲、已知长度 FixedLengthStream、额度预留与原子退款 |
