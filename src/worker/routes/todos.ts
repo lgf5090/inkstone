@@ -1013,6 +1013,14 @@ todoRoutes.get('/time', async (c) => {
   return c.json({ from, to, group, totals, totalMs: totals.reduce((total, row) => total + row.ms, 0) })
 })
 
+todoRoutes.get('/:id/time', async (c) => {
+  readBudget(c.get('userId'))
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  if (!await s.getTask(id)) throw ApiError.notFound('Task not found')
+  return c.json({ entries: await s.listTimeEntries({ taskId: id }) })
+})
+
 /**
  * Start the one timer this account may run.
  *

@@ -10704,6 +10704,8 @@ console.log(\`Hello, \${name}!\`)
     "todo.time.edit_aria": "修改「{title}」的估时",
     "todo.time.logged_refused": "这段时间超过一条计时能装的长度，请分成几段补记。",
     "todo.time.logged_offline": "补记时长需要联网，这段时间没有记入账本。请联网后再补记。",
+    "todo.time.end_label": "结束",
+    "todo.time.source_timer": "计时器",
     "todo.timer.start_aria": "开始「{title}」的计时",
     "todo.timer.stop_aria": "停止「{title}」的计时",
     "todo.timer.running": "计时中",

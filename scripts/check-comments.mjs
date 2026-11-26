@@ -21844,6 +21844,8 @@ const allowed = new Map([
     "/** Upload one file through the task route, which owns storage validation and the link row. */",
     "/** The files linked to one live task, in the route's own order. */",
     "/** Remove one task link without deleting the shared stored file. */",
+    "/** Every ledger row for one task, including the open timer row when there is one. */",
+    "/** Remove one ledger row; the route scopes the entry to the signed-in account. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/** Replace the address without a reload. A no-op on the address that is already up. */",
@@ -53852,6 +53854,11 @@ const allowed = new Map([
   ]],
   ["src/client/features/todos/task-attachments.test.tsx", [
     "/**\n * The saved task's attachment shelf.\n *\n * These cases drive the shelf at its HTTP and component boundaries: a read on mount, an explicit\n * loading/empty/error/retry sequence, the shared upload helper followed by a refresh, the project's\n * preview/download door, and an unlink whose failure leaves the row in place. The editor cases pin\n * the other half of the contract: a draft has no attachment shelf and asks for no task files.\n */",
+  ]],
+  ["src/client/features/todos/TaskTimeSection.tsx", [
+    "/**\n * The time ledger for one saved task.\n *\n * Entries stay as the server split them: a span crossing the account's midnight is several rows, not\n * one duration with a guessed date. Manual spans are written immediately rather than queued, because\n * the time route has no idempotency key and replaying a lost answer would file the same work twice.\n */",
+    "// Check again at the gesture: the browser may not have delivered the offline event yet, and this",
+    "// write deliberately has no offline queue to lose or duplicate it.",
   ]],
 ])
 const found = new Map()

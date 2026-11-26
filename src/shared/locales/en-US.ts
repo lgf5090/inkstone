@@ -10712,6 +10712,8 @@ const CORE_MESSAGES_TAIL = {
     "todo.time.edit_aria": "Change the estimate for “{title}”",
     "todo.time.logged_refused": "That much time is more than one entry can hold — add it in shorter spans.",
     "todo.time.logged_offline": "Back-filling time needs the network, so these hours were not filed. Add them once you are online.",
+    "todo.time.end_label": "End",
+    "todo.time.source_timer": "Timer",
     "todo.timer.start_aria": "Start the timer for “{title}”",
     "todo.timer.stop_aria": "Stop the timer for “{title}”",
     "todo.timer.running": "Timing",

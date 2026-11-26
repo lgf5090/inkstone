@@ -36,6 +36,7 @@ vi.mock('katex/dist/katex.min.css?inline', () => ({ default: '' }))
 const server = vi.hoisted(() => ({
   updates: [] as { id: string; patch: Record<string, unknown> }[],
   created: [] as Record<string, unknown>[],
+  timeReads: [] as string[],
   rows: new Map<string, TodoTask>(),
 }))
 
@@ -67,6 +68,10 @@ vi.mock('../../lib/api', () => ({
       }),
       lists: async () => ({ lists: [] }),
       tags: async () => ({ tags: [] }),
+      time: async (id: string) => {
+        server.timeReads.push(id)
+        return { entries: [] }
+      },
       get: async (id: string) => ({ task: server.rows.get(id)!, steps: [] }),
       update: async (id: string, patch: Record<string, unknown>) => {
         server.updates.push({ id, patch })
@@ -128,6 +133,7 @@ beforeEach(async () => {
   await initI18n()
   server.updates.length = 0
   server.created.length = 0
+  server.timeReads.length = 0
   server.rows.clear()
   useTodos.setState(original, true)
 })
@@ -334,5 +340,21 @@ describe('the estimate field', () => {
 
     expect(server.created).toHaveLength(1)
     expect(server.created[0]!.timeEstimate).toBe(90 * MINUTE)
+  })
+})
+
+describe('the task time section in the editor', () => {
+  it('opens on an existing task and reads that task’s ledger', async () => {
+    await mountEditor(task('a'))
+
+    expect(panel().querySelector(`section[aria-label="${t('project.time.title')}"]`)).not.toBeNull()
+    expect(server.timeReads).toEqual(['a'])
+  })
+
+  it('does not ask for a ledger before a draft has an id', async () => {
+    await mountDraft({ title: 'A task not saved yet' })
+
+    expect(panel().querySelector(`section[aria-label="${t('project.time.title')}"]`)).toBeNull()
+    expect(server.timeReads).toEqual([])
   })
 })

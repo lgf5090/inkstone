@@ -60,6 +60,7 @@ import { TODO_TEMPLATE_MAX } from '@shared/constants'
 import type { TodoTemplate } from '@shared/types'
 import { TaskHistory } from './TaskHistory'
 import { TaskAttachments } from './TaskAttachments'
+import { TaskTimeSection } from './TaskTimeSection'
 import { draftToTemplate, templateToDraft } from './todo-templates'
 
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
@@ -1533,6 +1534,7 @@ export function TaskEditor() {
           </div>
         </div>
 
+        {existing && <TaskTimeSection key={`time-${existing.id}`} taskId={existing.id} timezone={timezone} />}
         {existing && <TaskAttachments key={`attachments-${existing.id}`} taskId={existing.id} />}
         {existing && <TaskHistory key={existing.id} taskId={existing.id} />}
       </div>

@@ -1924,6 +1924,9 @@ export const api = {
      */
     stopTimer: (id: string, body: { endAt?: number } = {}) =>
       request<{ entries: TodoTimeEntry[] }>(`/api/todos/${id}/timer/stop`, { method: 'POST', body }),
+    /** Every ledger row for one task, including the open timer row when there is one. */
+    time: (id: string, signal?: AbortSignal) =>
+      request<{ entries: TodoTimeEntry[] }>(`/api/todos/${encodeURIComponent(id)}/time`, { signal }),
     /**
      * Back-fill one span by hand: the answer to "I worked on this and never started the timer".
      *
@@ -1933,6 +1936,9 @@ export const api = {
      */
     addTime: (id: string, body: { startAt: number, endAt: number }) =>
       request<{ entries: TodoTimeEntry[] }>(`/api/todos/${id}/time`, { method: 'POST', body }),
+    /** Remove one ledger row; the route scopes the entry to the signed-in account. */
+    removeTime: (entryId: string) =>
+      request<{ deleted: true }>(`/api/todos/time/${encodeURIComponent(entryId)}`, { method: 'DELETE' }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
 
     /**
