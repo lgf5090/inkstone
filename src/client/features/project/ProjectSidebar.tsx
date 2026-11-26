@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, Clock, Copy, Download, Eye, EyeOff, FolderPlus, GripVertical, MoreHorizontal, Pencil, Pin, Plus, Settings2, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { setLocale, t, useLocale } from '../../lib/i18n'
@@ -16,7 +16,7 @@ import { categoryDropZone, planCategoryDrop } from './sidebar-drag'
 import { useBandDrag, type BandDragState } from './views/use-band-drag'
 import { isImeComposing } from '../../lib/ime'
 import { useEvent } from '../../lib/hooks'
-import { PROJECT_SIDEBAR_MAX_WIDTH, PROJECT_SIDEBAR_MIN_WIDTH, readSidebarWidthPref, useProjectBoardMarks, writeSidebarWidthPref } from './project-prefs'
+import { PROJECT_SIDEBAR_MAX_WIDTH, PROJECT_SIDEBAR_MIN_WIDTH, readRecentBoardsPref, readSidebarWidthPref, rememberRecentBoardPref, useProjectBoardMarks, writeSidebarWidthPref } from './project-prefs'
 import {
   addBoardToCategory,
   createProjectCategory,
@@ -113,6 +113,8 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   // two boards keeps this sidebar mounted, and a mount-time read would leave the highlight behind.
   const pathname = usePathname()
   const lastBoard = /^\/project\/boards\/([^/]+)/.exec(pathname)?.[1] ?? null
+  const treeId = useId()
+  const searchListId = useId()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [randomIcon, setRandomIcon] = useState(readRandomIconPref)
   const { pinned: pinnedIds, starred: starredIds, togglePin: togglePinBoard, toggleStar: toggleStarBoard } = useProjectBoardMarks()
@@ -126,15 +128,36 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
 
   const settingsAnchor = useRef<HTMLButtonElement>(null)
   const currentUserId = useSession((state) => state.user?.id)
+  const [recentIds, setRecentIds] = useState(() => readRecentBoardsPref(currentUserId))
+  const [highlight, setHighlight] = useState(-1)
   const locale = useLocale()
   const theme = useUi((state) => state.theme)
   const applyAppearance = useUi((state) => state.applyAppearance)
   const toast = useUi((state) => state.toast)
 
+  useEffect(() => {
+    setRecentIds(readRecentBoardsPref(currentUserId))
+    setHighlight(-1)
+  }, [currentUserId])
+
+  useEffect(() => {
+    if (!lastBoard) return
+    setRecentIds(rememberRecentBoardPref(currentUserId, lastBoard))
+  }, [currentUserId, lastBoard])
+
   const reload = useCallback(async () => {
     const result = await fetchProjectCategories()
     setCategories(result.categories)
     setEdges(result.categoryBoards)
+    const categoryNames = new Map(result.categories.map((category) => [category.id, category.name]))
+    const namesByBoard = new Map<string, string>()
+    for (const edge of result.categoryBoards.toSorted((left, right) => left.position - right.position)) {
+      const name = categoryNames.get(edge.categoryId)
+      if (name && !namesByBoard.has(edge.boardId)) namesByBoard.set(edge.boardId, name)
+    }
+    useProjectStore.setState((state) => ({
+      boards: state.boards.map((board) => ({ ...board, categoryName: namesByBoard.get(board.id) })),
+    }))
   }, [])
   useEffect(() => { void reload().catch(() => { /* best-effort: an unreadable category list leaves the board list usable */ return undefined }) }, [reload])
 
@@ -160,7 +183,6 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
     return map
   }, [edges])
   const unfiled = useMemo(() => boards.filter((board) => !filedIds.has(board.id) && matches(board)), [boards, filedIds, matches])
-  const [highlight, setHighlight] = useState(-1)
 
   const categoryTree = useMemo(() => buildCategoryTree(categories, edges, boards, matches), [categories, edges, boards, matches])
 
@@ -172,7 +194,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           return board && matches(board) ? [board] : []
         }),
     )
-    return [...fromCategories, ...unfiled]
+    return [...new Map([...fromCategories, ...unfiled].map((board) => [board.id, board])).values()]
   }, [categories, edgesByCategory, boardsById, unfiled, matches])
 
   const pinnedBoards = useMemo(() => {
@@ -181,10 +203,10 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       .filter((b): b is ProjectBoardSummary => b !== undefined && matches(b))
   }, [pinnedIds, boards, matches])
 
-  const recentBoards = useMemo(() => [...boards]
-    .filter((board) => matches(board))
-    .sort((left, right) => right.updateAt - left.updateAt)
-    .slice(0, 5), [boards, matches])
+  const recentBoards = useMemo(() => recentIds
+    .map((id) => boardsById.get(id))
+    .filter((board): board is ProjectBoardSummary => board !== undefined && matches(board))
+    .slice(0, 5), [recentIds, boardsById, matches])
 
   const starredBoards = useMemo(() => {
     return starredIds
@@ -192,12 +214,37 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
       .filter((b): b is ProjectBoardSummary => b !== undefined && matches(b))
   }, [starredIds, boards, matches])
 
+  const primarySectionByBoard = useMemo(() => {
+    const sections = new Map<string, string>()
+    const add = (items: ProjectBoardSummary[], section: string): void => {
+      for (const board of items) if (!sections.has(board.id)) sections.set(board.id, section)
+    }
+    add(pinnedBoards, 'pinned')
+    add(starredBoards, 'starred')
+    add(recentBoards, 'recent')
+    const visit = (nodes: CategoryTreeNode[]): void => {
+      for (const node of nodes) {
+        if (node.category?.collapsed || (!node.category && collapsedMap.get(node.id))) continue
+        add(node.boards.map((entry) => entry.board), 'category')
+        visit(node.children)
+      }
+    }
+    visit(categoryTree)
+    add(unfiled, 'unfiled')
+    return sections
+  }, [pinnedBoards, starredBoards, recentBoards, categoryTree, collapsedMap, unfiled])
+
+  const searchMode = query.trim().length > 0
+
   const onSearchKey = (event: KeyboardEvent) => {
     if (isImeComposing(event)) return
+    if (event.key === 'Escape') { setQuery(''); setHighlight(-1); return }
+    if (!visibleBoards.length) return
     if (event.key === 'ArrowDown') { event.preventDefault(); setHighlight((current) => Math.min(current + 1, visibleBoards.length - 1)) }
-    else if (event.key === 'ArrowUp') { event.preventDefault(); setHighlight((current) => Math.max(current - 1, 0)) }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); setHighlight((current) => current < 0 ? visibleBoards.length - 1 : Math.max(current - 1, 0)) }
+    else if (event.key === 'Home') { event.preventDefault(); setHighlight(0) }
+    else if (event.key === 'End') { event.preventDefault(); setHighlight(visibleBoards.length - 1) }
     else if (event.key === 'Enter') { const board = visibleBoards[highlight]; if (board) navigateToPath(`/project/boards/${board.id}`) }
-    else if (event.key === 'Escape') { setQuery(''); setHighlight(-1) }
   }
 
   const newCategory = () => {
@@ -381,13 +428,15 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
 
   const edgeForBoard = (boardId: string) => edgeByBoard.get(boardId)
 
-  const renderBoard = (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => (
+  const renderBoard = (board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined, searchResult = false, section = '') => (
     <BoardEntry
       key={board.id}
       board={board}
       edge={edge}
-      active={board.id === lastBoard}
-      focused={visibleBoards[highlight]?.id === board.id}
+      active={board.id === lastBoard && (searchResult || primarySectionByBoard.get(board.id) === section)}
+      focused={searchMode && visibleBoards[highlight]?.id === board.id}
+      searchResult={searchResult}
+      optionId={searchResult ? `${searchListId}-${board.id}` : undefined}
       isPinned={pinnedIds.includes(board.id)}
       isStarred={starredIds.includes(board.id)}
       isDropTarget={sidebarDrag.overId === `board:${board.id}` && sidebarDrag.draggingId !== `board:${board.id}`}
@@ -526,10 +575,10 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           placeholder={t('project.sidebar.search')}
           aria-label={t('project.sidebar.search')}
           role="combobox"
-          aria-expanded
-          aria-controls="pv-sidebar-tree"
+          aria-expanded={searchMode}
+          aria-controls={searchMode ? searchListId : treeId}
           aria-autocomplete="list"
-          aria-activedescendant={highlight >= 0 && visibleBoards[highlight] ? `pv-sidebar-board-${visibleBoards[highlight].id}` : undefined}
+          aria-activedescendant={searchMode && highlight >= 0 && visibleBoards[highlight] ? `${searchListId}-${visibleBoards[highlight].id}` : undefined}
           onChange={(event) => { setQuery(event.target.value); setHighlight(-1) }}
           onKeyDown={onSearchKey}
         />
@@ -540,7 +589,15 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           <Menu anchor={settingsAnchor} open={settingsOpen} onClose={() => setSettingsOpen(false)} items={settingsMenu} label={t('project.sidebar.settings')} />
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" id="pv-sidebar-tree" role="listbox" aria-label={t('project.sidebar.boards')}>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" id={treeId} role="group" aria-label={t('project.sidebar.boards')}>
+        {searchMode ? (
+          <ul id={searchListId} role="listbox" aria-label={t('project.sidebar.boards')}>
+            {visibleBoards.length > 0
+              ? visibleBoards.map((board) => renderBoard(board, edgeForBoard(board.id), true))
+              : <li role="presentation" className="px-2 py-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.search.no_results')}</li>}
+          </ul>
+        ) : (
+          <>
         {pinnedBoards.length > 0 && (
           <section className="mb-2">
             <h3 className="flex items-center gap-1.5 px-2 py-1 text-[length:var(--text-11)] font-semibold uppercase text-[var(--accent)] tracking-wider">
@@ -548,7 +605,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
               <span>{t('project.sidebar.pinned')}</span>
             </h3>
             <ul className="mt-0.5 space-y-0.5">
-              {pinnedBoards.map((board) => renderBoard(board, edgeForBoard(board.id)))}
+              {pinnedBoards.map((board) => renderBoard(board, edgeForBoard(board.id), false, 'pinned'))}
             </ul>
           </section>
         )}
@@ -560,7 +617,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
               <span>{t('project.sidebar.favorites')}</span>
             </h3>
             <ul className="mt-0.5 space-y-0.5">
-              {starredBoards.map((board) => renderBoard(board, edgeForBoard(board.id)))}
+              {starredBoards.map((board) => renderBoard(board, edgeForBoard(board.id), false, 'starred'))}
             </ul>
           </section>
         )}
@@ -572,7 +629,7 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
               <span>{t('project.sidebar.recent')}</span>
             </h3>
             <ul className="mt-0.5 space-y-0.5">
-              {recentBoards.map((board) => renderBoard(board, edgeForBoard(board.id)))}
+              {recentBoards.map((board) => renderBoard(board, edgeForBoard(board.id), false, 'recent'))}
             </ul>
           </section>
         )}
@@ -585,15 +642,17 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
             onToggleCollapse={toggleCollapseNode}
             buildCategoryMenu={buildCategoryMenu}
             onContextMenu={openCategoryContext}
-            renderBoard={renderBoard}
+            renderBoard={(board, edge) => renderBoard(board, edge, false, 'category')}
             drag={sidebarDrag}
           />
         ))}
 
         <section className="mb-2">
           <h3 className="px-1 py-1 text-[length:var(--text-11)] font-semibold uppercase text-[var(--text-tertiary)]">{t('project.sidebar.unfiled')}</h3>
-          <ul className="mt-1 space-y-0.5">{unfiled.map((board) => renderBoard(board, undefined))}</ul>
+          <ul className="mt-1 space-y-0.5">{unfiled.map((board) => renderBoard(board, undefined, false, 'unfiled'))}</ul>
         </section>
+          </>
+        )}
       </div>
 
       {iconBoard && (
@@ -717,6 +776,8 @@ const BoardEntry = memo(function BoardEntry({
   edge,
   active,
   focused,
+  searchResult,
+  optionId,
   isPinned,
   isStarred,
   isDropTarget,
@@ -729,6 +790,8 @@ const BoardEntry = memo(function BoardEntry({
   edge: ProjectCategoryBoard | undefined
   active: boolean
   focused: boolean
+  searchResult: boolean
+  optionId: string | undefined
   isPinned?: boolean
   isStarred?: boolean
   isDropTarget: boolean
@@ -738,6 +801,7 @@ const BoardEntry = memo(function BoardEntry({
   onContextMenu: (event: ReactMouseEvent, board: ProjectBoardSummary, edge: ProjectCategoryBoard | undefined) => void
 }): ReactElement {
   const payload = `board:${board.id}`
+  const instanceId = useId()
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const items = open ? buildItems(board, edge) : []
@@ -762,9 +826,9 @@ const BoardEntry = memo(function BoardEntry({
       </button>
       <button
         type="button"
-        role="option"
-        id={`pv-sidebar-board-${board.id}`}
-        aria-selected={active}
+        role={searchResult ? 'option' : undefined}
+        id={searchResult ? optionId : instanceId}
+        aria-selected={searchResult ? active : undefined}
         aria-current={active ? 'true' : undefined}
         className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-sm)] px-1 py-1 text-left focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${active ? 'bg-[var(--bg-hover)] font-semibold' : ''} ${focused ? 'ring-2 ring-[var(--accent)]' : ''}`}
         onClick={() => navigateToPath(`/project/boards/${board.id}`)}

@@ -43218,7 +43218,7 @@ const allowed = new Map([
     "/**\n * Receipts for writes carrying an `Idempotency-Key`. A key is bound to one request fingerprint and the\n * resource role that created it, so replaying it cannot repeat a write or bypass a later permission\n * change. A pending row is a short-lived claim that prevents concurrent duplicate execution.\n */",
   ]],
   ["src/worker/project/insights.ts", [
-    "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.\n */",
+    "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at remains the recency signal for this surface.\n */",
   ]],
   ["src/worker/project/members.ts", [
     "/**\n * The reference guards the last admin only in the client; here the server refuses the write that would\n * leave a board with no admin member, because a client check is not a trust boundary.\n */",

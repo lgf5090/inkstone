@@ -367,6 +367,7 @@ export interface ProjectBoardSummary extends ProjectBoard {
   role: ProjectRole
   /** Live card count, present on the list projection so the sidebar needs no request per board. */
   cardCount?: number
+  categoryName?: string
 }
 
 /** The counts the board list shows as a subtitle (reference BoardMetadata). */

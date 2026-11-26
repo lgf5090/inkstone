@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { Archive, Clock, Copy, Download, ListTodo, MoreHorizontal, Pencil, Pin, Plus, Save, Search, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
+import { Archive, Clock, Copy, Download, Folder, ListTodo, MoreHorizontal, Pencil, Pin, Plus, Save, Search, Smile, SquareKanban, Star, Trash2, Upload } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { ProjectBoardSummary, ProjectRole } from '@shared/project/model'
 import { t, useLocale } from '../../lib/i18n'
@@ -252,9 +252,11 @@ function useBoardMenu(board: ProjectBoardSummary): { items: MenuItem[], title: s
 
 function BoardRow({ board }: { board: ProjectBoardSummary }): ReactElement {
   const { items, title, iconPicker } = useBoardMenu(board)
+  const locale = useLocale()
   const anchor = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [context, setContext] = useState<{ x: number, y: number } | null>(null)
+  const updated = new Date(board.updateAt).toLocaleDateString(locale)
   return (
     <li
       className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2"
@@ -269,7 +271,14 @@ function BoardRow({ board }: { board: ProjectBoardSummary }): ReactElement {
         <span aria-hidden="true" className="flex size-6 shrink-0 items-center justify-center text-[length:var(--text-14)]">
           {board.icon || <SquareKanban size={15} className="text-[var(--text-quaternary)]" />}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{title}</span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{title}</span>
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {board.cardCount !== undefined && <span className="tabular">{t('project.board.cards_count', { count: board.cardCount })}</span>}
+            <span className="flex items-center gap-1" aria-label={t('project.boards.updated', { date: updated })}><Clock size={10} aria-hidden="true" />{updated}</span>
+            <span className="flex min-w-0 items-center gap-1"><Folder size={10} aria-hidden="true" /><span className="truncate">{board.categoryName || t('project.sidebar.unfiled')}</span></span>
+          </span>
+        </span>
       </button>
       <span className="shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
         {t(ROLE_LABEL_KEYS[board.role])}
@@ -306,6 +315,7 @@ function boardTint(id: string): string {
 function BoardCard({ board }: { board: ProjectBoardSummary }): ReactElement {
   const { items, title, iconPicker } = useBoardMenu(board)
   const locale = useLocale()
+  const updated = new Date(board.updateAt).toLocaleDateString(locale)
   const anchor = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [context, setContext] = useState<{ x: number, y: number } | null>(null)
@@ -329,7 +339,8 @@ function BoardCard({ board }: { board: ProjectBoardSummary }): ReactElement {
           <span className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
             <span className="rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1.5 py-0.5 text-[var(--text-secondary)]">{t(ROLE_LABEL_KEYS[board.role])}</span>
             {board.cardCount !== undefined && <span className="tabular">{t('project.board.cards_count', { count: board.cardCount })}</span>}
-            <span className="flex items-center gap-1"><Clock size={10} aria-hidden="true" />{new Date(board.updateAt).toLocaleDateString(locale)}</span>
+            <span className="flex items-center gap-1" aria-label={t('project.boards.updated', { date: updated })}><Clock size={10} aria-hidden="true" />{updated}</span>
+            <span className="flex min-w-0 items-center gap-1"><Folder size={10} aria-hidden="true" /><span className="truncate">{board.categoryName || t('project.sidebar.unfiled')}</span></span>
           </span>
         </span>
       </button>

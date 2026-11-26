@@ -262,6 +262,25 @@ describe('board metadata', () => {
   })
 })
 describe('the board list card count (R4-4)', () => {
+  it('includes the viewer folder name without exposing another account folder', async () => {
+    const created = await req('alice', 'POST', '/boards', { title: 'Filed' })
+    const board = ((await created.json()) as { board: { id: string } }).board
+    sqlite.prepare(
+      `INSERT INTO project_categories (user_id, id, name, type, collapsed, sort_order, create_at, update_at, delete_at)
+       VALUES ('alice', 'cat1', 'Work', 'custom', 0, 0, 1, 1, 0)`,
+    ).run()
+    sqlite.prepare(
+      `INSERT INTO project_category_boards (user_id, category_id, board_id, hidden, position, updated_at)
+       VALUES ('alice', 'cat1', ?1, 0, 0, 1)`,
+    ).run(board.id)
+    const listed = ((await (await req('alice', 'GET', '/boards')).json()) as { boards: { id: string, categoryName?: string }[] }).boards
+    expect(listed.find((entry) => entry.id === board.id)?.categoryName).toBe('Work')
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?1, ?2, ?3, 1, 1)')
+      .run(board.id, 'bob', 'viewer')
+    const shared = ((await (await req('bob', 'GET', '/boards')).json()) as { boards: { id: string, categoryName?: string }[] }).boards
+    expect(shared.find((entry) => entry.id === board.id)?.categoryName).toBeUndefined()
+  })
+
   it('counts live cards per board in the list itself, excluding deleted ones', async () => {
     const created = await req('alice', 'POST', '/boards', { title: 'Counted' })
     const board = ((await created.json()) as { board: { id: string } }).board

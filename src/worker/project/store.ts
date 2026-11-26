@@ -20,7 +20,12 @@ export class ProjectStore {
   async boards(): Promise<ProjectBoardSummary[]> {
     const { results } = await this.db
       .prepare(
-        `SELECT b.*, (SELECT COUNT(*) FROM project_cards c WHERE c.board_id = b.id AND c.delete_at = 0) AS card_count
+        `SELECT b.*,
+                (SELECT COUNT(*) FROM project_cards c WHERE c.board_id = b.id AND c.delete_at = 0) AS card_count,
+                (SELECT cat.name FROM project_category_boards cb
+                 JOIN project_categories cat ON cat.user_id = cb.user_id AND cat.id = cb.category_id
+                 WHERE cb.board_id = b.id AND cb.user_id = ?1 AND cat.delete_at = 0
+                 ORDER BY cb.position, cb.category_id LIMIT 1) AS category_name
          FROM project_boards b
          WHERE b.delete_at = 0 AND b.is_template = 0 AND b.archived = 0
            AND (b.owner_id = ?1
@@ -28,13 +33,18 @@ export class ProjectStore {
          ORDER BY b.update_at DESC`,
       )
       .bind(this.userId)
-      .all<ProjectBoardRow & { card_count: number }>()
+      .all<ProjectBoardRow & { card_count: number, category_name: string | null }>()
     const { results: memberships } = await this.db
       .prepare('SELECT board_id, role FROM project_board_members WHERE user_id = ?1')
       .bind(this.userId)
       .all<ProjectMembershipRow>()
     const counts = new Map(results.map((row) => [row.id, row.card_count ?? 0]))
-    return visibleProjectBoards(results, memberships, this.userId).map((board) => ({ ...board, cardCount: counts.get(board.id) ?? 0 }))
+    const categories = new Map(results.map((row) => [row.id, row.category_name]))
+    return visibleProjectBoards(results, memberships, this.userId).map((board) => ({
+      ...board,
+      cardCount: counts.get(board.id) ?? 0,
+      categoryName: categories.get(board.id) ?? undefined,
+    }))
   }
   /** Soft-deleted boards this account owns: the restore list, which the live board list excludes. */
   async deletedBoards(): Promise<ProjectBoardSummary[]> {

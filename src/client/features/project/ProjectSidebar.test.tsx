@@ -126,14 +126,40 @@ describe('find-board keyboard navigation (E-8)', () => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
     await act(async () => { setter.call(input, 'board'); input.dispatchEvent(new Event('input', { bubbles: true })) })
     await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })) })
-    expect(document.body.querySelector('[data-sidebar-board="b1"] button:not([data-sidebar-grip])')!.className).toContain('ring-2')
+    const activeId = input.getAttribute('aria-activedescendant')
+    expect(activeId).toBeTruthy()
+    expect(document.getElementById(activeId!)?.getAttribute('role')).toBe('option')
+    expect(document.getElementById(activeId!)?.closest('[data-sidebar-board]')?.getAttribute('data-sidebar-board')).toBe('b1')
+    expect(document.querySelector(`[id="${activeId}"]`)?.className).toContain('ring-2')
     expect(input.getAttribute('role')).toBe('combobox')
-    expect(input.getAttribute('aria-activedescendant')).toBe('pv-sidebar-board-b1')
-    expect(document.getElementById('pv-sidebar-tree')?.getAttribute('role')).toBe('listbox')
-    expect(document.getElementById('pv-sidebar-board-b1')?.getAttribute('role')).toBe('option')
+    expect(document.getElementById(input.getAttribute('aria-controls')!)?.getAttribute('role')).toBe('listbox')
+    const ids = [...view.container.querySelectorAll('[id]')].map((node) => node.id)
+    expect(new Set(ids).size).toBe(ids.length)
     await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
     expect(input.value).toBe('')
-    expect(document.body.querySelector('[data-sidebar-board="b1"] button:not([data-sidebar-grip])')!.className).not.toContain('ring-2')
+    expect(input.hasAttribute('aria-activedescendant')).toBe(false)
+    expect(document.getElementById(input.getAttribute('aria-controls')!)?.getAttribute('role')).toBe('group')
+  })
+
+  it('keeps Arrow/Home/End order aligned with the rendered result list', async () => {
+    await mount()
+    const input = document.body.querySelector(`input[aria-label="${t('project.sidebar.search')}"]`) as HTMLInputElement
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(input, 'board'); input.dispatchEvent(new Event('input', { bubbles: true })) })
+    const press = async (key: string) => {
+      await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })) })
+      return document.getElementById(input.getAttribute('aria-activedescendant')!)?.closest('[data-sidebar-board]')?.getAttribute('data-sidebar-board')
+    }
+    expect(await press('ArrowUp')).toBe('b2')
+    expect(await press('ArrowDown')).toBe('b2')
+    expect(await press('End')).toBe('b2')
+    expect(await press('Home')).toBe('b1')
+    const rendered = [...document.getElementById(input.getAttribute('aria-controls')!)!.querySelectorAll('[role="option"]')]
+      .map((node) => node.closest('[data-sidebar-board]')?.getAttribute('data-sidebar-board'))
+    expect(rendered).toEqual(['b1', 'b2'])
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(window.location.pathname).toBe('/project/boards/b1')
+    window.history.replaceState({}, '', '/')
   })
 })
 
@@ -147,6 +173,13 @@ describe('the project sidebar', () => {
     expect(text).toContain('Loose board')
     const filed = view.container.querySelector('section [data-sidebar-board="b1"]')
     expect(filed).not.toBeNull()
+  })
+
+  it('synchronizes folder metadata into the shared board list after a category reload', async () => {
+    useProjectStore.setState({ boards })
+    await mount()
+    expect(useProjectStore.getState().boards.find((board) => board.id === 'b1')?.categoryName).toBe('Work')
+    expect(useProjectStore.getState().boards.find((board) => board.id === 'b2')?.categoryName).toBeUndefined()
   })
 
   it('filters boards by the search query', async () => {
@@ -314,10 +347,39 @@ describe('the nested tree reads as a tree', () => {
     expect(labels).toContain(t('project.sidebar.move_to_folder'))
   })
 
-  it('lists the recently edited boards above the tree', async () => {
+  it('lists recently opened boards in open order rather than edit order', async () => {
+    localStorage.setItem('inkstone.project.recentBoards.u1', JSON.stringify(['b2', 'b1']))
     await mount()
-    const headings = [...view.container.querySelectorAll('section > :is(h2, h3)')].map((node) => node.textContent)
-    expect(headings.some((text) => text === t('project.sidebar.recent'))).toBe(true)
+    const heading = [...view.container.querySelectorAll('h3')].find((node) => node.textContent === t('project.sidebar.recent'))!
+    const recent = heading.closest('section')!
+    expect([...recent.querySelectorAll('[data-sidebar-board]')].map((node) => node.getAttribute('data-sidebar-board'))).toEqual(['b2', 'b1'])
+  })
+
+  it('records the board opened by the address at the front of recents', async () => {
+    window.history.replaceState({}, '', '/project/boards/b2')
+    await mount()
+    const recentOrder = () => {
+      const heading = [...view.container.querySelectorAll('h3')].find((node) => node.textContent === t('project.sidebar.recent'))!
+      return [...heading.closest('section')!.querySelectorAll('[data-sidebar-board]')].map((node) => node.getAttribute('data-sidebar-board'))
+    }
+    expect(recentOrder()[0]).toBe('b2')
+    await act(async () => {
+      window.history.replaceState({}, '', '/project/boards/b1')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(recentOrder()[0]).toBe('b1')
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('gives repeated board entries unique ids and only one current marker', async () => {
+    useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: ['b1'], starredBoards: ['b1'], notifications: {} } } }))
+    localStorage.setItem('inkstone.project.recentBoards.u1', JSON.stringify(['b1']))
+    window.history.replaceState({}, '', '/project/boards/b1')
+    await mount()
+    const ids = [...view.container.querySelectorAll('[id]')].map((node) => node.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(view.container.querySelectorAll('[data-sidebar-board] [aria-current="true"]')).toHaveLength(1)
+    window.history.replaceState({}, '', '/')
   })
 })
 

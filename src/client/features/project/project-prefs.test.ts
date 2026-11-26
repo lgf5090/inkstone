@@ -15,6 +15,8 @@ import {
   readStarredBoardsPref,
   writePinnedBoardsPref,
   writeStarredBoardsPref,
+  readRecentBoardsPref,
+  rememberRecentBoardPref,
 } from './project-prefs'
 
 describe('project-prefs', () => {
@@ -38,6 +40,14 @@ describe('project-prefs', () => {
   it('writes and reads starred boards', () => {
     writeStarredBoardsPref(['b3'])
     expect(readStarredBoardsPref()).toEqual(['b3'])
+  })
+
+  it('keeps recently opened boards ordered, unique and scoped to the account', () => {
+    expect(rememberRecentBoardPref('u1', 'b1')).toEqual(['b1'])
+    expect(rememberRecentBoardPref('u1', 'b2')).toEqual(['b2', 'b1'])
+    expect(rememberRecentBoardPref('u1', 'b1')).toEqual(['b1', 'b2'])
+    expect(readRecentBoardsPref('u2')).toEqual([])
+    expect(readRecentBoardsPref(undefined)).toEqual([])
   })
 
   it('handles invalid JSON gracefully', () => {
