@@ -448,9 +448,9 @@ async function syncConnection(
       })
       await env.DB.prepare(
         `UPDATE calendar_provider_calendars
-            SET last_error_code = ?4, updated_at = ?5
+            SET last_sync_at = ?4, last_error_code = ?5, updated_at = ?4
           WHERE user_id = ?1 AND connection_id = ?2 AND remote_calendar_id = ?3`,
-      ).bind(userId, connection.id, mapping.remote_calendar_id, 'sync_failed', now).run()
+      ).bind(userId, connection.id, mapping.remote_calendar_id, now, 'sync_failed').run()
     }
   }
   return { events, deleted, failed }
@@ -461,10 +461,13 @@ export async function syncDueProviderConnections(
   now = Date.now(),
 ): Promise<ProviderSyncResult> {
   const { results } = await env.DB.prepare(
-    `SELECT DISTINCT connection_id, user_id
-       FROM calendar_provider_calendars
-      WHERE last_sync_at IS NULL OR last_sync_at <= ?1
-      ORDER BY last_sync_at ASC
+    `SELECT DISTINCT m.connection_id, m.user_id
+       FROM calendar_provider_calendars m
+       JOIN calendar_connections c
+         ON c.user_id = m.user_id AND c.id = m.connection_id
+      WHERE c.status IN ('connected', 'error')
+        AND (m.last_sync_at IS NULL OR m.last_sync_at <= ?1)
+      ORDER BY m.last_sync_at ASC
       LIMIT ?2`,
   ).bind(now - PROVIDER_SYNC_INTERVAL_MS, PROVIDER_SYNC_LIMIT).all<{
     connection_id: string
@@ -488,7 +491,7 @@ export async function syncDueProviderConnections(
       deleted += result.deleted
       failed += result.failed
       await updateCalendarConnectionStatus(env.DB, row.user_id, row.connection_id, {
-        status: 'connected',
+        status: result.failed > 0 ? 'error' : 'connected',
         lastSyncedAt: now,
         errorCode: null,
       })

@@ -632,6 +632,21 @@ describe('background provider sync', () => {
     ).all(USER) as Array<{ title: string }>
     expect(remaining).toEqual([{ title: 'Local only' }])
   })
+
+  it('backs off failed mappings and reports the connection as failed', async () => {
+    const seeded = await seedOAuth()
+    await new CalendarStore(db, USER).createCalendar({ id: 'google-fail', name: 'Google', source: 'google' })
+    sqlite.prepare(`INSERT INTO calendar_provider_calendars
+      (user_id, connection_id, remote_calendar_id, local_calendar_id, last_sync_at, created_at, updated_at)
+      VALUES (?, ?, 'google-fail', 'google-fail', NULL, 1, 1)`).run(USER, seeded.id)
+    vi.stubGlobal('fetch', async () => new Response('busy', { status: 503 }))
+    const now = Date.now()
+    expect(await syncDueProviderConnections(env, now)).toMatchObject({ connections: 1, failed: 1 })
+    expect((await getCalendarConnection(db, USER, seeded.id))?.status).toBe('error')
+    expect(sqlite.prepare('SELECT last_sync_at FROM calendar_provider_calendars WHERE connection_id = ?').get(seeded.id))
+      .toEqual({ last_sync_at: now })
+    expect(await syncDueProviderConnections(env, now)).toMatchObject({ connections: 0 })
+  })
 })
 
 describe('provider calendar mapping', () => {
@@ -763,10 +778,14 @@ describe('calendar sync routes', () => {
     const refused = await request(`/connections/${seeded.id}/status`, json({ state: 'nonsense' }))
     expect(refused.status).toBe(400)
 
+    sqlite.prepare(`INSERT INTO calendar_provider_calendars
+      (user_id, connection_id, remote_calendar_id, local_calendar_id, created_at, updated_at)
+      VALUES (?, ?, 'remote', 'local', 1, 1)`).run(USER, seeded.id)
     const deleted = await request(`/connections/${seeded.id}`, { method: 'DELETE' })
     expect(deleted.status).toBe(204)
     expect(await getCalendarConnection(db, USER, seeded.id)).toBeNull()
     expect(await loadCalendarCredential(db, USER, seeded.id, 'basic')).toBeNull()
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_provider_calendars WHERE connection_id = ?').get(seeded.id)).toEqual({ count: 0 })
   })
 
   it('answers 404 for another account connection and a malformed id', async () => {

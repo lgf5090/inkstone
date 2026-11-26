@@ -230,6 +230,8 @@ export async function deleteCalendarConnection(
   const statements = [
     db.prepare('DELETE FROM calendar_credentials WHERE user_id = ?1 AND connection_id = ?2')
       .bind(userId, connectionId),
+    db.prepare('DELETE FROM calendar_provider_calendars WHERE user_id = ?1 AND connection_id = ?2')
+      .bind(userId, connectionId),
   ]
   if (connection.kind !== 'caldav') {
     statements.push(

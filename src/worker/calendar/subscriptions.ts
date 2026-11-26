@@ -1,5 +1,6 @@
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { resolvePublicHost } from '../lib/host-guard'
+import { sha256Hex } from '../lib/encoding'
 import {
   MAX_ICS_BYTES,
   MAX_ICS_EVENTS,
@@ -249,9 +250,11 @@ async function subscriptionEvents(
 ): Promise<CalendarEventWriteInput[]> {
   return Promise.all(events.map(async (event) => {
     const uid = event.meta?.originalUid
-    const externalId = typeof uid === 'string'
-      ? await icsExternalId(calendarId, uid, recurrenceIdOf(event.meta?.recurrenceId))
-      : null
+    const recurrenceId = recurrenceIdOf(event.meta?.recurrenceId)
+    const stableUid = typeof uid === 'string'
+      ? uid
+      : `missing:${await sha256Hex(JSON.stringify([event.title, event.start, event.end, event.description, event.recurrenceRule, recurrenceId]))}`
+    const externalId = await icsExternalId(calendarId, stableUid, recurrenceId)
     return parseEventInput({
       ...event,
       calendarIds: [calendarId],

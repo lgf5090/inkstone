@@ -81,4 +81,20 @@ describe('scheduled calendar subscriptions', () => {
     await setIcsSubscriptionEnabled(env, USER, 'paused', true)
     await expect(refreshIcsSubscription(env, USER, 'paused')).resolves.toMatchObject({ imported: 1 })
   })
+
+  it('keeps UID-less feed events stable across refreshes', async () => {
+    const calendarId = await insertSubscription('uidless', 1, null)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response([
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Audit//EN', 'BEGIN:VEVENT',
+      'DTSTART:20261126T010000Z', 'DTEND:20261126T020000Z', 'SUMMARY:No UID',
+      'END:VEVENT', 'END:VCALENDAR', '',
+    ].join('\r\n'))))
+    await refreshIcsSubscription(env, USER, 'uidless')
+    await refreshIcsSubscription(env, USER, 'uidless')
+    const rows = sqlite.prepare(`SELECT e.id, e.external_id FROM calendar_events e
+      JOIN calendar_event_calendars m ON m.user_id = e.user_id AND m.event_id = e.id
+      WHERE e.calendar_source = 'ics' AND m.calendar_id = ?`).all(calendarId) as Array<{ id: string; external_id: string }>
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.external_id).toBeTruthy()
+  })
 })
