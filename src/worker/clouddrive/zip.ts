@@ -134,7 +134,10 @@ async function* openSources(
       fill()
     }
   } finally {
-    for (const entry of pending) entry.source.catch(() => {})
+    // A cancelled ZIP must not leave prefetched object reads as unhandled rejections.
+    for (const entry of pending) entry.source.catch((error) => {
+      console.warn('[inkstone] CloudDrive could not finish a prefetched ZIP read:', error)
+    })
   }
 }
 

@@ -40431,6 +40431,7 @@ const allowed = new Map([
     "// unconditional branch.",
     "// A ZIP entry may not start with `/`: that would name an absolute path rather than a member of the",
     "// archive, and the root of the drive has no directory of its own to name.",
+    "// A cancelled ZIP must not leave prefetched object reads as unhandled rejections.",
   ]],
   ["src/worker/cloudflare/account-probe.ts", [
     "/**\n * The import path that stores an account before Cloudflare has vouched for it.\n *\n * `createAccount` verifies the credential first, which is right for the add dialog and wrong for a\n * CSV import with `skipVerify`: that option exists so a bulk paste lands in seconds and the screen\n * tests the rows afterwards. This writes the same two things in the same order — the sealed file,\n * then the row — and leaves `cf_account_id` empty, which is exactly the \"Unverified\" filter.\n *\n * Nothing here talks to Cloudflare, so a row written by this module is inert until `testAccount`\n * probes it.\n */",

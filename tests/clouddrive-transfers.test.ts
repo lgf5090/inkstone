@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { CloudDriveEntry } from '../src/shared/clouddrive/model'
+import type { CloudDriveBootstrap, CloudDriveEntry } from '../src/shared/clouddrive/model'
 import { clouddriveApi } from '../src/client/features/clouddrive/api'
 import { useCloudDriveStore } from '../src/client/features/clouddrive/store'
 import { partRetryDelay, putPartWithRetry, useTransferStore, type TransferItem } from '../src/client/features/clouddrive/transfers/useTransferStore'
@@ -72,7 +72,7 @@ describe('CloudDrive upload scheduling', () => {
     const prefs = useCloudDriveStore.getState().prefs
     useCloudDriveStore.setState({
       prefs: { ...prefs, uploadConcurrency: wanted },
-      bootstrap: { settings: { uploadConcurrentParts: policy } } as never,
+      bootstrap: { settings: { uploadConcurrentParts: policy } } as unknown as CloudDriveBootstrap,
     })
     vi.spyOn(clouddriveApi, 'initUpload').mockResolvedValue({
       session: { id: 'session-parts', strategy: 'multipart', partSize: 2, totalParts: 3 },
@@ -102,7 +102,7 @@ describe('CloudDrive upload scheduling', () => {
     const prefs = useCloudDriveStore.getState().prefs
     useCloudDriveStore.setState({
       prefs: { ...prefs, uploadConcurrency: 3 },
-      bootstrap: { settings: { uploadConcurrentParts: 2 } } as never,
+      bootstrap: { settings: { uploadConcurrentParts: 2 } } as unknown as CloudDriveBootstrap,
     })
     vi.spyOn(clouddriveApi, 'initUpload')
       .mockResolvedValueOnce({ session: { id: 'session-a', strategy: 'multipart', partSize: 2, totalParts: 2 }, entryPath: '/a.bin' })
