@@ -13,10 +13,11 @@ import type {
   ProjectContentType,
   ProjectProperty,
   ProjectRecurrence,
+  ProjectStatusCategory,
   ProjectViewFields,
   ProjectViewType,
 } from './model'
-import { emptyProjectViewFields, PROJECT_CONTENT_TYPES, PROJECT_PROPERTY_TYPES, PROJECT_VIEW_TYPES } from './model'
+import { emptyProjectViewFields, PROJECT_CONTENT_TYPES, PROJECT_PROPERTY_TYPES, PROJECT_STATUS_CATEGORIES, PROJECT_VIEW_TYPES } from './model'
 import {
   projectArchiveBlockIsBoard, ProjectArchiveError,
   type ProjectArchiveAttachment, type ProjectArchiveBlock, type ProjectArchiveLine,
@@ -260,7 +261,11 @@ function readProperties(value: unknown): ProjectProperty[] {
     const options = Array.isArray(record.options)
       ? record.options.map((option) => {
         const opt = asRecord(option)
-        return { id: asString(opt.id), value: asString(opt.value), color: asString(opt.color) }
+        const category = asString(opt.category)
+        return {
+          id: asString(opt.id), value: asString(opt.value), color: asString(opt.color),
+          ...((PROJECT_STATUS_CATEGORIES as readonly string[]).includes(category) ? { category: category as ProjectStatusCategory } : {}),
+        }
       })
       : []
     const config = parseProjectPropertyConfig(JSON.stringify(record.config ?? {}))

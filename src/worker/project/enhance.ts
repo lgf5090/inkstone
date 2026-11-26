@@ -4,7 +4,7 @@
  * a board can never deadlock itself. Both reuse tables created with the core schema.
  */
 import type { ProjectActivityEntry, ProjectBoard, ProjectCard, ProjectCardLink, ProjectCardLinkKind, ProjectProperty } from '@shared/project/model'
-import { CARD_DONE_PATTERN, isProjectCardDone, projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
+import { isProjectCardDone, projectDonePatch, projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
 import { projectPropertyEditableBy } from '@shared/project/property-config'
 import { newProjectId } from '@shared/project/limits'
 import { ApiError } from '../lib/errors'
@@ -122,25 +122,11 @@ export async function getCardTodoLink(db: D1Database, cardId: string): Promise<s
   return row?.todo_id ?? null
 }
 
-/** A card reads as done when a checkbox property is ticked or its status option names completion. */
-export function cardIsDone(card: ProjectCard, properties: readonly { id: string, type: string, options: { id: string, value: string }[] }[]): boolean {
-  for (const property of properties) {
-    const raw = card.values[property.id]
-    if (!raw) continue
-    if (property.type === 'checkbox' && raw === 'true') return true
-    if (property.type === 'select') {
-      const option = property.options.find((o) => o.id === raw)
-      if (option && CARD_DONE_PATTERN.test(option.value)) return true
-    }
-  }
-  return false
-}
-
 /** X-5 card→todo: mirror the card's completion onto its linked task. */
-export async function syncCardCompletionToTodo(db: D1Database, card: ProjectCard, properties: readonly { id: string, type: string, options: { id: string, value: string }[] }[], now: number): Promise<void> {
+export async function syncCardCompletionToTodo(db: D1Database, card: ProjectCard, properties: readonly ProjectProperty[], now: number): Promise<void> {
   const row = await db.prepare('SELECT todo_id, user_id FROM project_todo_links WHERE card_id = ?1').bind(card.id).first<{ todo_id: string, user_id: string }>()
   if (!row) return
-  const done = cardIsDone(card, properties)
+  const done = isProjectCardDone(card, properties)
   await db.prepare('UPDATE todos_tasks SET status = ?1, completed_at = ?2 WHERE id = ?3 AND user_id = ?4')
     .bind(done ? 'done' : 'todo', done ? now : null, row.todo_id, row.user_id).run()
 }
@@ -208,23 +194,17 @@ export async function syncTodoCompletionToCard(db: D1Database, todoId: string, d
   const role = await projectRoleForBoard(db, card.boardId, row.user_id)
   if (!role || !projectRoleAtLeast(role, 'editor')) return
   const properties = await readBoardProperties(db, card.boardId)
-  const checkbox = properties.find((property) => property.type === 'checkbox' && projectPropertyEditableBy(property, role))
-  if (checkbox) {
-    await db.prepare(
-      'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-    ).bind(card.id, checkbox.id, done ? 'true' : 'false', now).run()
-    await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(done ? now : null, card.id).run()
-    return
-  }
-  const select = properties.find((property) => property.type === 'select' && projectPropertyEditableBy(property, role))
-  if (select) {
-    const doneOption = select.options.find((option) => CARD_DONE_PATTERN.test(option.value))
-    const target = done ? doneOption : select.options.find((option) => !CARD_DONE_PATTERN.test(option.value))
-    if (target) {
+  const editableStatuses = properties.filter((property) => property.type === 'select' && projectPropertyEditableBy(property, role))
+  const patch = projectDonePatch(editableStatuses, done)
+  if (!patch) return
+  for (const [propertyId, value] of Object.entries(patch)) {
+    if (value === null) {
+      await db.prepare('DELETE FROM project_card_values WHERE card_id = ?1 AND property_id = ?2').bind(card.id, propertyId).run()
+    } else {
       await db.prepare(
         'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-      ).bind(card.id, select.id, target.id, now).run()
+      ).bind(card.id, propertyId, value, now).run()
     }
-    await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(done ? now : null, card.id).run()
   }
+  await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(done ? now : null, card.id).run()
 }

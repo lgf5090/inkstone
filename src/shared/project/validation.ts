@@ -21,6 +21,7 @@ import {
   PROJECT_ROLES,
   PROJECT_ROLLUP_AGGREGATIONS,
   PROJECT_SCHEDULE_SCALES,
+  PROJECT_STATUS_CATEGORIES,
   PROJECT_SUBSCRIPTION_BLOCKS,
   PROJECT_VIEW_TYPES,
 } from './model'
@@ -46,6 +47,7 @@ export const ProjectPropertyOptionSchema = z.object({
   id: projectId,
   value: z.string().max(1024),
   color: z.string().max(64),
+  category: z.enum(PROJECT_STATUS_CATEGORIES).optional(),
 })
 
 export const ProjectRollupConfigSchema = z.object({

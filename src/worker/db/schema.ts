@@ -4840,6 +4840,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 428,
     statements: [...PROJECT_REMINDER_SCHEMA_STATEMENTS, PROJECT_REMINDER_BACKFILL_STATEMENT],
   },
+  {
+    version: 429,
+    skipIfColumnExists: { table: 'project_cards', column: 'recurrence_source_id' },
+    statements: [
+      'ALTER TABLE project_cards ADD COLUMN recurrence_source_id TEXT',
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_cards_recurrence_source
+         ON project_cards(recurrence_source_id) WHERE recurrence_source_id IS NOT NULL AND recurrence_source_id <> ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

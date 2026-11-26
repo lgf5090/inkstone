@@ -208,10 +208,14 @@ export interface ProjectDateValue {
   timeZone?: string
 }
 
+export const PROJECT_STATUS_CATEGORIES = ['todo', 'doing', 'done'] as const
+export type ProjectStatusCategory = (typeof PROJECT_STATUS_CATEGORIES)[number]
+
 export interface ProjectPropertyOption {
   id: string
   value: string
   color: string
+  category?: ProjectStatusCategory
 }
 
 /**
@@ -427,68 +431,42 @@ export interface ProjectCardPatch {
   values?: Record<string, string | null>
 }
 
-// A board's "done" column is named by whoever made the board, so the reader recognises the word in
-// the languages the interface ships: U+5B8C U+6210 is "finished". The lookbehind keeps the negated
-// form (U+672A / U+6CA1 / U+4E0D in front of it) out of the match.
-export const CARD_DONE_PATTERN = /done|complete|finished|(?<![\u672a\u6ca1\u4e0d])\u5b8c\u6210/i
-
 export function isProjectCardDone(card: ProjectCard, properties: readonly ProjectProperty[]): boolean {
   for (const property of properties) {
+    if (property.type !== 'select') continue
     const raw = card.values[property.id]
-    if (!raw) continue
-    if (property.type === 'checkbox' && raw === 'true') return true
-    if (property.type === 'select') {
-      const option = property.options.find((o) => o.id === raw)
-      if (option && CARD_DONE_PATTERN.test(option.value)) return true
-    }
+    const option = property.options.find((entry) => entry.id === raw)
+    if (option?.category === 'done') return true
   }
   return false
 }
 
-/**
- * The option a board means by "done", and the one it falls back to when a card is reopened.
- *
- * The reader (`isProjectCardDone`) and every writer have to agree on this, or a checkbox can clear a
- * status it cannot set: an English-only writer on a board whose options are named in Chinese finds no
- * done option and writes null, so the tick never sticks.
- */
 export function projectDoneOption(properties: readonly ProjectProperty[]): { property: ProjectProperty, option: ProjectPropertyOption } | null {
   for (const property of properties) {
     if (property.type !== 'select') continue
-    const option = property.options.find((entry) => CARD_DONE_PATTERN.test(entry.value))
+    const option = property.options.find((entry) => entry.category === 'done')
     if (option) return { property, option }
   }
   return null
 }
 
-/** The state a reopened card goes back to: the first option that is not the done one. */
 export function projectOpenOption(property: ProjectProperty, doneOptionId: string): ProjectPropertyOption | null {
-  return property.options.find((entry) => entry.id !== doneOptionId) ?? null
+  const open = property.options.filter((entry) => entry.id !== doneOptionId && entry.category !== 'done')
+  return open.find((entry) => entry.category === 'todo') ?? open.find((entry) => entry.category === 'doing') ?? open[0] ?? null
 }
 
-/**
- * The property write that ticks or unticks a card, or null when the board cannot express it.
- *
- * A select board writes the option; a checkbox board writes the boolean; a board with neither has no
- * tick to offer, and saying so lets the caller hide the control instead of writing a value that does
- * nothing.
- */
 export function projectDonePatch(
   properties: readonly ProjectProperty[],
   done: boolean,
 ): Record<string, string | null> | null {
   const target = projectDoneOption(properties)
-  if (target) {
-    const open = projectOpenOption(target.property, target.option.id)
-    return { [target.property.id]: done ? target.option.id : (open?.id ?? null) }
-  }
-  const checkbox = properties.find((property) => property.type === 'checkbox')
-  return checkbox ? { [checkbox.id]: done ? 'true' : 'false' } : null
+  if (!target) return null
+  const open = projectOpenOption(target.property, target.option.id)
+  return { [target.property.id]: done ? target.option.id : (open?.id ?? null) }
 }
 
-/** Whether the board has any way to mark a card done, so a tick is only offered when it can work. */
 export function projectCanMarkDone(properties: readonly ProjectProperty[]): boolean {
-  return projectDonePatch(properties, true) !== null
+  return projectDoneOption(properties) !== null
 }
 
 export interface ProjectView {

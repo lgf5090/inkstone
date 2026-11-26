@@ -9,7 +9,7 @@ import { ListView } from './ListView'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 const properties: ProjectProperty[] = [
-  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'open', value: 'Open', color: '' }, { id: 'done', value: 'Done', color: '' }] },
+  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'open', value: 'Open', color: '', category: 'todo' }, { id: 'done', value: 'Done', color: '', category: 'done' }] },
   { id: 'pp', name: 'Priority', type: 'select', options: [{ id: 'lo', value: 'Low', color: 'propColorGreen' }, { id: 'hi', value: 'High', color: 'propColorRed' }] },
   { id: 'pd', name: 'Due', type: 'date', options: [] },
 ]

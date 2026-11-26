@@ -70,6 +70,7 @@ export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
     is_template INTEGER NOT NULL DEFAULT 0,
     content_order TEXT NOT NULL DEFAULT '[]',
     recurrence TEXT,
+    recurrence_source_id TEXT,
     completed_at INTEGER,
     created_by TEXT NOT NULL,
     modified_by TEXT NOT NULL,
@@ -83,6 +84,8 @@ export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_cards(board_id, delete_at, create_at, id)`,
   `CREATE INDEX IF NOT EXISTS idx_project_cards_parent
      ON project_cards(parent_id, delete_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_cards_recurrence_source
+     ON project_cards(recurrence_source_id) WHERE recurrence_source_id IS NOT NULL AND recurrence_source_id <> ''`,
 
   `CREATE TABLE IF NOT EXISTS project_card_values (
     card_id TEXT NOT NULL,
@@ -578,6 +581,7 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_cards_board',
   'idx_project_cards_board_create',
   'idx_project_cards_parent',
+  'idx_project_cards_recurrence_source',
   'idx_project_values_property',
   'idx_project_views_board',
   'idx_project_contents_card',
@@ -620,7 +624,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   ],
   project_cards: [
     'id', 'board_id', 'parent_id', 'title', 'icon', 'is_template', 'content_order', 'recurrence',
-    'completed_at', 'created_by', 'modified_by', 'create_at', 'update_at', 'delete_at',
+    'recurrence_source_id', 'completed_at', 'created_by', 'modified_by', 'create_at', 'update_at', 'delete_at',
   ],
   project_card_values: ['card_id', 'property_id', 'value', 'updated_at'],
   project_views: [

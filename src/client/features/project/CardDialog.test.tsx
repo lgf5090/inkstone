@@ -49,7 +49,7 @@ const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, de
 const card: ProjectCard = { id: 'c1', boardId: 'b1', parentId: '', title: 'Card', icon: '', isTemplate: false, contentOrder: [], values: { pt: 'old' }, ...stamps }
 const properties: ProjectProperty[] = [
   { id: 'pt', name: 'Notes', type: 'text', options: [] },
-  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '' }, { id: 'o2', value: 'Done', color: '' }] },
+  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '', category: 'todo' }, { id: 'o2', value: 'Done', color: '', category: 'done' }] },
 ]
 
 let view: RenderedElement

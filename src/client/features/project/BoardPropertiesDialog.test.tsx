@@ -68,6 +68,20 @@ describe('option colour and name (R3-12)', () => {
     expect(draft[0]!.options[0]).toEqual({ id: 'o1', value: 'Open', color: 'propColorRed' })
   })
 
+  it('marks a status option as done without relying on its label', async () => {
+    await mount()
+    const trigger = document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.props.option_category')}: Open"]`)
+    expect(trigger, 'no status category affordance on the option row').not.toBeNull()
+    await act(async () => { trigger!.click() })
+    const done = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((button) => button.textContent === t('project.status.done'))
+    expect(done, 'the category menu never opened').toBeDefined()
+    await act(async () => { done!.click() })
+    const save = [...document.body.querySelectorAll('button')].find((b) => b.textContent === t('common.save'))
+    await act(async () => { save!.click() })
+    const [draft] = onSave.mock.calls[0]!
+    expect(draft[0]!.options[0]).toEqual({ id: 'o1', value: 'Open', color: '', category: 'done' })
+  })
+
   it('renames an option in place without changing its id or colour', async () => {
     await mount()
     const field = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('project.props.option_value')}: Open"]`)

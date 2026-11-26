@@ -9,6 +9,7 @@ import type { ProjectBoard, ProjectCard } from '../src/shared/project/model'
 import { projectDayToStamp, projectStampToDay } from '../src/shared/project/date'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
+import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
 
 const app = createApp()
 let token: string
@@ -45,7 +46,7 @@ async function boardWithProperties(): Promise<ProjectBoard> {
   const response = await req('POST', '/boards', {
     title: 'Recurring',
     cardProperties: [
-      { id: STATUS, name: 'Status', type: 'select', options: [{ id: OPEN, value: 'Open', color: '' }, { id: DONE, value: 'Done', color: '' }] },
+      { id: STATUS, name: 'Status', type: 'select', options: [{ id: OPEN, value: 'Open', color: '', category: 'todo' }, { id: DONE, value: 'Done', color: '', category: 'done' }] },
       { id: DATE, name: 'Due', type: 'date', options: [] },
     ],
   })
@@ -65,6 +66,19 @@ async function cards(boardId: string): Promise<ProjectCard[]> {
 }
 
 describe('completing a recurring card', () => {
+  it('installs a unique source constraint on existing card tables', () => {
+    const legacy = new DatabaseSync(':memory:')
+    legacy.exec('CREATE TABLE project_cards (id TEXT PRIMARY KEY)')
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 429)
+    expect(migration).toBeDefined()
+    for (const statement of migration!.statements) legacy.exec(statement)
+    legacy.prepare('INSERT INTO project_cards (id, recurrence_source_id) VALUES (?, ?)').run('c1', 'source')
+    expect(() => legacy.prepare('INSERT INTO project_cards (id, recurrence_source_id) VALUES (?, ?)').run('c2', 'source')).toThrow()
+    legacy.prepare('INSERT INTO project_cards (id, recurrence_source_id) VALUES (?, NULL)').run('c3')
+    legacy.prepare('INSERT INTO project_cards (id, recurrence_source_id) VALUES (?, NULL)').run('c4')
+    legacy.close()
+  })
+
   it('spawns the next instance with the date advanced and the tick reset', async () => {
     const board = await boardWithProperties()
     const start = projectDayToStamp(new Date(2026, 0, 30))
@@ -99,6 +113,42 @@ describe('completing a recurring card', () => {
     const afterSecond = await cards(board.id)
     expect(afterSecond.filter((entry) => entry.recurrence !== null && entry.recurrence !== undefined)).toHaveLength(3)
     expect(afterSecond.filter((entry) => entry.id === plain.id)).toHaveLength(1)
+  })
+
+  it('spawns at most one next instance across concurrent completion and reopen cycles', async () => {
+    const board = await boardWithProperties()
+    const start = projectDayToStamp(new Date(2026, 0, 1))
+    const card = await createCard(board.id, { [STATUS]: OPEN, [DATE]: JSON.stringify({ from: start }) }, { freq: 'daily', interval: 1 })
+    const complete = () => req('PATCH', `/cards/${card.id}`, { values: { [STATUS]: DONE } })
+    const responses = await Promise.all([complete(), complete()])
+    expect(responses.map((response) => response.status)).toEqual([200, 200])
+    expect(await cards(board.id)).toHaveLength(2)
+    expect((await req('PATCH', `/cards/${card.id}`, { values: { [STATUS]: OPEN } })).status).toBe(200)
+    expect((await complete()).status).toBe(200)
+    expect(await cards(board.id)).toHaveLength(2)
+    expect(sqlite.prepare('SELECT recurrence_source_id FROM project_cards WHERE id <> ?').all(card.id)).toEqual([{ recurrence_source_id: card.id }])
+  })
+
+  it('does not treat an incomplete label or an arbitrary checkbox as completion', async () => {
+    const incomplete = id('o')
+    const response = await req('POST', '/boards', {
+      title: 'Explicit status',
+      cardProperties: [{ id: STATUS, name: 'Status', type: 'select', options: [{ id: incomplete, value: 'Incomplete', color: '', category: 'todo' }] }],
+    })
+    const board = ((await response.json()) as { board: ProjectBoard }).board
+    const card = await createCard(board.id, { [STATUS]: incomplete }, { freq: 'daily', interval: 1 })
+    expect((await req('PATCH', `/cards/${card.id}`, { values: { [STATUS]: incomplete } })).status).toBe(200)
+    expect(await cards(board.id)).toHaveLength(1)
+
+    const checkbox = id('p')
+    const checkboxResponse = await req('POST', '/boards', {
+      title: 'Checklist',
+      cardProperties: [{ id: checkbox, name: 'Checked', type: 'checkbox', options: [] }],
+    })
+    const checkboxBoard = ((await checkboxResponse.json()) as { board: ProjectBoard }).board
+    const checkboxCard = await createCard(checkboxBoard.id, { [checkbox]: 'false' }, { freq: 'daily', interval: 1 })
+    expect((await req('PATCH', `/cards/${checkboxCard.id}`, { values: { [checkbox]: 'true' } })).status).toBe(200)
+    expect(await cards(checkboxBoard.id)).toHaveLength(1)
   })
 
   it('keeps the original month-end day across a chain of spawned instances', async () => {

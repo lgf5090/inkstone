@@ -103,21 +103,21 @@ describe('batch patch', () => {
     const created = await req('alice', 'POST', '/boards', {
       title: 'Effects',
       cardProperties: [
-        { id: pid(2), name: 'Done', type: 'checkbox', options: [] },
+        { id: pid(2), name: 'Status', type: 'select', options: [{ id: pid(4), value: 'Open', color: '', category: 'todo' }, { id: pid(5), value: 'Done', color: '', category: 'done' }] },
         { id: pid(3), name: 'Owner', type: 'person', options: [] },
       ],
     })
     expect(created.status, await created.clone().text()).toBe(201)
     const board = ((await created.json()) as { board: ProjectBoard }).board
     const cardResponse = await req('alice', 'POST', `/boards/${board.id}/cards`, {
-      title: 'Standup', values: { [pid(2)]: 'false' }, recurrence: { freq: 'daily', interval: 1 },
+      title: 'Standup', values: { [pid(2)]: pid(4) }, recurrence: { freq: 'daily', interval: 1 },
     })
     expect(cardResponse.status, await cardResponse.clone().text()).toBe(201)
     const card = ((await cardResponse.json()) as { card: ProjectCard }).card
     sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
       .run(board.id, 'bob', 'editor')
     const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, {
-      cards: [{ id: card.id, patch: { values: { [pid(2)]: 'true', [pid(3)]: 'bob' } } }],
+      cards: [{ id: card.id, patch: { values: { [pid(2)]: pid(5), [pid(3)]: 'bob' } } }],
     })
     expect(response.status, await response.clone().text()).toBe(200)
     expect((await bundle('alice', board.id)).cards).toHaveLength(2)

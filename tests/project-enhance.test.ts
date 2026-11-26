@@ -124,25 +124,30 @@ describe('assignment notices', () => {
 })
 
 describe('todo two-way completion sync (X-5)', () => {
-  it('mirrors card checkbox to the task and task completion back to the card', async () => {
-    const board = ((await (await req('POST', '/boards', { title: 'Sync', cardProperties: [{ id: 'p'.repeat(27), name: 'Done', type: 'checkbox', options: [] }] })).json()) as { board: ProjectBoard }).board
+  it('mirrors card status to the task and task completion back to the card', async () => {
+    const status = 'p'.repeat(27)
+    const open = 'o'.repeat(27)
+    const done = 'd'.repeat(27)
+    const board = ((await (await req('POST', '/boards', { title: 'Sync', cardProperties: [{ id: status, name: 'Status', type: 'select', options: [{ id: open, value: 'Open', color: '', category: 'todo' }, { id: done, value: 'Done', color: '', category: 'done' }] }] })).json()) as { board: ProjectBoard }).board
     const card = ((await (await req('POST', `/boards/${board.id}/cards`, { title: 'Task card' })).json()) as { card: ProjectCard }).card
     sqlite.prepare(`INSERT INTO todos_tasks (user_id, id, title, created_at, updated_at) VALUES ('alice', 't1', 'Linked task', 1, 1)`).run()
     expect((await req('POST', `/cards/${card.id}/todo-link`, { todoId: 't1' })).status).toBe(201)
-    await req('PATCH', `/cards/${card.id}`, { values: { ['p'.repeat(27)]: 'true' } })
+    await req('PATCH', `/cards/${card.id}`, { values: { [status]: done } })
     const todo = sqlite.prepare('SELECT status, completed_at FROM todos_tasks WHERE id = ?').get('t1') as { status: string, completed_at: number | null }
     expect(todo.status).toBe('done')
     expect(todo.completed_at).not.toBeNull()
     await syncTodoCompletionToCard(env.DB, 't1', false, Date.now())
     const value = sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id) as { value: string }
-    expect(value.value).toBe('false')
+    expect(value.value).toBe(open)
   })
 
   it('does not let Todo completion bypass field permissions or a later viewer downgrade', async () => {
-    const checkbox = 'p'.repeat(27)
+    const status = 'p'.repeat(27)
+    const open = 'o'.repeat(27)
+    const done = 'd'.repeat(27)
     const board = ((await (await req('POST', '/boards', {
       title: 'Restricted sync',
-      cardProperties: [{ id: checkbox, name: 'Done', type: 'checkbox', options: [], config: { editRoles: ['admin'] } }],
+      cardProperties: [{ id: status, name: 'Status', type: 'select', options: [{ id: open, value: 'Open', color: '', category: 'todo' }, { id: done, value: 'Done', color: '', category: 'done' }], config: { editRoles: ['admin'] } }],
     })).json()) as { board: ProjectBoard }).board
     sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
       .run(board.id, 'bob', 'editor')
@@ -153,20 +158,20 @@ describe('todo two-way completion sync (X-5)', () => {
     await syncTodoCompletionToCard(env.DB, 'restricted', true, Date.now())
     expect(sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id)).toBeUndefined()
 
-    sqlite.prepare('DELETE FROM project_property_configs WHERE board_id = ? AND property_id = ?').run(board.id, checkbox)
+    sqlite.prepare('DELETE FROM project_property_configs WHERE board_id = ? AND property_id = ?').run(board.id, status)
     await syncTodoCompletionToCard(env.DB, 'restricted', true, Date.now())
-    expect(sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id)).toMatchObject({ value: 'true' })
+    expect(sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id)).toMatchObject({ value: done })
 
     sqlite.prepare('UPDATE project_board_members SET role = ? WHERE board_id = ? AND user_id = ?').run('viewer', board.id, 'bob')
     await syncTodoCompletionToCard(env.DB, 'restricted', false, Date.now())
-    expect(sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id)).toMatchObject({ value: 'true' })
+    expect(sqlite.prepare('SELECT value FROM project_card_values WHERE card_id = ?').get(card.id)).toMatchObject({ value: done })
   })
 
   it('recognises a Chinese done option in both sync directions', async () => {
     const status = 's'.repeat(27)
     const doneId = 'd'.repeat(27)
     const openId = 'o'.repeat(27)
-    const options = [{ id: openId, value: '待办', color: '' }, { id: doneId, value: '完成', color: '' }]
+    const options = [{ id: openId, value: '待办', color: '', category: 'todo' }, { id: doneId, value: '完成', color: '', category: 'done' }]
     const board = ((await (await req('POST', '/boards', { title: '中文', cardProperties: [{ id: status, name: '状态', type: 'select', options }] })).json()) as { board: ProjectBoard }).board
     const card = ((await (await req('POST', `/boards/${board.id}/cards`, { title: '中文卡' })).json()) as { card: ProjectCard }).card
     sqlite.prepare(`INSERT INTO todos_tasks (user_id, id, title, created_at, updated_at) VALUES ('alice', 'zh1', 'Linked task', 1, 1)`).run()

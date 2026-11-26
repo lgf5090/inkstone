@@ -32,6 +32,7 @@ export interface CardRow {
   is_template: number
   content_order: string
   recurrence: string | null
+  recurrence_source_id: string | null
   completed_at: number | null
   created_by: string
   modified_by: string

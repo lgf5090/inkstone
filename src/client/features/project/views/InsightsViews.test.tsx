@@ -18,7 +18,7 @@ vi.mock('../api', async (importOriginal) => ({
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, deleteAt: 0 }
 const properties: ProjectProperty[] = [
-  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'open', value: 'Open', color: 'propColorBlue' }, { id: 'done', value: 'Done', color: 'propColorGreen' }] },
+  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'open', value: 'Open', color: 'propColorBlue', category: 'todo' }, { id: 'done', value: 'Done', color: 'propColorGreen', category: 'done' }] },
   { id: 'pp', name: 'Priority', type: 'select', options: [{ id: 'hi', value: 'High', color: 'propColorRed' }, { id: 'lo', value: 'Low', color: 'propColorGreen' }] },
   { id: 'pd', name: 'Due', type: 'date', options: [] },
   { id: 'pn', name: 'Hours', type: 'number', options: [] },

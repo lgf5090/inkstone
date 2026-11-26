@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import type { ProjectBoardSummary, ProjectProperty, ProjectPropertyConfig, ProjectPropertyType, ProjectRole, ProjectRollupAggregation, ProjectRollupConfig } from '@shared/project/model'
+import type { ProjectBoardSummary, ProjectProperty, ProjectPropertyConfig, ProjectPropertyType, ProjectRole, ProjectRollupAggregation, ProjectRollupConfig, ProjectStatusCategory } from '@shared/project/model'
 import { newProjectId } from '@shared/project/limits'
-import { PROJECT_ROLES, PROJECT_ROLLUP_AGGREGATIONS } from '@shared/project/model'
+import { PROJECT_ROLES, PROJECT_ROLLUP_AGGREGATIONS, PROJECT_STATUS_CATEGORIES } from '@shared/project/model'
 import { PROJECT_OPTION_COLORS, projectOptionColorName, projectOptionCssColor } from '@shared/project/option-color'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
@@ -18,6 +18,10 @@ const EDITABLE_TYPES: ProjectPropertyType[] = ['text', 'number', 'select', 'mult
 const OPTION_TYPES = new Set(['select', 'multiSelect'])
 
 const typeOptions = () => EDITABLE_TYPES.map((type) => ({ value: type, label: t(`project.prop.type.${type.toLowerCase()}` as Parameters<typeof t>[0]) }))
+const statusCategoryOptions = () => [
+  { value: '', label: t('project.props.option_category_none') },
+  ...PROJECT_STATUS_CATEGORIES.map((category) => ({ value: category, label: t(`project.status.${category}` as Parameters<typeof t>[0]) })),
+]
 
 interface BoardPropertiesDialogProps {
   boardId: string
@@ -108,7 +112,8 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
   const addOption = (propertyId: string) => {
     const value = (optionDraft[propertyId] ?? '').trim()
     if (!value) return
-    update(propertyId, { options: [...(draft.find((p) => p.id === propertyId)?.options ?? []), { id: newProjectId('property'), value, color: '' }] })
+    const property = draft.find((entry) => entry.id === propertyId)
+    update(propertyId, { options: [...(property?.options ?? []), { id: newProjectId('property'), value, color: '', ...(property?.type === 'select' ? { category: 'todo' as const } : {}) }] })
     setOptionDraft((current) => ({ ...current, [propertyId]: '' }))
   }
 
@@ -160,6 +165,17 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
                         label={`${t('project.props.option_color')}: ${option.value}`}
                         onPick={(color) => update(property.id, { options: property.options.map((entry) => (entry.id === option.id ? { ...entry, color } : entry)) })}
                       />
+                      {property.type === 'select' && (
+                        <SelectMenu
+                          className="w-28"
+                          value={option.category ?? ''}
+                          label={`${t('project.props.option_category')}: ${option.value}`}
+                          onChange={(value) => update(property.id, { options: property.options.map((entry) => (entry.id === option.id
+                            ? { ...entry, category: (value || undefined) as ProjectStatusCategory | undefined }
+                            : entry)) })}
+                          options={statusCategoryOptions()}
+                        />
+                      )}
                       <Input
                         className="min-w-0 flex-1"
                         value={option.value}
@@ -169,6 +185,7 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
                       <IconButton label={t('common.delete')} size="sm" onClick={() => update(property.id, { options: property.options.filter((o) => o.id !== option.id) })}><Trash2 size={13} /></IconButton>
                     </div>
                   ))}
+                  {property.type === 'select' && <p className="pl-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('project.props.option_category_hint')}</p>}
                   <div className="flex items-center gap-2">
                     <Input
                       className="min-w-0 flex-1"

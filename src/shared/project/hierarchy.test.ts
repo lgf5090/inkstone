@@ -5,10 +5,10 @@ import { projectParentDonePatches } from './hierarchy'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 const zh: ProjectProperty[] = [
-  { id: 'ps', name: '状态', type: 'select', options: [{ id: 'todo', value: '待办', color: '' }, { id: 'doing', value: '进行中', color: '' }, { id: 'done', value: '已完成', color: '' }] },
+  { id: 'ps', name: '状态', type: 'select', options: [{ id: 'todo', value: '待办', color: '', category: 'todo' }, { id: 'doing', value: '进行中', color: '', category: 'doing' }, { id: 'done', value: '已完成', color: '', category: 'done' }] },
 ]
 const en: ProjectProperty[] = [
-  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'open', value: 'Open', color: '' }, { id: 'done', value: 'Done', color: '' }] },
+  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'open', value: 'Open', color: '', category: 'todo' }, { id: 'done', value: 'Done', color: '', category: 'done' }] },
 ]
 const box: ProjectProperty[] = [{ id: 'pb', name: 'Finished', type: 'checkbox', options: [] }]
 
@@ -37,20 +37,20 @@ describe('the tick and the reader agree', () => {
   })
 
   it('does not mistake a negated Chinese label for done', () => {
-    const negated: ProjectProperty[] = [{ id: 'ps', name: 'S', type: 'select', options: [{ id: 'a', value: '未完成', color: '' }, { id: 'b', value: '已完成', color: '' }] }]
+    const negated: ProjectProperty[] = [{ id: 'ps', name: 'S', type: 'select', options: [{ id: 'a', value: '未完成', color: '', category: 'todo' }, { id: 'b', value: '已完成', color: '', category: 'done' }] }]
     expect(projectDoneOption(negated)?.option.id).toBe('b')
   })
 
-  it('falls back to a checkbox board and says so when neither exists', () => {
-    expect(projectDonePatch(box, true)).toEqual({ pb: 'true' })
-    expect(projectDonePatch(box, false)).toEqual({ pb: 'false' })
+  it('never treats an arbitrary checkbox as card completion', () => {
+    expect(projectDonePatch(box, true)).toBeNull()
+    expect(projectDonePatch(box, false)).toBeNull()
+    expect(projectCanMarkDone(box)).toBe(false)
     expect(projectDonePatch([{ id: 'pt', name: 'Notes', type: 'text', options: [] }], true)).toBeNull()
-    expect(projectCanMarkDone([{ id: 'pt', name: 'Notes', type: 'text', options: [] }])).toBe(false)
     expect(projectCanMarkDone(zh)).toBe(true)
   })
 
   it('reopens to the first option that is not done, keeping the reader\'s order', () => {
-    const reordered: ProjectProperty[] = [{ id: 'ps', name: 'S', type: 'select', options: [{ id: 'done', value: 'Done', color: '' }, { id: 'later', value: 'Later', color: '' }] }]
+    const reordered: ProjectProperty[] = [{ id: 'ps', name: 'S', type: 'select', options: [{ id: 'done', value: 'Done', color: '', category: 'done' }, { id: 'later', value: 'Later', color: '', category: 'todo' }] }]
     expect(projectDonePatch(reordered, false)).toEqual({ ps: 'later' })
   })
 })

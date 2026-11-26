@@ -20,7 +20,7 @@ function bundle(): ProjectBoardBundle {
   return {
     board: { id: 'b1', ownerId: 'u1', type: 'P', minimumRole: '', title: 'B', description: '', icon: '', showDescription: false, isTemplate: false, templateVersion: 0, archived: false, ...stamps },
     properties: [
-      { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '' }, { id: 'o2', value: 'Done', color: '' }] },
+      { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '', category: 'todo' }, { id: 'o2', value: 'Done', color: '', category: 'done' }] },
       { id: 'pt', name: 'Notes', type: 'text', options: [] },
     ],
     views: [
@@ -789,7 +789,7 @@ describe('the tick works on a board named in Chinese (R7-1)', () => {
   const zhBundle = (): ProjectBoardBundle => {
     const base = bundle()
     base.properties = [
-      { id: 'ps', name: '\u72b6\u6001', type: 'select', options: [{ id: 'todo', value: '\u5f85\u529e', color: '' }, { id: 'doing', value: '\u8fdb\u884c\u4e2d', color: '' }, { id: 'done', value: '\u5df2\u5b8c\u6210', color: '' }] },
+      { id: 'ps', name: '\u72b6\u6001', type: 'select', options: [{ id: 'todo', value: '\u5f85\u529e', color: '', category: 'todo' }, { id: 'doing', value: '\u8fdb\u884c\u4e2d', color: '', category: 'doing' }, { id: 'done', value: '\u5df2\u5b8c\u6210', color: '', category: 'done' }] },
     ]
     base.views = [{ id: 'vl', boardId: 'b1', title: 'List', viewType: 'list', fields: emptyProjectViewFields(), position: 0, ...stamps }]
     base.cards = [
