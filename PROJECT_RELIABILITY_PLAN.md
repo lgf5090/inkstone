@@ -52,8 +52,8 @@
 | P2-01c | done | F27 keyset bundle pagination and on-demand card loading | initial bundle is bounded; deep links and older pages load without stale overwrite | 321cfc7db |
 | P2-01d | done | F27 bounded streaming or multipart export | large exports avoid whole-ZIP memory and never return truncated success | f1605a0da |
 | P2-02 | in_progress | F28 lazy views; virtualize board/list/gallery; stabilize derived props | large board interaction remains responsive; bundle size reduced | - |
-| P2-02a | in_progress | F28 lazy view chunks and stable chart/sidebar derived data | inactive views are split into chunks; chart/sidebar avoid needless rebuilds | - |
-| P2-02b | pending | F28 virtualize large board, list and gallery surfaces | rendered card count stays bounded while scrolling, keyboard and drag still work | - |
+| P2-02a | done | F28 lazy view chunks and stable chart/sidebar derived data | inactive views are split into chunks; chart/sidebar avoid needless rebuilds | 0376c45db |
+| P2-02b | in_progress | F28 virtualize large board, list and gallery surfaces | rendered card count stays bounded while scrolling, keyboard and drag still work | - |
 | P2-03 | done | F29 route all refreshes through one stale-response queue | delayed old response never overwrites newer local patch | b46e61fdd |
 | P2-04 | done | F30 clear hidden selections; refresh today; correct dashboard in-progress KPI | no invisible batch delete; midnight correct; KPI matches definition | c3153d1a0 |
 | P2-05 | done | F31 recent-opened semantics, unique DOM ids, keyboard order and list metadata | sidebar has no duplicate ids; list shows count/update/category | f14529b54 |
@@ -111,3 +111,4 @@
 - 2026-11-27: P2-01b completed in `37257187c`; project title/content/comment/value documents are maintained in FTS5 with a migration backfill, token-prefix search and runtime field visibility filtering; 327 project tests, typechecks, static gates and production build passed.
 - 2026-11-27: P2-01c completed in `321cfc7db`; interactive bundles now load 200-card keyset pages, page reads scope values/details/relations, single-card deep links reuse formula/rollup/redaction, and refresh replays loaded cursors through one queue; 727 related tests, forced typechecks, static gates and production build passed, with headed Chrome confirming 200/205 → 205, refresh replay and a page-external card opening at 201/205.
 - 2026-11-27: P2-01d completed in `f1605a0da`; archives stream attachment bytes through fflate into bounded R2 multipart parts, publish only after complete, clean up failed/cancelled uploads, record actual file sizes, and cap the no-R2 memory fallback at 4MiB; 29 focused archive tests, static gates, production build and headed-Chrome ZIP download passed.
+- 2026-11-27: P2-02a completed in `0376c45db`; all 11 project views load as separate chunks behind an accessible Suspense state, chart labels/values and sidebar lookups keep stable references; 734 project tests, production/test typechecks, static gates and production build passed, with headed Chrome opening every view and the build emitting separate Kanban/Table/Gallery/List/Chart chunks.
