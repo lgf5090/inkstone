@@ -189,6 +189,7 @@ export function CalendarSidebar({
   const [subscribeOpen, setSubscribeOpen] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dropId, setDropId] = useState<string | null>(null)
+  const [announcement, setAnnouncement] = useState('')
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [groupMenu, setGroupMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [inviteBusy, setInviteBusy] = useState<string | null>(null)
@@ -299,6 +300,7 @@ export function CalendarSidebar({
     if (!neighbour) return
     const ids = app.getCalendars().map(item => item.id)
     app.reorderCalendars(ids.indexOf(calendarId), ids.indexOf(neighbour.id))
+    setAnnouncement(t('calendar.sidebar.reordered', { name: calendar.name }))
   }
 
   const dropCalendar = (targetId: string): void => {
@@ -316,6 +318,7 @@ export function CalendarSidebar({
     const to = ids.indexOf(targetId)
     if (from < 0 || to < 0) return
     app.reorderCalendars(from, to)
+    setAnnouncement(t('calendar.sidebar.reordered', { name: source.name }))
   }
 
   const makeDefault = async (calendar: CalendarDto): Promise<void> => {
@@ -528,6 +531,7 @@ export function CalendarSidebar({
         variant === 'drawer' ? 'w-full' : 'w-60',
       )}
     >
+      <p role="status" aria-live="polite" className="sr-only">{announcement}</p>
       <header className="flex h-11 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-2">
         {variant === 'inline'
           ? (
@@ -897,6 +901,7 @@ export function CalendarSidebar({
           <button
             type="button"
             draggable={!shared}
+            disabled={Boolean(shared)}
             aria-label={t('calendar.sidebar.reorder_calendar', { name: calendar.name })}
             onDragStart={(event) => {
               event.dataTransfer.effectAllowed = 'move'

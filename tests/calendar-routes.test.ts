@@ -312,6 +312,12 @@ describe('event routes', () => {
     })
   })
 
+  it('rejects a range naming more calendars than one D1 statement can bind', async () => {
+    const ids = Array.from({ length: 91 }, (_, index) => `calendar-${index}`).join(',')
+    const response = await call('GET', `/events?from=2026-11-01T00:00:00Z&to=2026-11-02T00:00:00Z&calendarIds=${ids}`)
+    expect(response.status).toBe(400)
+  })
+
   it('rejects a malformed event id and a bad range', async () => {
     const home = (await meta()).calendars[0]!
     expect((await call('GET', '/events?from=nope&to=also-nope')).status).toBe(400)

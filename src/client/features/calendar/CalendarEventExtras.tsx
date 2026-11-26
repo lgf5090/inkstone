@@ -130,6 +130,7 @@ export function CalendarEventExtras({
           return
         }
         setEvent(found.event)
+        latestRev.current = found.event.rev
         setMinutes(found.reminders)
         setAttendees(found.attendees)
         setFiles(found.attachments)
@@ -144,10 +145,19 @@ export function CalendarEventExtras({
   }, [eventId])
 
   const rev = event?.rev ?? null
+  const latestRev = useRef<number | null>(null)
+  const writeQueue = useRef<Promise<unknown>>(Promise.resolve())
 
-  const save = async (write: () => Promise<CalendarEventDto>): Promise<void> => {
+  const serializedWrite = <T,>(write: () => Promise<T>): Promise<T> => {
+    const run = writeQueue.current.then(write, write)
+    writeQueue.current = run.catch(() => undefined)
+    return run
+  }
+
+  const save = async (write: (rev: number) => Promise<CalendarEventDto>): Promise<void> => {
     try {
-      const saved = await write()
+      const saved = await serializedWrite(() => write(latestRev.current!))
+      latestRev.current = saved.rev
       setEvent(saved)
       onRevision(eventId, saved.rev)
       onChanged(eventId)
@@ -166,7 +176,8 @@ export function CalendarEventExtras({
     setSavingReminders(true)
     void (async () => {
       try {
-        const answer = await api.setEventReminders(eventId, next, rev)
+        const answer = await serializedWrite(() => api.setEventReminders(eventId, next, latestRev.current!))
+        latestRev.current = answer.event.rev
         setEvent(answer.event)
         onRevision(eventId, answer.event.rev)
         setError(null)
@@ -213,7 +224,8 @@ export function CalendarEventExtras({
     setSavingAttendees(true)
     void (async () => {
       try {
-        const answer = await api.setEventAttendees(eventId, next, rev)
+        const answer = await serializedWrite(() => api.setEventAttendees(eventId, next, latestRev.current!))
+        latestRev.current = answer.event.rev
         setEvent(answer.event)
         setAttendees(answer.attendees)
         onRevision(eventId, answer.event.rev)
@@ -301,7 +313,8 @@ export function CalendarEventExtras({
     setSavingColor(true)
     void (async () => {
       try {
-        const saved = await api.updateEventPatch(eventId, { color }, rev)
+        const saved = await serializedWrite(() => api.updateEventPatch(eventId, { color }, latestRev.current!))
+        latestRev.current = saved.rev
         setEvent(saved)
         onRevision(eventId, saved.rev)
         onChanged(eventId)
@@ -339,11 +352,12 @@ export function CalendarEventExtras({
     void (async () => {
       try {
         const meetingId = `inkstone-${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
-        const saved = await api.updateEventPatch(eventId, {
+        const saved = await serializedWrite(() => api.updateEventPatch(eventId, {
           conference: add
             ? { provider: 'jitsi', joinUrl: `https://meet.jit.si/${meetingId}`, meetingId }
             : null,
-        }, rev)
+        }, latestRev.current!))
+        latestRev.current = saved.rev
         setEvent(saved)
         onRevision(eventId, saved.rev)
         setError(null)
@@ -367,7 +381,7 @@ export function CalendarEventExtras({
       end: reanchorValue(event.end, zone),
     }
     setEvent({ ...event, start: moved.start, end: moved.end })
-    void save(() => api.updateEvent(eventId, moved, rev).catch((error: unknown) => {
+    void save(currentRev => api.updateEvent(eventId, moved, currentRev).catch((error: unknown) => {
       setEvent(previous)
       throw error
     }))

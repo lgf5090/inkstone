@@ -44,12 +44,14 @@ export function CalendarSchedulingDialog({
   const [startHour, setStartHour] = useState(9)
   const [endHour, setEndHour] = useState(17)
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
     setSaving(false)
+    setLoading(true)
     setError(null)
     setTitle('')
     setDuration(30)
@@ -60,7 +62,7 @@ export function CalendarSchedulingDialog({
     void api.getSchedulingLinks().then(
       (rows) => { if (!cancelled) setLinks(rows) },
       (cause: unknown) => { if (!cancelled) setError(cause instanceof Error && cause.message ? cause.message : t('calendar.scheduling.failed')) },
-    )
+    ).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [open, calendars])
 
@@ -136,13 +138,14 @@ export function CalendarSchedulingDialog({
     >
       <div className="space-y-3 pt-1">
         {error && (
-          <p role="alert" className="flex items-start gap-1.5 text-[length:var(--text-12)] leading-relaxed text-[var(--danger)]">
+          <p id="calendar-scheduling-form-error" role="alert" className="flex items-start gap-1.5 text-[length:var(--text-12)] leading-relaxed text-[var(--danger)]">
             <AlertTriangle size={13} className="mt-[2px] shrink-0" aria-hidden="true" />
             <span>{error}</span>
           </p>
         )}
         <form
           className="space-y-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5"
+          aria-describedby={error ? 'calendar-scheduling-form-error' : undefined}
           onSubmit={(event) => { event.preventDefault(); void create() }}
         >
           <div className="grid grid-cols-2 gap-2">
@@ -199,7 +202,8 @@ export function CalendarSchedulingDialog({
           </Button>
         </form>
 
-        {links.length === 0
+        {loading && <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>}
+        {!loading && !error && (links.length === 0
           ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('calendar.scheduling.empty')}</p>
           : (
               <ul className="space-y-1">
@@ -225,7 +229,7 @@ export function CalendarSchedulingDialog({
                   </li>
                 ))}
               </ul>
-            )}
+            ))}
       </div>
     </Modal>
   )

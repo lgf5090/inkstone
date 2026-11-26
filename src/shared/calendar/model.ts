@@ -95,6 +95,7 @@ export const MAX_RECURRENCE_RULE = 1000
 export const MAX_CALENDARS = 100
 export const MAX_GROUPS = 50
 export const MAX_CALENDAR_IDS_PER_EVENT = 20
+export const MAX_CALENDAR_IDS_PER_QUERY = 90
 /** A week ahead is the furthest reminder worth firing; eight is more than any client offers. */
 export const MAX_REMINDERS_PER_EVENT = 8
 export const MAX_REMINDER_MINUTES = 7 * 24 * 60

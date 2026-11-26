@@ -9,7 +9,7 @@ import { Trash2, Wand2 } from 'lucide-react'
 import type { CalendarEventDto, CalendarTemplateDto } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
-import { Modal } from '../../components/overlay'
+import { Modal, confirm } from '../../components/overlay'
 import { Field, Input } from '../../components/form'
 import { useUi } from '../../store/ui'
 import * as api from './api'
@@ -27,16 +27,21 @@ export function CalendarTemplatesDialog({ open, event, onUse, onClose }: Calenda
   const [name, setName] = useState('')
   const [blankDuration, setBlankDuration] = useState('60')
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
+    let cancelled = false
     setName(event?.title ?? '')
     setSaving(false)
+    setLoading(true)
     setError(null)
-    void api.getTemplates().then(setTemplates).catch((loadError: unknown) => {
-      setError(loadError instanceof Error ? loadError.message : t('calendar.templates.load_failed'))
-    })
+    void api.getTemplates().then(
+      rows => { if (!cancelled) setTemplates(rows) },
+      (loadError: unknown) => { if (!cancelled) setError(loadError instanceof Error ? loadError.message : t('calendar.templates.load_failed')) },
+    ).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [open, event?.id, event?.title])
 
   const save = async (): Promise<void> => {
@@ -77,6 +82,12 @@ export function CalendarTemplatesDialog({ open, event, onUse, onClose }: Calenda
   }
 
   const remove = async (template: CalendarTemplateDto): Promise<void> => {
+    if (!await confirm({
+      title: t('calendar.templates.delete'),
+      description: t('calendar.templates.delete_confirm', { name: template.name }),
+      confirmLabel: t('calendar.templates.delete'),
+      tone: 'danger',
+    })) return
     try {
       await api.deleteTemplate(template.id)
       setTemplates(current => current.filter(item => item.id !== template.id))
@@ -117,7 +128,8 @@ export function CalendarTemplatesDialog({ open, event, onUse, onClose }: Calenda
           </div>
         </div>
         {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
-        {templates.length === 0 && <p className="py-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('calendar.templates.empty')}</p>}
+        {loading && <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>}
+        {!loading && !error && templates.length === 0 && <p className="py-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('calendar.templates.empty')}</p>}
         <ul className="divide-y divide-[var(--border-subtle)]">
           {templates.map(template => (
             <li key={template.id} className="flex items-center gap-2 py-2">

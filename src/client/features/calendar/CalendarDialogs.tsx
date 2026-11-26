@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, Check, Copy, Link2, UserPlus, Trash2 } from 'lucide-react'
 import type { CalendarDto, CalendarGroupDto, CalendarMemberDto, CalendarShareDto } from '@shared/calendar/model'
-import { MAX_CALENDAR_NAME, MAX_GROUP_NAME, MAX_ICS_BYTES } from '@shared/calendar/model'
+import { MAX_CALENDAR_NAME, MAX_GROUP_NAME, MAX_ICS_BYTES, isSharedCalendarId } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { copyText } from '../../lib/clipboard'
@@ -343,7 +343,8 @@ interface DeleteCalendarDialogProps extends DialogBaseProps {
 }
 
 export function DeleteCalendarDialog({ open, calendar, calendars, onClose, onSaved }: DeleteCalendarDialogProps) {
-  const targets = calendars.filter(item => item.id !== calendar.id)
+  const targets = calendars.filter(item => item.id !== calendar.id && !item.readOnly && !isSharedCalendarId(item.id))
+  const targetSignature = targets.map(item => item.id).join('\u0000')
   const [mode, setMode] = useState<'delete' | 'merge'>('delete')
   const [targetId, setTargetId] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -351,11 +352,11 @@ export function DeleteCalendarDialog({ open, calendar, calendars, onClose, onSav
 
   useEffect(() => {
     if (!open) return
-    setMode(targets.length > 0 ? 'merge' : 'delete')
+    setMode('delete')
     setTargetId(targets[0]?.id ?? '')
     setError(null)
     setSaving(false)
-  }, [open, calendar.id, calendars])
+  }, [open, calendar.id, targetSignature])
 
   const submit = async (): Promise<void> => {
     if (mode === 'merge' && !targetId) {
@@ -741,6 +742,7 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
   const [memberName, setMemberName] = useState('')
   const [memberRole, setMemberRole] = useState<'reader' | 'writer'>('reader')
   const [memberBusy, setMemberBusy] = useState(false)
+  const [membersLoading, setMembersLoading] = useState(false)
   const [memberError, setMemberError] = useState<string | null>(null)
   const copiedTimer = useRef(0)
 
@@ -751,13 +753,21 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
     setError(null)
     setBusy(false)
     setCopied(false)
+    setMembers([])
+    setMembersLoading(true)
+    setMemberError(null)
+    let remaining = 1
+    const done = (): void => {
+      remaining -= 1
+      if (remaining === 0 && !settled) setMembersLoading(false)
+    }
     void api.getCalendarShare(calendar.id).then(
       (answer) => { if (!settled) setShare(answer) },
       (cause: unknown) => { if (!settled) setError(errorMessage(cause, 'calendar.share.load_failed')) },
     )
     void api.getCalendarMembers(calendar.id).then(
-      (answer) => { if (!settled) setMembers(answer) },
-      (cause: unknown) => { if (!settled) setMemberError(errorMessage(cause, 'calendar.share.load_failed')) },
+      (answer) => { if (!settled) setMembers(answer); done() },
+      (cause: unknown) => { if (!settled) setMemberError(errorMessage(cause, 'calendar.share.load_failed')); done() },
     )
     return () => {
       settled = true
@@ -813,6 +823,12 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
   }
 
   const removeMember = async (member: CalendarMemberDto): Promise<void> => {
+    if (!await confirm({
+      title: t('calendar.share.member_remove', { name: member.name || member.username }),
+      description: t('calendar.share.member_remove_confirm', { name: member.name || member.username }),
+      confirmLabel: t('calendar.share.member_remove', { name: member.name || member.username }),
+      tone: 'danger',
+    })) return
     setMemberBusy(true)
     setMemberError(null)
     try {
@@ -956,7 +972,8 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
             </Button>
           </form>
           {memberError && <DialogError>{memberError}</DialogError>}
-          {members.length === 0
+          {membersLoading && <p role="status" className="mt-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('common.loading')}</p>}
+          {!membersLoading && !memberError && members.length === 0
             ? (
                 <p className="mt-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                   {t('calendar.share.member_empty')}

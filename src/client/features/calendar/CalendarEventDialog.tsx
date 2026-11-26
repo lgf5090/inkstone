@@ -170,6 +170,14 @@ export function CalendarEventDialog({
     }
   }
 
+  const errorField = error === t('calendar.event.no_writable_calendar')
+    ? 'calendar'
+    : error === t('calendar.event.invalid_time') || error === t('calendar.event.end_before_start')
+      ? 'time'
+      : null
+  const errorId = 'calendar-event-form-error'
+  const describedBy = (field: string): string | undefined => errorField === field ? errorId : undefined
+
   return (
     <Modal
       open={open}
@@ -219,7 +227,7 @@ export function CalendarEventDialog({
           </Field>
           {!allDay && (
             <Field label={t('calendar.event.start_time')}>
-              <Input placeholder={t('calendar.event.time_placeholder')} value={startTime} onChange={(event) => setStartTime(event.target.value)} />
+              <Input id="calendar-event-start-time" aria-invalid={errorField === 'time' || undefined} aria-describedby={describedBy('time')} placeholder={t('calendar.event.time_placeholder')} value={startTime} onChange={(event) => setStartTime(event.target.value)} />
             </Field>
           )}
           <Field label={t('calendar.event.end')}>
@@ -227,12 +235,12 @@ export function CalendarEventDialog({
           </Field>
           {!allDay && (
             <Field label={t('calendar.event.end_time')}>
-              <Input placeholder={t('calendar.event.time_placeholder')} value={endTime} onChange={(event) => setEndTime(event.target.value)} />
+              <Input id="calendar-event-end-time" aria-invalid={errorField === 'time' || undefined} aria-describedby={describedBy('time')} placeholder={t('calendar.event.time_placeholder')} value={endTime} onChange={(event) => setEndTime(event.target.value)} />
             </Field>
           )}
         </div>
         <Field label={t('calendar.event.calendar')}>
-          <Select value={calendarId} onChange={(event) => { setCalendarId(event.target.value); setResourceId('') }} disabled={writable.length === 0}>
+          <Select id="calendar-event-calendar" aria-invalid={errorField === 'calendar' || undefined} aria-describedby={describedBy('calendar')} value={calendarId} onChange={(event) => { setCalendarId(event.target.value); setResourceId('') }} disabled={writable.length === 0}>
             {writable.map(calendar => (
               <option key={calendar.id} value={calendar.id}>{calendar.name}</option>
             ))}
@@ -278,7 +286,7 @@ export function CalendarEventDialog({
             placeholder={t('calendar.event.description_placeholder')}
           />
         </Field>
-        {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
+        {error && <p id={errorId} role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
       </div>
     </Modal>
   )

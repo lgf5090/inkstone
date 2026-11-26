@@ -28,6 +28,7 @@ import {
   isTemporalKind,
   CALENDAR_RANGE_MAX_MS,
   MAX_CALENDAR_IDS_PER_EVENT,
+  MAX_CALENDAR_IDS_PER_QUERY,
   MAX_CALENDAR_NAME,
   MAX_CONFERENCE_URL,
   MAX_EVENT_DESCRIPTION,
@@ -864,7 +865,7 @@ export function parseCalendarIdList(raw: string | undefined): string[] | undefin
     if (!ids.includes(id)) ids.push(id)
   }
   if (ids.length === 0) return undefined
-  if (ids.length > 1_000) throw ApiError.badRequest('Too many calendars named')
+  if (ids.length > MAX_CALENDAR_IDS_PER_QUERY) throw ApiError.badRequest('Too many calendars named')
   return ids
 }
 

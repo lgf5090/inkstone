@@ -1520,9 +1520,8 @@ const allowed = new Map([
     "/**\n * The yearly activity grid, opened from the calendar sidebar.\n *\n * The sidebar is about two hundred pixels wide, and fifty-three columns of squares do not fit in it:\n * a grid squeezed to two-pixel cells is a texture, not a chart. The card therefore carries the entry\n * and the year's total, and the grid itself opens in a dialog where each column can be twelve pixels.\n *\n * The aggregation runs on the server (`/api/activity/heatmap`), so one request covers a whole year for\n * one filter set. Each square is a real focusable button drawn with SVG, its accessible name carries\n * the number as well as the date, and the arrow keys move between days — colour is never the only\n * signal.\n */",
     "/** The count the grid paints: the selected kinds only, so a filter change is visible at once. */",
     "/** The sidebar entry: one line, the year's total, and the gesture that opens the grid. */",
-    "// The card still opens the dialog, which reports its own failure; a missing badge is not an",
-    "// error worth a toast on a screen the reader did not ask about yet.",
     "/**\n * The same yearly grid the dialog draws, at sidebar scale.\n *\n * It is one SVG of 365 rectangles rather than 365 buttons: the card is a summary and a single\n * tap target, so keyboard and pointer both land on the card, not on a day.\n */",
+    "// The card still opens the dialog, which can retry; the summary must not claim a real zero.",
   ]],
   ["src/client/features/calendar/CalendarPrintSheet.tsx", [
     "/**\n * The paper the print dialogue gets.\n *\n * Rendered into `document.body` and hidden on screen, so the app's own layout never has to be fought\n * with: the print rules hide every other body child and show this one. The sheet is built from a range\n * read rather than from what is on screen, so printing from the year view still lists the appointments\n * the reader has, in the calendars they have visible.\n */",

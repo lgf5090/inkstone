@@ -85,11 +85,15 @@ function dayTotal(response: HeatmapResponse | null, date: string, kinds: Activit
 export function CalendarHeatmapCard({ today }: { today: Date }) {
   const [open, setOpen] = useState(false)
   const [response, setResponse] = useState<HeatmapResponse | null>(null)
-  const [kinds] = useState<ActivityKind[]>(readKinds)
+  const [kinds, setKinds] = useState<ActivityKind[]>(readKinds)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const year = today.getFullYear()
 
   useEffect(() => {
     const controller = new AbortController()
+    setLoading(true)
+    setError(null)
     const params = new URLSearchParams({
       from: `${year}-01-01`,
       to: `${year}-12-31`,
@@ -99,11 +103,15 @@ export function CalendarHeatmapCard({ today }: { today: Date }) {
       .then((answer) => {
         if (controller.signal.aborted) return
         setResponse(answer)
+        setLoading(false)
       })
-      .catch(() => {
-        // The card still opens the dialog, which reports its own failure; a missing badge is not an
-        // error worth a toast on a screen the reader did not ask about yet.
-        if (!controller.signal.aborted) setResponse(null)
+      .catch((cause: unknown) => {
+        // The card still opens the dialog, which can retry; the summary must not claim a real zero.
+        if (!controller.signal.aborted) {
+          setResponse(null)
+          setError(cause instanceof Error && cause.message ? cause.message : t('calendar.heatmap.load_failed'))
+          setLoading(false)
+        }
       })
     return () => controller.abort()
   }, [year, kinds])
@@ -121,7 +129,7 @@ export function CalendarHeatmapCard({ today }: { today: Date }) {
       </SectionLabel>
       <button
         type="button"
-        aria-label={`${t('calendar.heatmap.title')} · ${t('calendar.heatmap.total', { count: total })}`}
+        aria-label={`${t('calendar.heatmap.title')} · ${error ? t('calendar.heatmap.load_failed') : t('calendar.heatmap.total', { count: total })}`}
         onClick={() => setOpen(true)}
         className="mt-1 block w-full rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1.5 text-left transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
       >
@@ -144,11 +152,15 @@ export function CalendarHeatmapCard({ today }: { today: Date }) {
           ))}
         </svg>
         <div className="mt-1 flex items-center justify-between gap-1 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
-          <span className="tabular">{t('calendar.heatmap.total', { count: total })}</span>
+          {loading
+            ? <span role="status">{t('common.loading')}</span>
+            : error
+              ? <span role="alert" className="text-[var(--danger)]">{t('calendar.heatmap.load_failed')}</span>
+              : <span className="tabular">{t('calendar.heatmap.total', { count: total })}</span>}
           <span className="shrink-0 text-[var(--accent)]">{t('calendar.heatmap.open')}</span>
         </div>
       </button>
-      {open && <HeatmapDialog year={year} today={today} onClose={() => setOpen(false)} />}
+      {open && <HeatmapDialog year={year} today={today} kinds={kinds} onKindsChange={setKinds} onClose={() => setOpen(false)} />}
     </section>
   )
 }
@@ -204,10 +216,15 @@ function buildMiniGrid(
   }
 }
 
-function HeatmapDialog({ year: initialYear, today, onClose }: { year: number; today: Date; onClose: () => void }) {
+function HeatmapDialog({ year: initialYear, today, kinds, onKindsChange, onClose }: {
+  year: number
+  today: Date
+  kinds: ActivityKind[]
+  onKindsChange: (kinds: ActivityKind[]) => void
+  onClose: () => void
+}) {
   const currentYear = today.getFullYear()
   const [year, setYear] = useState(initialYear)
-  const [kinds, setKinds] = useState<ActivityKind[]>(readKinds)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [response, setResponse] = useState<HeatmapResponse | null>(null)
@@ -259,7 +276,7 @@ function HeatmapDialog({ year: initialYear, today, onClose }: { year: number; to
     const next = kinds.includes(kind)
       ? (kinds.length > 1 ? kinds.filter(value => value !== kind) : kinds)
       : [...kinds, kind]
-    setKinds(next)
+    onKindsChange(next)
     writeKinds(next)
   }
 

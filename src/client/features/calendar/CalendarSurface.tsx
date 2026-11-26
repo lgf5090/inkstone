@@ -157,6 +157,7 @@ interface SurfaceActions {
   onCalendarReorder?: (fromIndex: number, toIndex: number) => void
   /** A double-click on an empty grid cell; the date is the cell the reader pointed at. */
   onGridDoubleClick?: (date: Date) => void
+  onPrint?: () => void
 }
 
 function viewType(name: CalendarPreferences['defaultView']): ViewType {
@@ -376,6 +377,7 @@ function buildConfig(input: {
               toastFailure(t('calendar.event.delete_failed'), error)
             }
           },
+          print: () => actions.current.onPrint?.(),
         },
       }),
       createLocalizationPlugin({ locales: [zh] }),
@@ -1195,6 +1197,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     onCalendarDelete: calendarId => persistCalendarDelete(calendarId),
     onCalendarReorder: () => persistOrder(),
     onGridDoubleClick: date => setCreateStart(date),
+    onPrint: () => { void printCurrentPeriod() },
   }
 
   useEffect(() => {

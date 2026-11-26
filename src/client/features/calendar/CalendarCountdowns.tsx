@@ -27,7 +27,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Field, Input, Segmented, Switch, Textarea } from '../../components/form'
-import { Modal, Tooltip } from '../../components/overlay'
+import { Modal, Tooltip, confirm } from '../../components/overlay'
 import { DatePicker } from '../../components/date-picker'
 import * as api from './api'
 
@@ -206,6 +206,12 @@ export function CountdownDialog({ open, item, timeZone, onClose, onSaved }: Coun
 
   const remove = async (): Promise<void> => {
     if (!item) return
+    if (!await confirm({
+      title: t('common.delete'),
+      description: t('calendar.countdown.delete_confirm', { name: item.title }),
+      confirmLabel: t('common.delete'),
+      tone: 'danger',
+    })) return
     setSaving(true)
     setError(null)
     try {
@@ -218,6 +224,10 @@ export function CountdownDialog({ open, item, timeZone, onClose, onSaved }: Coun
       setSaving(false)
     }
   }
+
+  const errorField = error === t('calendar.countdown.date_invalid') ? 'date' : null
+  const errorId = 'calendar-countdown-form-error'
+  const describedBy = (field: string): string | undefined => errorField === field ? errorId : undefined
 
   return (
     <Modal
@@ -241,10 +251,10 @@ export function CountdownDialog({ open, item, timeZone, onClose, onSaved }: Coun
     >
       <div className="space-y-3">
         <Field label={t('calendar.countdown.field.title')} required>
-          <Input value={title} maxLength={MAX_COUNTDOWN_TITLE} onChange={event => setTitle(event.target.value)} />
+          <Input id="calendar-countdown-title" value={title} maxLength={MAX_COUNTDOWN_TITLE} onChange={event => setTitle(event.target.value)} />
         </Field>
         <Field label={t('calendar.countdown.field.date')}>
-          <DatePicker label={t('calendar.countdown.field.date')} value={date} onChange={setDate} />
+          <DatePicker id="calendar-countdown-date" label={t('calendar.countdown.field.date')} value={date} onChange={setDate} invalid={errorField === 'date'} aria-describedby={describedBy('date')} />
         </Field>
         <Field label={t('calendar.countdown.field.repeat')} hint={t('calendar.countdown.repeat_hint')}>
           <Segmented<CountdownRepeat>
@@ -310,7 +320,7 @@ export function CountdownDialog({ open, item, timeZone, onClose, onSaved }: Coun
           <Textarea value={note} maxLength={MAX_COUNTDOWN_NOTE} rows={3} onChange={event => setNote(event.target.value)} />
         </Field>
         <Switch checked={pinned} onChange={setPinned} label={t('calendar.countdown.field.pinned')} />
-        {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
+        {error && <p id={errorId} role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
       </div>
     </Modal>
   )
