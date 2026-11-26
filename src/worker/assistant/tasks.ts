@@ -109,7 +109,7 @@ export async function sweepTaskReminders(
       // The claim is the delivery gate. `changes === 0` means another fire got here first, which is the
       // ordinary case on a deployment whose cron overlaps, not an error. The EXISTS re-checks the task
       // inside the same statement: a task finished between the read and the claim is not announced.
-      const claim = await env.DB.prepare(
+      const claim = env.DB.prepare(
         `UPDATE todos_reminders SET fired_at = ?3
           WHERE user_id = ?1 AND id = ?2 AND fired_at IS NULL
             AND EXISTS (
@@ -117,11 +117,7 @@ export async function sweepTaskReminders(
                WHERE t.user_id = ?1 AND t.id = todos_reminders.task_id
                  AND ${sqlTaskOpen('t.status')} AND ${taskLive('t')}
             )`,
-      ).bind(row.user_id, row.id, now).run()
-      if ((claim.meta.changes ?? 0) === 0) {
-        claimed++
-        continue
-      }
+      ).bind(row.user_id, row.id, now)
       let store = stores.get(row.user_id)
       if (!store) {
         store = new AssistantStore(env.DB, row.user_id, env)
@@ -133,13 +129,19 @@ export async function sweepTaskReminders(
       // A backlog delivered in one tick is honest about being one: without this, a reminder set for
       // nine o'clock that arrives at two in the afternoon reads as a task that has just come due.
       const late = now - row.remind_at > REMINDER_LATE_MS ? ` ${copy.late}` : ''
-      const notification = await store.createNotification({
+      const { statement: notificationStatement, notification } = store.notificationInsertStatement({
         title: `${copy.title} · ${row.title}`,
         body: `${body}${late}`,
+        automationId: `todo-reminder:${row.id}`,
         // The shape every task pointer has: the app's name, a colon, the id. The notification centre
         // reads it as "this is a task of ours" and opens it; anything else stays an expandable notice.
         link: `todo:${row.task_id}`,
-      })
+      }, now, { reminderId: row.id })
+      const results = await env.DB.batch([claim, notificationStatement])
+      if ((Number(results[0]?.meta?.changes ?? 0)) === 0) {
+        claimed++
+        continue
+      }
       fanout.track(row.user_id, notification.id)
       sent++
     } catch (error) {

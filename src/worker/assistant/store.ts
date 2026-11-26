@@ -1097,6 +1097,22 @@ function toAnswerVersion(r: AnswerVersionRow): AssistantAnswerVersion {
   }
 }
 
+interface NewNotification {
+  title: string
+  body: string
+  automationId?: string | null
+  /**
+   * Where the notice is about, as `<app>:<id>` — `todo:<task id>` first.
+   *
+   * Not a URL, and not the caller's to shape: the client resolves the pair inside its own origin, so a
+   * writer cannot aim a reader's press somewhere this deployment never chose. Absent or blank is a notice
+   * that points nowhere — a digest, a finished run — which the notification centre expands instead of
+   * navigating on. Clamped like the title, because the column is a pointer and not a place to park text.
+   */
+  link?: string | null
+  subscriptionId?: string | null
+}
+
 export interface NewTask {
   title: string
   description?: string
@@ -8045,32 +8061,41 @@ export class AssistantStore {
     return list.map(toNotification)
   }
 
-  async createNotification(input: {
-    title: string
-    body: string
-    automationId?: string | null
-    /**
-     * Where the notice is about, as `<app>:<id>` — `todo:<task id>` first.
-     *
-     * Not a URL, and not the caller's to shape: the client resolves the pair inside its own origin, so a
-     * writer cannot aim a reader's press somewhere this deployment never chose. Absent or blank is a notice
-     * that points nowhere — a digest, a finished run — which the notification centre expands instead of
-     * navigating on. Clamped like the title, because the column is a pointer and not a place to park text.
-     */
-    link?: string | null
-    subscriptionId?: string | null
-  }): Promise<AssistantNotification> {
+  notificationInsertStatement(input: NewNotification, at = Date.now(), guard?: { reminderId: string }): {
+    statement: D1PreparedStatement
+    notification: AssistantNotification
+  } {
     const id = newId()
-    const at = Date.now()
     const title = input.title.slice(0, 200)
     const body = input.body.slice(0, 8000)
     const link = (input.link ?? '').trim().slice(0, NOTIFICATION_LINK_MAX_CHARS) || null
-    await this.write(
-      `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, link, subscription_id, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
-      id, title, body, input.automationId ?? null, link, input.subscriptionId ?? null, at,
-    )
-    return { id, title, body, automationId: input.automationId ?? null, link, subscriptionId: input.subscriptionId ?? null, readAt: null, createdAt: at }
+    const automationId = input.automationId ?? null
+    const subscriptionId = input.subscriptionId ?? null
+    const statement = guard
+      ? this.db.prepare(
+          `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, link, subscription_id, created_at)
+           SELECT ?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8
+            WHERE EXISTS (
+              SELECT 1 FROM todos_reminders WHERE user_id = ?1 AND id = ?9 AND fired_at = ?8
+            )
+              AND NOT EXISTS (
+                SELECT 1 FROM chat_notifications WHERE user_id = ?1 AND automation_id = ?5
+              )`,
+        ).bind(this.userId, id, title, body, automationId, link, subscriptionId, at, guard.reminderId)
+      : this.db.prepare(
+          `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, link, subscription_id, created_at)
+           VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+        ).bind(this.userId, id, title, body, automationId, link, subscriptionId, at)
+    return {
+      statement,
+      notification: { id, title, body, automationId, link, subscriptionId, readAt: null, createdAt: at },
+    }
+  }
+
+  async createNotification(input: NewNotification): Promise<AssistantNotification> {
+    const { statement, notification } = this.notificationInsertStatement(input)
+    await statement.run()
+    return notification
   }
 
   async unreadCount(): Promise<number> {

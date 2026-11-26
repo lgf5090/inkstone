@@ -38308,7 +38308,6 @@ const allowed = new Map([
     "/**\n   * Moves one step in its task's order.\n   *\n   * The caller names either the sibling the step should sit before (`null` for the end) or the\n   * zero-based index it should land on; both are resolved against the rows as they stand, so a move\n   * that already matches the order writes nothing. The order itself is fractional: the moved row\n   * takes the midpoint between its new neighbours, and only when that gap is exhausted are the\n   * siblings renumbered to whole thousands — the same scheme folders use, and the reason a reorder\n   * does not rewrite every row on every press.\n   *\n   * Returns null when the step is not this account's: another account's id is a 404, not a 403.\n   */",
     "// missing, so a delete would be a second copy of that rule. A project with a hundred facts or",
     "// more deletes in chunks, for the same bound-parameter reason the listings do.",
-    "/**\n     * Where the notice is about, as `<app>:<id>` — `todo:<task id>` first.\n     *\n     * Not a URL, and not the caller's to shape: the client resolves the pair inside its own origin, so a\n     * writer cannot aim a reader's press somewhere this deployment never chose. Absent or blank is a notice\n     * that points nowhere — a digest, a finished run — which the notification centre expands instead of\n     * navigating on. Clamped like the title, because the column is a pointer and not a place to park text.\n     */",
     "// `icon` and `color` are the task's own face: a restore that dropped them would silently hand every",
     "// restored task back its list's, which is a different row than the one that was backed up. Both are",
     "// nullable, so an old backup without the keys still lands.",
@@ -38675,6 +38674,7 @@ const allowed = new Map([
     "// by dragging, which nothing else in the row can reconstruct — a restore without it would hand back",
     "// the account sorted by whatever the query happens to read first. Nullable, so a file written before",
     "// the column was carried still lands, and the row it restores is simply unplaced.",
+    "/**\n   * Where the notice is about, as `<app>:<id>` — `todo:<task id>` first.\n   *\n   * Not a URL, and not the caller's to shape: the client resolves the pair inside its own origin, so a\n   * writer cannot aim a reader's press somewhere this deployment never chose. Absent or blank is a notice\n   * that points nowhere — a digest, a finished run — which the notification centre expands instead of\n   * navigating on. Clamped like the title, because the column is a pointer and not a place to park text.\n   */",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
