@@ -343,6 +343,18 @@ describe('the estimate field', () => {
   })
 })
 
+describe('the all-day due field', () => {
+  it('turns a timed due date into an explicit calendar day on save', async () => {
+    await mountEditor(task('a', { dueAt: Date.parse('2026-10-21T23:59:00Z') }))
+    const toggle = panel().querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${t('todo.task.all_day')}"]`)
+    expect(toggle).not.toBeNull()
+    act(() => { toggle!.click() })
+    await pressSave()
+
+    expect(server.updates.at(-1)?.patch).toMatchObject({ dueAllDay: true, dueOn: '2026-10-21' })
+  })
+})
+
 describe('the task time section in the editor', () => {
   it('opens on an existing task and reads that task’s ledger', async () => {
     await mountEditor(task('a'))

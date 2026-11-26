@@ -175,7 +175,9 @@ function SpanRow({ bar, color, weekStart, weekEnd, timezone, dragEnabled, onOpen
   onOpen: () => void
 }) {
   const start = bar.task.startAt != null ? localDate(bar.task.startAt, timezone) : null
-  const end = bar.task.dueAt != null ? localDate(bar.task.dueAt, timezone) : null
+  const end = bar.task.dueAt != null
+    ? bar.task.dueAllDay && bar.task.dueOn ? bar.task.dueOn : localDate(bar.task.dueAt, timezone)
+    : null
   // The rounded ends are the ends of the task, not of the week: a bar that continues past Sunday is
   // cut flat on that side so it reads as continuing.
   const openLeft = start !== null && start < weekStart

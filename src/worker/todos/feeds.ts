@@ -50,6 +50,8 @@ type TaskRow = {
   description: string
   priority: string
   due_at: number
+  due_all_day: number | null
+  due_on: string | null
   time_estimate_ms: number | null
   repeat_rule: string | null
 }
@@ -140,7 +142,7 @@ export async function revokeFeed(
 export async function loadFeedTasks(db: D1Database, userId: string, horizonEnd: number): Promise<IcsTask[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, title, description, priority, due_at, time_estimate_ms, repeat_rule
+      `SELECT id, title, description, priority, due_at, due_all_day, due_on, time_estimate_ms, repeat_rule
          FROM todos_tasks
         WHERE user_id = ?1 AND ${SQL_TASK_OPEN} AND ${TASK_VISIBLE_PREDICATE}
           AND due_at IS NOT NULL AND due_at <= ?2
@@ -155,6 +157,8 @@ export async function loadFeedTasks(db: D1Database, userId: string, horizonEnd: 
     description: row.description,
     priority: toPriority(row.priority),
     dueAt: Number(row.due_at),
+    dueAllDay: row.due_all_day === 1,
+    dueOn: row.due_on,
     timeEstimateMs: row.time_estimate_ms === null ? null : Number(row.time_estimate_ms),
     repeat: parseRepeatRule(parseStoredRepeat(row.repeat_rule)),
   }))

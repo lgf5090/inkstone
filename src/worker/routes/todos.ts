@@ -233,6 +233,16 @@ function parseDue(value: unknown, timezone: string): number | null {
   throw ApiError.badRequest('A due date must be text or a number.')
 }
 
+function parseDueOn(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)
+    || Number.isNaN(Date.parse(`${value}T00:00:00Z`))
+    || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) {
+    throw ApiError.badRequest('An all-day due date must be a day like 2026-01-31.')
+  }
+  return value
+}
+
 function assertTaskDateOrder(startAt: number | null | undefined, dueAt: number | null | undefined): void {
   if (startAt != null && dueAt != null && startAt > dueAt) {
     throw ApiError.badRequest('A task cannot start after its due date.')
@@ -1413,15 +1423,22 @@ todoRoutes.post('/', async (c) => {
   const settings = await s.getSettings()
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   const dueAt = parseDue(body.dueAt, settings.timezone)
+  const dueAllDay = body.dueAllDay === undefined ? false : asBoolean(body.dueAllDay, 'dueAllDay')
+  const dueOn = parseDueOn(body.dueOn) ?? (dueAllDay && dueAt !== null ? localDate(dueAt, settings.timezone) : null)
+  if (dueAllDay && (dueOn === null || dueAt === null)) {
+    throw ApiError.badRequest('An all-day task needs a due date.')
+  }
+  if (!dueAllDay && body.dueOn !== undefined) throw ApiError.badRequest('dueOn is only valid for an all-day task.')
+  const resolvedDueAt = dueAllDay && dueOn !== null ? parseLocalTime(dueOn, settings.timezone) : dueAt
   // A start date is read with the due date's own grammar — a local date, a local date-time, an instant
   // or nothing — because it is the same kind of fact and a second parser would eventually disagree.
   const startAt = parseDue(body.startAt, settings.timezone)
-  assertTaskDateOrder(startAt, dueAt)
+  assertTaskDateOrder(startAt, resolvedDueAt)
   const reminders = body.reminders !== undefined
     ? reminderTimes(body.reminders)
     : body.remind !== undefined
-      ? reminderOffsetTimes(body.remind, dueAt)
-      : defaultReminderTimes(c.get('user')?.settingsRaw ?? '', dueAt)
+      ? reminderOffsetTimes(body.remind, resolvedDueAt)
+      : defaultReminderTimes(c.get('user')?.settingsRaw ?? '', resolvedDueAt)
   const input = {
     title: text(body.title, TITLE_MAX, 'A task title'),
     description: optionalText(body.description, DESCRIPTION_MAX, 'A task note') ?? '',
@@ -1429,7 +1446,9 @@ todoRoutes.post('/', async (c) => {
     priority: body.priority === undefined ? undefined : asPriority(body.priority),
     important: body.important === undefined ? null : optionalFlag(body.important, 'important'),
     urgent: body.urgent === undefined ? null : optionalFlag(body.urgent, 'urgent'),
-    dueAt,
+    dueAt: resolvedDueAt,
+    dueAllDay,
+    dueOn,
     startAt,
     projectId: await projectRef(s, body.projectId),
     listId: await listRef(s, body.listId),
@@ -1883,9 +1902,27 @@ todoRoutes.patch('/:id', async (c) => {
   // caller named still stands, so `completeTask` is guarded by it too.
   if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
   const dueAt = body.dueAt === undefined ? undefined : parseDue(body.dueAt, settings.timezone)
+  let dueAllDay = body.dueAllDay === undefined ? undefined : asBoolean(body.dueAllDay, 'dueAllDay')
+  if (dueAt === null && dueAllDay === undefined && existing.dueAllDay === true) dueAllDay = false
+  const nextAllDay = dueAllDay ?? existing.dueAllDay === true
+  const namedDueOn = body.dueOn === undefined ? undefined : parseDueOn(body.dueOn)
+  const nextDueOn = dueAllDay === false
+    ? null
+    : namedDueOn ?? (nextAllDay && dueAt !== undefined && dueAt !== null
+      ? localDate(dueAt, settings.timezone)
+      : existing.dueOn ?? null)
+  if (nextAllDay && (dueAllDay === true || namedDueOn !== undefined) && nextDueOn === null) {
+    throw ApiError.badRequest('An all-day task needs a due date.')
+  }
+  if (!nextAllDay && namedDueOn !== undefined && namedDueOn !== null) {
+    throw ApiError.badRequest('dueOn is only valid for an all-day task.')
+  }
+  const resolvedDueAt = nextAllDay && nextDueOn !== null && (dueAllDay === true || namedDueOn !== undefined || dueAt !== undefined)
+    ? parseLocalTime(nextDueOn, settings.timezone)
+    : dueAt
   // Absent leaves the column alone; null clears it, exactly as the due date's own field reads.
   const startAt = body.startAt === undefined ? undefined : parseDue(body.startAt, settings.timezone)
-  assertTaskDateOrder(startAt === undefined ? existing.startAt : startAt, dueAt === undefined ? existing.dueAt : dueAt)
+  assertTaskDateOrder(startAt === undefined ? existing.startAt : startAt, resolvedDueAt === undefined ? existing.dueAt : resolvedDueAt)
   const nextStatus = body.status !== undefined ? asStatus(body.status) : undefined
   /**
    * Whether this request is the reader finishing the task.
@@ -1904,7 +1941,9 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.priority !== undefined ? { priority: asPriority(body.priority) } : {}),
     ...(body.important !== undefined ? { important: optionalFlag(body.important, 'important') } : {}),
     ...(body.urgent !== undefined ? { urgent: optionalFlag(body.urgent, 'urgent') } : {}),
-    ...(dueAt !== undefined ? { dueAt } : {}),
+    ...(resolvedDueAt !== undefined ? { dueAt: resolvedDueAt } : {}),
+    ...(dueAllDay !== undefined ? { dueAllDay } : {}),
+    ...(dueAllDay !== undefined || namedDueOn !== undefined || (nextAllDay && dueAt !== undefined) ? { dueOn: nextDueOn } : {}),
     ...(startAt !== undefined ? { startAt } : {}),
     ...(body.projectId !== undefined ? { projectId: await projectRef(s, body.projectId) } : {}),
     ...(body.listId !== undefined ? { listId: await listRef(s, body.listId) } : {}),

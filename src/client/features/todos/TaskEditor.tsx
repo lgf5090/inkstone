@@ -16,7 +16,7 @@ import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { addDaysKey } from '../../lib/time'
 import { Button, IconButton } from '../../components/primitives'
-import { Checkbox, Input, Segmented, Textarea, Field } from '../../components/form'
+import { Checkbox, Input, Segmented, Switch, Textarea, Field } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { TagPill } from '../../components/TagChip'
 import { renderMarkdown } from '../../lib/markdown/renderer'
@@ -283,6 +283,7 @@ export function TaskEditor() {
   const [priority, setPriority] = useState<TodoPriority>('medium')
   const [starred, setStarred] = useState(false)
   const [dueText, setDueText] = useState('')
+  const [dueAllDay, setDueAllDay] = useState(false)
   const [startText, setStartText] = useState('')
   /**
    * What the reader plans the task to take, and whether the words in the box can be honoured.
@@ -425,8 +426,9 @@ export function TaskEditor() {
     setPriority(task?.priority ?? source.priority ?? 'medium')
     setStarred(task?.starred ?? source.starred ?? false)
     setDueText(task
-      ? dueValue(task.dueAt, zone)
+      ? task.dueAllDay && task.dueOn ? task.dueOn : dueValue(task.dueAt, zone)
       : typeof source.dueAt === 'string' ? source.dueAt : source.dueAt ? dueValue(source.dueAt, zone) : '')
+    setDueAllDay(task?.dueAllDay ?? source.dueAllDay ?? false)
     setStartText(seedStartText(source, task, zone))
     // Both doors hand the same number in milliseconds — the row's own column, or the estimate a
     // quick-add line wrote into the draft — so the panel opens on it without parsing anything.
@@ -577,6 +579,8 @@ export function TaskEditor() {
       priority,
       starred,
       dueAt: dueText ? dueText : null,
+      dueAllDay: dueAllDay && Boolean(dueText),
+      dueOn: dueAllDay && dueText ? dueText.slice(0, 10) : null,
       startAt: startText ? startText : null,
       // The plan rides the same write as every other field of this panel. `null` is sent rather than
       // left out because taking an estimate away is an answer the reader gave, not an absence.
@@ -1045,13 +1049,24 @@ export function TaskEditor() {
           </Field>
           <Field label={t('todo.task.due_label')}>
             <div className="flex flex-col gap-1.5">
-              <DatePicker label={t('todo.task.due_label')} value={dueText} withTime onChange={setDueText} />
+              <DatePicker label={t('todo.task.due_label')} value={dueText} withTime={!dueAllDay} onChange={setDueText} />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('todo.task.all_day')}</span>
+                <Switch
+                  label={t('todo.task.all_day')}
+                  checked={dueAllDay}
+                  onChange={(checked) => {
+                    setDueAllDay(checked)
+                    if (checked) setDueText((value) => value.slice(0, 10))
+                  }}
+                />
+              </div>
               <div className="flex flex-wrap items-center gap-1">
                 {quickDates.map((choice) => (
                   <button
                     key={choice.key}
                     type="button"
-                    onClick={() => setDueText(choice.value)}
+                    onClick={() => setDueText(dueAllDay ? choice.value.slice(0, 10) : choice.value)}
                     className={cn(
                       'inline-flex min-h-9 items-center rounded-full border px-2.5 text-[length:var(--text-11)] transition-colors',
                       dueText.slice(0, 10) === choice.value

@@ -4844,6 +4844,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         WHERE repeat_rule IS NOT NULL AND status = 'done' AND spawned_next_id IS NULL`,
     ],
   },
+  {
+    version: 429,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'due_all_day' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN due_all_day INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE todos_tasks ADD COLUMN due_on TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

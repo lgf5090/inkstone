@@ -17,10 +17,11 @@
  *
  * ## The time representation
  *
- * Every value is emitted in UTC (`Z`): `DTSTAMP` because RFC 5545 requires it to be UTC, and
+ * Timed values are emitted in UTC (`Z`): `DTSTAMP` because RFC 5545 requires it to be UTC, and
  * `DTSTART`/`DTEND` because a UTC instant is unambiguous without a `VTIMEZONE` block this module
- * would otherwise have to compute and keep correct. A task with an estimate spans that duration; a task
- * without one uses a fixed, named reminder window rather than pretending to be a meeting room booking.
+ * would otherwise have to compute and keep correct. An explicit all-day task uses `VALUE=DATE` and an
+ * exclusive next-day `DTEND`. A timed task with an estimate spans that duration; one without uses a
+ * fixed, named reminder window rather than pretending to be a meeting room booking.
  *
  * ## Which recurrences become an `RRULE`, and which degrade
  *
@@ -55,6 +56,10 @@ export interface IcsTask {
   dueAt: number
   /** The reader's estimated duration, or null when no duration is known. */
   timeEstimateMs?: number | null
+  /** True when the due date is a whole calendar day. */
+  dueAllDay?: boolean
+  /** The authoritative account-zone day for an all-day task. */
+  dueOn?: string | null
   /** The already-parsed rule, or null when the task does not repeat. */
   repeat: RepeatRule | null
 }
@@ -192,12 +197,19 @@ function eventLines(task: IcsTask, options: IcsCalendarOptions): string[] {
     ? task.timeEstimateMs
     : ICS_EVENT_DURATION_MS
   const end = toIcsUtc(task.dueAt + duration)
+  const allDay = task.dueAllDay === true && task.dueOn !== null && task.dueOn !== undefined
+  const dayAfter = allDay
+    ? new Date(`${task.dueOn}T00:00:00Z`)
+    : null
+  if (dayAfter) dayAfter.setUTCDate(dayAfter.getUTCDate() + 1)
+  const dateStart = allDay ? `DTSTART;VALUE=DATE:${task.dueOn!.replaceAll('-', '')}` : `DTSTART:${start}`
+  const dateEnd = allDay ? `DTEND;VALUE=DATE:${dayAfter!.toISOString().slice(0, 10).replaceAll('-', '')}` : `DTEND:${end}`
   const lines = [
     'BEGIN:VEVENT',
     `UID:${uid}`,
     `DTSTAMP:${stamp}`,
-    `DTSTART:${start}`,
-    `DTEND:${end}`,
+    dateStart,
+    dateEnd,
     `SUMMARY:${escapeIcsText(task.title)}`,
     `STATUS:CONFIRMED`,
     `PRIORITY:${PRIORITY_TO_IC[task.priority]}`,

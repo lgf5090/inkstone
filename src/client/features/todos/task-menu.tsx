@@ -177,7 +177,8 @@ export function buildScheduleMenuItems(task: TodoTask, handlers: TaskMenuHandler
       <DatePicker
         className="w-64"
         label={t('todo.task.due_label')}
-        value={dueValue(task.dueAt, handlers.timezone)}
+        value={task.dueAllDay && task.dueOn ? task.dueOn : dueValue(task.dueAt, handlers.timezone)}
+        withTime={!task.dueAllDay}
         onChange={(dateStr) => {
           closeMenu()
           handlers.update({ dueAt: dateStr || null })

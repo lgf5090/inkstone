@@ -43,7 +43,7 @@ function dayLabel(day: string): string {
 
 /** The line under a title that says when the row is owed, in the words the plate already uses for it. */
 function dueLine(task: TodoTask, bounds: { dayEnd: number, now: number }, timezone: string): string {
-  return dueLabel(task.dueAt, bounds, timezone)?.text ?? ''
+  return dueLabel(task.dueAt, bounds, timezone, { allDay: task.dueAllDay, dueOn: task.dueOn })?.text ?? ''
 }
 
 interface Action {

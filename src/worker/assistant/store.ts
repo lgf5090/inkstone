@@ -1128,6 +1128,10 @@ export interface NewTask {
   /** The urgency answer for the matrix, or null to let the due date derive it again. */
   urgent?: boolean | null
   dueAt?: number | null
+  /** Whether the due date is a whole calendar day rather than a timed instant. */
+  dueAllDay?: boolean
+  /** The account-zone day for an all-day due date. */
+  dueOn?: string | null
   /** When the task may be begun. Independent of `dueAt`; null clears it. */
   startAt?: number | null
   projectId?: string | null
@@ -6054,12 +6058,13 @@ export class AssistantStore {
     const columns = `(id, user_id, title, description, status, priority, matrix_important, matrix_urgent,
       due_at, start_at, project_id, list_id,
       icon, color, starred, repeat_rule, spawned_next_id, note_id, conversation_id, created_at, updated_at,
-      completed_at, created_on, completed_on, planned_for, time_estimate_ms, archived_at, parent_id)`
-    const values = `(?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)`
+      completed_at, created_on, completed_on, planned_for, time_estimate_ms, archived_at, parent_id,
+      due_all_day, due_on)`
+    const values = `(?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)`
     const sql = guard
       ? `INSERT INTO todos_tasks ${columns}
          SELECT ${values.slice(1, -1)}
-          WHERE EXISTS (SELECT 1 FROM todos_tasks WHERE user_id = ?1 AND id = ?29 AND spawned_next_id = ?30)`
+          WHERE EXISTS (SELECT 1 FROM todos_tasks WHERE user_id = ?1 AND id = ?31 AND spawned_next_id = ?32)`
       : `INSERT INTO todos_tasks ${columns} VALUES ${values}`
     return this.db.prepare(sql).bind(
       this.userId, id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
@@ -6070,6 +6075,7 @@ export class AssistantStore {
       input.conversationId ?? null, at, at, !isTaskOpen(status) ? at : null,
       createdOn, !isTaskOpen(status) ? createdOn : null, input.plannedFor ?? null,
       input.timeEstimateMs ?? null, input.archivedAt ?? null, parentId,
+      input.dueAllDay ? 1 : 0, input.dueOn ?? null,
       ...(guard ? [guard.currentId, guard.nextId] : []),
     )
   }
@@ -6353,6 +6359,8 @@ export class AssistantStore {
     if (patch.important !== undefined) fields.push(['matrix_important', flagValue(patch.important)])
     if (patch.urgent !== undefined) fields.push(['matrix_urgent', flagValue(patch.urgent)])
     if (patch.dueAt !== undefined) fields.push(['due_at', patch.dueAt])
+    if (patch.dueAllDay !== undefined) fields.push(['due_all_day', patch.dueAllDay ? 1 : 0])
+    if (patch.dueOn !== undefined) fields.push(['due_on', patch.dueOn])
     if (patch.startAt !== undefined) fields.push(['start_at', patch.startAt])
     if (patch.projectId !== undefined) fields.push(['project_id', patch.projectId])
     if (patch.listId !== undefined) fields.push(['list_id', patch.listId])
@@ -6726,6 +6734,8 @@ export class AssistantStore {
           important: row.important ?? null,
           urgent: row.urgent ?? null,
           dueAt,
+          dueAllDay: row.dueAllDay === true,
+          dueOn: advanced.dueAt === null ? null : localDate(advanced.dueAt, timeZone),
           startAt,
           icon: row.icon,
           color: row.color,
@@ -9738,7 +9748,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // by dragging, which nothing else in the row can reconstruct — a restore without it would hand back
   // the account sorted by whatever the query happens to read first. Nullable, so a file written before
   // the column was carried still lands, and the row it restores is simply unplaced.
-  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'start_at', 'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on', 'time_estimate_ms', 'archived_at', 'position'],
+  todos_tasks: ['id', 'title', 'description', 'status', 'priority', 'due_at', 'due_all_day', 'due_on', 'start_at', 'project_id', 'list_id', 'icon', 'color', 'starred', 'repeat_rule', 'note_id', 'conversation_id', 'created_at', 'updated_at', 'completed_at', 'created_on', 'completed_on', 'time_estimate_ms', 'archived_at', 'position'],
   // A list's `archived_at` and `parent_id` travel for the same reason the task's shelf mark does: the
   // first is why the collection is off the working page, and the second is which list it sits inside.
   // Drop either and a restored account is not merely untidy — an archived list reappears as a live one,
@@ -10665,6 +10675,8 @@ export interface TaskRow {
   /** The reader's place among the list's rows, or null while nobody has moved it. */
   position: number | null
   due_at: number | null
+  due_all_day: number | null
+  due_on: string | null
   start_at: number | null
   project_id: string | null
   list_id: string | null
@@ -10827,6 +10839,8 @@ export function toTask(
     urgent: nullableFlag(r.matrix_urgent),
     position: num(r.position),
     dueAt: num(r.due_at),
+    dueAllDay: (r.due_all_day ?? 0) === 1,
+    dueOn: r.due_on ?? null,
     startAt: num(r.start_at),
     projectId: r.project_id,
     listId: r.list_id,

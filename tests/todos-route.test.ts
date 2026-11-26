@@ -322,6 +322,23 @@ describe('the task endpoints', () => {
     expect(row.n).toBe(0)
   })
 
+  it('keeps an all-day due date distinct from a real 23:59 instant', async () => {
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    await store.saveSettings({ ...(await store.getSettings()), timezone: 'Asia/Shanghai' })
+    const allDay = await create({ title: 'Whole day', dueAt: '2026-10-21T23:59', dueAllDay: true, dueOn: '2026-10-21' })
+    expect(allDay).toMatchObject({ dueAllDay: true, dueOn: '2026-10-21' })
+    expect(new Date(allDay.dueAt!).toISOString()).toBe('2026-10-21T15:59:00.000Z')
+
+    const timed = await create({ title: 'Really 23:59', dueAt: '2026-10-21T23:59' })
+    expect(timed).toMatchObject({ dueAllDay: false, dueOn: null })
+    expect(new Date(timed.dueAt!).toISOString()).toBe('2026-10-21T15:59:00.000Z')
+
+    const moved = await json<{ task: TodoTask }>(await send('PATCH', `/${allDay.id}`, { dueOn: '2026-10-22' }))
+    expect(moved.task).toMatchObject({ dueAllDay: true, dueOn: '2026-10-22' })
+    expect(new Date(moved.task.dueAt!).toISOString()).toBe('2026-10-22T15:59:00.000Z')
+    expect((await send('POST', '', { title: 'Impossible day', dueAllDay: true, dueOn: '2026-02-30' })).status).toBe(400)
+  })
+
   it('refuses invalid timestamps, date order and oversized collections', async () => {
     mocks.userId = `taskinput${'0'.repeat(20)}`
     expect((await send('POST', '', { title: 'x', dueAt: 1e100 })).status).toBe(400)

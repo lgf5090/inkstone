@@ -264,6 +264,15 @@ function parseRow(value: unknown, index: number): ImportRow {
   if (raw.deletedAt !== undefined && raw.deletedAt !== null) throw new Error('A trashed task cannot be imported')
   const dueAt = nullableTimestamp(raw.dueAt, 'task.dueAt')
   const startAt = nullableTimestamp(raw.startAt, 'task.startAt')
+  const dueAllDay = raw.dueAllDay === undefined ? false : raw.dueAllDay
+  if (typeof dueAllDay !== 'boolean') throw new Error('task.dueAllDay must be true or false')
+  const dueOn = raw.dueOn === undefined || raw.dueOn === null ? null : raw.dueOn
+  if (dueOn !== null && (typeof dueOn !== 'string' || !isStatsDay(dueOn))) {
+    throw new Error('task.dueOn must be a YYYY-MM-DD date or null')
+  }
+  if (dueAllDay && dueOn === null) throw new Error('An all-day task needs task.dueOn')
+  if (dueAllDay && dueAt === null) throw new Error('An all-day task needs task.dueAt')
+  if (!dueAllDay && dueOn !== null) throw new Error('task.dueOn is only valid for an all-day task')
   if (startAt !== null && dueAt !== null && startAt > dueAt) {
     throw new Error('task.startAt cannot be after task.dueAt')
   }
@@ -313,6 +322,8 @@ function parseRow(value: unknown, index: number): ImportRow {
     important: nullableFlag(raw.important, 'task.important'),
     urgent: nullableFlag(raw.urgent, 'task.urgent'),
     dueAt,
+    dueAllDay,
+    dueOn,
     startAt,
     projectId: nullableId(raw.projectId, 'task.projectId'),
     listId: nullableId(raw.listId, 'task.listId'),

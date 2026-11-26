@@ -34,6 +34,10 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     -- room after one drop into the same gap. Migration 125 carries the column to older databases.
     position REAL,
     due_at INTEGER,
+    -- A due date can be a calendar day rather than an instant. due_on is the authoritative account-zone
+    -- day; due_at remains the end-of-day instant used by existing indexes and comparisons.
+    due_all_day INTEGER NOT NULL DEFAULT 0,
+    due_on TEXT,
     -- When the task may be begun, or NULL when the reader named no start. Migration 123 carries the
     -- column to databases built before this line existed.
     start_at INTEGER,
@@ -488,7 +492,7 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
 export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   todos_tasks: [
     'user_id', 'id', 'title', 'description', 'status', 'priority', 'matrix_important', 'matrix_urgent', 'position',
-    'due_at', 'start_at', 'completed_at',
+    'due_at', 'due_all_day', 'due_on', 'start_at', 'completed_at',
     'completed_on', 'created_on',
     'project_id', 'list_id', 'parent_id', 'icon', 'color', 'starred', 'repeat_rule', 'spawned_next_id', 'planned_for', 'note_id',
     'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at', 'archived_at', 'time_estimate_ms',

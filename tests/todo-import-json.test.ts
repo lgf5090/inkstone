@@ -229,6 +229,18 @@ describe('the JSON todo import endpoint', () => {
     expect(await tasksOf()).toHaveLength(6)
   })
 
+  it('round-trips an all-day due date without confusing it with a timed 23:59 task', async () => {
+    const response = await importJson(document([rawTask({
+      title: 'All day',
+      dueAt: Date.parse('2026-03-02T15:59:00.000Z'),
+      dueAllDay: true,
+      dueOn: '2026-03-02',
+    })]), { conflict: 'duplicate' })
+
+    expect(response.status).toBe(200)
+    expect((await tasksOf())[0]).toMatchObject({ dueAllDay: true, dueOn: '2026-03-02' })
+  })
+
   it('rejects malformed JSON and a damaged row without discarding a usable neighbour', async () => {
     const malformed = await importJson('{not json', { raw: true })
     expect(malformed.status).toBe(400)

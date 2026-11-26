@@ -428,7 +428,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
   // the inbox's fallback here — a card's checkbox is the row's own mark — where the calendar, whose
   // chips sit beside other days' work, draws the neutral instead (`task-face.ts`).
   const colour = taskColorOf(task, lists)
-  const due = dueLabel(task.dueAt, bounds, timezone)
+  const due = dueLabel(task.dueAt, bounds, timezone, { allDay: task.dueAllDay, dueOn: task.dueOn })
   /**
    * The two questions the card used to ask with one boolean.
    *

@@ -10454,6 +10454,7 @@ console.log(\`Hello, \${name}!\`)
     "todo.task.notes_preview": "备注预览",
     "todo.task.notes_preview_empty": "暂无可预览的内容",
     "todo.task.due_label": "截止",
+    "todo.task.all_day": "全天",
     "todo.task.start_label": "开始",
     "todo.task.priority_label": "优先级",
     "todo.task.list_label": "清单",

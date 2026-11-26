@@ -10462,6 +10462,7 @@ const CORE_MESSAGES_TAIL = {
     "todo.task.notes_preview": "Notes preview",
     "todo.task.notes_preview_empty": "Nothing to preview yet",
     "todo.task.due_label": "Due",
+    "todo.task.all_day": "All day",
     "todo.task.start_label": "Start",
     "todo.task.priority_label": "Priority",
     "todo.task.list_label": "List",

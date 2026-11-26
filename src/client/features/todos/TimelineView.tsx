@@ -99,7 +99,9 @@ export function timelineDays(range: TimelineRange): string[] {
  */
 export function timelineBarFor(task: TodoTask, timezone: string): TimelineBar | null {
   const explicitStart = task.startAt != null ? localDate(task.startAt, timezone) : null
-  const explicitEnd = task.dueAt != null ? localDate(task.dueAt, timezone) : null
+  const explicitEnd = task.dueAt != null
+    ? task.dueAllDay && task.dueOn ? task.dueOn : localDate(task.dueAt, timezone)
+    : null
   if (explicitStart === null && explicitEnd === null) return null
   const estimate = task.timeEstimateMs ?? null
   const estimateDays = estimate !== null && estimate > 0 ? Math.max(1, Math.ceil(estimate / DAY_MS)) : 0

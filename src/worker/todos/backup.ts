@@ -483,6 +483,8 @@ const TABLE_SPECS: Readonly<Record<string, TodoTableSpec>> = {
       intRule('matrix_urgent', { min: 0, max: 1 }),
       realRule('position'),
       stampRule('due_at'),
+      flagRule('due_all_day'),
+      dayRule('due_on'),
       stampRule('start_at'),
       intRule('time_estimate_ms', { min: 0, max: MAX_TIME_ESTIMATE_MS }),
       stampRule('completed_at'),

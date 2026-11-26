@@ -601,6 +601,10 @@ export interface TodoTask extends Task {
    * when the task never named one.
    */
   startAt?: number | null
+  /** True when `dueAt` names a calendar day rather than a wall-clock instant. */
+  dueAllDay?: boolean
+  /** The authoritative account-zone `YYYY-MM-DD` for an all-day due date. */
+  dueOn?: string | null
   /**
    * The task's pending reminders, as absolute instants in ascending order. Up to
    * `MAX_REMINDERS_PER_TASK`; fired ones are delivery history and are not listed.

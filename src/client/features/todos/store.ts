@@ -86,6 +86,10 @@ export interface TaskDraft {
   color?: string | null
   /** An instant, or a local `YYYY-MM-DD[THH:MM]` the server reads in the reader's timezone. */
   dueAt?: number | string | null
+  /** Whether the due date is a whole calendar day. */
+  dueAllDay?: boolean
+  /** The account-zone day for an all-day due date. */
+  dueOn?: string | null
   /** When the work starts, in either of the two shapes `dueAt` takes. */
   startAt?: number | string | null
   priority?: TodoTask['priority']
