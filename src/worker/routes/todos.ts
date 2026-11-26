@@ -1330,7 +1330,10 @@ todoRoutes.post('/batch', async (c) => {
           break
         }
         case 'delete':
-          await s.deleteTask(id)
+          if (!(await s.deleteTask(id, expectedRev))) {
+            failed.push({ id, reason: expectedRev === undefined ? 'not found' : 'conflict' })
+            continue
+          }
           break
         case 'move':
           // The same door a card drop uses, with a null anchor: the end of the destination. Naming only
@@ -1364,7 +1367,7 @@ todoRoutes.post('/batch', async (c) => {
         case 'tag':
           // `setTaskTags` replaces, so the row's own words go back in front of the new ones: the bar's
           // action is "add a tag", not "set this row's whole vocabulary".
-          await s.setTaskTags(id, [...existing.tags.map((tag) => tag.name), ...tagAdd])
+          await s.setTaskTags(id, [...existing.tags.map((tag) => tag.name), ...tagAdd], expectedRev)
           break
         case 'due':
           // Only `due_at` moves. `planned_for` is the reader's own pick and stays exactly where it was,
@@ -1952,9 +1955,11 @@ todoRoutes.patch('/:id', async (c) => {
 todoRoutes.delete('/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
+  const expectedRev = requestRevision(c, {})
   const existing = await s.getTask(id)
   if (!existing) throw ApiError.notFound('Task not found')
-  await s.deleteTask(id)
+  if (expectedRev !== undefined && existing.rev !== expectedRev) throw revisionConflict(id, existing.rev)
+  if (!(await s.deleteTask(id, expectedRev))) throw revisionConflict(id, (existing.rev ?? 1) + 1)
   await s.recordActivity('task.deleted', existing.title)
   return c.json({ deleted: true })
 })

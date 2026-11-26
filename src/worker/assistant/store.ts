@@ -6546,13 +6546,20 @@ export class AssistantStore {
    * sweep joins the task and skips a trashed one, so a pending reminder cannot be delivered while the
    * task is away.
    */
-  async deleteTask(id: string): Promise<void> {
+  async deleteTask(id: string, expectedRev?: number): Promise<boolean> {
+    if (expectedRev !== undefined) {
+      const existing = await this.getTask(id)
+      if (!existing) return false
+      if (existing.rev !== expectedRev) throw this.taskConflict(id, existing)
+    }
     const at = Date.now()
-    await this.write(
+    const guard = expectedRev === undefined ? '' : ' AND rev = ?4'
+    const changed = await this.write(
       `UPDATE todos_tasks SET deleted_at = ?3, updated_at = ?3, rev = rev + 1
-        WHERE user_id = ?1 AND id = ?2 AND ${TASK_LIVE_PREDICATE}`,
-      id, at,
+        WHERE user_id = ?1 AND id = ?2 AND ${TASK_LIVE_PREDICATE}${guard}`,
+      id, at, ...(expectedRev === undefined ? [] : [expectedRev]),
     )
+    return changed > 0
   }
 
   /**
@@ -7100,10 +7107,17 @@ export class AssistantStore {
    * account's own vocabulary, and a name it has not used yet is a new word, not an error. A tag edit
    * is a task edit, so the row's revision moves on with it.
    */
-  async setTaskTags(taskId: string, names: readonly string[]): Promise<TaskTag[]> {
-    const wanted = await this.replaceTaskTags(taskId, names)
-    await this.updateTaskRow(taskId, [])
-    return wanted
+  async setTaskTags(taskId: string, names: readonly string[], expectedRev?: number): Promise<TaskTag[]> {
+    if (expectedRev !== undefined) {
+      const existing = await this.getTask(taskId)
+      if (!existing) throw ApiError.notFound('Task not found')
+      if (existing.rev !== expectedRev) throw this.taskConflict(taskId, existing)
+      const changed = await this.updateTaskRow(taskId, [], expectedRev)
+      if (!changed) await this.missingOrConflict(taskId)
+    } else {
+      await this.updateTaskRow(taskId, [])
+    }
+    return await this.replaceTaskTags(taskId, names)
   }
 
   /**

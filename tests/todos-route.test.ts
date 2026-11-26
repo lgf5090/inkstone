@@ -1320,6 +1320,36 @@ describe('a conditional write', () => {
     expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.reminders).toHaveLength(1)
   })
 
+  it('guards single and batch deletes and batch tag writes with the revision they read', async () => {
+    const single = await create({ title: 'Keep me' })
+    await send('PATCH', `/${single.id}`, { title: 'Changed first' })
+    const refused = await send('DELETE', `/${single.id}`, undefined, { 'If-Match': '1' })
+    expect(refused.status).toBe(409)
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${single.id}`))).task.title).toBe('Changed first')
+
+    const freshDelete = await create({ title: 'Delete me' })
+    const staleDelete = await create({ title: 'Do not delete' })
+    await send('PATCH', `/${staleDelete.id}`, { title: 'Moved first' })
+    const deleted = await json<TaskBatchResult>(await send('POST', '/batch', {
+      ids: [freshDelete.id, staleDelete.id], op: 'delete',
+      revs: { [freshDelete.id]: 1, [staleDelete.id]: 1 },
+    }))
+    expect(deleted).toEqual({
+      done: [{ id: freshDelete.id, next: null }],
+      failed: [{ id: staleDelete.id, reason: 'conflict' }],
+    })
+    expect((await send('GET', `/${freshDelete.id}`)).status).toBe(404)
+    expect((await send('GET', `/${staleDelete.id}`)).status).toBe(200)
+
+    const staleTag = await create({ title: 'No new tag' })
+    await send('PATCH', `/${staleTag.id}`, { title: 'Tag target moved' })
+    const tagged = await json<TaskBatchResult>(await send('POST', '/batch', {
+      ids: [staleTag.id], op: 'tag', value: 'late', revs: { [staleTag.id]: 1 },
+    }))
+    expect(tagged.failed).toEqual([{ id: staleTag.id, reason: 'conflict' }])
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${staleTag.id}`))).task.tags).toEqual([])
+  })
+
   it('answers a stale revision per row instead of failing the whole batch', async () => {
     const fresh = await create({ title: 'Fresh' })
     const moved = await create({ title: 'Moved' })
