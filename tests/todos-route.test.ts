@@ -308,6 +308,20 @@ describe('the task endpoints', () => {
     expect((await send('PATCH', `/${task.id}`, { status: 'someday' })).status).toBe(400)
   })
 
+  it('clears pending reminders when a task reaches either terminal state', async () => {
+    const now = Date.now()
+    const done = await create({ title: 'Finish me', reminders: [now + 60_000, now + 120_000] })
+    const cancelled = await create({ title: 'Cancel me', reminders: [now + 60_000] })
+    expect((await send('PATCH', `/${done.id}`, { status: 'done' })).status).toBe(200)
+    expect((await send('PATCH', `/${cancelled.id}`, { status: 'cancelled' })).status).toBe(200)
+
+    const row = sqlite.prepare(
+      `SELECT COUNT(*) AS n FROM todos_reminders
+        WHERE user_id = ?1 AND task_id IN (?2, ?3) AND fired_at IS NULL`,
+    ).get(USER, done.id, cancelled.id) as { n: number }
+    expect(row.n).toBe(0)
+  })
+
   it('refuses invalid timestamps, date order and oversized collections', async () => {
     mocks.userId = `taskinput${'0'.repeat(20)}`
     expect((await send('POST', '', { title: 'x', dueAt: 1e100 })).status).toBe(400)

@@ -469,6 +469,20 @@ describe('deleting a task', () => {
   })
 })
 
+describe('list counts follow task visibility', () => {
+  it('does not count work hidden by an archived list', async () => {
+    const list = await store.createTaskList({ name: 'Archived list' })
+    await store.createTask({ title: 'Hidden by list', listId: list.id })
+    await store.updateTaskList(list.id, { archivedAt: Date.now() })
+
+    expect(await store.listTaskLists()).toEqual([])
+    expect(await store.getTaskList(list.id)).toMatchObject({ openCount: 0, doneCount: 0 })
+    expect((await store.listTaskLists({ archived: true })).find((entry) => entry.id === list.id))
+      .toMatchObject({ openCount: 0, doneCount: 0 })
+    expect(await store.listTasks({ listId: list.id })).toEqual([])
+  })
+})
+
 describe('another account', () => {
   it('cannot see the first account’s tasks', async () => {
     const mine = await store.createTask({ title: 'Mine' })

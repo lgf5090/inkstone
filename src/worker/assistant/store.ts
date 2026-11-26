@@ -6390,6 +6390,7 @@ export class AssistantStore {
     if (patch.noteId !== undefined) fields.push(['note_id', patch.noteId])
     if (patch.conversationId !== undefined) fields.push(['conversation_id', patch.conversationId])
     let event: D1PreparedStatement | null = null
+    const terminal = patch.status !== undefined && !isTaskOpen(patch.status)
     if (patch.status !== undefined) {
       // `completed_at` is the row's end moment, not only its finish moment: it is stamped for both ways
       // a row stops being owed — finished and abandoned — and cleared on a reopen. Reading it off the
@@ -6431,7 +6432,15 @@ export class AssistantStore {
       }
     }
     fields.push(['updated_at', at])
-    const changes = await this.updateTaskRow(id, fields, expectedRev, event ? [event] : undefined)
+    const extra: D1PreparedStatement[] = event ? [event] : []
+    if (terminal && patch.status !== existing.status) {
+      extra.push(this.db.prepare(
+        `DELETE FROM todos_reminders
+          WHERE user_id = ?1 AND task_id = ?2 AND fired_at IS NULL
+            AND EXISTS (SELECT 1 FROM todos_tasks WHERE user_id = ?1 AND id = ?2 AND status = ?3)`,
+      ).bind(this.userId, id, patch.status))
+    }
+    const changes = await this.updateTaskRow(id, fields, expectedRev, extra)
     if (!changes) {
       // The row was gone, or (with a guard) moved between the read and the write: the guarded statement
       // wrote nothing either way, so the caller gets the answer `missingOrConflict` sorts the two out.
@@ -6773,6 +6782,14 @@ export class AssistantStore {
     )
     statements.unshift(update)
     statements.push(this.db.prepare(
+      `DELETE FROM todos_reminders
+        WHERE user_id = ?1 AND task_id = ?2 AND fired_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM todos_tasks
+             WHERE user_id = ?1 AND id = ?2 AND status = 'done' AND completed_at = ?3
+          )`,
+    ).bind(this.userId, id, completedAt))
+    statements.push(this.db.prepare(
       `INSERT INTO todos_task_events (user_id, id, task_id, at, on_day, kind, from_status, to_status)
        SELECT ?1, ?2, ?3, ?4, ?5, 'status', ?6, 'done'
         WHERE EXISTS (
@@ -6907,7 +6924,7 @@ export class AssistantStore {
     )
     const counts = await this.rows<{ list_id: string; status: string; n: number }>(
       `SELECT list_id, status, COUNT(*) AS n FROM todos_tasks
-        WHERE user_id = ?1 AND list_id IS NOT NULL AND ${TASK_LIVE_PREDICATE} GROUP BY list_id, status`,
+        WHERE user_id = ?1 AND list_id IS NOT NULL AND ${TASK_VISIBLE_PREDICATE} GROUP BY list_id, status`,
       this.userId,
     )
     const byList = new Map<string, { open: number; done: number }>()
@@ -6928,7 +6945,7 @@ export class AssistantStore {
     const counts = await this.one<{ open: number | null; done: number | null }>(
       `SELECT SUM(CASE WHEN ${SQL_TASK_DONE} THEN 1 ELSE 0 END) AS done,
               SUM(CASE WHEN ${SQL_TASK_OPEN} THEN 1 ELSE 0 END) AS open
-         FROM todos_tasks WHERE user_id = ?1 AND list_id = ?2 AND ${TASK_LIVE_PREDICATE}`,
+         FROM todos_tasks WHERE user_id = ?1 AND list_id = ?2 AND ${TASK_VISIBLE_PREDICATE}`,
       this.userId, id,
     )
     return toTaskList(row, { open: counts?.open ?? 0, done: counts?.done ?? 0 })
