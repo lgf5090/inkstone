@@ -34,7 +34,7 @@
 | P1-09 | done | F16 materialize reminders and create real notifications; filter notified/deleted/archived rows | due reminder arrives once; later cards are not starved | 74409397 |
 | P1-10 | done | F17 add explicit status categories; make recurrence generation idempotent | Incomplete/Not done/待完成 are not done; each instance spawns once | 7a11b8785 |
 | P1-11 | done | F18 formula display values, dependency order and visible errors; enable formula/multiPerson/file creation | formulas match UI semantics; errors visible; new types creatable | 50f077744 |
-| P1-12 | pending | F19 unify date timezone/range/DST semantics; preserve includeTime/timeZone on drag | same-day filters match; inclusive end; DST has no duplicate/missing day | - |
+| P1-12 | done | F19 unify date timezone/range/DST semantics; preserve includeTime/timeZone on drag | same-day filters match; inclusive end; DST has no duplicate/missing day | 48b34a160 |
 | P1-13 | pending | F21 fix Gantt Delete/person lanes, table subtasks and author swimlanes | dialog keypress does not mutate; person cards render; filtered children do not leak | - |
 | P1-14 | pending | F22 make text blocks editable; automation UI uses property/option selectors; public views avoid member APIs | edit persists; no internal id typing; public dashboard/sprint/collection render | - |
 | P1-15 | pending | F23 route automation writes through permission/relation/effect pipeline and return fresh card | automation cannot bypass editRoles; response includes automation result | - |
