@@ -442,7 +442,7 @@ projectRoutes.use('*', async (c, next) => {
     const event = projectWebhookEvent(method, path)
     const delivery = enqueueProjectWebhookEvents(c.env.DB, boardId, event, {
       boardId, event, targetId, method, path, at: now,
-    }, now).then((ids) => Promise.all(ids.map((id) => deliverProjectWebhook(c.env.DB, id, Date.now()))))
+    }, now).then((ids) => Promise.all(ids.map((id) => deliverProjectWebhook(c.env.DB, c.env, id, Date.now()))))
     delivery.catch((error: unknown) => {
       console.warn('[inkstone] project webhook dispatch failed:', error instanceof Error ? error.message : error)
     })
@@ -850,7 +850,7 @@ projectRoutes.post('/boards/:id/webhooks', async (c) => {
   const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
   await consumeAttemptBudget(c.env.DB, [{ key: `project-webhook-create:${userId}`, maxAttempts: 20, windowMs: 60 * 60 * 1000 }])
   const input = await projectBody(c, ProjectWebhookCreateSchema, JSON_BODY_LIMITS.small)
-  return c.json(await createProjectWebhook(c.env.DB, board.id, userId, input, Date.now()), 201)
+  return c.json(await createProjectWebhook(c.env.DB, c.env, board.id, userId, input, Date.now()), 201)
 })
 
 projectRoutes.patch('/boards/:id/webhooks/:hookId', async (c) => {

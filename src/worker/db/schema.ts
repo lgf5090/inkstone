@@ -4868,6 +4868,21 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'project_cards', column: 'content_order_revision' },
     statements: ['ALTER TABLE project_cards ADD COLUMN content_order_revision INTEGER NOT NULL DEFAULT 0'],
   },
+  {
+    version: 432,
+    skipIfColumnExists: { table: 'project_webhook_deliveries', column: 'message_id' },
+    statements: ['ALTER TABLE project_webhook_deliveries ADD COLUMN message_id TEXT NOT NULL DEFAULT \'\''],
+  },
+  {
+    version: 433,
+    skipIfColumnExists: { table: 'project_webhook_deliveries', column: 'claim_token' },
+    statements: ['ALTER TABLE project_webhook_deliveries ADD COLUMN claim_token TEXT NOT NULL DEFAULT \'\''],
+  },
+  {
+    version: 434,
+    skipIfColumnExists: { table: 'project_webhook_deliveries', column: 'lease_until' },
+    statements: ['ALTER TABLE project_webhook_deliveries ADD COLUMN lease_until INTEGER NOT NULL DEFAULT 0'],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

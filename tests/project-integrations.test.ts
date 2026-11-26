@@ -7,18 +7,35 @@ import { CLIENT_HEADER, LEGACY_SESSION_COOKIE } from '../src/shared/constants'
 import { projectWebhookEvent, projectWebhookRetryDelay } from '../src/shared/project/integrations'
 import type { Env } from '../src/worker/env'
 import type { ProjectBoard } from '../src/shared/project/model'
-import { drainProjectWebhookDeliveries, enqueueProjectWebhookEvents } from '../src/worker/project/webhooks'
-import { testBindings } from './doubles/bindings'
+import { drainProjectWebhookDeliveries, encryptLegacyProjectWebhookSecrets, enqueueProjectWebhookEvents } from '../src/worker/project/webhooks'
+import { testBindings, testDurableObjectNamespace } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
+import { CredentialVault } from '../src/worker/durable/credential-vault'
 
 const app = createApp()
 const tokens = new Map<string, string>()
 let sqlite: DatabaseSync
 let env: Env
+let vaultStorage: Map<string, unknown>
+
+function fakeVaultState(): DurableObjectState {
+  return {
+    storage: {
+      async get(key: string) { return vaultStorage.get(key) },
+      async put(key: string, value: unknown) { vaultStorage.set(key, value) },
+    },
+    async blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> { return await fn() },
+  } as unknown as DurableObjectState
+}
 
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
-  env = testBindings(makeD1(sqlite))
+  vaultStorage = new Map<string, unknown>()
+  env = testBindings(makeD1(sqlite), {
+    CREDENTIAL_VAULT: testDurableObjectNamespace(
+      async (request) => await new CredentialVault(fakeVaultState(), env).fetch(request),
+    ),
+  })
   await app.fetch(new Request('http://localhost/api/health'), env)
   const now = Date.now()
   for (const account of ['alice', 'bob']) {
@@ -170,6 +187,9 @@ describe('project webhooks', () => {
     const list = await call('GET', `/boards/${board.id}/webhooks`, { account: 'alice' })
     const body = (await list.json()) as { webhooks: { events: string[], pending: number }[] }
     expect(JSON.stringify(body)).not.toContain(created.secret)
+    const stored = sqlite.prepare('SELECT secret FROM project_webhooks').get() as { secret: string }
+    expect(stored.secret).toMatch(/^v1\./)
+    expect(stored.secret).not.toContain(created.secret)
     expect(body.webhooks[0]!.events).toEqual(['card.created'])
   })
 
@@ -184,7 +204,7 @@ describe('project webhooks', () => {
     const ids = await enqueueProjectWebhookEvents(env.DB, board.id, 'card.created', payload, now)
     expect(ids).toHaveLength(1)
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
-    expect(await drainProjectWebhookDeliveries(env.DB, now)).toBe(1)
+    expect(await drainProjectWebhookDeliveries(env.DB, env, now)).toBe(1)
     const pending = sqlite.prepare('SELECT attempts, status, next_attempt_at FROM project_webhook_deliveries WHERE id = ?').get(ids[0]) as { attempts: number, status: string, next_attempt_at: number }
     expect(pending.status).toBe('pending')
     expect(pending.attempts).toBe(1)
@@ -202,12 +222,61 @@ describe('project webhooks', () => {
     const ids = await enqueueProjectWebhookEvents(env.DB, board.id, 'board.changed', payload, now)
     const outgoing = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
     vi.stubGlobal('fetch', outgoing)
-    expect(await drainProjectWebhookDeliveries(env.DB, now)).toBe(1)
+    expect(await drainProjectWebhookDeliveries(env.DB, env, now)).toBe(1)
     const row = sqlite.prepare('SELECT status FROM project_webhook_deliveries WHERE id = ?').get(ids[0]) as { status: string }
     expect(row.status).toBe('delivered')
     const [, init] = outgoing.mock.calls[0] as [string, RequestInit]
     expect(init.headers).toMatchObject({ 'content-type': 'application/json' })
     expect((init.headers as Record<string, string>)['webhook-signature']).toMatch(/^v1,/)
+  })
+
+  it('claims a delivery once across concurrent drains', async () => {
+    const board = await createBoard()
+    await call('POST', `/boards/${board.id}/webhooks`, { account: 'alice', body: { url: 'https://example.com/hook' } })
+    const now = Date.now()
+    const payload = { boardId: board.id, event: 'board.changed' as const, targetId: board.id, method: 'PATCH', path: '/boards/x', at: now }
+    await enqueueProjectWebhookEvents(env.DB, board.id, 'board.changed', payload, now)
+    const outgoing = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    vi.stubGlobal('fetch', outgoing)
+    const counts = await Promise.all([
+      drainProjectWebhookDeliveries(env.DB, env, now),
+      drainProjectWebhookDeliveries(env.DB, env, now),
+    ])
+    expect(counts.reduce((sum, count) => sum + count, 0)).toBe(1)
+    expect(outgoing).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps one message id across retries and prunes old terminal rows', async () => {
+    const board = await createBoard()
+    await call('POST', `/boards/${board.id}/webhooks`, { account: 'alice', body: { url: 'https://example.com/hook' } })
+    const now = Date.now()
+    const payload = { boardId: board.id, event: 'board.changed' as const, targetId: board.id, method: 'PATCH', path: '/boards/x', at: now }
+    const ids = await enqueueProjectWebhookEvents(env.DB, board.id, 'board.changed', payload, now)
+    const outgoing = vi.fn()
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValue(new Response('ok', { status: 200 }))
+    vi.stubGlobal('fetch', outgoing)
+    expect(await drainProjectWebhookDeliveries(env.DB, env, now)).toBe(1)
+    const first = sqlite.prepare('SELECT message_id, next_attempt_at FROM project_webhook_deliveries WHERE id = ?').get(ids[0]) as { message_id: string, next_attempt_at: number }
+    expect(first.message_id).toBe(`msg_${ids[0]}`)
+    expect(await drainProjectWebhookDeliveries(env.DB, env, first.next_attempt_at)).toBe(1)
+    const firstHeaders = (outgoing.mock.calls[0]![1] as RequestInit).headers as Record<string, string>
+    const secondHeaders = (outgoing.mock.calls[1]![1] as RequestInit).headers as Record<string, string>
+    expect(secondHeaders['webhook-id']).toBe(firstHeaders['webhook-id'])
+    sqlite.prepare('UPDATE project_webhook_deliveries SET created_at = ? WHERE id = ?').run(now - 8 * 24 * 60 * 60 * 1000, ids[0])
+    expect(await drainProjectWebhookDeliveries(env.DB, env, now)).toBe(0)
+    expect(sqlite.prepare('SELECT id FROM project_webhook_deliveries WHERE id = ?').get(ids[0])).toBeUndefined()
+  })
+
+  it('migrates a legacy plaintext secret into the credential vault', async () => {
+    const board = await createBoard()
+    const created = await call('POST', `/boards/${board.id}/webhooks`, { account: 'alice', body: { url: 'https://example.com/hook' } })
+    const { secret } = await created.json() as { secret: string }
+    sqlite.prepare('UPDATE project_webhooks SET secret = ?').run(secret)
+    expect(await encryptLegacyProjectWebhookSecrets(env)).toBe(1)
+    const stored = sqlite.prepare('SELECT secret FROM project_webhooks').get() as { secret: string }
+    expect(stored.secret).toMatch(/^v1\./)
+    expect(stored.secret).not.toContain(secret)
   })
 
   it('derives the event name from the write that produced it', () => {

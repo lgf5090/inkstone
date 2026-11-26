@@ -480,6 +480,30 @@ function isNoteWebhookSecret(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith('whsec_') && value.length > 'whsec_'.length && value.length <= 512
 }
 
+export async function encryptProjectWebhookSecret(env: Env, webhookId: string, secret: string): Promise<string> {
+  const scope = projectWebhookCredentialScope(webhookId)
+  if (!scope || !isProjectWebhookSecret(secret)) throw new Error('invalid_project_webhook_credential')
+  return encryptCredential(env, `project-webhook:${scope}`, { secret })
+}
+
+export async function decryptProjectWebhookSecret(env: Env, webhookId: string, stored: string): Promise<string | null> {
+  const scope = projectWebhookCredentialScope(webhookId)
+  if (!scope || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `project-webhook:${scope}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const secret = (value as Record<string, unknown>).secret
+  return isProjectWebhookSecret(secret) ? secret : null
+}
+
+function projectWebhookCredentialScope(webhookId: string): string | null {
+  const scope = webhookId.slice(1)
+  return webhookId.length === 27 && isValidId(scope) ? scope : null
+}
+
+function isProjectWebhookSecret(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('whsec_') && value.length > 'whsec_'.length && value.length <= 512
+}
+
 export async function encryptCerthubAccountKey(env: Env, accountId: string, privateKey: string): Promise<string> {
   if (!isValidId(accountId) || !isPrivateKeyPem(privateKey)) throw new Error('invalid_certhub_credential')
   return encryptCredential(env, `certhub-account:${accountId}`, { privateKey })

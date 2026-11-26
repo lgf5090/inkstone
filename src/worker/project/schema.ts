@@ -389,6 +389,9 @@ export const PROJECT_INTEGRATION_SCHEMA_STATEMENTS: readonly string[] = [
     next_attempt_at INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivered','failed')),
     last_error TEXT NOT NULL DEFAULT '',
+    message_id TEXT NOT NULL DEFAULT '',
+    claim_token TEXT NOT NULL DEFAULT '',
+    lease_until INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_webhook_deliveries_due
@@ -669,7 +672,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   project_webhooks: ['id', 'board_id', 'url', 'secret', 'events', 'enabled', 'created_by', 'created_at', 'updated_at'],
   project_webhook_deliveries: [
     'id', 'webhook_id', 'board_id', 'event', 'payload', 'attempts', 'next_attempt_at',
-    'status', 'last_error', 'created_at',
+    'status', 'last_error', 'message_id', 'claim_token', 'lease_until', 'created_at',
   ],
   project_sprints: [
     'id', 'board_id', 'name', 'goal', 'start_at', 'end_at', 'status',
