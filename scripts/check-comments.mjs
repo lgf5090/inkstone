@@ -43944,8 +43944,6 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/calendar-csv.ts", [
     "/** A deliberately small CSV importer: one row per event, ISO-like start/end values. */",
-    "/* The import error is the one that explains the request. */",
-    "/** A round-trippable cell: the importer reads an offset but not a bracketed zone name. */",
   ]],
   ["src/worker/routes/calendar-ics.ts", [
     "// The events are idempotent by (source, external id), so a retry of the same file is safe.",
