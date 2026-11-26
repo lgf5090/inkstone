@@ -128,6 +128,25 @@ describe('calendar CRUD', () => {
     expect((await store.listCalendars()).find(entry => entry.id === work.id)?.isDefault).toBe(true)
   })
 
+  it('removes members, resources, booking links and provider mappings with the calendar', async () => {
+    const work = await store.createCalendar({ name: 'Work' })
+    sqlite.prepare('INSERT INTO calendar_members (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(ALICE, work.id, BOB, 'writer', 'accepted', 1, 1)
+    sqlite.prepare('INSERT INTO calendar_resources (user_id, id, calendar_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(ALICE, 'resource-1', work.id, 'Room', 1, 1)
+    sqlite.prepare(`INSERT INTO calendar_scheduling_links
+      (user_id,id,calendar_id,slug,title,duration_minutes,days_json,start_hour,end_hour,enabled,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(ALICE, 'link-1', work.id, 'calendarfix1', 'Meeting', 30, '[1]', 9, 17, 1, 1, 1)
+    sqlite.prepare(`INSERT INTO calendar_provider_calendars
+      (user_id,connection_id,remote_calendar_id,local_calendar_id,created_at,updated_at)
+      VALUES (?,?,?,?,?,?)`).run(ALICE, 'connection-1', 'remote-1', work.id, 1, 1)
+    await store.deleteCalendar(work.id, { mode: 'delete', rev: work.rev })
+    expect(count('SELECT COUNT(*) AS count FROM calendar_members WHERE owner_user_id = ? AND calendar_id = ?', ALICE, work.id)).toBe(0)
+    expect(count('SELECT COUNT(*) AS count FROM calendar_resources WHERE user_id = ? AND calendar_id = ?', ALICE, work.id)).toBe(0)
+    expect(count('SELECT COUNT(*) AS count FROM calendar_scheduling_links WHERE user_id = ? AND calendar_id = ?', ALICE, work.id)).toBe(0)
+    expect(count('SELECT COUNT(*) AS count FROM calendar_provider_calendars WHERE user_id = ? AND local_calendar_id = ?', ALICE, work.id)).toBe(0)
+  })
+
   it('reorders every calendar exactly once', async () => {
     const work = await store.createCalendar({ name: 'Work' })
     const home = await store.createCalendar({ name: 'Home' })

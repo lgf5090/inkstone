@@ -965,6 +965,18 @@ export class CalendarStore {
     statements.push(this.db.prepare(
       `DELETE FROM calendar_shares WHERE user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
     ).bind(this.userId, id, ...revisionValues))
+    statements.push(this.db.prepare(
+      `DELETE FROM calendar_members WHERE owner_user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
+    statements.push(this.db.prepare(
+      `DELETE FROM calendar_resources WHERE user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
+    statements.push(this.db.prepare(
+      `DELETE FROM calendar_scheduling_links WHERE user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
+    statements.push(this.db.prepare(
+      `DELETE FROM calendar_provider_calendars WHERE user_id = ?1 AND local_calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
     statements.push(guarded
       ? this.db.prepare(
         `DELETE FROM calendar_calendars WHERE user_id = ?1 AND id = ?2 AND rev = ?3`,
