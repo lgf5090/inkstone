@@ -39424,7 +39424,6 @@ const allowed = new Map([
     "// ------------------------------------------------------------- subscriptions and connections",
     "/** Connections as the meta read exposes them: identifiers and state, never credentials. */",
     "// ------------------------------------------------------------- statements",
-    "/** Turn a rule into one that stops before the occurrence, whichever end condition it carried. */",
     "/** Calendars another account accepted this account into, with a synthetic read-only id. */",
     "// A malformed window keeps the weekday default rather than hiding the link.",
     "/**\n   * Read one event through a shared calendar membership.\n   *\n   * The synthetic id names the owner and the event; the event's own memberships decide whether the\n   * guest may see it, so a guessed id for an unshared calendar answers null instead of leaking rows.\n   */",

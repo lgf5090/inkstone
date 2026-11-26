@@ -277,7 +277,27 @@ describe('recurrence exceptions', () => {
     const masters = after.events.filter(event => event.recurrenceRule)
     expect(masters).toHaveLength(2)
     expect(masters.some(event => event.title === 'New series')).toBe(true)
-    expect(masters.find(event => event.id === created.event.id)?.recurrenceRule).toContain('UNTIL=')
+    expect(masters.find(event => event.id === created.event.id)?.recurrenceRule).toContain('COUNT=2')
+  })
+
+  it('carries future exdates into a following series without reviving cancelled occurrences', async () => {
+    const calendar = await defaultCalendar()
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/api/calendar/events', eventBody(calendar.id, {
+      title: 'Daily', recurrenceRule: 'FREQ=DAILY;COUNT=5',
+    })))
+    const first = await range('2026-10-26T00:00:00Z', '2026-10-31T00:00:00Z')
+    const cancelled = first.occurrences.find(event => event.start.value.startsWith('2026-10-28'))!
+    expect((await call('POST', `/api/calendar/events/${created.event.id}/recurrence`, {
+      occurrenceStart: cancelled.start, occurrenceEnd: cancelled.end, scope: 'this', action: 'cancel',
+    })).status).toBe(200)
+    const target = first.occurrences.find(event => event.start.value.startsWith('2026-10-27'))!
+    expect((await call('POST', `/api/calendar/events/${created.event.id}/recurrence`, {
+      occurrenceStart: target.start, occurrenceEnd: target.end, scope: 'following', action: 'update', patch: { title: 'Following' },
+    })).status).toBe(200)
+    const after = await range('2026-10-26T00:00:00Z', '2026-11-01T00:00:00Z')
+    const dates = [...after.events, ...after.occurrences].map(event => event.start.value.slice(0, 10))
+    expect(dates).not.toContain('2026-10-28')
+    expect(dates).toEqual(expect.arrayContaining(['2026-10-26', '2026-10-27', '2026-10-29', '2026-10-30']))
   })
 
   it('shifts a zoned master when the reader edits the whole series', async () => {

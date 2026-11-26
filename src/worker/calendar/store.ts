@@ -59,6 +59,7 @@ import {
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { Temporal } from 'temporal-polyfill'
+import { RRule } from 'rrule'
 import { parseStoredJson, storedObject } from '../lib/json'
 import { eventAttachmentDeleteStatements } from './attachments'
 import { attachmentCleanupTargetSql } from '../attachments/keys'
@@ -323,27 +324,37 @@ function temporalKey(value: TemporalValue): string {
   return value.value
 }
 
-function shiftTemporal(value: TemporalValue, deltaMs: number, fallbackZone: string): TemporalValue {
-  if (value.type === 'date') {
-    const days = Math.round(deltaMs / 86_400_000)
-    return { type: 'date', value: Temporal.PlainDate.from(value.value).add({ days }).toString() }
-  }
-  if (value.type === 'datetime') {
-    return {
-      type: 'datetime',
-      value: Temporal.PlainDateTime.from(value.value).add({ milliseconds: deltaMs })
-        .toString({ smallestUnit: 'second' }),
-    }
-  }
-  const zone = value.timeZone ?? fallbackZone
+function temporalPlainDateTime(value: TemporalValue, fallbackZone: string): Temporal.PlainDateTime {
+  if (value.type === 'date') return Temporal.PlainDate.from(value.value).toPlainDateTime()
+  if (value.type === 'datetime') return Temporal.PlainDateTime.from(value.value)
   const zoned = value.value.includes('[')
     ? Temporal.ZonedDateTime.from(value.value)
-    : Temporal.PlainDateTime.from(value.value).toZonedDateTime(zone)
-  return {
-    type: 'zoned',
-    value: zoned.add({ milliseconds: deltaMs }).toPlainDateTime().toString({ smallestUnit: 'second' }),
-    timeZone: zone,
+    : Temporal.PlainDateTime.from(value.value).toZonedDateTime(value.timeZone ?? fallbackZone)
+  return zoned.withTimeZone(value.timeZone ?? fallbackZone).toPlainDateTime()
+}
+
+function wallClockDate(value: TemporalValue, fallbackZone: string): Date {
+  const plain = temporalPlainDateTime(value, fallbackZone)
+  return new Date(Date.UTC(plain.year, plain.month - 1, plain.day, plain.hour, plain.minute, plain.second))
+}
+
+function shiftTemporal(value: TemporalValue, from: TemporalValue, to: TemporalValue, fallbackZone: string): TemporalValue {
+  if (value.type === 'date' && from.type === 'date' && to.type === 'date') {
+    const days = Temporal.PlainDate.from(from.value).until(Temporal.PlainDate.from(to.value)).days
+    return { type: 'date', value: Temporal.PlainDate.from(value.value).add({ days }).toString() }
   }
+  const delta = temporalPlainDateTime(from, fallbackZone)
+    .since(temporalPlainDateTime(to, fallbackZone), { largestUnit: 'days' }).negated()
+  const shifted = temporalPlainDateTime(value, fallbackZone).add(delta)
+  if (value.type === 'datetime') {
+    return { type: 'datetime', value: shifted.toString({ smallestUnit: 'second' }) }
+  }
+  const zone = value.timeZone ?? fallbackZone
+  const zoned = Temporal.ZonedDateTime.from({
+    timeZone: zone, year: shifted.year, month: shifted.month, day: shifted.day,
+    hour: shifted.hour, minute: shifted.minute, second: shifted.second,
+  })
+  return { type: 'zoned', value: zoned.toString(), timeZone: zone }
 }
 
 function readMetaDates(meta: Record<string, unknown>, key: string): TemporalValue[] {
@@ -356,17 +367,82 @@ function readMetaDates(meta: Record<string, unknown>, key: string): TemporalValu
   })
 }
 
-/** Turn a rule into one that stops before the occurrence, whichever end condition it carried. */
-function ruleBefore(rule: string, occurrenceStart: TemporalValue, occurrenceStartMs: number): string {
-  const parts = rule.split(';').map(part => part.trim()).filter(part => part.length > 0 && !/^(UNTIL|COUNT)=/i.test(part))
-  if (occurrenceStart.type === 'date') {
-    const previous = new Date(new Date(`${occurrenceStart.value}T00:00:00Z`).getTime() - 86_400_000)
-    parts.push(`UNTIL=${previous.toISOString().slice(0, 10).replaceAll('-', '')}`)
-  } else {
-    const previous = new Date(occurrenceStartMs - 1000)
-    parts.push(`UNTIL=${previous.toISOString().replaceAll('-', '').replaceAll(':', '').slice(0, 15)}Z`)
+function ruleParts(rule: string): string[] {
+  return rule.split(';').map(part => part.trim()).filter(Boolean)
+}
+
+function formatRuleUntil(value: Date, start: TemporalValue, fallbackZone: string): string {
+  if (start.type === 'date') return value.toISOString().slice(0, 10).replaceAll('-', '')
+  const plain = Temporal.PlainDateTime.from({
+    year: value.getUTCFullYear(), month: value.getUTCMonth() + 1, day: value.getUTCDate(),
+    hour: value.getUTCHours(), minute: value.getUTCMinutes(), second: value.getUTCSeconds(),
+  })
+  if (start.type === 'datetime') return plain.toString({ smallestUnit: 'second' }).replaceAll('-', '').replaceAll(':', '')
+  const zoned = Temporal.ZonedDateTime.from({
+    timeZone: start.timeZone ?? fallbackZone, year: plain.year, month: plain.month, day: plain.day,
+    hour: plain.hour, minute: plain.minute, second: plain.second,
+  })
+  return zoned.toInstant()
+    .toString({ smallestUnit: 'second' }).replaceAll('-', '').replaceAll(':', '').replace('.000', '')
+}
+
+function splitRule(
+  rule: string,
+  start: TemporalValue,
+  occurrenceStart: TemporalValue,
+  fallbackZone: string,
+): { past: string; future: string | null; pastCount: number } {
+  const parts = ruleParts(rule)
+  const countPart = parts.find(part => /^COUNT=/i.test(part))
+  const untilPart = parts.find(part => /^UNTIL=/i.test(part))
+  const originalCount = countPart ? Number(countPart.slice(6)) : null
+  if (originalCount !== null && (!Number.isSafeInteger(originalCount) || originalCount < 1)) {
+    throw ApiError.badRequest('The recurrence count is invalid')
   }
-  return parts.join(';')
+  const parsed = RRule.fromString(rule)
+  const options = { ...parsed.origOptions, dtstart: wallClockDate(start, fallbackZone) }
+  if (options.until && start.type === 'zoned') {
+    const until = Temporal.Instant.from(options.until.toISOString())
+      .toZonedDateTimeISO(start.timeZone ?? fallbackZone).toPlainDateTime()
+    options.until = new Date(Date.UTC(until.year, until.month - 1, until.day, until.hour, until.minute, until.second))
+  }
+  const boundary = wallClockDate(occurrenceStart, fallbackZone)
+  const pastDates = new RRule(options).between(new Date(options.dtstart.getTime() - 1), boundary, false)
+  if (pastDates.length > 50_000) throw ApiError.badRequest('The recurrence is too large to split')
+  const pastCount = pastDates.length
+  const base = parts.filter(part => !/^(COUNT|UNTIL)=/i.test(part))
+  const previous = pastDates.at(-1)
+  const past = pastCount === 0 || !previous
+    ? rule
+    : [...base, originalCount === null
+      ? `UNTIL=${formatRuleUntil(previous, start, fallbackZone)}`
+      : `COUNT=${pastCount}`].join(';')
+  const futureCount = originalCount === null ? null : Math.max(0, originalCount - pastCount)
+  const future = futureCount === 0
+    ? null
+    : [...base, futureCount === null
+      ? (untilPart ? [untilPart] : [])
+      : [`COUNT=${futureCount}`]].join(';')
+  return { past, future, pastCount }
+}
+
+function partitionMetaDates(
+  meta: Record<string, unknown>,
+  boundaryMs: number,
+  zone: string,
+): { past: Record<string, unknown>; future: Record<string, unknown> } {
+  const past = { ...meta }
+  const future = { ...meta }
+  for (const key of ['exdates', 'rdates'] as const) {
+    const dates = readMetaDates(meta, key)
+    const before = dates.filter(value => temporalValueToEpochMs(value, zone) < boundaryMs)
+    const after = dates.filter(value => temporalValueToEpochMs(value, zone) >= boundaryMs)
+    if (before.length > 0) past[key] = before
+    else delete past[key]
+    if (after.length > 0) future[key] = after
+    else delete future[key]
+  }
+  return { past, future }
 }
 
 function readCompletedAt(raw: string | null): TemporalValue | null {
@@ -1766,11 +1842,10 @@ export class CalendarStore {
       }
       const patch = { ...change.patch!, rev: master.rev }
       if (change.patch?.start && change.patch.startMs !== undefined) {
-        const delta = change.patch.startMs - occurrenceStartMs
-        patch.start = shiftTemporal(master.start, delta, zone)
-        patch.startMs = temporalValueToEpochMs(master.start, zone) + delta
-        patch.end = shiftTemporal(master.end, delta, zone)
-        patch.endMs = temporalValueToEpochMs(master.end, zone) + delta
+        patch.start = shiftTemporal(master.start, change.occurrenceStart, change.patch.start, zone)
+        patch.startMs = temporalValueToEpochMs(patch.start, zone)
+        patch.end = shiftTemporal(master.end, change.occurrenceStart, change.patch.start, zone)
+        patch.endMs = temporalValueToEpochMs(patch.end, zone)
       }
       await this.updateEvent(masterId, patch)
       return { masterId }
@@ -1816,18 +1891,24 @@ export class CalendarStore {
     }
 
     const rule = master.recurrenceRule.replace(/^RRULE:/i, '').trim()
-    const truncated = ruleBefore(rule, change.occurrenceStart, occurrenceStartMs)
+    const split = splitRule(rule, master.start, change.occurrenceStart, zone)
+    const partitioned = partitionMetaDates(master.meta, occurrenceStartMs, zone)
     const futureOverrides = overrides.filter(row => row.startMs >= occurrenceStartMs)
     if (change.action === 'cancel') {
-      await this.updateEvent(masterId, { rev: master.rev, recurrenceRule: truncated })
+      if (split.pastCount === 0) {
+        await removeOverrides(overrides)
+        await this.deleteEvent(masterId, master.rev)
+        return { masterId: null }
+      }
+      await this.updateEvent(masterId, { rev: master.rev, recurrenceRule: split.past, meta: partitioned.past })
       await removeOverrides(futureOverrides)
       return { masterId }
     }
     const patch = change.patch!
-    const meta = { ...master.meta }
-    delete meta.exdates
-    delete meta.rdates
-    delete meta.recurrenceId
+    if (split.pastCount === 0) {
+      await this.updateEvent(masterId, { ...patch, rev: master.rev })
+      return { masterId }
+    }
     const series = await this.createEvent({
       title: patch.title ?? master.title,
       description: patch.description ?? master.description,
@@ -1838,14 +1919,14 @@ export class CalendarStore {
       end: patch.end ?? change.occurrenceEnd,
       allDay: patch.allDay ?? change.occurrenceStart.type === 'date',
       calendarIds: master.calendarIds,
-      meta,
+      meta: partitioned.future,
       icon: master.icon,
       color: patch.color !== undefined ? patch.color : master.color,
-      recurrenceRule: rule,
+      recurrenceRule: split.future,
       source: 'local',
     })
     try {
-      await this.updateEvent(masterId, { rev: master.rev, recurrenceRule: truncated })
+      await this.updateEvent(masterId, { rev: master.rev, recurrenceRule: split.past, meta: partitioned.past })
     } catch (error) {
       await this.deleteEvent(series.id, series.rev).catch(() => { /* The original failure is what the caller sees. */ })
       throw error
