@@ -44,6 +44,11 @@ function visibleCalendarIds(app: ICalendarApp): Set<string> {
   return new Set(app.getCalendars().filter(calendar => calendar.isVisible !== false).map(calendar => calendar.id))
 }
 
+interface DayMarkers {
+  colors: string[]
+  count: number
+}
+
 function eventColors(
   events: Event[],
   app: ICalendarApp,
@@ -51,9 +56,9 @@ function eventColors(
   dark: boolean,
   rangeStart: Temporal.PlainDate,
   rangeEnd: Temporal.PlainDate,
-): Map<string, string[]> {
+): Map<string, DayMarkers> {
   const visible = visibleCalendarIds(app)
-  const dots = new Map<string, string[]>()
+  const dots = new Map<string, DayMarkers>()
   for (const event of events) {
     const ids = event.calendarIds?.length ? event.calendarIds : event.calendarId ? [event.calendarId] : []
     if (!ids.some(id => visible.has(id))) continue
@@ -66,9 +71,10 @@ function eventColors(
     let guard = 0
     while (Temporal.PlainDate.compare(cursor, last) <= 0 && guard < 42) {
       const key = plainDateKey(cursor)
-      const colors = dots.get(key) ?? []
-      if (!colors.includes(color) && colors.length < MAX_DOTS) colors.push(color)
-      dots.set(key, colors)
+      const markers = dots.get(key) ?? { colors: [], count: 0 }
+      if (!markers.colors.includes(color) && markers.colors.length < MAX_DOTS) markers.colors.push(color)
+      markers.count += 1
+      dots.set(key, markers)
       cursor = cursor.add({ days: 1 })
       guard += 1
     }
@@ -110,7 +116,7 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
   }, [displayMonth, weekStart, calendarSystem])
 
   const dots = useMemo(() => {
-    if (!showEventDots || days.length === 0) return new Map<string, string[]>()
+    if (!showEventDots || days.length === 0) return new Map<string, DayMarkers>()
     return eventColors(
       app.getEvents(),
       app,
@@ -194,7 +200,13 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
               const key = dateKey(day)
               const selected = key === selectedKey
               const inMonth = day.getMonth() === displayMonth.getMonth()
-              const dayDots = dots.get(key) ?? []
+              const dayDots = dots.get(key) ?? { colors: [], count: 0 }
+              const isToday = isSameDay(day, today)
+              const accessibleLabel = [
+                dayLabelFormatter.format(day),
+                ...(isToday ? [t('calendar.sidebar.today')] : []),
+                ...(dayDots.count > 0 ? [t('calendar.a11y.event_count', { count: dayDots.count })] : []),
+              ].join(', ')
               return (
                 <button
                   key={key}
@@ -205,7 +217,8 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
                   type="button"
                   role="gridcell"
                   aria-selected={selected}
-                  aria-label={dayLabelFormatter.format(day)}
+                  aria-current={isToday ? 'date' : undefined}
+                  aria-label={accessibleLabel}
                   tabIndex={key === tabKey ? 0 : -1}
                   onClick={() => onSelectDate(day)}
                   onKeyDown={(event) => {
@@ -223,9 +236,9 @@ export function MiniMonth({ app, currentDate, weekStart, timeZone, showEventDots
                   )}
                 >
                   <span>{dateToCalendarDate(day, calendarSystem).day}</span>
-                  {showEventDots && dayDots.length > 0 && (
+                  {showEventDots && dayDots.count > 0 && (
                     <span className="mt-[1px] flex h-[3px] items-center justify-center gap-[2px]" aria-hidden="true">
-                      {dayDots.map(color => (
+                      {dayDots.colors.map(color => (
                         <span key={color} className="size-[3px] rounded-full" style={{ backgroundColor: color }} />
                       ))}
                     </span>

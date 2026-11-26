@@ -83,6 +83,7 @@ export function CalendarEventDialog({
   const [description, setDescription] = useState('')
   const [location, setLocation] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const calendarSignature = calendars.map(calendar => `${calendar.id}:${calendar.name}:${calendar.readOnly ? 1 : 0}`).join('\u0000')
 
   useEffect(() => {
     if (!open) return
@@ -111,7 +112,7 @@ export function CalendarEventDialog({
     setDescription(template?.description ?? '')
     setLocation('')
     setError(null)
-  }, [open, initialStart, defaultCalendarId, timeZone, calendars, template])
+  }, [open, initialStart, defaultCalendarId, timeZone, calendarSignature, template])
 
   const submit = (): void => {
     if (!calendarId) {

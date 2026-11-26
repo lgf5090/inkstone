@@ -608,6 +608,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     initialTruncated || initialRecurrenceTruncated || initialCached ? [] : [[initialRange.from, initialRange.to]],
   )
   const inFlight = useRef<Array<[number, number]>>([])
+  const latestRangeRequest = useRef(0)
   const lastRange = useRef(initialRange)
   const failedRange = useRef<{ from: number; to: number } | null>(null)
   /** Silent refreshes answered by the fingerprint alone; the fifth one re-reads the rows anyway. */
@@ -734,7 +735,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     return plan.fetched
   }, [app, revs])
 
-  const fetchRange = useCallback(async (from: number, to: number): Promise<Set<string>> => {
+  const fetchRange = useCallback(async (from: number, to: number, requestId?: number): Promise<Set<string>> => {
     const month = app.getCurrentView().type === 'month'
     const exceptionMasters = month
       ? [...new Set([
@@ -750,6 +751,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       includeOccurrences: !month || exceptionMasters.length > 0,
       ...(month && exceptionMasters.length > 0 ? { occurrenceMasters: exceptionMasters } : {}),
     })
+    if (requestId !== undefined && requestId !== latestRangeRequest.current) return new Set()
     const fetched = applySnapshot(page.events, { from, to }, page.truncated)
     updateOccurrences(page.occurrences, { from, to })
     setRangeTruncated(page.truncated || page.recurrenceTruncated)
@@ -959,17 +961,20 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   }, [applySnapshot, updateOccurrences, userId])
 
   const runRangeFetch = useCallback(async (from: number, to: number): Promise<void> => {
+    const requestId = ++latestRangeRequest.current
     setRangeLoading(true)
     try {
-      await fetchRange(from, to)
+      await fetchRange(from, to, requestId)
+      if (requestId !== latestRangeRequest.current) return
       covered.current.push([from, to])
       failedRange.current = null
       setRangeError(null)
     } catch (error) {
+      if (requestId !== latestRangeRequest.current) return
       failedRange.current = { from, to }
       setRangeError(error instanceof Error && error.message ? error.message : t('calendar.error.range'))
     } finally {
-      setRangeLoading(false)
+      if (requestId === latestRangeRequest.current) setRangeLoading(false)
     }
   }, [fetchRange])
 
@@ -1473,7 +1478,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       onUndo={() => { if (history.undo(app)) setHistoryVersion(version => version + 1) }}
       onRedo={() => { if (history.redo(app)) setHistoryVersion(version => version + 1) }}
       tasks={meta.preferences.enableTasks ? (
-        <CalendarTasksPanel app={app} calendars={meta.calendars} onChanged={() => { void reloadRef.current() }} />
+        <CalendarTasksPanel app={app} calendars={meta.calendars} from={lastRange.current.from} to={lastRange.current.to} timeZone={meta.preferences.timeZone} onChanged={() => { void reloadRef.current() }} />
       ) : undefined}
       countdowns={(
         <CountdownsCard
