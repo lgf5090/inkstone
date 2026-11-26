@@ -6371,6 +6371,7 @@ const allowed = new Map([
     "/** The column the server sorted by; `null` when the order is not a column's (a ranked search). */",
     "/** Absent when the list cannot be re-sorted: the headers then stay plain text. */",
     "/** Drive-wide search results live in different folders, so the folder has to be visible. */",
+    "/** Optional columns in their fixed display order; name is always present. */",
   ]],
   ["src/client/features/clouddrive/files/FilesPage.tsx", [
     "/** Opens the preview/Quick Look surface. The shell owns the renderer. */",
@@ -6430,6 +6431,13 @@ const allowed = new Map([
     "/**\n   * Pointer drag. A row is always a source and a folder is always a target, but the page decides:\n   * it holds the payload in flight, refuses a folder that is the row itself or one of its descendants\n   * and runs the same move the context menu runs. Absent means the surface cannot move anything.\n   */",
     "/** True when this folder accepts what is in flight; the layout lights the row on that answer. */",
     "/** Touch and pen pick up where HTML5 drag stops working; a mouse pointer is ignored here. */",
+    "/** Row-level facts loaded outside the listing request; absent means unknown, not false. */",
+    "/** Status badges are a list column and an inline row in the compact layouts. */",
+  ]],
+  ["src/client/features/clouddrive/files/useEntryIndicators.ts", [
+    "/**\n * Status facts that are not part of a directory listing. Shares and offline copies each have one\n * list endpoint; versions are per file, so only files whose timestamp changed after upload are probed.\n * That is the same condition that can produce a predecessor version, and avoids a request per row for\n * the common untouched-file case. Unknown results stay absent rather than being reported as false.\n */",
+    "// Badges supplement the listing; a failed status lookup must not block opening the folder.",
+    "// IndexedDB can be disabled; the online listing remains usable without offline badges.",
   ]],
   ["src/client/features/clouddrive/files/useFileActions.ts", [
     "/** Local list updates applied before the refresh confirms them. */",
@@ -6479,12 +6487,14 @@ const allowed = new Map([
     "/**\n * The drive's preview rules as a per-extension answer for the viewer. `parsePreviewRules` hands them\n * back sorted by descending priority, so the first rule naming an extension wins; an extension no\n * rule mentions keeps the viewer's own answer.\n */",
   ]],
   ["src/client/features/clouddrive/public/DriveSharePage.tsx", [
-    "/** `path` is relative to the share root: the owner's own directory layout is never handed out. */",
     "// The name, size and type only come back once the link is unlocked, so the metadata has to be",
     "// re-read rather than assumed.",
     "/** The types the share route is willing to draw in place; it adds PDF to the app-wide inline list. */",
     "/**\n   * Downloads the picked files one after another. A browser only ever runs one navigation per\n   * gesture, so the links are clicked in sequence with a short gap rather than all at once.\n   */",
     "// The browser's own viewer, framed from this origin: the CSP already allows `frame-src 'self'`.",
+  ]],
+  ["src/client/features/clouddrive/public/api.ts", [
+    "/** `path` is relative to the share root: the owner's own directory layout is never handed out. */",
   ]],
   ["src/client/features/clouddrive/settings/CloudDriveSettingsPage.tsx", [
     "// Every field below the title is a deployment policy: the server answers a member's PATCH with 403,",
@@ -6510,6 +6520,8 @@ const allowed = new Map([
     "// Every ancestor of a path has to exist, and `a/b` needs `a` before it.",
     "/**\n * Creates the planned directories and returns the absolute parent path for each file. A segment is\n * reused rather than duplicated, so re-picking the same folder does not scatter `x (1)` copies.\n */",
     "// Without the folder there is nowhere to put its files; the caller reports what was skipped.",
+    "// A failed parent invalidates its whole descendant subtree. Falling back to the root here used",
+    "// to flatten those children into a different folder and upload files the reader never approved.",
   ]],
   ["src/client/features/clouddrive/transfers/useTransferStore.ts", [
     "/**\n * Client-side transfer queue for CloudDrive.\n *\n * Uploads and downloads are browser transfers rather than server tasks, so they live here and not in\n * `CloudDrive_tasks`. Active items hold a live `File`/stream and are deliberately not persisted; only\n * terminal history is written, capped at the last 100 entries per account on this device.\n */",
@@ -6523,6 +6535,9 @@ const allowed = new Map([
     "// The session belongs to the bytes the reader picked before the reload; continuing it with a",
     "// different file would store a mix of both under one name.",
     "/** The reader's own ceiling on parts in flight, clamped to the deployment's policy as well. */",
+    "/** Retry only transient part failures; a rejected part must not restart the whole file. */",
+    "// Safari, Firefox and mobile browsers hand the same-origin response straight to their native",
+    "// download manager. No fetch and no object URL means the browser, not this queue, owns the bytes.",
   ]],
   ["src/client/features/clouddrive/trash/TrashPage.tsx", [
     "// The schedule the cron job keeps items on, so a row can say how long it still has.",
@@ -32878,7 +32893,6 @@ const allowed = new Map([
     "/** Shared vocabulary for the CloudDrive app: paths, names, categories, listing and preferences. */",
     "/** `report (1).pdf`, `report (2).pdf`; the extension stays at the end. */",
     "/** `report (restored).pdf` */",
-    "/**\n * The scopes an API key can carry. Only WebDAV consumes a key today, so the list names what works;\n * a bearer/REST surface brings its own scopes when it exists.\n */",
     "/** Trash listings only: when the row went to the trash and whether its subtree came with it. */",
     "/** What an upload does when the destination already holds that name. */",
     "/** What the album can show: stills, moving pictures, or both. Animated files fall under stills. */",
@@ -32887,6 +32901,8 @@ const allowed = new Map([
     "// transport boundary, and a user typing a path decodes nothing. Decoding here too would throw on a",
     "// literal `%` (`100%.txt`) and would turn an encoded slash (`a%2Fb`) into a real directory separator.",
     "// Raw URL pathnames are the one encoded source; `parseEncodedPath()` in the worker decodes those once.",
+    "/**\n * Existing `webdav` keys stay read/write during migration. New keys should choose the narrower scopes.\n */",
+    "/** Optional list columns; name and the selection control are always present. */",
   ]],
   ["src/shared/clouddrive/settings.ts", [
     "/** Defaults and validation for the CloudDrive settings stored as `CloudDrive_settings` rows. */",
@@ -40102,13 +40118,17 @@ const allowed = new Map([
     "/**\n * Remote URL uploads: pull a file from an HTTP address into the primary mount.\n *\n * OpenList calls this an offline download; in this deployment the bytes have to pass through the\n * worker, so the address is treated as attacker-controlled: every hop is re-checked against the\n * shared SSRF guard, redirects are followed by hand rather than by `fetch`, and the transfer is\n * split into ranged parts so a killed isolate leaves a resumable session instead of a half object.\n *\n * The probe decides the strategy. A server that answers `Range` with 206 gives a known total and\n * resumable parts; one that ignores it is only accepted for a file small enough to take in one\n * request, because a plain GET cannot be resumed.\n */",
     "/** The address after redirects; later part requests use it directly (and are re-checked). */",
     "/** Null when the server declared neither a total nor a length. */",
-    "/** `fetch` with every redirect hop checked, so a public address cannot hand the worker a private one. */",
     "/**\n * One ranged request that discovers the size, the media type and whether the server honours ranges.\n * The body is cancelled immediately: the probe must not download a file the reader has not accepted.\n */",
     "/** Leaves the session and its parts clean when a task fails or the reader cancels it. */",
     "/**\n * Works one URL upload until the budget runs out. One part per ranged request keeps each step small\n * enough for a worker invocation; the part rows make the next call continue where this one stopped.\n */",
     "// The session completes or is aborted elsewhere; a queued task has nothing left to do.",
     "// The reader may cancel while a part is in flight; the next step must not resume it.",
     "/**\n * The cron's share: continue URL uploads that are queued, or whose isolate died mid-part. A task a\n * request is still working keeps a live `locked_until`, so the sweep cannot run it twice.\n */",
+    "/** The probe reads headers only; this is a ceiling on anything a caller accidentally pulls from it. */",
+    "/** One task invocation may stream for this long; the six-second soft budget still hands parts off. */",
+    "// Cancellation is best-effort and must not become another place an unusable body can hold the",
+    "// request open. The catch is adjacent to the fire-and-forget operation and keeps failures visible.",
+    "/**\n * `fetch` with every redirect hop checked, under one deadline that remains active while the returned\n * body is consumed. A header-only timeout would still let a server stall forever after sending 206.\n */",
   ]],
   ["src/worker/clouddrive/routes-acl.ts", [
     "/**\n * The rows a single save may copy. A shared tree deep enough to exceed this is refused rather than\n * half-copied, because a partial folder in the reader's drive is worse than an error they can retry.\n */",
@@ -40122,6 +40142,8 @@ const allowed = new Map([
     "// listing applies decides which names the directory shows.",
     "// A grant to a file under a password folder follows the folder's lock, exactly as the owner's own",
     "// file route does (it checks the containing directory, not the file path).",
+    "// A username lookup is an enumeration oracle. Budget all misses for this owner/client together so",
+    "// changing the guessed name cannot reset the lock; valid lookups neither spend nor clear it.",
   ]],
   ["src/worker/clouddrive/routes-admin.ts", [
     "/**\n * Owner-only maintenance endpoints behind the CloudDrive admin pages.\n *\n * The overview, activity, file table and index page all speak the same rule as the rest of the app:\n * a query names its owner. The optional member-file view is the single deliberate widening, and it\n * only happens when the owner has turned `admin.ownerCanViewMemberFiles` on.\n */",
@@ -40133,6 +40155,12 @@ const allowed = new Map([
     "// Start it now and let the request finish; whatever the time budget does not cover, the cron",
     "// sweep picks up on the next tick.",
   ]],
+  ["src/worker/clouddrive/routes-comments.ts", [
+    "/**\n * Comments belong to the owner's file row, not merely to a globally guessed id. A non-owner must have\n * an active grant on the file or one of its ancestor folders; the folder password remains an access\n * boundary for both listing and writing.\n */",
+    "// Delivery is deliberately data-only for now: a later notifier can consume these stable, deduplicated",
+    "// records without exposing the comment body to a recipient who cannot open the file.",
+    "/** Suggestions are limited to people who can already open this file, avoiding account enumeration. */",
+  ]],
   ["src/worker/clouddrive/routes-content.ts", [
     "// Image Resizing refuses formats/corrupt files it cannot decode; the honest thumbnail is then",
     "// the original object, marked as a fallback rather than pretending a resize happened.",
@@ -40141,6 +40169,9 @@ const allowed = new Map([
     "// A folder can hide its children two ways — its own `metadata.hidePatterns` and the mount-level meta",
     "// row with its inherit flags — and an archive that ignored either would hand out what the listing",
     "// refuses to show. Both are resolved once per directory, not once per entry.",
+    "/** Read at most the thumbnail ceiling so a lying or absent Content-Length cannot allocate unbounded memory. */",
+    "// Do not forward upstream cookies, CSP, disposition or other active headers. This endpoint only",
+    "// returns inert raster bytes under a policy that permits nothing to execute or load.",
   ]],
   ["src/worker/clouddrive/routes-dav.ts", [
     "/** Is any account advertising WebDAV? Only used to pick 503 over 401 for an unauthenticated probe. */",
@@ -40148,8 +40179,6 @@ const allowed = new Map([
     "// An empty configuration answers 503; a wrong password against a configured account is a 401.",
     "/** Create every missing folder on the way to `path`, the way a DAV PUT is allowed to. */",
     "// Another request may have created the same folder between the lookup and the insert.",
-    "// The upload never became a row; R2 owns whatever bytes a failed put may have left.",
-    "// The row is the authority; an object whose row never landed would be an orphan.",
     "/** Resolve the `Destination` header on the same origin to a virtual path. */",
     "// `substr`, not `LIKE`: a folder named `100%` must not rewrite `100x`.",
     "// D1 refuses batches above about a hundred statements; a big copy may leave earlier chunks behind",
@@ -40178,6 +40207,8 @@ const allowed = new Map([
     "/**\n * Write locks: stored, enforced by every mutating method until they expire, and reported by\n * PROPFIND. A body carrying `<D:lockinfo>` takes a lock; an empty body refreshes one the caller\n * already holds. `Depth: 0` locks a single resource, anything else the whole subtree under it.\n */",
     "// A token that names no lock on this resource is a conflict, not a success that changed nothing.",
     "/** `c.req.path` is still percent-encoded; `parseEncodedPath` decodes it exactly once. */",
+    "/**\n * A DAV client sends the same Basic credentials on every PROPFIND. Remember only a digest of those\n * credentials, never the password, and re-read the current hash before accepting a hit. That read is\n * what makes a password rotation or WebDAV disable revoke the session immediately, including after\n * another isolate handled the settings write.\n */",
+    "// The row id is stable, so tags, stars, ACL grants and share tokens keep pointing at it.",
   ]],
   ["src/worker/clouddrive/routes-files.ts", [
     "/**\n * The authenticated CloudDrive file API.\n *\n * Every route resolves the mount and the entry through `lib.ts`, validates its inputs, and asks\n * `store-files.ts` for rows. Errors are `ApiError`s, so the app-level handler answers with the same\n * envelope as the rest of the product.\n */",
@@ -40245,9 +40276,9 @@ const allowed = new Map([
     "/** How many files one visitor may hand to one request link inside the window. */",
     "// The link's own `max_files`/`max_bytes` bound what a visitor can store, not how hard they can push:",
     "// without a per-visitor budget one page reload loop spends the whole allowance in seconds.",
-    "// The bytes are handed to object storage as a stream: `max_file_bytes` can be a gigabyte on a",
-    "// request link and an isolate cannot hold that, so the size is only known once the put is done and",
-    "// every check below reads it from the object rather than from a buffer.",
+    "// Without Content-Length, reserve the largest body this link and quota can currently accept. The",
+    "// conditional UPDATE makes concurrent visitors share one budget; the unused tail is refunded after",
+    "// the stream reveals the real size. No unbounded object is written while the size is unknown.",
   ]],
   ["src/worker/clouddrive/routes-settings.ts", [
     "/**\n * CloudDrive user settings and the capacity card.\n *\n * Settings are per-user key/value rows. The WebDAV password arrives as plain text, is hashed here\n * with the same scrypt helper the login flow uses, and only the hash is stored — the response is the\n * public projection, which has no hash field at all.\n */",
@@ -40272,9 +40303,12 @@ const allowed = new Map([
     "// Only a type this route is willing to draw may switch to inline; `text/html` in particular keeps",
     "// the attachment disposition the app-wide rule gave it.",
     "/** The page a cursor asks for; anything that is not a sane offset starts the folder over. */",
-    "// A download is a request, not a header shape: a visitor who asks for `bytes=1-` receives the",
-    "// same file as one who asks without a Range, so counting only the no-range/`bytes=0-` case let",
-    "// `max_downloads` be bypassed with one extra header. HEAD stays free because it returns no bytes.",
+    "/** The immutable target id, not its former path, is the public link's root. */",
+    "/** A distributed row is only a manifest; verify the objects this response will actually read before spending its budget. */",
+    "// A download is a request, not a header shape: `/content`, `/download`, `/raw` and Range all hand",
+    "// over the same bytes. HEAD and preview-only rendering stay free; a missing object is never charged.",
+    "// Listing and content are views too. Charging them here closes the alternate endpoints that used",
+    "// to skip `max_views`; the per-visitor dedupe still makes metadata + list + preview one visit.",
   ]],
   ["src/worker/clouddrive/routes-upload-url.ts", [
     "/**\n * `POST /uploads/url` starts an offline download: the worker pulls a remote HTTP file into R2.\n *\n * The probe runs in the request so the reader learns immediately whether the address is reachable,\n * how large the file is and whether the server honours ranged reads. The transfer itself runs as a\n * `url_upload` task so the progress is visible in the transfer centre, cancellation is honoured\n * between parts, and the cron sweep can continue a task whose isolate was killed.\n */",
@@ -40288,6 +40322,8 @@ const allowed = new Map([
     "// A reader coming back to an unfinished upload needs the part list, not a prefix count: parts may",
     "// have been written out of order, and re-sending one the bucket already holds costs the whole part.",
     "/**\n * Session-based uploads into the primary R2 mount.\n *\n * Small files take one PUT of raw bytes; everything else becomes an R2 multipart upload whose parts\n * are recorded in `CloudDrive_upload_parts` so a refresh can resume. The object key is allocated at\n * init (`CloudDrive/{category}/{fileId}`) and the file row is only written on completion, which keeps\n * an abandoned upload out of the virtual tree.\n *\n * Only the primary mount is accepted here. External mounts need a storage driver and are out of scope\n * for this pass; the `clouddrive_mount_unavailable` answer is explicit rather than a silent fallback.\n * A remote read from an HTTP address lives in `routes-upload-url.ts`; it ends in the same session\n * table and the same finalizer, so a URL upload and a browser upload produce identical rows.\n */",
+    "// External S3 signing and non-S3 drivers still need the complete part. Bound that necessary",
+    "// buffer to the exact declared part size, and reuse it if the primary fallback is needed.",
   ]],
   ["src/worker/clouddrive/routes-versions.ts", [
     "// A version is the file's content under another name: without this the folder lock guarded the",
@@ -40345,6 +40381,7 @@ const allowed = new Map([
     "// No second full scan for a headline number: a page that came back short is the whole answer, and",
     "// a full page honestly reports that the total is unknown.",
     "/**\n * Record that a file was just opened. The recent-view page is ordered by this column, so a writer\n * it stays empty forever; only the read route knows a view actually happened.\n */",
+    "/**\n * Move every path-scoped policy row with the entry that owns the path. These updates must travel in\n * the same D1 batch as `CloudDrive_files`: a committed file move with stale locks, request targets or\n * sync roots would silently change what those controls mean.\n * API key prefixes are global across mounts, so they are intentionally not migrated here.\n */",
   ]],
   ["src/worker/clouddrive/store-keys.ts", [
     "/**\n * CloudDrive API keys.\n *\n * A key is `cdk_` plus 32 random bytes in base64url; only its SHA-256 hash is stored. The plaintext\n * exists once, in the POST response, and the listing shows the short prefix instead. The same lookup\n * authenticates WebDAV (`apikey` + token) and the key owner is then used for every scoped query.\n */",
@@ -40394,7 +40431,6 @@ const allowed = new Map([
     "// unconditional branch.",
     "// A ZIP entry may not start with `/`: that would name an absolute path rather than a member of the",
     "// archive, and the root of the drive has no directory of its own to name.",
-    "// An empty folder still has to answer with something a reader can open, not a 404.",
   ]],
   ["src/worker/cloudflare/account-probe.ts", [
     "/**\n * The import path that stores an account before Cloudflare has vouched for it.\n *\n * `createAccount` verifies the credential first, which is right for the add dialog and wrong for a\n * CSV import with `skipVerify`: that option exists so a bulk paste lands in seconds and the screen\n * tests the rows afterwards. This writes the same two things in the same order — the sealed file,\n * then the row — and leaves `cf_account_id` empty, which is exactly the \"Unverified\" filter.\n *\n * Nothing here talks to Cloudflare, so a row written by this module is inert until `testAccount`\n * probes it.\n */",
@@ -42082,6 +42118,13 @@ const allowed = new Map([
   ]],
   ["src/worker/inknote/usage.ts", [
     "/** The account usage summary the settings panel draws. */",
+  ]],
+  ["src/worker/lib/body-stream.ts", [
+    "/** Absolute wall-clock deadline, covering time spent waiting for the next chunk as well. */",
+    "/** Wrap an upload without buffering it, rejecting as soon as its byte count crosses the ceiling. */",
+    "/** The bounded buffer required by external drivers that cannot sign or slice a streaming body. */",
+    "// Node-based route tests do not expose Cloudflare's FixedLengthStream. The validating stream is",
+    "// equivalent for those consumers; Workers always take the native branch above so R2 knows length.",
   ]],
   ["src/worker/lib/crypto.ts", [
     "/**\n   * The default sentence is about the one thing only the operator can fix: no binding at all. A caller\n   * that got an answer and did not like it passes its own sentence instead — a refusal and an absent\n   * binding are different failures, and reporting a refusal as \"the binding is missing\" sends whoever\n   * reads it looking in the wrong place. Neither message carries the value that was being stored.\n   */",
@@ -49412,6 +49455,7 @@ const allowed = new Map([
     "// A full page cannot claim a total; the reader is told the rest is unknown rather than a lie.",
     "// The recent page has no rows until a read says one happened.",
     "// A star outside the root still has to reach the starred page, which is why it is a global query.",
+    "// A failing dependent update must roll the file rename back too: all path state is one D1 batch.",
   ]],
   ["tests/clouddrive-lib.test.ts", [
     "// `%252F` is a name that literally contains `%2F`; one decode leaves the text, not a separator.",
@@ -49439,9 +49483,10 @@ const allowed = new Map([
     "// write; a big mount timed the upload out. Nothing is asked of the driver now.",
   ]],
   ["tests/clouddrive-requests.test.ts", [
-    "// What the bucket receives is the contract: a stream keeps the isolate flat no matter how big the",
-    "// visitor's file is, a buffer is the memory DoS this route used to be.",
     "// The bytes that did not fit are taken back out of the bucket, so the rejection leaves no orphan.",
+    "// R2 requires a known length. Unknown-length bodies are therefore capped in memory before the put;",
+    "// the reservation prevents concurrent visitors from each allocating the same ceiling.",
+    "// The unknown-length body is capped by a budget reservation before it is read.",
   ]],
   ["tests/clouddrive-shares.test.ts", [
     "// A locked link answers with the fact that it is locked and nothing else: the name, the owner's own",
@@ -49456,6 +49501,7 @@ const allowed = new Map([
     "// The download row carries the bytes it served; the view row legitimately carries none.",
     "// The two pages do not overlap and together they are the folder.",
     "// The one type this route lets through does not widen the rule for anything else.",
+    "// A different object now occupies the link's former path.",
   ]],
   ["tests/clouddrive-upload.test.ts", [
     "/**\n * The app itself, with a real D1 schema and the in-memory R2 double. CloudDrive is mounted above the\n * `/api/clouddrive` prefix, so the session cookie and the client header are the same ones a browser\n * sends.\n */",
