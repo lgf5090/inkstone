@@ -25,6 +25,7 @@ export interface TemplateWrite {
 }
 
 const COLUMNS = 'id, name, title, description, kind, all_day, duration_minutes, color, meta_json, rev'
+export const MAX_TEMPLATES = 100
 
 export async function listTemplateRows(db: D1Database, userId: string): Promise<TemplateRow[]> {
   const { results } = await db.prepare(
@@ -54,14 +55,18 @@ export async function insertTemplateRow(
     db.prepare(
       `INSERT INTO calendar_event_templates
          (user_id, id, name, title, description, kind, all_day, duration_minutes, color, meta_json, created_at, updated_at, rev)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, 1)`,
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, 1
+        WHERE (SELECT COUNT(*) FROM calendar_event_templates WHERE user_id = ?1) < ?12`,
     ).bind(
       userId, id, write.name, write.title, write.description, write.kind,
-      write.allDay ? 1 : 0, write.durationMinutes, write.color, write.metaJson, now,
+      write.allDay ? 1 : 0, write.durationMinutes, write.color, write.metaJson, now, MAX_TEMPLATES,
     ),
     db.prepare(`SELECT ${COLUMNS} FROM calendar_event_templates WHERE user_id = ?1 AND id = ?2`)
       .bind(userId, id),
   ])
+  if ((outcomes[0]?.meta.changes ?? 0) === 0) {
+    throw ApiError.conflict('The template limit has been reached')
+  }
   const row = (outcomes.at(-1) as D1Result<TemplateRow>).results?.[0]
   if (!row) throw new Error('Calendar template create did not persist')
   return row

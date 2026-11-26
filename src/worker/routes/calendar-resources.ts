@@ -6,7 +6,7 @@
  * applies; this route only keeps the label and capacity row in step with it.
  */
 import { Hono } from 'hono'
-import { MAX_CALENDAR_NAME } from '@shared/calendar/model'
+import { MAX_CALENDARS, MAX_CALENDAR_NAME } from '@shared/calendar/model'
 import type { CalendarResourceDto } from '@shared/calendar/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -21,6 +21,7 @@ import { parseCalendarInput } from '../calendar/validation'
 const readBudget = createMinuteBudget(240, 'Too many calendar reads at once. Try again in a minute.')
 const writeBudget = createMinuteBudget(60, 'Too many calendar changes. Try again in a minute.')
 const BODY_LIMIT = 8 * 1024
+const MAX_RESOURCES = MAX_CALENDARS
 
 export const calendarResourceRoutes = new Hono<AppBindings>()
 calendarResourceRoutes.use('*', requireAuth)
@@ -53,6 +54,9 @@ calendarResourceRoutes.post('/resources', async (c) => {
   const resourceName = name(body.name)
   const seats = capacity(body.capacity)
   const store = new CalendarStore(c.env.DB, c.get('userId'))
+  const count = await c.env.DB.prepare('SELECT COUNT(*) AS count FROM calendar_resources WHERE user_id = ?')
+    .bind(c.get('userId')).first<{ count: number }>()
+  if (Number(count?.count ?? 0) >= MAX_RESOURCES) throw ApiError.conflict('The resource limit has been reached')
   const input = parseCalendarInput({
     name: resourceName,
     ...(body.color === undefined ? {} : { color: body.color }),

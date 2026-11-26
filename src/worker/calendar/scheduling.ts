@@ -1,4 +1,5 @@
 /** Booking-link rows; the public page reads them by slug without an account. */
+import { ApiError } from '../lib/errors'
 export interface SchedulingLinkRow {
   id: string
   calendar_id: string
@@ -16,6 +17,7 @@ export interface SchedulingLinkWithOwner extends SchedulingLinkRow {
 }
 
 const COLUMNS = 'id, calendar_id, slug, title, duration_minutes, days_json, start_hour, end_hour, enabled'
+export const MAX_SCHEDULING_LINKS = 20
 
 export async function listSchedulingLinks(db: D1Database, userId: string): Promise<SchedulingLinkRow[]> {
   const { results } = await db.prepare(
@@ -56,14 +58,18 @@ export async function insertSchedulingLink(
     now: number
   },
 ): Promise<void> {
-  await db.prepare(
+  const result = await db.prepare(
     `INSERT INTO calendar_scheduling_links
        (user_id, id, calendar_id, slug, title, duration_minutes, days_json, start_hour, end_hour, enabled, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)`,
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11
+      WHERE (SELECT COUNT(*) FROM calendar_scheduling_links WHERE user_id = ?1) < ?12`,
   ).bind(
     input.userId, input.id, input.calendarId, input.slug, input.title, input.durationMinutes,
-    input.daysJson, input.startHour, input.endHour, input.enabled ? 1 : 0, input.now,
+    input.daysJson, input.startHour, input.endHour, input.enabled ? 1 : 0, input.now, MAX_SCHEDULING_LINKS,
   ).run()
+  if ((result.meta.changes ?? 0) === 0) {
+    throw ApiError.conflict('The scheduling link limit has been reached')
+  }
 }
 
 export async function updateSchedulingLink(

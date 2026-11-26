@@ -3,11 +3,14 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MAX_EVENTS_PER_QUERY, type CalendarDto, type CalendarEventDto, type CalendarMetaDto } from '../src/shared/calendar/model'
+import { MAX_CALENDARS, MAX_EVENTS_PER_QUERY, type CalendarDto, type CalendarEventDto, type CalendarMetaDto } from '../src/shared/calendar/model'
 import { MAX_RECURRENCE_OCCURRENCES } from '../src/worker/calendar/ics'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { clearRateLimit } from '../src/worker/lib/rate-limit'
+import { createContact } from '../src/worker/calendar/contacts'
+import { MAX_TEMPLATES, insertTemplateRow } from '../src/worker/calendar/templates'
+import { MAX_SCHEDULING_LINKS } from '../src/worker/calendar/scheduling'
 import { calendarRoutes } from '../src/worker/routes/calendar'
 import { calendarMemberRoutes } from '../src/worker/routes/calendar-members'
 import { calendarResourceRoutes } from '../src/worker/routes/calendar-resources'
@@ -436,6 +439,53 @@ function timedEvent(calendarId: string, startMs: number, overrides: Record<strin
     ...overrides,
   })
 }
+
+describe('entity write quotas', () => {
+  it('refuses contacts, templates, booking links and resources at their limits', async () => {
+    const contactInsert = sqlite.prepare(
+      'INSERT INTO calendar_contacts (user_id, id, name, email, created_at, updated_at, rev) VALUES (?, ?, ?, ?, ?, ?, 1)',
+    )
+    for (let index = 0; index < 5000; index += 1) {
+      contactInsert.run(ALICE, `quota-contact-${index}`, `Contact ${index}`, `contact-${index}@example.com`, 1, 1)
+    }
+    await expect(createContact(db, ALICE, { name: 'Overflow', email: 'overflow@example.com' }))
+      .rejects.toMatchObject({ status: 409 })
+
+    const templateInsert = sqlite.prepare(
+      `INSERT INTO calendar_event_templates
+         (user_id, id, name, title, description, kind, all_day, duration_minutes, color, meta_json, created_at, updated_at, rev)
+       VALUES (?, ?, ?, ?, '', 'event', 0, 60, NULL, '{}', 1, 1, 1)`,
+    )
+    for (let index = 0; index < MAX_TEMPLATES; index += 1) {
+      templateInsert.run(ALICE, `quota-template-${index}`, `Template ${index}`, `Title ${index}`)
+    }
+    await expect(insertTemplateRow(db, ALICE, 'overflow-template', {
+      name: 'Overflow', title: 'Overflow', description: '', kind: 'event', allDay: false,
+      durationMinutes: 60, color: null, metaJson: '{}',
+    })).rejects.toMatchObject({ status: 409 })
+
+    const linkInsert = sqlite.prepare(
+      `INSERT INTO calendar_scheduling_links
+         (user_id, id, calendar_id, slug, title, duration_minutes, days_json, start_hour, end_hour, enabled, created_at, updated_at)
+       VALUES (?, ?, 'quota-calendar', ?, 'Link', 30, '[1]', 9, 17, 1, 1, 1)`,
+    )
+    for (let index = 0; index < MAX_SCHEDULING_LINKS; index += 1) {
+      linkInsert.run(ALICE, `quota-link-${index}`, `quota-slug-${index}`)
+    }
+    const calendar = await defaultCalendar()
+    expect((await call('POST', '/api/calendar/scheduling-links', { calendarId: calendar.id })).status).toBe(409)
+
+    const resourceInsert = sqlite.prepare(
+      'INSERT INTO calendar_resources (user_id, id, calendar_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1)',
+    )
+    for (let index = 0; index < MAX_CALENDARS; index += 1) {
+      resourceInsert.run(ALICE, `quota-resource-${index}`, `quota-resource-calendar-${index}`, `Resource ${index}`)
+    }
+    const calendarsBefore = sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_calendars WHERE user_id = ?').get(ALICE)
+    expect((await call('POST', '/api/calendar/resources', { name: 'Overflow room' })).status).toBe(409)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_calendars WHERE user_id = ?').get(ALICE)).toEqual(calendarsBefore)
+  })
+})
 
 describe('resources, booking links and snoozes', () => {
   it('creates a resource calendar and exposes it in meta', async () => {

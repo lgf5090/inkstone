@@ -97,10 +97,12 @@ export async function createContact(
   const now = Date.now()
   const email = parseEmail(input.email)
   try {
-    await db.prepare(
+    const result = await db.prepare(
       `INSERT INTO calendar_contacts (user_id, id, name, email, birthday, created_at, updated_at, rev)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-    ).bind(userId, id, parseName(input.name), email, parseBirthday(input.birthday), now, now).run()
+       SELECT ?, ?, ?, ?, ?, ?, ?, 1
+        WHERE (SELECT COUNT(*) FROM calendar_contacts WHERE user_id = ?) < ?`,
+    ).bind(userId, id, parseName(input.name), email, parseBirthday(input.birthday), now, now, userId, MAX_CONTACTS).run()
+    if ((result.meta.changes ?? 0) === 0) throw ApiError.conflict('The contact limit has been reached')
   } catch (error) {
     if (error instanceof Error && /unique/i.test(error.message)) {
       throw ApiError.conflict('A contact with that email already exists')
