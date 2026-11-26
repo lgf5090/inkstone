@@ -304,6 +304,12 @@ describe('the daily-plan row', () => {
     expect(row.textContent).toContain(t('settings.todo_import_json_result', { created: 1, skipped: 0, failed: 1 }))
     expect(row.textContent).toContain(t('settings.todo_import_json_row', { row: 2, reason: 'task.status is invalid' }))
   })
+
+  it('shows the share-target address that opens a task editor', async () => {
+    await render()
+    const row = rowByTitle(t('settings.todo_share_target'))!
+    expect(row.querySelector<HTMLInputElement>('input')?.value).toContain('/share-target?target=todo')
+  })
 })
 
 describe('the stored goals', () => {

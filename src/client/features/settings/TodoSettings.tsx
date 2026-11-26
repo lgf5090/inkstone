@@ -461,6 +461,7 @@ export function TodoSettings() {
       <MailToTaskSettings />
       <TodoImportRow />
       <TodoJsonImportRow />
+      <TodoShareTargetRow />
     </div>
   )
 }
@@ -766,6 +767,15 @@ function TodoImportRow() {
         </Select>
         <Button size="sm" disabled={busy} onClick={() => void run()}>{t('settings.todo_import_action')}</Button>
       </div>
+    </SettingRow>
+  )
+}
+
+function TodoShareTargetRow() {
+  const address = `${window.location.origin}/share-target?target=todo`
+  return (
+    <SettingRow title={t('settings.todo_share_target')} description={t('settings.todo_share_target_hint')}>
+      <Input readOnly value={address} aria-label={t('settings.todo_share_target')} className="max-w-[360px]" />
     </SettingRow>
   )
 }

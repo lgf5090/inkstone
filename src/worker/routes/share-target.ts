@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
 import { countText, deriveExcerpt } from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
+import { MAX_TASK_DESCRIPTION_CHARS } from '@shared/todos/model'
+import { AssistantStore } from '../assistant/store'
 import { assertNoteQuota } from '../db/quota'
 import { ApiError } from '../lib/errors'
 import { sha256Hex } from '../lib/encoding'
@@ -36,9 +38,21 @@ shareTargetRoutes.post('/', requireAuth, async (c) => {
   assertContentSize(content)
 
   const userId = c.get('userId')
+  const target = c.req.query('target') ?? 'note'
+  if (target !== 'note' && target !== 'todo') throw ApiError.badRequest('Unknown share target')
+  const title = sharedTitle || truncateText(sharedText.split('\n')[0] || sharedUrl, LIMITS.titleMaxLength)
+  if (target === 'todo') {
+    if (content.length > MAX_TASK_DESCRIPTION_CHARS) {
+      throw ApiError.badRequest(`A shared task note cannot exceed ${MAX_TASK_DESCRIPTION_CHARS} characters`)
+    }
+    const store = new AssistantStore(c.env.DB, userId, c.env)
+    const settings = await store.getSettings()
+    const task = await store.createTask({ title: title.slice(0, 300), description: content }, settings.timezone)
+    await store.recordActivity('task.created', task.title)
+    return c.redirect(`/todo/${task.id}`, 303)
+  }
   const now = Date.now()
   const id = newId()
-  const title = sharedTitle || truncateText(sharedText.split('\n')[0] || sharedUrl, LIMITS.titleMaxLength)
   const { words, chars } = countText(content)
   const [contentHash] = await Promise.all([sha256Hex(content), assertNoteQuota(c.env.DB, userId)])
   const store = new NotesStore(c.env.DB, userId, c.get('database').ftsEnabled)

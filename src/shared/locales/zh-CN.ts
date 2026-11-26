@@ -3881,6 +3881,8 @@ const ZH_CORE_MESSAGES = {
     "settings.todo_import_json_choose": "请先选择一个 JSON 文件",
     "settings.todo_import_json_result": "新增 {created} 条，跳过 {skipped} 条，失败 {failed} 条",
     "settings.todo_import_json_row": "第 {row} 行：{reason}",
+    "settings.todo_share_target": "系统分享到待办",
+    "settings.todo_share_target_hint": "支持分享目标的客户端可向此地址 POST 标题、正文和链接，直接打开待办编辑器。",
     "settings.todo_digest": "每日计划推送",
     "settings.todo_digest_hint": "每天在 {zone} 的设定时间，推送今天到期与已逾期的待办；不使用 AI。",
     "settings.todo_digest_time": "每日计划推送时间",

@@ -3888,6 +3888,8 @@ const CORE_MESSAGES = {
     "settings.todo_import_json_choose": "Choose a JSON file first",
     "settings.todo_import_json_result": "Created {created}, skipped {skipped}, failed {failed}",
     "settings.todo_import_json_row": "Row {row}: {reason}",
+    "settings.todo_share_target": "Share to to-do",
+    "settings.todo_share_target_hint": "Clients with share-target support can POST a title, text and URL here to open the task editor directly.",
     "settings.todo_digest": "Daily plan reminder",
     "settings.todo_digest_hint": "Every day at the time below, in {zone}: what is due today and what is overdue. Uses no AI.",
     "settings.todo_digest_time": "Daily plan time",
