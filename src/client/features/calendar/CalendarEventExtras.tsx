@@ -31,6 +31,7 @@ import { CalendarTemplatesDialog } from './CalendarTemplatesDialog'
 import { CalendarTimeZoneField } from './CalendarTimeZoneField'
 import { addAttendee, normalizeAttendeeEmail, withAttendeeStatus, withoutAttendee } from './attendees'
 import { eventTimeZone, reanchorValue, shiftTemporalValue } from './timezone'
+import { jitsiMeetingUrl } from '../../lib/runtime'
 
 interface CalendarEventExtrasProps {
   eventId: string
@@ -354,7 +355,7 @@ export function CalendarEventExtras({
         const meetingId = `inkstone-${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
         const saved = await serializedWrite(() => api.updateEventPatch(eventId, {
           conference: add
-            ? { provider: 'jitsi', joinUrl: `https://meet.jit.si/${meetingId}`, meetingId }
+            ? { provider: 'jitsi', joinUrl: jitsiMeetingUrl(meetingId), meetingId }
             : null,
         }, latestRev.current!))
         latestRev.current = saved.rev

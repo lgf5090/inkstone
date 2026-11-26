@@ -1,5 +1,19 @@
 export const IS_DEMO_MODE = import.meta.env.MODE === 'demo'
 
+const configuredJitsiBase = import.meta.env.VITE_JITSI_BASE_URL?.trim()
+export const JITSI_BASE_URL = (() => {
+  if (!configuredJitsiBase) return 'https://meet.jit.si'
+  const url = new URL(configuredJitsiBase)
+  if (url.protocol !== 'https:' || url.username || url.password || url.hash) {
+    throw new Error('VITE_JITSI_BASE_URL must be an HTTPS URL without credentials or a fragment')
+  }
+  return url.toString().replace(/\/+$/, '')
+})()
+
+export function jitsiMeetingUrl(meetingId: string): string {
+  return `${JITSI_BASE_URL}/${meetingId}`
+}
+
 export const DEMO_CREDENTIALS = {
   username: 'admin',
   password: 'password',
