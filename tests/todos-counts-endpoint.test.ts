@@ -82,8 +82,8 @@ describe('the statistics window', () => {
     expect(response.status).toBe(200)
   })
 
-  it('holds the worklog and the ledger to the same ceiling', async () => {
-    expect((await get('/worklog?from=1900-01-01&to=2100-01-01')).status).toBe(400)
+  it('bounds the statistics and ledger windows while the worklog keeps its own day cap', async () => {
+    expect((await get('/worklog?from=1900-01-01&to=2100-01-01')).status).toBe(200)
     expect((await get('/time?from=1900-01-01&to=2100-01-01')).status).toBe(400)
     const today = localDate(Date.now(), 'UTC')
     expect((await get(`/worklog?from=${addDays(today, -365)}&to=${today}`)).status).toBe(200)
