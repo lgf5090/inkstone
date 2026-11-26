@@ -2,7 +2,7 @@
 
 > 基准提交：`7592a935aa9777a3d765e9ffcf0ef8d2fdeb467b`  
 > 分支：`fix/clouddrive-remediation`  
-> 状态：执行中  
+> 状态：本批次已验证完成；剩余未完成项见下文  
 > 规则：每个任务完成后提交原子 commit，并实时更新本文件；未验证项不得标记 DONE。
 
 ## 当前批次
@@ -49,7 +49,7 @@
 - [x] UX-06 设计令牌、i18n 与死代码清理
 - [ ] UX-07 拆分 FilesPage 与 store-files 职责
 - [x] UX-08 文件列表工具栏、列与搜索体验
-- [ ] UX-09 补齐 lint、测试、build、a11y 门禁
+- [x] UX-09 补齐 lint、测试、build、a11y 门禁
 - [ ] FEAT-01 跨挂载复制/移动/迁移
 - [ ] FEAT-02 跨盘全局搜索与 FTS5
 - [ ] FEAT-03 公开分享转存到我的网盘
@@ -64,7 +64,7 @@
 - [x] FEAT-12 文件评论与 @提及
 - [ ] FEAT-13 媒体增强：HEIC、续播、转码评估
 - [ ] FEAT-14 大列表虚拟滚动
-- [ ] QA-01 单元、类型、静态门禁与构建
+- [x] QA-01 单元、类型、静态门禁与构建
 - [x] QA-02 外部浏览器关键链路验收
 - [ ] QA-03 真实外部驱动冒烟与性能基线
 
@@ -83,8 +83,8 @@
 | FEAT-06 | IN PROGRESS | 75215bf8 | 增量 SHA-256 工具与测试通过；上传去重协议待接 |
 | FEAT-14 | IN PROGRESS | 8b35bf97 | 列表/网格/相册启用 content-visibility；大列表性能实测待做 |
 | UX-01～06 | DONE | 05e2192d | 7 文件 16 项 UX 测试、i18n、ESLint、Stylelint 通过；构建通过 |
-| UX-09 | IN PROGRESS | 84248129 | 新增 gates:full；全量类型、测试与构建待跑 |
-| QA-02 | DONE | - | 有头 Chrome：上传→列表、配置导出、分享改名、评论发布、列菜单、移动端 Inspector/ESC/焦点归还通过 |
+| UX-09 | DONE | 84248129 + 62ca1759 + 7d9b3e14 | typecheck/tests、i18n、comments、hooks、a11y、ESLint、Stylelint 全通过 |
+| QA-02 | DONE | dcda3227 | 有头 Chrome：上传→列表、配置导出、分享改名、评论发布、列菜单、移动端 Inspector/ESC/焦点归还通过 |
 | SEC-01～07 | DONE | ba025d0c | 分享/Meta/ACL/缩略图 87 项回归通过；Key 前缀不随挂载路径漂移 |
 | SEC-14 | DONE | ba025d0c | ACL 用户名探测 5 次后 429 |
 | SEC-08 | DONE | dc694940 | 公开请求 5 项通过；未知长度有界缓冲、已知长度 FixedLengthStream、额度预留与原子退款 |
@@ -104,6 +104,7 @@
 | PERF-01 | DONE | 13018245 | File System Access 流式写盘；无 picker 时交给浏览器下载管理器 |
 | PERF-05 | DONE | 13018245 | DAV 认证缓存 3 项通过；密码轮换立即失效 |
 | PERF-08 | IN PROGRESS | 13018245 | 超时/限长代码已接入，专项超时测试未保留，需后续补验 |
+| QA-01 | DONE | 本次提交 | 全量 2196 文件/26692 项通过；生产构建通过 |
 
 ## 剩余未完成项
 
