@@ -6,13 +6,14 @@
  * member roster nor names referenced only by hidden comments travel to an anonymous reader.
  */
 import type { ProjectBoard, ProjectBoardBundle, ProjectShare } from '@shared/project/model'
-import { projectMultiValueIds } from '@shared/project/model'
+import { projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
 import { newSlug } from '../lib/id'
 import { hashPassword, verifyPassword } from '../lib/password'
 import { ApiError } from '../lib/errors'
 import { assertAttemptBudget, assertNotLocked, clearLoginFailures, consumeAttemptBudget, recordLoginFailure, type AttemptBudgetTarget } from '../lib/throttle'
 import { readProjectBoardBundle } from './bundle'
 import { redactHiddenRelations } from './relations'
+import { projectRoleForBoard } from './visibility'
 
 interface ShareRow {
   slug: string
@@ -100,8 +101,10 @@ export async function readPublicProjectShare(db: D1Database, slug: string, passw
   const row = await db.prepare('SELECT * FROM project_shares WHERE slug = ?1').bind(slug).first<ShareRow>()
   if (!row) throw ApiError.notFound('Share not found')
   if (row.expires_at !== null && row.expires_at <= now) throw ApiError.notFound('Share not found')
-  const boardRow = await db.prepare('SELECT * FROM project_boards WHERE id = ?1 AND delete_at = 0').bind(row.board_id).first<{ id: string, owner_id: string, type: string, minimum_role: string, title: string, description: string, icon: string, show_description: number, is_template: number, template_version: number, created_by: string, modified_by: string, create_at: number, update_at: number, delete_at: number, archived: number }>()
+  const boardRow = await db.prepare('SELECT * FROM project_boards WHERE id = ?1 AND delete_at = 0 AND archived = 0').bind(row.board_id).first<{ id: string, owner_id: string, type: string, minimum_role: string, title: string, description: string, icon: string, show_description: number, is_template: number, template_version: number, created_by: string, modified_by: string, create_at: number, update_at: number, delete_at: number, archived: number }>()
   if (!boardRow) throw ApiError.notFound('Share not found')
+  const creatorRole = await projectRoleForBoard(db, boardRow.id, row.user_id)
+  if (!creatorRole || !projectRoleAtLeast(creatorRole, 'admin')) throw ApiError.notFound('Share not found')
   if (row.password_hash !== null) {
     if (!password) throw ApiError.unauthenticated('An access password is required')
     const targets = projectShareThrottle(slug, ip)

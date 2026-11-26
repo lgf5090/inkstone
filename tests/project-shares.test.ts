@@ -24,7 +24,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  sqlite.exec(`DELETE FROM project_shares; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_cards; DELETE FROM login_attempts`)
+  sqlite.exec(`DELETE FROM users WHERE id <> 'alice'; DELETE FROM project_shares; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_cards; DELETE FROM login_attempts`)
 })
 
 async function req(method: string, path: string, body?: unknown, auth = true): Promise<Response> {
@@ -108,6 +108,22 @@ describe('public sharing', () => {
     expect(Object.keys(visible.people)).toContain('carol')
   })
 
+  it('revalidates board archive state and the share creator access on every read', async () => {
+    const board = await makeBoard()
+    const share = ((await (await req('PUT', `/api/project/boards/${board.id}/share`, {})).json()) as { share: ProjectShare }).share
+    expect((await req('POST', `/api/project/public/${share.slug}`, {}, false)).status).toBe(200)
+    expect((await req('PATCH', `/api/project/boards/${board.id}`, { archived: true })).status).toBe(200)
+    expect((await req('POST', `/api/project/public/${share.slug}`, {}, false)).status).toBe(404)
+    await req('PATCH', `/api/project/boards/${board.id}`, { archived: false })
+
+    sqlite.prepare("INSERT OR IGNORE INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at) VALUES ('bob','bob','hash','bob','bob','member',1,1)").run()
+    sqlite.prepare("INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, 'bob', 'admin', 1, 1)").run(board.id)
+    sqlite.prepare('UPDATE project_shares SET user_id = ? WHERE slug = ?').run('bob', share.slug)
+    expect((await req('POST', `/api/project/public/${share.slug}`, {}, false)).status).toBe(200)
+    sqlite.prepare("DELETE FROM project_board_members WHERE board_id = ? AND user_id = 'bob'").run(board.id)
+    expect((await req('POST', `/api/project/public/${share.slug}`, {}, false)).status).toBe(404)
+  })
+
   it('keeps comments off the public page until the owner opts in', async () => {
     const board = await makeBoard()
     const cardRes = await req('POST', `/api/project/boards/${board.id}/cards`, { title: 'Card' })
@@ -126,7 +142,7 @@ describe('public sharing', () => {
 
   it('refuses a non-owner admin the share controls', async () => {
     const board = await makeBoard()
-    sqlite.prepare('INSERT INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    sqlite.prepare('INSERT OR IGNORE INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run('bob', 'bob', 'hash', 'bob', 'bob', 'member', 1, Date.now())
     sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
       .run(board.id, 'bob', 'admin')
