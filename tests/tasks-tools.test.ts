@@ -39,13 +39,15 @@ const OTHER_NOTE = '01hzzzzzzzzzzzzzzzzzzzzz21'
 let sqlite: DatabaseSync
 let env: Env
 let store: AssistantStore
+let conversationId: string
 
-beforeEach(() => {
+beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   env = testBindings(makeD1(sqlite), { PUBLIC_URL: 'http://localhost' })
   store = new AssistantStore(env.DB as D1Database, USER, env)
+  conversationId = (await store.createConversation('Tool test conversation')).id
 })
 
 afterEach(() => {
@@ -62,7 +64,7 @@ function context(over: Partial<ToolContext> = {}): ToolContext {
     timezone: 'Asia/Shanghai',
     dayEnd: Date.now() + DAY,
     mode: 'chat',
-    conversationId: 'c1',
+    conversationId,
     memoryHistory: {} as ToolContext['memoryHistory'],
     memoryScope: { projectId: null },
     automations: {} as ToolContext['automations'],
@@ -126,7 +128,7 @@ describe('create_task', () => {
 
   it('keeps the conversation the task was created in', async () => {
     const created = await executor().execute('create_task', { title: 'From chat' }, 'call-1') as { created: Record<string, unknown> }
-    expect(created.created.conversation_id).toBe('c1')
+    expect(created.created.conversation_id).toBe(conversationId)
   })
 })
 
