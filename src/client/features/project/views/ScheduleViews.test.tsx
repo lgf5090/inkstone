@@ -263,6 +263,23 @@ describe('the gantt writes', () => {
     expect(props.onPatchCard).toHaveBeenCalledWith('Sprint', { values: { pd: null } })
   })
 
+  it('ignores Delete and Backspace while a dialog has focus', async () => {
+    const props = await mountGantt([sprint])
+    const bar = view.container.querySelector<HTMLElement>('[data-schedule-bar="Sprint"]')!
+    await act(async () => { pointer('pointerdown', 100, bar) })
+    await act(async () => { pointer('pointerup', 100) })
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    const button = document.createElement('button')
+    dialog.append(button)
+    document.body.append(dialog)
+    try {
+      await act(async () => { button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })) })
+      await act(async () => { button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })) })
+    } finally { dialog.remove() }
+    expect(props.onPatchCard).not.toHaveBeenCalled()
+  })
+
   it('bands rows into lanes, sums lane effort and heads the axis once', async () => {
     const withEffort: ProjectProperty[] = [...properties, { id: 'pn', name: 'Hours', type: 'number', options: [] }]
     const a = { ...sprint, values: { ...sprint.values, pn: '8' } }

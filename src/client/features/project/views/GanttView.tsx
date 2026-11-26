@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { CalendarRange, Maximize2, Plus, Settings2, Trash2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectScheduleScale, ProjectViewFields } from '@shared/project/model'
-import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
+import { isProjectCardDone, PROJECT_PROPERTY_CAPABILITIES, projectViewPropertyId } from '@shared/project/model'
 import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
 import { parseProjectDateValue, projectDateValue, projectTimeZoneName } from '@shared/project/date'
 import {
@@ -31,6 +31,7 @@ import { SelectMenu } from '../../../components/select-menu'
 import { prompt } from '../../../components/overlay'
 import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { createProjectCard } from '../api'
+import { useProjectPeople } from '../people-context'
 import { useToday } from '../use-today'
 import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
@@ -63,6 +64,7 @@ interface DragState {
 export function GanttView(props: GanttProps): ReactElement {
   const { cards, properties, links, fields, subtasksByParent, canEdit } = props
   const locale = useLocale()
+  const people = useProjectPeople()
   const propertyId = projectViewPropertyId(fields.dateDisplayPropertyId) ?? properties.find((property) => property.type === 'date')?.id
   const statusProperty = properties.find((property) => property.type === 'select')
   const scale = fields.scheduleScale ?? 'day'
@@ -94,8 +96,10 @@ export function GanttView(props: GanttProps): ReactElement {
       properties,
       collapsed,
       colorOf,
+      people,
+      locale,
     }),
-    [dated, fields.scheduleGroupById, statusProperty?.id, properties, collapsed, colorOf],
+    [dated, fields.scheduleGroupById, statusProperty?.id, properties, collapsed, colorOf, people, locale],
   )
   const daysByCard = useMemo(() => new Map(dated.map((entry) => [entry.card.id, entry.days])), [dated])
   const conflicts = useMemo(() => projectScheduleConflicts(links, daysByCard), [links, daysByCard])
@@ -115,7 +119,7 @@ export function GanttView(props: GanttProps): ReactElement {
   const showWeekends = fields.scheduleShowWeekends !== false
   const showToday = fields.scheduleShowToday !== false
   const todayIndex = days.findIndex((day) => day.today)
-  const groupable = properties.filter((property) => property.type === 'select' || property.type === 'person')
+  const groupable = properties.filter((property) => PROJECT_PROPERTY_CAPABILITIES[property.type].canGroup)
   const effortProperty = properties.find((property) => property.type === 'number')
   const laneEffort = (laneKey: string): number => (effortProperty
     ? dated.filter((entry) => (entry.card.values[fields.scheduleGroupById ?? statusProperty?.id ?? ''] ?? '') === laneKey)
@@ -284,6 +288,7 @@ export function GanttView(props: GanttProps): ReactElement {
     const onKey = (event: KeyboardEvent): void => {
       const target = event.target as HTMLElement
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable) return
+      if (target instanceof HTMLElement && target.closest('[role="dialog"], dialog, [aria-modal="true"]')) return
       if (event.key === 'Escape') { setPalette(null); setSelected(null); setDraft(null); return }
       if ((event.key === 'Delete' || event.key === 'Backspace') && selected && planning) {
         event.preventDefault()

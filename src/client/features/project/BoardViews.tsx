@@ -304,14 +304,14 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
 
   const subtasksByParent = useMemo(() => {
     const map = new Map<string, ProjectCard[]>()
-    for (const card of bundle.cards) {
+    for (const card of filtered) {
       if (!card.parentId) continue
       const list = map.get(card.parentId)
       if (list) list.push(card)
       else map.set(card.parentId, [card])
     }
     return map
-  }, [bundle.cards])
+  }, [filtered])
 
   const badgesFor = useCallback((cardId: string): ProjectCardBadges => badgesByCard.get(cardId) ?? EMPTY_BADGES, [badgesByCard])
   const coverFor = useCallback((cardId: string): string | null => publicView ? null : (coverByCard.get(cardId) ?? null), [coverByCard, publicView])

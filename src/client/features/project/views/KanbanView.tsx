@@ -9,7 +9,7 @@
 import { memo, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, EyeOff, GripVertical, MoreHorizontal, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ProjectCalculation, ProjectCard, ProjectProperty, ProjectViewFields } from '@shared/project/model'
-import { isProjectCardDone } from '@shared/project/model'
+import { isProjectCardDone, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { projectCardColorResolver, projectOptionCssColor, PROJECT_OPTION_COLORS } from '@shared/project/option-color'
@@ -78,6 +78,7 @@ export function kanbanColumnKeys(property: ProjectProperty | undefined, fields: 
 export function KanbanView(props: KanbanProps): ReactElement {
   const { cards, properties, fields, canEdit, selected } = props
   const groupProperty = properties.find((property) => property.id === fields.groupById)
+  const writableGroup = Boolean(groupProperty && !PROJECT_PROPERTY_CAPABILITIES[groupProperty.type].readOnly)
   const groups = useMemo(() => groupProjectCards(cards, fields.groupById, properties), [cards, fields.groupById, properties])
   const keys = useMemo(
     () => kanbanColumnKeys(groupProperty, fields, [...groups.keys()].filter((key) => key !== '')),
@@ -103,7 +104,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
   const onDrop = (cardId: string, target: DragDropTarget): void => {
     const bulk = selected.length > 1 && selectedSet.has(cardId)
     const draggedIds = bulk ? cards.filter((card) => selectedSet.has(card.id)).map((card) => card.id) : [cardId]
-    const moving = groupProperty
+    const moving = writableGroup && groupProperty
       ? draggedIds.filter((id) => {
           const card = cards.find((entry) => entry.id === id)
           return card && (card.values[groupProperty.id] ?? '') !== target.zone
@@ -123,7 +124,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
       draggedIds,
       target,
     })
-    const values = groupProperty ? { [groupProperty.id]: target.zone === '' ? null : target.zone } : {}
+    const values = writableGroup && groupProperty ? { [groupProperty.id]: target.zone === '' ? null : target.zone } : {}
     const patches = moving.map((id) => ({ id, patch: { values } }))
     void props.onDragCards(patches, order)
   }

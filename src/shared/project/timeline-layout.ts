@@ -4,10 +4,10 @@
  * a child drawn as a sibling. Everything is measured in whole local days read through the module's
  * own date conversion, so a card dated the 10th sits on the 10th in every zone.
  */
-import type { ProjectCard, ProjectProperty, ProjectScheduleScale } from './model'
+import type { ProjectCard, ProjectPeople, ProjectProperty, ProjectScheduleScale } from './model'
 import { parseProjectDateValue, projectStampToDay } from './date'
 import { projectOptionCssColor } from './option-color'
-import { groupProjectCards, projectOptionLabel } from './view-eval'
+import { groupProjectCards, projectGroupKeys, projectGroupLabel } from './view-eval'
 
 export const PROJECT_TIMELINE_DAY_MS = 86_400_000
 
@@ -218,6 +218,8 @@ export function projectScheduleRows(
     properties: readonly ProjectProperty[]
     collapsed?: ReadonlySet<string>
     colorOf: (card: ProjectCard) => string
+    people?: ProjectPeople
+    locale?: string
   },
 ): ScheduleRow[] {
   const collapsed = options.collapsed ?? new Set<string>()
@@ -235,7 +237,7 @@ export function projectScheduleRows(
     }))
   if (!groupProperty) return cardRows(cards, '', 0)
   const groups = groupProjectCards(cards, groupProperty.id, options.properties)
-  const keys = [...groupProperty.options.map((option) => option.id), '']
+  const keys = projectGroupKeys(cards, groupProperty.id, options.properties)
   const rows: ScheduleRow[] = []
   for (const key of keys) {
     const list = groups.get(key) ?? []
@@ -243,7 +245,7 @@ export function projectScheduleRows(
     rows.push({
       kind: 'lane',
       id: `lane:${key}`,
-      label: key === '' ? '' : projectOptionLabel(groupProperty, key),
+      label: key === '' ? '' : projectGroupLabel(groupProperty, key, options.people, options.locale),
       depth: 0,
       childCount: list.length,
       color,

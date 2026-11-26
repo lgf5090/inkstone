@@ -22,7 +22,7 @@ let view: RenderedElement
 beforeEach(async () => { await initI18n() })
 afterEach(() => { view?.unmount() })
 
-async function mount(cards: ProjectCard[], extra: Partial<ProjectViewFields> = {}, selected: string[] = []): Promise<Record<string, unknown>> {
+async function mount(cards: ProjectCard[], extra: Partial<ProjectViewFields> = {}, selected: string[] = [], customProperties: ProjectProperty[] = properties): Promise<Record<string, unknown>> {
   const subtasksByParent = new Map<string, ProjectCard[]>()
   for (const entry of cards) {
     if (!entry.parentId) continue
@@ -31,7 +31,7 @@ async function mount(cards: ProjectCard[], extra: Partial<ProjectViewFields> = {
     else subtasksByParent.set(entry.parentId, [entry])
   }
   const props = {
-    cards, properties, fields: { ...emptyProjectViewFields(), groupById: 'ps', ...extra },
+    cards, properties: customProperties, fields: { ...emptyProjectViewFields(), groupById: 'ps', ...extra },
     badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }),
     subtasksByParent, canEdit: true, selected, onSelectClick: vi.fn(), onOpenCard: vi.fn(), onDeleteCard: vi.fn(),
     onPatchCard: vi.fn().mockResolvedValue(undefined), onPatchCards: vi.fn().mockResolvedValue(undefined), onDragCards: vi.fn().mockResolvedValue(undefined), onPatchFields: vi.fn(), onAddCard: vi.fn().mockResolvedValue(undefined),
@@ -163,6 +163,24 @@ describe('dragging within a column', () => {
     expect(props.onPatchFields).not.toHaveBeenCalled()
     expect(props.onPatchCard).not.toHaveBeenCalled()
     expect(document.querySelector('.pv-ghost')).toBeNull()
+  })
+
+  it('reorders an author lane without writing the read-only author field', async () => {
+    const authorProperties: ProjectProperty[] = [{ id: 'author', name: 'Author', type: 'createdBy', options: [] }]
+    const props = await mount([card('a'), card('b')], { groupById: 'author' }, [], authorProperties)
+    const zone = columns()[0]!.querySelector<HTMLElement>('[data-drag-zone]')!
+    zone.getBoundingClientRect = () => ({ left: 0, right: 280, top: 0, bottom: 600, width: 280, height: 600, x: 0, y: 0, toJSON: () => ({}) })
+    for (const [index, id] of ['a', 'b'].entries()) {
+      const element = view.container.querySelector<HTMLElement>(`[data-drag-id="${id}"]`)!
+      const top = index * 100
+      element.getBoundingClientRect = () => ({ left: 0, right: 280, top, bottom: top + 90, width: 280, height: 90, x: 0, y: top, toJSON: () => ({}) })
+    }
+    const grip = view.container.querySelector<HTMLElement>('[data-drag-id="a"] [data-drag-handle]')!
+    await act(async () => { grip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 10, clientY: 10, button: 0, pointerId: 1, pointerType: 'mouse' })) })
+    await act(async () => { window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 20, clientY: 160 })) })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 32)) })
+    await act(async () => { window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 20, clientY: 160 })) })
+    expect(props.onDragCards).toHaveBeenCalledWith([], ['b', 'a'])
   })
 })
 

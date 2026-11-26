@@ -467,6 +467,20 @@ describe('subtask hierarchy in views', () => {
     expect(view.container.textContent).toContain('Child Card')
   })
 
+  it('does not reveal a filtered-out child when its parent is expanded', async () => {
+    const b = bundle()
+    b.cards = [
+      { id: 'c1', boardId: 'b1', parentId: '', title: 'Parent Card', icon: '', isTemplate: false, contentOrder: [], values: { pt: 'show' }, ...stamps },
+      { id: 'c2', boardId: 'b1', parentId: 'c1', title: 'Hidden Child', icon: '', isTemplate: false, contentOrder: [], values: { pt: 'hide' }, ...stamps },
+    ]
+    b.views[0]!.fields.filter = { operation: 'and', filters: [{ propertyId: 'pt', condition: 'contains', values: ['show'] }] }
+    await mount(b)
+    const expandBtn = view.container.querySelector(`button[aria-label="${t('project.card.expand_subtasks')}"]`) as HTMLButtonElement | null
+    expect(expandBtn).toBeNull()
+    expect(view.container.querySelectorAll('tbody tr[data-project-card]')).toHaveLength(1)
+    expect(view.container.textContent).not.toContain('Hidden Child')
+  })
+
   it('nests subtasks inside kanban parent cards with progress badge and expandable checklist', async () => {
     const b = bundle()
     b.cards = [
