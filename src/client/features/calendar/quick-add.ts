@@ -142,7 +142,7 @@ export function parseQuickAdd(
   const today = Temporal.Instant.fromEpochMilliseconds(now.getTime()).toZonedDateTimeISO(timeZone)
   const date = dateOf(trimmed, today)
   if (date.token && !date.date) return null
-  const clock = /(\d{1,2})[:：](\d{2})/.exec(trimmed)
+  const clock = /(\d{1,2})[:\uff1a](\d{2})/.exec(trimmed)
   if (clock && (Number(clock[1]) > 23 || Number(clock[2]) > 59)) return null
   const time = timeOfDay(trimmed)
   const duration = durationMinutes(trimmed)
@@ -161,6 +161,6 @@ export function parseQuickAdd(
   for (const token of [date.token, ...(time?.tokens ?? []), duration?.token]) {
     if (token) title = title.replace(token, ' ')
   }
-  title = title.replace(/\s+/g, ' ').replace(/^[-—:\uff1a,\uff0c\s]+|[-—:\uff1a,\uff0c\s]+$/g, '').trim()
+  title = title.replace(/\s+/g, ' ').replace(/^[-\u2014:\uff1a,\uff0c\s]+|[-\u2014:\uff1a,\uff0c\s]+$/g, '').trim()
   return { title: title || fallbackTitle, start, end }
 }
