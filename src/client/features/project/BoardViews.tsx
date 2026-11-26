@@ -163,6 +163,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const [settings, setSettings] = useState<'sort' | 'filter' | 'properties' | null>(null)
   const [search, setSearch] = useState('')
   const [links, setLinks] = useState<ProjectCardLink[]>([])
+  const [linksStatus, setLinksStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [linksAttempt, setLinksAttempt] = useState(0)
   const [selected, setSelected] = useState<string[]>([])
   const [batchOpen, setBatchOpen] = useState(false)
   const [contextPoint, setContextPoint] = useState<{ x: number, y: number } | null>(null)
@@ -219,12 +221,16 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   useEffect(() => {
     if (publicView || (viewType !== 'timeline' && viewType !== 'gantt')) {
       setLinks([])
+      setLinksStatus('idle')
       return
     }
     const controller = new AbortController()
-    fetchBoardLinks(bundle.board.id, controller.signal).then(setLinks).catch(() => { if (!controller.signal.aborted) setLinks([]) })
+    setLinksStatus('loading')
+    fetchBoardLinks(bundle.board.id, controller.signal)
+      .then((list) => { if (!controller.signal.aborted) { setLinks(list); setLinksStatus('ready') } })
+      .catch(() => { if (!controller.signal.aborted) setLinksStatus('error') })
     return () => controller.abort()
-  }, [bundle.board.id, bundle.cursor, publicView, viewType])
+  }, [bundle.board.id, bundle.cursor, publicView, viewType, linksAttempt])
   useEffect(() => { onActiveViewChange(active?.id ?? '') }, [active?.id, onActiveViewChange])
 
   const viewPatchQueue = useRef<Promise<void>>(Promise.resolve())
@@ -756,6 +762,13 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           {publicView ? t('project.board.truncated_public') : t('project.board.truncated')}
         </p>
       )}
+      {linksStatus === 'error' && (
+        <div role="alert" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5 text-[length:var(--text-12)] text-[var(--danger)]">
+          {t('project.common.load_failed')}
+          <Button size="sm" variant="ghost" onClick={() => setLinksAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+        </div>
+      )}
+      {linksStatus === 'loading' && <p role="status" className="shrink-0 px-3 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('common.loading')}</p>}
       {hiddenCount > 0 && (
         <p className="shrink-0 px-3 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]" role="status">
           {t('project.view.hidden_count', { count: hiddenCount })}

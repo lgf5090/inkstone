@@ -18,9 +18,12 @@ const subscription = (blockId: string): ProjectSubscription => ({
 })
 let view: RenderedElement
 
-function Probe(): ReactElement {
-  const { watching } = useProjectWatch('board', 'b1')
-  return createElement('button', { 'data-watching': String(watching) }, 'watch')
+function Probe({ blockId = 'b1' }: { blockId?: string }): ReactElement {
+  const { watching, status, toggle, retry } = useProjectWatch('board', blockId)
+  return createElement('div', null,
+    createElement('button', { 'data-watching': String(watching), 'data-status': status, onClick: retry }, 'watch'),
+    createElement('button', { 'data-toggle': true, onClick: () => void toggle() }, 'toggle'),
+  )
 }
 
 beforeEach(() => {
@@ -36,6 +39,31 @@ afterEach(() => {
 })
 
 describe('useProjectWatch account cache', () => {
+  it('keeps a failed watch read unknown until retry succeeds', async () => {
+    vi.mocked(api.fetchProjectSubscriptions).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([subscription('b1')])
+    await act(async () => { view = renderElement(createElement(Probe)) })
+    expect(view.container.querySelector('button')?.getAttribute('data-status')).toBe('error')
+    expect(view.container.querySelector('button')?.getAttribute('data-watching')).toBe('false')
+    await act(async () => { view.container.querySelector('button')!.click() })
+    expect(view.container.querySelector('button')?.getAttribute('data-status')).toBe('ready')
+    expect(view.container.querySelector('button')?.getAttribute('data-watching')).toBe('true')
+  })
+
+  it('does not roll back a new board watch when an older board toggle fails', async () => {
+    let rejectOld!: (reason: unknown) => void
+    const oldWrite = new Promise<void>((_resolve, reject) => { rejectOld = reject })
+    vi.mocked(api.watchProjectBlock).mockReturnValueOnce(oldWrite)
+    vi.mocked(api.fetchProjectSubscriptions).mockResolvedValueOnce([subscription('b2')])
+    await act(async () => { view = renderElement(createElement(Probe, { blockId: 'b2' })) })
+    await act(async () => { view.rerender(createElement(Probe, { blockId: 'b1' })) })
+    expect(view.container.querySelector('button')?.getAttribute('data-watching')).toBe('false')
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('[data-toggle]')!.click() })
+    await act(async () => { view.rerender(createElement(Probe, { blockId: 'b2' })) })
+    expect(view.container.querySelector('button')?.getAttribute('data-watching')).toBe('true')
+    await act(async () => { rejectOld(new TypeError('Failed to fetch')); await oldWrite.catch(() => undefined) })
+    expect(view.container.querySelector('button')?.getAttribute('data-watching')).toBe('true')
+  })
+
   it('never reuses one account watch roster for another account', async () => {
     vi.mocked(api.fetchProjectSubscriptions).mockResolvedValueOnce([subscription('b1')])
     await act(async () => { view = renderElement(createElement(Probe)) })

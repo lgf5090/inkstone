@@ -19,19 +19,26 @@ export function resetProjectSubscriptionCache(): void {
   cachedSubscriptions.clear()
 }
 
-export function useProjectWatch(blockType: ProjectSubscriptionBlock, blockId: string): { watching: boolean, toggle: () => Promise<void> } {
+export function useProjectWatch(blockType: ProjectSubscriptionBlock, blockId: string): { watching: boolean, status: 'loading' | 'ready' | 'error', toggle: () => Promise<void>, retry: () => void } {
   const [watching, setWatching] = useState(false)
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const toast = useUi((state) => state.toast)
   const userId = useSession((state) => state.user?.id)
   const accountRef = useRef(userId)
   accountRef.current = userId
+  const blockRef = useRef({ blockType, blockId })
+  blockRef.current = { blockType, blockId }
 
   useEffect(() => {
-    if (!userId) { setWatching(false); return }
+    setStatus('loading')
+    setWatching(false)
+    if (!userId) { setStatus('ready'); return }
     const cached = cachedSubscriptions.get(userId)
     if (cached) {
       setWatching(cached.some((entry) => entry.blockId === blockId))
+      setStatus('ready')
       return
     }
     const controller = new AbortController()
@@ -40,13 +47,14 @@ export function useProjectWatch(blockType: ProjectSubscriptionBlock, blockId: st
         if (accountRef.current !== userId) return
         cachedSubscriptions.set(userId, list)
         setWatching(list.some((entry) => entry.blockId === blockId))
+        setStatus('ready')
       })
-      .catch(() => { if (!controller.signal.aborted && accountRef.current === userId) setWatching(false) })
+      .catch(() => { if (!controller.signal.aborted && accountRef.current === userId) setStatus('error') })
     return () => controller.abort()
-  }, [blockId, userId])
+  }, [blockId, userId, attempt])
 
   const toggle = useCallback(async () => {
-    if (busy || !userId) return
+    if (busy || !userId || status !== 'ready') return
     setBusy(true)
     const next = !watching
     setWatching(next)
@@ -55,12 +63,13 @@ export function useProjectWatch(blockType: ProjectSubscriptionBlock, blockId: st
       else await unwatchProjectBlock(blockId)
       cachedSubscriptions.delete(userId)
     } catch (reason) {
-      if (accountRef.current === userId) setWatching(!next)
+      if (accountRef.current === userId && blockRef.current.blockType === blockType && blockRef.current.blockId === blockId) setWatching(!next)
       toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     } finally {
       setBusy(false)
     }
-  }, [blockType, blockId, watching, busy, toast, userId])
+  }, [blockType, blockId, watching, busy, status, toast, userId])
 
-  return { watching, toggle }
+  const retry = useCallback(() => setAttempt((current) => current + 1), [])
+  return { watching, status, toggle, retry }
 }

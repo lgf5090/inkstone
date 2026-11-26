@@ -52,7 +52,7 @@
 | P2-04 | done | F30 clear hidden selections; refresh today; correct dashboard in-progress KPI | no invisible batch delete; midnight correct; KPI matches definition | c3153d1a0 |
 | P2-05 | done | F31 recent-opened semantics, unique DOM ids, keyboard order and list metadata | sidebar has no duplicate ids; list shows count/update/category | f14529b54 |
 | P2-06 | done | F32 scope subscription cache by account; revalidate public share owner/archive state | account switch cannot leak watch state; archived/private share inaccessible | bdbb5afc2 |
-| P2-07 | pending | F33 explicit loading/error/empty states and retry for silent catches | failed reads never masquerade as empty/no-access | - |
+| P2-07 | in_progress | F33 explicit loading/error/empty states and retry for silent catches | failed reads never masquerade as empty/no-access | - |
 | P2-08 | pending | F34 reliable undo/redo and keyboard error handling | failed undo restores stack; dialog edits and drag order undo correctly | - |
 | P2-09 | pending | F35 keyboard equivalents for drag; pointercancel/unmount cleanup | Tab/arrow/Enter reorder works; cancelled pointer never mutates | - |
 | P2-10 | done | F36 readable CSV values and spreadsheet-safe escaping | labels/ISO dates exported; formula payloads neutralized | 5ac0b42b2 |

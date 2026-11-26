@@ -15,6 +15,8 @@ function duration(ms: number): string {
 
 export function CardTimeTracker({ cardId, canEdit }: { cardId: string, canEdit: boolean }): ReactElement {
   const [entries, setEntries] = useState<ProjectTimeEntry[] | null>(null)
+  const [error, setError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const userId = useSession((state) => state.user?.id)
@@ -27,9 +29,13 @@ export function CardTimeTracker({ cardId, canEdit }: { cardId: string, canEdit: 
 
   useEffect(() => {
     const controller = new AbortController()
-    fetchCardTime(cardId, controller.signal).then(setEntries).catch(() => { if (!controller.signal.aborted) setEntries([]) })
+    setEntries(null)
+    setError(false)
+    fetchCardTime(cardId, controller.signal)
+      .then(setEntries)
+      .catch(() => { if (!controller.signal.aborted) setError(true) })
     return () => controller.abort()
-  }, [cardId])
+  }, [cardId, attempt])
 
   const running = entries?.find((entry) => entry.endedAt === null)
   useEffect(() => {
@@ -56,16 +62,24 @@ export function CardTimeTracker({ cardId, canEdit }: { cardId: string, canEdit: 
     <section aria-label={t('project.time.title')} className="space-y-2">
       <div className="flex items-center gap-2">
         <SectionHeading />
-        <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{duration(total)}</span>
+        <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{error ? t('project.common.load_failed') : entries === null ? t('common.loading') : duration(total)}</span>
         <span className="ml-auto">
           {running
-            ? <Button size="sm" variant="ghost" icon={<Square size={13} />} disabled={busy || !canEdit} onClick={() => void run(() => stopCardTimer(cardId))}>{t('project.time.stop')}</Button>
-            : <Button size="sm" variant="ghost" icon={<Play size={13} />} disabled={busy || !canEdit} onClick={() => void run(() => startCardTimer(cardId))}>{t('project.time.start')}</Button>}
+            ? <Button size="sm" variant="ghost" icon={<Square size={13} />} disabled={busy || !canEdit || entries === null || error} onClick={() => void run(() => stopCardTimer(cardId))}>{t('project.time.stop')}</Button>
+            : <Button size="sm" variant="ghost" icon={<Play size={13} />} disabled={busy || !canEdit || entries === null || error} onClick={() => void run(() => startCardTimer(cardId))}>{t('project.time.start')}</Button>}
         </span>
       </div>
-      {entries === null
-        ? null
-        : entries.length === 0
+      {error
+        ? (
+            <div role="alert" className="space-y-1 text-[length:var(--text-11)] text-[var(--danger)]">
+              <p>{t('project.common.load_failed')}</p>
+              <p>{t('project.common.load_failed_hint')}</p>
+              <Button size="sm" variant="ghost" onClick={() => setAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+            </div>
+          )
+        : entries === null
+          ? null
+          : entries.length === 0
           ? <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.time.empty')}</p>
           : (
               <ul className="space-y-1">

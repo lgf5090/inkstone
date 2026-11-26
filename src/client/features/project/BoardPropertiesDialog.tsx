@@ -36,17 +36,23 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
   const [newType, setNewType] = useState<ProjectPropertyType>('text')
   const [optionDraft, setOptionDraft] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
-  const [boards, setBoards] = useState<ProjectBoardSummary[]>([])
+  const [boards, setBoards] = useState<ProjectBoardSummary[] | null>(null)
+  const [boardsError, setBoardsError] = useState(false)
+  const [boardsAttempt, setBoardsAttempt] = useState(0)
   const [automationsOpen, setAutomationsOpen] = useState(false)
   const [integrationsOpen, setIntegrationsOpen] = useState(false)
   const [targetProperties, setTargetProperties] = useState<Record<string, ProjectProperty[]>>({})
+  const [targetErrors, setTargetErrors] = useState<Record<string, true>>({})
+  const [targetAttempt, setTargetAttempt] = useState(0)
   useEffect(() => {
     let alive = true
+    setBoards(null)
+    setBoardsError(false)
     fetchProjectBoards()
       .then((list) => { if (alive) setBoards(list) })
-      .catch(() => { if (alive) setBoards([]) })
+      .catch(() => { if (alive) setBoardsError(true) })
     return () => { alive = false }
-  }, [])
+  }, [boardsAttempt])
 
   const targetBoardIds = [...new Set(draft
     .filter((entry) => entry.type === 'rollup' && entry.config?.rollup?.relationPropertyId)
@@ -54,18 +60,18 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
     .filter((id): id is string => Boolean(id)))]
   const targetBoardKey = targetBoardIds.join(',')
   useEffect(() => {
-    const missing = targetBoardIds.filter((id) => !(id in targetProperties))
+    const missing = targetBoardIds.filter((id) => !(id in targetProperties) && !targetErrors[id])
     if (!missing.length) return
     let alive = true
     const controllers = missing.map((id) => {
       const controller = new AbortController()
       fetchBoardProperties(id, controller.signal)
         .then((list) => { if (alive) setTargetProperties((previous) => ({ ...previous, [id]: list })) })
-        .catch(() => { if (alive) setTargetProperties((previous) => ({ ...previous, [id]: [] })) })
+        .catch(() => { if (alive) setTargetErrors((previous) => ({ ...previous, [id]: true })) })
       return controller
     })
     return () => { alive = false; for (const controller of controllers) controller.abort() }
-  }, [targetBoardKey, targetProperties])
+  }, [targetBoardKey, targetProperties, targetErrors, targetAttempt])
 
   const rollupTargetOptions = (property: ProjectProperty) => {
     const relation = draft.find((entry) => entry.type === 'relation' && entry.id === property.config?.rollup?.relationPropertyId)
@@ -75,6 +81,26 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
       ...(targetBoardId ? targetProperties[targetBoardId] ?? [] : []).map((entry) => ({ value: entry.id, label: entry.name })),
     ]
   }
+
+  const rollupTargetBoardId = (property: ProjectProperty): string | undefined =>
+    draft.find((entry) => entry.type === 'relation' && entry.id === property.config?.rollup?.relationPropertyId)?.config?.targetBoardId
+
+  const rollupTargetFeedback = (property: ProjectProperty): ReactElement | null => {
+    const targetBoardId = rollupTargetBoardId(property)
+    if (!targetBoardId) return null
+    if (targetErrors[targetBoardId]) {
+      return (
+        <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-11)] text-[var(--danger)]">
+          {t('project.common.load_failed')}
+          <Button size="sm" variant="ghost" onClick={() => { setTargetErrors({}); setTargetAttempt((current) => current + 1) }}>{t('project.common.retry')}</Button>
+        </div>
+      )
+    }
+    if (!(targetBoardId in targetProperties)) return <p role="status" className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
+    return null
+  }
+
+  const targetReadsPending = targetBoardIds.some((id) => !(id in targetProperties))
 
   const update = (id: string, patch: Partial<ProjectProperty>) => {
     setDraft((current) => current.map((property) => (property.id === id ? { ...property, ...patch } : property)))
@@ -141,7 +167,7 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
           <Button variant="ghost" onClick={() => setAutomationsOpen(true)}>{t('project.automations.open')}</Button>
           <Button variant="ghost" onClick={() => setIntegrationsOpen(true)}>{t('project.integrations.open')}</Button>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" disabled={saving} onClick={() => void save()}>{t('common.save')}</Button>
+          <Button variant="primary" disabled={saving || targetReadsPending} onClick={() => void save()}>{t('common.save')}</Button>
         </>}
       >
         <div className="space-y-3" data-board-props={boardId}>
@@ -223,13 +249,24 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
                     className="w-full"
                     value={property.config?.targetBoardId ?? ''}
                     label={t('project.props.relation_board')}
+                    disabled={boards === null || boardsError}
                     onChange={(value) => {
                       const config = { ...property.config, targetBoardId: value || undefined }
                       if (!value) delete config.targetBoardId
                       update(property.id, { config: Object.keys(config).length ? config : undefined })
                     }}
-                    options={[{ value: '', label: '—' }, ...boards.map((board) => ({ value: board.id, label: board.title }))]}
+                    options={[{ value: '', label: '—' }, ...(boards ?? []).map((board) => ({ value: board.id, label: board.title }))]}
                   />
+                  {boardsError
+                    ? (
+                        <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-11)] text-[var(--danger)]">
+                          {t('project.common.load_failed')}
+                          <Button size="sm" variant="ghost" onClick={() => setBoardsAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+                        </div>
+                      )
+                    : boards === null
+                      ? <p role="status" className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
+                      : null}
                   <Checkbox
                     label={t('project.props.relation_multiple')}
                     checked={property.config?.multiple === true}
@@ -256,9 +293,11 @@ export function BoardPropertiesDialog({ boardId, properties, onClose, onSave }: 
                     className="w-full"
                     value={property.config?.rollup?.targetPropertyId ?? ''}
                     label={t('project.props.rollup_target')}
+                    disabled={Boolean(rollupTargetBoardId(property) && !(rollupTargetBoardId(property)! in targetProperties))}
                     onChange={(value) => updateRollup(property, { targetPropertyId: value })}
                     options={rollupTargetOptions(property)}
                   />
+                  {rollupTargetFeedback(property)}
                   <SelectMenu
                     className="w-full"
                     value={property.config?.rollup?.aggregation ?? 'count'}

@@ -13021,7 +13021,6 @@ const allowed = new Map([
     "// Realtime fallback (D-11): the sync hub notifies members on writes, but a tab that misses the",
     "// notification (or a deployment without the DO) still converges via a quiet 30s refetch.",
     "/* best-effort convergence poll: a failed refetch keeps the last good bundle */",
-    "/* best-effort: dialog stays usable if the refetch fails */",
     "// Ask the cheap question first: an unchanged cursor means the copy on screen is still current,",
     "// and a busy board's whole-bundle read is the expensive half of this poll.",
     "/* best-effort wake-up refetch: the interval still converges on its next beat */",
@@ -13068,9 +13067,6 @@ const allowed = new Map([
   ["src/client/features/project/CardDialog.test.tsx", [
     "// jsdom lays nothing out, so the drag reads the bands a real dialog would report.",
   ]],
-  ["src/client/features/project/CardDialog.tsx", [
-    "/* best-effort: the bundle copy stays on screen */",
-  ]],
   ["src/client/features/project/FilterEditor.test.tsx", [
     "/** The row a stored value is offered under: a property name, a join word, or a condition's own label. */",
   ]],
@@ -13101,7 +13097,6 @@ const allowed = new Map([
     "// jsdom lays nothing out, so the drag reads the bands a real sidebar would report.",
   ]],
   ["src/client/features/project/ProjectSidebar.tsx", [
-    "/* best-effort: an unreadable category list leaves the board list usable */",
     "/* A board sits one level deeper than the folder holding it, or the tree reads flat. */",
     "// The open board comes from the address, not from a value read once at mount: switching between",
     "// two boards keeps this sidebar mounted, and a mount-time read would leave the highlight behind.",

@@ -182,6 +182,16 @@ describe('the project sidebar', () => {
     expect(useProjectStore.getState().boards.find((board) => board.id === 'b2')?.categoryName).toBeUndefined()
   })
 
+  it('shows a retryable category error instead of filing every board as unfiled', async () => {
+    vi.mocked(api.fetchProjectCategories).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await mount()
+    expect(view.container.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    expect(view.container.textContent).not.toContain(t('project.sidebar.unfiled'))
+    await act(async () => { [...view.container.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchProjectCategories).toHaveBeenCalledTimes(2)
+    expect(view.container.textContent).toContain('Work')
+  })
+
   it('filters boards by the search query', async () => {
     await mount()
     const input = view.container.querySelector(`input[placeholder="${t('project.sidebar.search')}"]`) as HTMLInputElement

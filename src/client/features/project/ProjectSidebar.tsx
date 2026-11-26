@@ -3,8 +3,9 @@ import { ChevronDown, ChevronRight, Clock, Copy, Download, Eye, EyeOff, FolderPl
 import type { ProjectBoardSummary, ProjectCategory, ProjectCategoryBoard } from '@shared/project/model'
 import { setLocale, t, useLocale } from '../../lib/i18n'
 import { navigateToPath, usePathname } from '../../lib/app-history'
-import { IconButton } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
+import { LoadingBlock } from '../../components/feedback'
 import { confirm, Menu, Modal, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import type { SkinTone } from '@shared/types'
 import { EmojiPicker } from '../emoji/EmojiPicker'
@@ -108,6 +109,8 @@ export function buildCategoryTree(
 export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSummary[], onImport: () => void }): ReactElement {
   const [categories, setCategories] = useState<ProjectCategory[]>([])
   const [edges, setEdges] = useState<ProjectCategoryBoard[]>([])
+  const [categoryStatus, setCategoryStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [categoryError, setCategoryError] = useState(false)
   const [query, setQuery] = useState('')
   // The open board comes from the address, not from a value read once at mount: switching between
   // two boards keeps this sidebar mounted, and a mount-time read would leave the highlight behind.
@@ -146,20 +149,28 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
   }, [currentUserId, lastBoard])
 
   const reload = useCallback(async () => {
-    const result = await fetchProjectCategories()
-    setCategories(result.categories)
-    setEdges(result.categoryBoards)
-    const categoryNames = new Map(result.categories.map((category) => [category.id, category.name]))
-    const namesByBoard = new Map<string, string>()
-    for (const edge of result.categoryBoards.toSorted((left, right) => left.position - right.position)) {
-      const name = categoryNames.get(edge.categoryId)
-      if (name && !namesByBoard.has(edge.boardId)) namesByBoard.set(edge.boardId, name)
+    setCategoryStatus('loading')
+    setCategoryError(false)
+    try {
+      const result = await fetchProjectCategories()
+      setCategories(result.categories)
+      setEdges(result.categoryBoards)
+      const categoryNames = new Map(result.categories.map((category) => [category.id, category.name]))
+      const namesByBoard = new Map<string, string>()
+      for (const edge of result.categoryBoards.toSorted((left, right) => left.position - right.position)) {
+        const name = categoryNames.get(edge.categoryId)
+        if (name && !namesByBoard.has(edge.boardId)) namesByBoard.set(edge.boardId, name)
+      }
+      useProjectStore.setState((state) => ({
+        boards: state.boards.map((board) => ({ ...board, categoryName: namesByBoard.get(board.id) })),
+      }))
+      setCategoryStatus('ready')
+    } catch {
+      setCategoryError(true)
+      setCategoryStatus('error')
     }
-    useProjectStore.setState((state) => ({
-      boards: state.boards.map((board) => ({ ...board, categoryName: namesByBoard.get(board.id) })),
-    }))
   }, [])
-  useEffect(() => { void reload().catch(() => { /* best-effort: an unreadable category list leaves the board list usable */ return undefined }) }, [reload])
+  useEffect(() => { void reload() }, [reload])
 
   const guard = async (action: () => Promise<void>) => {
     try { await action(); await reload() } catch (reason) { toast({ title: errorText(reason), tone: 'danger' }) }
@@ -589,6 +600,12 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
           <Menu anchor={settingsAnchor} open={settingsOpen} onClose={() => setSettingsOpen(false)} items={settingsMenu} label={t('project.sidebar.settings')} />
         </div>
       </div>
+      {categoryError && (
+        <div role="alert" className="mx-2 mb-2 flex flex-wrap items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1.5 text-[length:var(--text-11)] text-[var(--danger)]">
+          {t('project.common.load_failed')}
+          <Button size="sm" variant="ghost" onClick={() => void reload()}>{t('project.common.retry')}</Button>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" id={treeId} role="group" aria-label={t('project.sidebar.boards')}>
         {searchMode ? (
           <ul id={searchListId} role="listbox" aria-label={t('project.sidebar.boards')}>
@@ -596,7 +613,11 @@ export function ProjectSidebar({ boards, onImport }: { boards: ProjectBoardSumma
               ? visibleBoards.map((board) => renderBoard(board, edgeForBoard(board.id), true))
               : <li role="presentation" className="px-2 py-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.search.no_results')}</li>}
           </ul>
-        ) : (
+        ) : categoryStatus === 'loading' && categories.length === 0
+          ? <LoadingBlock />
+          : categoryStatus === 'error' && categories.length === 0
+            ? null
+            : (
           <>
         {pinnedBoards.length > 0 && (
           <section className="mb-2">

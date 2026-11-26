@@ -29,6 +29,18 @@ beforeEach(async () => {
 
 afterEach(() => { view?.unmount() })
 
+describe('automation read states', () => {
+  it('shows a retryable failure instead of an empty rule list', async () => {
+    vi.mocked(api.fetchProjectAutomations).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([])
+    await act(async () => { view = renderElement(createElement(AutomationsDialog, { boardId: 'b1', properties, onClose: vi.fn() })) })
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    expect(document.body.textContent).not.toContain(t('project.automations.empty'))
+    await act(async () => { [...document.body.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchProjectAutomations).toHaveBeenCalledTimes(2)
+    expect(document.body.textContent).toContain(t('project.automations.empty'))
+  })
+})
+
 describe('automation property editors', () => {
   it('creates a rule from property and option selections instead of typed ids', async () => {
     const created: ProjectAutomation = {

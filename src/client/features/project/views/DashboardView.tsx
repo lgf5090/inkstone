@@ -16,6 +16,7 @@ import { projectOptionCssColor } from '@shared/project/option-color'
 import { projectEffortStats, projectPriorityBuckets, projectPriorityProperty, projectWeeklyCompletions } from '@shared/project/stats'
 import { t, useLocale } from '../../../lib/i18n'
 import { ViewHead, ViewShell } from './shell'
+import { Button } from '../../../components/primitives'
 import { useProjectPeople } from '../people-context'
 import { useToday } from '../use-today'
 import { fetchBoardActivity } from '../api'
@@ -72,7 +73,9 @@ export function DashboardView(props: DashboardProps): ReactElement {
   const { cards, properties, boardId } = props
   const locale = useLocale()
   const people = useProjectPeople()
-  const [activity, setActivity] = useState<ProjectActivityEntry[]>([])
+  const [activity, setActivity] = useState<ProjectActivityEntry[] | null>(null)
+  const [activityError, setActivityError] = useState(false)
+  const [activityAttempt, setActivityAttempt] = useState(0)
   const [focus, setFocus] = useState<'overdue' | 'soon' | null>(null)
   const propertyId = projectViewPropertyId(props.datePropertyId) ?? properties.find((property) => property.type === 'date')?.id
   const statusProperty = properties.find((property) => property.type === 'select')
@@ -81,11 +84,15 @@ export function DashboardView(props: DashboardProps): ReactElement {
   const effortProperty = properties.find((property) => property.type === 'number')
 
   useEffect(() => {
-    if (props.publicView) return
+    if (props.publicView) { setActivity(null); return }
     const controller = new AbortController()
-    fetchBoardActivity(boardId, controller.signal).then(setActivity).catch(() => { if (!controller.signal.aborted) setActivity([]) })
+    setActivity(null)
+    setActivityError(false)
+    fetchBoardActivity(boardId, controller.signal)
+      .then(setActivity)
+      .catch(() => { if (!controller.signal.aborted) setActivityError(true) })
     return () => controller.abort()
-  }, [boardId, props.publicView])
+  }, [boardId, props.publicView, activityAttempt])
 
   const today = useToday()
   const buckets = useMemo(() => {
@@ -310,12 +317,22 @@ export function DashboardView(props: DashboardProps): ReactElement {
           )}
         </div>
 
-        <Panel title={t('project.dashboard.activity')}>
-          {activity.length === 0
-            ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.dashboard.nothing_here')}</p>
-            : (
-              <ul className="space-y-1">
-                {activity.slice(0, 12).map((entry) => {
+        {!props.publicView && (
+          <Panel title={t('project.dashboard.activity')}>
+            {activityError
+              ? (
+                  <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
+                    {t('project.common.load_failed')}
+                    <Button size="sm" variant="ghost" onClick={() => setActivityAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+                  </div>
+                )
+              : activity === null
+                ? <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
+                : activity.length === 0
+                  ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.dashboard.nothing_here')}</p>
+                  : (
+            <ul className="space-y-1">
+              {(activity ?? []).slice(0, 12).map((entry) => {
                   const verb = ACTIVITY_VERB[entry.type]
                   const target = cards.find((card) => card.id === entry.targetId)
                   return (
@@ -335,6 +352,7 @@ export function DashboardView(props: DashboardProps): ReactElement {
               </ul>
             )}
         </Panel>
+        )}
       </div>
     </ViewShell>
   )

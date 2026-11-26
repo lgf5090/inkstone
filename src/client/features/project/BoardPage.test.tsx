@@ -16,6 +16,7 @@ vi.mock('./api', async (importOriginal) => ({
   patchProjectCard: vi.fn(),
   fetchBoardLinks: vi.fn().mockResolvedValue([]),
   fetchBoardCursor: vi.fn(),
+  fetchBoardActivity: vi.fn(),
   fetchProjectBoards: vi.fn().mockResolvedValue([]),
 }))
 
@@ -56,6 +57,51 @@ async function mount(): Promise<void> {
 function facts(): string[] {
   return useAssistant.getState().projectContext?.facts ?? []
 }
+
+describe('board read failures', () => {
+  it('offers a direct retry for the initial board read', async () => {
+    vi.mocked(api.fetchProjectBoardBundle).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await mount()
+    expect(view.container.textContent).toContain(t('project.board.load_failed'))
+    await act(async () => { [...view.container.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchProjectBoardBundle).toHaveBeenCalledTimes(2)
+    expect(view.container.textContent).toContain('Roadmap')
+  })
+
+  it('ignores activity from the previous board after switching boards', async () => {
+    const nextBoardId = 'c'.repeat(27)
+    vi.mocked(api.fetchProjectBoardBundle).mockImplementation(async (boardId) => {
+      const next = bundle()
+      next.board.id = boardId
+      return next
+    })
+    let resolveOld!: (entries: Awaited<ReturnType<typeof api.fetchBoardActivity>>) => void
+    const oldRead = new Promise<Awaited<ReturnType<typeof api.fetchBoardActivity>>>((resolve) => { resolveOld = resolve })
+    vi.mocked(api.fetchBoardActivity).mockReturnValueOnce(oldRead).mockResolvedValueOnce([
+      { id: 'new', actorId: 'u1', type: 'custom', targetId: '', summary: 'New board activity', createdAt: 1 },
+    ])
+    await mount()
+    await act(async () => { view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.board.activity')}"]`)!.click() })
+    await act(async () => { view.rerender(createElement(BoardPage, { boardId: nextBoardId })) })
+    await act(async () => { view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.board.activity')}"]`)!.click() })
+    await act(async () => {
+      resolveOld([{ id: 'old', actorId: 'u1', type: 'custom', targetId: '', summary: 'Old board activity', createdAt: 1 }])
+      await oldRead
+    })
+    expect(document.body.textContent).toContain('New board activity')
+    expect(document.body.textContent).not.toContain('Old board activity')
+  })
+
+  it('offers retry inside the activity dialog instead of a bare error', async () => {
+    vi.mocked(api.fetchBoardActivity).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([])
+    await mount()
+    await act(async () => { view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.board.activity')}"]`)!.click() })
+    const dialog = document.body.querySelector('[role="dialog"]')!
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain(t('project.boards.load_failed'))
+    await act(async () => { [...dialog.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchBoardActivity).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('the board page assistant context (R3-9)', () => {
   it('keeps the active view facts after a background refetch instead of resetting to the first view', async () => {

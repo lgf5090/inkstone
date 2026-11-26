@@ -52,12 +52,20 @@ function ArchivedFile(): ReactElement {
 
 export function CardDialog({ card, properties, members, people, contents, siblings, canEdit, detailTruncated, onClose, onUpdated, onRefresh, onDelete, onOpenCard }: CardDialogProps): ReactElement {
   const [title, setTitle] = useState(card.title)
-  const [comments, setComments] = useState<ProjectComment[]>([])
+  const [comments, setComments] = useState<ProjectComment[] | null>(null)
+  const [commentsError, setCommentsError] = useState(false)
+  const [commentsAttempt, setCommentsAttempt] = useState(0)
   const [commentDraft, setCommentDraft] = useState('')
   const [posting, setPosting] = useState(false)
   const [blocks, setBlocks] = useState<ProjectContent[]>(contents)
-  const [links, setLinks] = useState<ProjectCardLink[]>([])
-  const [files, setFiles] = useState<ProjectAttachment[]>([])
+  const [links, setLinks] = useState<ProjectCardLink[] | null>(null)
+  const [linksError, setLinksError] = useState(false)
+  const [linksAttempt, setLinksAttempt] = useState(0)
+  const [files, setFiles] = useState<ProjectAttachment[] | null>(null)
+  const [filesError, setFilesError] = useState(false)
+  const [filesAttempt, setFilesAttempt] = useState(0)
+  const [detailError, setDetailError] = useState(false)
+  const [detailAttempt, setDetailAttempt] = useState(0)
   const fileInput = useRef<HTMLInputElement>(null)
   const [blocker, setBlocker] = useState('')
   const addAnchor = useRef<HTMLButtonElement>(null)
@@ -135,13 +143,13 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       const parts = [
         `Card title: ${card.title}`,
         blocks.length ? `Content:\n${blocks.map((b) => `- ${b.title}`).join('\n')}` : '',
-        comments.length ? `Comments:\n${comments.map((c) => `- ${c.body}`).join('\n')}` : '',
+        comments?.length ? `Comments:\n${comments.map((c) => `- ${c.body}`).join('\n')}` : '',
       ].filter(Boolean).join('\n\n')
       const promptText = `${answerIn} Summarize the following card and its discussion into a concise 2-3 sentence overview:\n${parts}`
       const res = await sendForAnswerDetailed(promptText)
       if (res.status === 'ok') {
         const comment = await createCardComment(card.id, `🤖 ${t('project.card.ai_summary_heading')}\n${res.text}`)
-        setComments((current) => [...current, comment])
+        setComments((current) => [...(current ?? []), comment])
       } else {
         toast({ title: t('project.card.ai_summarize_failed'), tone: 'danger' })
       }
@@ -153,14 +161,30 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   }
 
   useEffect(() => {
-    fetchCardLinks(card.id).then(setLinks).catch(() => setLinks([]))
-    listBoardFiles(card.boardId, card.id).then(setFiles).catch(() => setFiles([]))
-  }, [card.id, card.boardId])
+    let alive = true
+    setLinks(null)
+    setLinksError(false)
+    fetchCardLinks(card.id)
+      .then((list) => { if (alive) setLinks(list) })
+      .catch(() => { if (alive) setLinksError(true) })
+    return () => { alive = false }
+  }, [card.id, linksAttempt])
+
+  useEffect(() => {
+    let alive = true
+    setFiles(null)
+    setFilesError(false)
+    listBoardFiles(card.boardId, card.id)
+      .then((list) => { if (alive) setFiles(list) })
+      .catch(() => { if (alive) setFilesError(true) })
+    return () => { alive = false }
+  }, [card.id, card.boardId, filesAttempt])
 
   const attachFile = async (file: File) => {
     await run(async () => {
-      const uploaded = await uploadBoardFile(card.boardId, file, card.id)
-      setFiles((current) => [uploaded, ...current])
+      await uploadBoardFile(card.boardId, file, card.id)
+      setFiles(await listBoardFiles(card.boardId, card.id))
+      setFilesError(false)
     })
   }
 
@@ -188,24 +212,29 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     })
   }, [contents, detailTruncated])
   useEffect(() => {
+    if (detailTruncated) return
     const controller = new AbortController()
+    setComments(null)
+    setCommentsError(false)
     fetchCardComments(card.id, controller.signal)
       .then(setComments)
-      .catch(() => { if (!controller.signal.aborted) setComments([]) })
+      .catch(() => { if (!controller.signal.aborted) setCommentsError(true) })
     return () => controller.abort()
-  }, [card.id])
+  }, [card.id, commentsAttempt, detailTruncated])
   useEffect(() => {
     if (!detailTruncated) return
     const controller = new AbortController()
+    setDetailError(false)
     fetchCardDetail(card.id, controller.signal)
       .then((detail) => {
         if (controller.signal.aborted) return
         setBlocks(detail.contents)
         setComments(detail.comments)
+        setCommentsError(false)
       })
-      .catch(() => { /* best-effort: the bundle copy stays on screen */ })
+      .catch(() => { if (!controller.signal.aborted) setDetailError(true) })
     return () => controller.abort()
-  }, [card.id, detailTruncated])
+  }, [card.id, detailTruncated, detailAttempt])
 
   const patch = useCallback(async (body: Record<string, unknown>) => {
     const updated = await patchProjectCard(card.id, body)
@@ -223,7 +252,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     try {
       await run(async () => {
         const comment = await createCardComment(card.id, body)
-        setComments((current) => [...current, comment])
+        setComments((current) => [...(current ?? []), comment])
         setCommentDraft('')
       })
     } finally {
@@ -237,7 +266,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     if (!body) return
     await run(async () => {
       const updated = await patchCardComment(editingCommentId, body)
-      setComments((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)))
+      setComments((current) => (current ?? []).map((entry) => (entry.id === updated.id ? updated : entry)))
       setEditingCommentId(null)
     })
   }
@@ -246,7 +275,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     if (!ok) return
     await run(async () => {
       await deleteCardComment(id)
-      setComments((current) => current.filter((entry) => entry.id !== id))
+      setComments((current) => (current ?? []).filter((entry) => entry.id !== id))
     })
   }
   const pasteImage = async (event: ClipboardEvent) => {
@@ -257,7 +286,8 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     await run(async () => {
       const uploaded = await uploadBoardFile(card.boardId, image, card.id)
       const block = await createCardContent(card.id, { type: 'image', title: image.name, fields: { attachmentId: uploaded.id } })
-      setFiles((current) => [uploaded, ...current])
+      setFiles(await listBoardFiles(card.boardId, card.id))
+      setFilesError(false)
       setBlocks((current) => [...current, block])
     })
   }
@@ -363,7 +393,19 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       onRefresh()
     })
   }
-  const blockers = links.filter((link) => link.toCardId === card.id && link.kind === 'blocks')
+  const blockers = (links ?? []).filter((link) => link.toCardId === card.id && link.kind === 'blocks')
+
+  const attachedBlock = (block: ProjectContent): ReactElement => {
+    if (filesError) return <p className="text-[length:var(--text-12)] text-[var(--danger)]">{t('project.common.load_failed')}</p>
+    if (files === null) return <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
+    const attachmentId = block.fields.attachmentId
+    if (attachmentId && files.some((file) => file.id === attachmentId)) {
+      return block.type === 'image'
+        ? <img src={projectFileUrl(attachmentId)} alt={block.title} className="max-h-64 rounded-[var(--r-sm)]" />
+        : <a className="text-[length:var(--text-13)] text-[var(--accent)]" href={projectFileUrl(attachmentId)} target="_blank" rel="noreferrer">{block.title}</a>
+    }
+    return <ArchivedFile />
+  }
 
   const addSubtask = async () => {
     const name = await prompt({ title: t('project.card.add_subtask'), confirmLabel: t('project.card.add_subtask') })
@@ -378,6 +420,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     await run(async () => {
       await addCardLink(blocker, card.id, 'blocks')
       setLinks(await fetchCardLinks(card.id))
+      setLinksError(false)
       setBlocker('')
     })
   }
@@ -385,6 +428,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     await run(async () => {
       await removeCardLink(fromId, card.id, 'blocks')
       setLinks(await fetchCardLinks(card.id))
+      setLinksError(false)
     })
   }
 
@@ -418,13 +462,25 @@ export function CardDialog({ card, properties, members, people, contents, siblin
           onBlur={commitTitle}
           onKeyDown={(event) => commitOnEnter(event, commitTitle)}
         />
+        {detailError && (
+          <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
+            {t('project.common.load_failed')}
+            <Button size="sm" variant="ghost" onClick={() => setDetailAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+          </div>
+        )}
         <div className="flex items-center gap-1">
           {canEdit && (
             <Button size="sm" variant="ghost" onClick={() => { void run(async () => { await saveCardAsTemplate(card.id); onRefresh() }) }}>{t('project.card.save_as_template')}</Button>
           )}
-          <Button size="sm" variant={watch.watching ? 'primary' : 'ghost'} icon={<Bell size={14} />} onClick={() => { void watch.toggle() }}>
+          <Button size="sm" variant={watch.watching ? 'primary' : 'ghost'} icon={<Bell size={14} />} disabled={watch.status !== 'ready'} onClick={() => { void watch.toggle() }}>
             {watch.watching ? t('project.watch.off') : t('project.watch.on')}
           </Button>
+          {watch.status === 'error' && (
+            <span role="alert" className="flex items-center gap-1">
+              <span className="text-[length:var(--text-11)] text-[var(--danger)]">{t('project.common.load_failed')}</span>
+              <Button size="sm" variant="ghost" onClick={watch.retry}>{t('project.common.retry')}</Button>
+            </span>
+          )}
           <IconButton ref={menuAnchor} label={t('project.card.menu')} size="sm" onClick={() => setMenuOpen(true)}>
             <MoreHorizontal size={15} />
           </IconButton>
@@ -504,15 +560,9 @@ export function CardDialog({ card, properties, members, people, contents, siblin
                     ? <Checkbox label={block.title || t('project.card.checkbox_block')} checked={block.fields.checked === true} disabled={!canEdit} onChange={(checked) => void toggleBlock(block, checked)} />
                     : block.type === 'divider'
                       ? <hr className="border-[var(--border-subtle)]" />
-                      : block.type === 'image'
-                        ? (block.fields.attachmentId && files.some((file) => file.id === block.fields.attachmentId)
-                          ? <img src={projectFileUrl(block.fields.attachmentId)} alt={block.title} className="max-h-64 rounded-[var(--r-sm)]" />
-                          : <ArchivedFile />)
-                        : block.type === 'attachment'
-                          ? (block.fields.attachmentId && files.some((file) => file.id === block.fields.attachmentId)
-                            ? <a className="text-[length:var(--text-13)] text-[var(--accent)]" href={projectFileUrl(block.fields.attachmentId)} target="_blank" rel="noreferrer">{block.title}</a>
-                            : <ArchivedFile />)
-                          : editingBlockId === block.id
+                      : block.type === 'image' || block.type === 'attachment'
+                        ? attachedBlock(block)
+                        : editingBlockId === block.id
                             ? (
                               <div className="space-y-2">
                                 <Textarea className="w-full" rows={3} value={blockDraft} aria-label={t('project.card.edit_content')} onChange={(event) => setBlockDraft(event.target.value)} />
@@ -594,6 +644,18 @@ export function CardDialog({ card, properties, members, people, contents, siblin
         </section>
         <section aria-label={t('project.card.dependencies')} className="space-y-2">
           <SectionHeading icon={Link2} label={t('project.card.dependencies')} />
+          {linksError
+            ? (
+                <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
+                  {t('project.common.load_failed')}
+                  <Button size="sm" variant="ghost" onClick={() => setLinksAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+                </div>
+              )
+            : links === null
+              ? <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
+              : blockers.length === 0
+                ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.card.dependencies_empty')}</p>
+                : (
           <ul className="space-y-1">
             {blockers.map((link) => (
               <li key={link.fromCardId} className="flex items-center gap-2">
@@ -602,6 +664,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
               </li>
             ))}
           </ul>
+          )}
           {canEdit && (
             <div className="flex items-center gap-2">
               <SelectMenu className="min-w-0 flex-1" value={blocker} label={t('project.card.add_dependency')} searchable onChange={setBlocker} options={[{ value: '', label: t('project.card.add_dependency') }, ...siblings.filter((s) => s.id !== card.id && !blockers.some((b) => b.fromCardId === s.id)).map((s) => ({ value: s.id, label: s.title }))]} />
@@ -619,8 +682,20 @@ export function CardDialog({ card, properties, members, people, contents, siblin
               </>
             )}
           </div>
+          {filesError
+            ? (
+                <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
+                  {t('project.common.load_failed')}
+                  <Button size="sm" variant="ghost" onClick={() => setFilesAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+                </div>
+              )
+            : files === null
+              ? <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
+              : files.length === 0
+                ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.card.attachments_empty')}</p>
+                : (
           <ul className="space-y-1">
-            {files.map((file) => (
+            {(files ?? []).map((file) => (
               <li key={file.id} className="flex items-center gap-2">
                 <a className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--accent)]" href={projectFileUrl(file.id)} target="_blank" rel="noreferrer">{file.filename}</a>
                 {canEdit && (
@@ -632,7 +707,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
                         const ok = await confirm({ title: t('project.card.delete_attachment'), tone: 'danger', confirmLabel: t('common.delete') })
                         if (!ok) return
                         await deleteProjectFile(file.id)
-                        setFiles((current) => current.filter((f) => f.id !== file.id))
+                        setFiles((current) => (current ?? []).filter((f) => f.id !== file.id))
                       })
                     }}
                   >
@@ -642,17 +717,27 @@ export function CardDialog({ card, properties, members, people, contents, siblin
               </li>
             ))}
           </ul>
+          )}
         </section>
       </div>
       <div className="min-w-0 flex-1 space-y-2 border-t border-[var(--border-subtle)] pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0">
         <CardTimeTracker cardId={card.id} canEdit={canEdit} />
         <section aria-label={t('project.card.comments')} className="space-y-2">
           <SectionHeading icon={MessageSquare} label={t('project.card.comments')} />
-          {comments.length === 0 && (
-            <p className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.card.comments_empty')}</p>
-          )}
+          {commentsError
+            ? (
+                <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
+                  {t('project.common.load_failed')}
+                  <Button size="sm" variant="ghost" onClick={() => setCommentsAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+                </div>
+              )
+            : comments === null
+              ? <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
+              : comments.length === 0
+                ? <p className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.card.comments_empty')}</p>
+                : (
           <ul className="space-y-2">
-            {comments.map((comment) => (
+            {(comments ?? []).map((comment) => (
               <li key={comment.id} className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2">
                 <div className="flex items-center gap-2">
                   <Avatar src={people[comment.authorId]?.avatarUrl} name={projectPersonLabel(people, comment.authorId)} size={18} />
@@ -678,6 +763,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
               </li>
             ))}
           </ul>
+          )}
           <form
             className="space-y-2"
             onSubmit={(event) => { event.preventDefault(); void postComment() }}
@@ -708,7 +794,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
                 },
               }))}
             />
-            <Button type="submit" variant="primary" size="sm" disabled={posting || !commentDraft.trim()}>
+            <Button type="submit" variant="primary" size="sm" disabled={posting || comments === null || commentsError || !commentDraft.trim()}>
               {t('project.card.post_comment')}
             </Button>
           </form>

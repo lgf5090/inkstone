@@ -22,7 +22,9 @@ function describeFailure(reason: unknown): void {
 }
 
 export function AutomationsDialog({ boardId, properties, onClose }: AutomationsDialogProps): ReactElement {
-  const [rules, setRules] = useState<ProjectAutomation[]>([])
+  const [rules, setRules] = useState<ProjectAutomation[] | null>(null)
+  const [error, setError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const [actionType, setActionType] = useState<'setValue' | 'notify'>('setValue')
   const [propertyId, setPropertyId] = useState('')
   const [value, setValue] = useState('')
@@ -68,11 +70,13 @@ export function AutomationsDialog({ boardId, properties, onClose }: AutomationsD
 
   useEffect(() => {
     let alive = true
+    setRules(null)
+    setError(false)
     fetchProjectAutomations(boardId)
       .then((list) => { if (alive) setRules(list) })
-      .catch(() => { if (alive) setRules([]) })
+      .catch(() => { if (alive) setError(true) })
     return () => { alive = false }
-  }, [boardId])
+  }, [boardId, attempt])
 
   const add = async () => {
     const action: ProjectAutomationAction = actionType === 'setValue'
@@ -89,7 +93,7 @@ export function AutomationsDialog({ boardId, properties, onClose }: AutomationsD
         action,
         enabled,
       })
-      setRules((current) => [...current, created])
+      setRules((current) => [...(current ?? []), created])
     } catch (reason) {
       describeFailure(reason)
     } finally {
@@ -102,7 +106,7 @@ export function AutomationsDialog({ boardId, properties, onClose }: AutomationsD
     if (!ok) return
     try {
       await deleteProjectAutomation(boardId, id)
-      setRules((current) => current.filter((rule) => rule.id !== id))
+      setRules((current) => (current ?? []).filter((rule) => rule.id !== id))
     } catch (reason) {
       describeFailure(reason)
     }
@@ -111,7 +115,7 @@ export function AutomationsDialog({ boardId, properties, onClose }: AutomationsD
   const toggle = async (rule: ProjectAutomation) => {
     try {
       const updated = await patchProjectAutomation(boardId, rule.id, { enabled: !rule.enabled })
-      setRules((current) => current.map((entry) => (entry.id === rule.id ? updated : entry)))
+      setRules((current) => (current ?? []).map((entry) => (entry.id === rule.id ? updated : entry)))
     } catch (reason) {
       describeFailure(reason)
     }
@@ -126,8 +130,19 @@ export function AutomationsDialog({ boardId, properties, onClose }: AutomationsD
       footer={<Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>}
     >
       <div className="space-y-3">
-        {rules.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.automations.empty')}</p>}
-        {rules.map((rule) => (
+        {error
+          ? (
+              <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
+                {t('project.common.load_failed')}
+                <Button size="sm" variant="ghost" onClick={() => setAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+              </div>
+            )
+          : rules === null
+            ? <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
+            : rules.length === 0
+              ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.automations.empty')}</p>
+              : null}
+        {(rules ?? []).map((rule) => (
           <div key={rule.id} className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
             <Checkbox ariaLabel={t('project.automations.enabled')} checked={rule.enabled} onChange={() => void toggle(rule)} />
             <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-secondary)]">
@@ -171,7 +186,7 @@ export function AutomationsDialog({ boardId, properties, onClose }: AutomationsD
           />
           {valueEditor(conditionProperty, conditionValue, t('project.automations.value'), setConditionValue)}
           <Checkbox label={t('project.automations.enabled')} checked={enabled} onChange={setEnabled} />
-          <Button size="sm" variant="primary" icon={<Plus size={14} />} disabled={busy || (actionType === 'setValue' && !propertyId)} onClick={() => void add()}>{t('project.automations.add')}</Button>
+          <Button size="sm" variant="primary" icon={<Plus size={14} />} disabled={busy || rules === null || error || (actionType === 'setValue' && !propertyId)} onClick={() => void add()}>{t('project.automations.add')}</Button>
         </div>
       </div>
     </Modal>

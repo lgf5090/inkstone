@@ -99,6 +99,32 @@ describe('the public board page', () => {
     expect(view.container.textContent).not.toContain(t('project.share.page_gone_title'))
   })
 
+  it('ignores an older slug response after the share changes', async () => {
+    let resolveOld!: (value: ProjectBoardBundle) => void
+    const oldRead = new Promise<ProjectBoardBundle>((resolve) => { resolveOld = resolve })
+    read.mockReturnValueOnce(oldRead)
+    const second = bundle()
+    second.board.title = 'Second share'
+    read.mockResolvedValueOnce(second)
+    await mount()
+    await act(async () => { view.rerender(createElement(ProjectSharePage, { slug: 'slug2' })) })
+    expect(view.container.textContent).toContain('Second share')
+    await act(async () => { const first = bundle(); first.board.title = 'Old share'; resolveOld(first); await oldRead })
+    expect(view.container.textContent).toContain('Second share')
+    expect(view.container.textContent).not.toContain('Old share')
+  })
+
+  it('distinguishes a network failure from a missing share and retries it', async () => {
+    read.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(bundle())
+    await mount()
+    expect(view.container.textContent).toContain(t('project.common.load_failed'))
+    expect(view.container.textContent).not.toContain(t('project.share.page_gone_title'))
+    const retry = [...view.container.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!
+    await act(async () => { retry.click() })
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(view.container.textContent).toContain('Public roadmap')
+  })
+
   it('says the board is unavailable when the link is revoked', async () => {
     read.mockRejectedValue(new ApiError(404, 'not_found', 'Share not found'))
     await mount()

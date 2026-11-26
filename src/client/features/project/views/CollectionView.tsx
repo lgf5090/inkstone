@@ -11,6 +11,7 @@ import type { ProjectAttachment, ProjectAttachmentCategory } from '@shared/proje
 import { PROJECT_ATTACHMENT_CATEGORIES } from '@shared/project/model'
 import { t, useLocale } from '../../../lib/i18n'
 import { Button } from '../../../components/primitives'
+import { LoadingBlock } from '../../../components/feedback'
 import { Input } from '../../../components/form'
 import { confirm, useDialogFocus, useEscape } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
@@ -25,23 +26,38 @@ export function CollectionView({ boardId, canEdit, onOpenCard, publicView = fals
 }): ReactElement {
   const locale = useLocale()
   const [files, setFiles] = useState<ProjectAttachment[] | null>(null)
+  const [error, setError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const [category, setCategory] = useState<ProjectAttachmentCategory | ''>('')
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const [broken, setBroken] = useState<Set<string>>(() => new Set())
   const [preview, setPreview] = useState<ProjectAttachment | null>(null)
   const [text, setText] = useState<string | null>(null)
+  const [textStatus, setTextStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [previewAttempt, setPreviewAttempt] = useState(0)
   const input = useRef<HTMLInputElement>(null)
   const previewRef = useRef<HTMLElement>(null)
   useDialogFocus(preview !== null, previewRef)
   useEscape(preview !== null, () => setPreview(null))
   const toast = useUi((state) => state.toast)
 
-  const load = useCallback(async () => { setFiles(await listBoardFiles(boardId)) }, [boardId])
+  const load = useCallback(async () => {
+    const list = await listBoardFiles(boardId)
+    setFiles(list)
+    setError(false)
+    return list
+  }, [boardId])
   useEffect(() => {
-    if (publicView) { setFiles([]); return }
-    void load().catch(() => setFiles([]))
-  }, [load, publicView])
+    if (publicView) { setFiles([]); setError(false); return }
+    let alive = true
+    setFiles(null)
+    setError(false)
+    void listBoardFiles(boardId)
+      .then((list) => { if (alive) setFiles(list) })
+      .catch(() => { if (alive) setError(true) })
+    return () => { alive = false }
+  }, [load, publicView, attempt])
 
   const shown = useMemo(() => (files ?? [])
     .filter((file) => !category || fileCategory(file.mime) === category)
@@ -75,14 +91,18 @@ export function CollectionView({ boardId, canEdit, onOpenCard, publicView = fals
 
   // The reference previews the picked file beside the tree; a cloud attachment gets the same panel.
   useEffect(() => {
-    if (!preview || !preview.mime.startsWith('text/')) { setText(null); return }
+    if (!preview || !preview.mime.startsWith('text/')) { setText(null); setTextStatus('idle'); return }
     const controller = new AbortController()
+    setTextStatus('loading')
     fetch(projectFileUrl(preview.id), { signal: controller.signal })
-      .then((response) => response.text())
-      .then((body) => setText(body.slice(0, 20_000)))
-      .catch(() => { if (!controller.signal.aborted) setText(null) })
+      .then((response) => {
+        if (!response.ok) throw new Error('File preview failed')
+        return response.text()
+      })
+      .then((body) => { if (!controller.signal.aborted) { setText(body.slice(0, 20_000)); setTextStatus('ready') } })
+      .catch(() => { if (!controller.signal.aborted) { setText(null); setTextStatus('error') } })
     return () => controller.abort()
-  }, [preview])
+  }, [preview, previewAttempt])
 
   const counts = useMemo(() => {
     const map = new Map<string, number>()
@@ -122,9 +142,19 @@ export function CollectionView({ boardId, canEdit, onOpenCard, publicView = fals
           </Button>
         ))}
       </ViewToolbar>
-      {files !== null && shown.length === 0
-        ? <ViewEmpty title={t('project.collection.empty')} hint={canEdit ? t('project.collection.empty_hint') : undefined} />
-        : (
+      {error
+        ? (
+            <div role="alert" className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+              <p className="text-[length:var(--text-13)] text-[var(--danger)]">{t('project.common.load_failed')}</p>
+              <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.common.load_failed_hint')}</p>
+              <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+            </div>
+          )
+        : files === null
+          ? <LoadingBlock />
+          : shown.length === 0
+            ? <ViewEmpty title={t('project.collection.empty')} hint={canEdit ? t('project.collection.empty_hint') : undefined} />
+            : (
           <div className="pv-files pv-scroll" data-project-collection={boardId}>
             {shown.map((file) => {
               const kind = fileCategory(file.mime)
@@ -169,9 +199,18 @@ export function CollectionView({ boardId, canEdit, onOpenCard, publicView = fals
           <div className="pv-preview-body pv-scroll">
             {fileCategory(preview.mime) === 'images' && !broken.has(preview.id)
               ? <img src={projectFileUrl(preview.id)} alt={preview.filename} className="max-h-full max-w-full object-contain" onError={() => setBroken((current) => new Set(current).add(preview.id))} />
-              : text !== null
-                ? <pre className="pv-preview-text">{text}</pre>
-                : (() => { const Fallback = FILE_ICONS[fileCategory(preview.mime)] ?? FileIcon; return <Fallback size={40} aria-hidden="true" className="text-[var(--text-quaternary)]" /> })()}
+              : textStatus === 'loading'
+                ? <LoadingBlock />
+                : textStatus === 'error'
+                  ? (
+                      <div role="alert" className="flex flex-col items-center gap-3 p-4 text-center">
+                        <p className="text-[length:var(--text-12)] text-[var(--danger)]">{t('project.common.load_failed')}</p>
+                        <Button size="sm" variant="ghost" onClick={() => setPreviewAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+                      </div>
+                    )
+                  : text !== null
+                    ? <pre className="pv-preview-text">{text}</pre>
+                    : (() => { const Fallback = FILE_ICONS[fileCategory(preview.mime)] ?? FileIcon; return <Fallback size={40} aria-hidden="true" className="text-[var(--text-quaternary)]" /> })()}
           </div>
           <div className="pv-preview-foot">
             <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{formatBytes(preview.size)} · {new Date(preview.createdAt).toLocaleDateString(locale)}</span>

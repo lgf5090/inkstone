@@ -59,6 +59,38 @@ beforeEach(async () => {
 })
 afterEach(() => { view?.unmount() })
 
+describe('view read failures', () => {
+  it('shows a retryable dashboard activity error instead of no activity', async () => {
+    const activity = vi.spyOn(api, 'fetchBoardActivity').mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([])
+    try {
+      const b = bundle()
+      b.views = [{ id: 'v1', boardId: 'b1', title: 'Dashboard', viewType: 'dashboard', fields: emptyProjectViewFields(), position: 0, ...stamps }]
+      await mount(b)
+      const panel = view.container.querySelector(`section[aria-label="${t('project.dashboard.activity')}"]`)!
+      expect(panel.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+      expect(panel.textContent).not.toContain(t('project.dashboard.nothing_here'))
+      await act(async () => { [...panel.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+      expect(activity).toHaveBeenCalledTimes(2)
+    } finally {
+      activity.mockRestore()
+    }
+  })
+
+  it('preserves timeline dependencies and offers retry when their read fails', async () => {
+    const links = vi.spyOn(api, 'fetchBoardLinks').mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([])
+    try {
+      const b = bundle()
+      b.views = [{ id: 'v1', boardId: 'b1', title: 'Timeline', viewType: 'timeline', fields: emptyProjectViewFields(), position: 0, ...stamps }]
+      await mount(b)
+      expect(view.container.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+      await act(async () => { [...view.container.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+      expect(links).toHaveBeenCalledTimes(2)
+    } finally {
+      links.mockRestore()
+    }
+  })
+})
+
 describe('public views', () => {
   it('renders dashboard, sprint and collection without member-only requests', async () => {
     const activity = vi.spyOn(api, 'fetchBoardActivity').mockResolvedValue([])

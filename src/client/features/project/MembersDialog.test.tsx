@@ -39,6 +39,17 @@ function setInput(el: HTMLInputElement, value: string) {
   el.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+describe('the members dialog read state', () => {
+  it('shows a retryable error instead of an empty roster', async () => {
+    vi.mocked(api.fetchBoardMembers).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce({ members: [], people: {} })
+    await act(async () => { view = renderElement(createElement(MembersDialog, { boardId: 'b1', boardType: 'P', minimumRole: '', canManageVisibility: true, onClose: vi.fn(), onBoardPatched: vi.fn() })) })
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    expect(document.body.textContent).not.toContain(t('project.members.count', { count: 0, max: PROJECT_LIMITS.boardMembers }))
+    await act(async () => { [...document.body.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchBoardMembers).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('the members dialog (R3-4)', () => {
   it('lists every member with a role picker', async () => {
     await mount([member('alice', 'admin'), member('bob', 'editor')])
@@ -54,6 +65,18 @@ describe('the members dialog (R3-4)', () => {
     await act(async () => { setInput(field, 'carol') })
     await act(async () => { field.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
     expect(api.addBoardMember).toHaveBeenCalledWith('b1', 'carol', 'editor')
+  })
+
+  it('drops a stale roster while retrying a failed post-write reload', async () => {
+    vi.mocked(api.fetchBoardMembers).mockResolvedValueOnce({ members: [member('alice', 'admin')], people: { alice: { id: 'alice', name: 'alice', avatarUrl: '' } } })
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    vi.mocked(api.addBoardMember).mockResolvedValue(member('bob', 'editor'))
+    await act(async () => { view = renderElement(createElement(MembersDialog, { boardId: 'b1', boardType: 'P', minimumRole: '', canManageVisibility: true, onClose: vi.fn(), onBoardPatched: vi.fn() })) })
+    const field = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('project.members.username')}"]`)!
+    await act(async () => { setInput(field, 'bob') })
+    await act(async () => { field.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
+    expect(document.body.querySelector('[data-board-member="alice"]')).toBeNull()
+    expect(document.body.querySelector('[role="alert"]')).not.toBeNull()
   })
 
   it('names a member by their account name rather than their id', async () => {

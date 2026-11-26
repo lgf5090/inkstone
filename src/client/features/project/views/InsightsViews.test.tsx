@@ -125,7 +125,7 @@ describe('the file preview pane', () => {
   it('opens beside the shelf with the file text and a way back to its card', async () => {
     vi.mocked(api.listBoardFiles).mockResolvedValue([file])
     const original = globalThis.fetch
-    globalThis.fetch = vi.fn().mockResolvedValue({ text: async () => 'hello preview' }) as unknown as typeof fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('hello preview')) as unknown as typeof fetch
     const onOpenCard = vi.fn()
     try {
       await act(async () => { view = renderElement(createElement(CollectionView, { boardId: 'b1', canEdit: true, onOpenCard })) })

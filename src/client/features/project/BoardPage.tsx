@@ -64,6 +64,10 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [undoStack] = useState(() => createUndoStack())
   const refreshBoard = useRef(boardId)
   refreshBoard.current = boardId
+  const loadGeneration = useRef(0)
+  const activityBoard = useRef(boardId)
+  activityBoard.current = boardId
+  const activityGeneration = useRef(0)
   const refresh = useMemo(
     () => createRefreshQueue(
       () => fetchProjectBoardBundle(boardId),
@@ -137,12 +141,32 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     if (id) setOpenCardId(id)
   }, [search])
 
+  const retryBoard = () => {
+    const generation = ++loadGeneration.current
+    setStatus('loading')
+    setError(null)
+    void refresh()
+      .then(() => { if (generation === loadGeneration.current && refreshBoard.current === boardId) setStatus('ready') })
+      .catch((reason: unknown) => {
+        if (generation !== loadGeneration.current || refreshBoard.current !== boardId) return
+        const isNotFound = typeof reason === 'object' && reason !== null && 'status' in reason && (reason as { status: number }).status === 404
+        setStatus(isNotFound ? 'notfound' : 'error')
+        setError(reason instanceof Error ? reason.message : String(reason))
+      })
+  }
+
   const openActivity = () => {
+    const generation = ++activityGeneration.current
     setShowActivity(true)
     setActivityStatus('loading')
     fetchBoardActivity(boardId)
-      .then((entries) => { setActivity(entries); setActivityStatus('ready') })
-      .catch(() => { setActivity([]); setActivityStatus('error') })
+      .then((entries) => {
+        if (generation === activityGeneration.current && activityBoard.current === boardId) {
+          setActivity(entries)
+          setActivityStatus('ready')
+        }
+      })
+      .catch(() => { if (generation === activityGeneration.current && activityBoard.current === boardId) setActivityStatus('error') })
   }
   const exportMarkdown = () => {
     window.open(`/api/project/boards/${encodeURIComponent(boardId)}/markdown`, '_blank')
@@ -150,18 +174,26 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
 
   useEffect(() => {
     let alive = true
+    const generation = ++loadGeneration.current
     setStatus('loading')
     setError(null)
     void refresh()
-      .then(() => { if (alive) setStatus('ready') })
+      .then(() => { if (alive && generation === loadGeneration.current) setStatus('ready') })
       .catch((err: unknown) => {
-        if (!alive) return
+        if (!alive || generation !== loadGeneration.current) return
         const isNotFound = typeof err === 'object' && err !== null && 'status' in err && (err as { status: number }).status === 404
         setStatus(isNotFound ? 'notfound' : 'error')
         setError(err instanceof Error ? err.message : String(err))
       })
     return () => { alive = false }
   }, [boardId, refresh])
+
+  useEffect(() => {
+    activityGeneration.current += 1
+    setShowActivity(false)
+    setActivity([])
+    setActivityStatus('idle')
+  }, [boardId])
 
   // Realtime fallback (D-11): the sync hub notifies members on writes, but a tab that misses the
   // notification (or a deployment without the DO) still converges via a quiet 30s refetch.
@@ -363,7 +395,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   if (status === 'loading') return <LoadingBlock />
   if (status === 'notfound') return <Empty art="select" title={t('project.board.not_found')} action={<Button onClick={() => navigateToPath('/project')}>{t('project.board.back')}</Button>} />
   if (status === 'error' || !bundle) {
-    return <Empty art="select" title={t('project.board.load_failed')} description={error ?? undefined} action={<Button onClick={() => navigateToPath('/project')}>{t('project.board.back')}</Button>} />
+    return <Empty art="select" title={t('project.board.load_failed')} description={error ?? undefined} action={<div className="flex flex-wrap justify-center gap-2"><Button variant="primary" onClick={retryBoard}>{t('project.common.retry')}</Button><Button variant="ghost" onClick={() => navigateToPath('/project')}>{t('project.board.back')}</Button></div>} />
   }
 
   const canEdit = projectRoleAtLeast(bundle.role, 'editor')
@@ -415,7 +447,13 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
               <Share2 size={16} />
             </IconButton>
           )}
-          <IconButton label={boardWatch.watching ? t('project.watch.off') : t('project.watch.on')} size="sm" active={boardWatch.watching} onClick={() => { void boardWatch.toggle() }}><Bell size={16} /></IconButton>
+          {boardWatch.status === 'error' && (
+            <span role="alert" className="flex items-center gap-1">
+              <span className="sr-only text-[length:var(--text-11)] text-[var(--danger)] xl:not-sr-only">{t('project.common.load_failed')}</span>
+              <Button size="sm" variant="ghost" onClick={boardWatch.retry}>{t('project.common.retry')}</Button>
+            </span>
+          )}
+          <IconButton label={boardWatch.watching ? t('project.watch.off') : t('project.watch.on')} size="sm" active={boardWatch.watching} disabled={boardWatch.status !== 'ready'} onClick={() => { void boardWatch.toggle() }}><Bell size={16} /></IconButton>
           {bundle.role === 'admin' && (
             <IconButton label={t('project.trash.title')} size="sm" onClick={() => setShowTrash(true)}><Trash2 size={16} /></IconButton>
           )}
@@ -527,7 +565,12 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           {activityStatus === 'loading'
             ? <LoadingBlock />
             : activityStatus === 'error'
-              ? <p className="text-[length:var(--text-12)] text-[var(--danger)]">{t('project.boards.load_failed')}</p>
+              ? (
+                  <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
+                    {t('project.boards.load_failed')}
+                    <Button size="sm" variant="ghost" onClick={openActivity}>{t('project.common.retry')}</Button>
+                  </div>
+                )
               : (
                 <ul className="space-y-2">
                   {activity.map((entry) => {
@@ -560,7 +603,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           onClose={() => setOpenCardId(null)}
           onDelete={(id) => void removeCard(id)}
           onUpdated={(updated) => setBundle((current) => current ? { ...current, cursor: Math.max(current.cursor, updated.updateAt), cards: current.cards.map((card) => (card.id === updated.id ? updated : card)) } : current)}
-          onRefresh={() => { void refresh().catch(() => { /* best-effort: dialog stays usable if the refetch fails */ return undefined }) }}
+          onRefresh={() => { void refresh().catch((reason: unknown) => { useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' }) }) }}
           onOpenCard={setOpenCardId}
         />
       )}

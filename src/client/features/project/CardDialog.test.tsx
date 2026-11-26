@@ -15,6 +15,7 @@ vi.mock('./api', () => ({
   stopCardTimer: vi.fn(),
   deleteCardTime: vi.fn(),
   fetchCardComments: vi.fn(),
+  fetchCardDetail: vi.fn(),
   createCardComment: vi.fn(),
   createCardContent: vi.fn(),
   patchCardContent: vi.fn(),
@@ -53,10 +54,10 @@ const properties: ProjectProperty[] = [
 ]
 
 let view: RenderedElement
-async function mount(): Promise<void> {
+async function mount(detailTruncated = false): Promise<void> {
   await act(async () => {
     view = renderElement(createElement(CardDialog, {
-      card, properties, members: [], people: {}, contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
+      card, properties, members: [], people: {}, contents: [], siblings: [], canEdit: true, detailTruncated, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
     }))
   })
 }
@@ -142,6 +143,39 @@ describe('the card dialog', () => {
     expect(checkbox).not.toBeNull()
     await act(async () => { checkbox.click() })
     expect(api.patchCardContent).toHaveBeenCalledWith('a1', { fields: { checked: true } })
+  })
+
+  it('shows a retryable time-read error instead of zero minutes', async () => {
+    vi.mocked(api.fetchCardTime).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([])
+    await mount()
+    const section = document.body.querySelector(`section[aria-label="${t('project.time.title')}"]`)!
+    expect(section.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    expect(section.textContent).not.toContain('0m')
+    await act(async () => { [...section.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchCardTime).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps failed comment, dependency and attachment reads distinct from empty data', async () => {
+    vi.mocked(api.fetchCardComments).mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.mocked(api.fetchCardLinks).mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.mocked(api.listBoardFiles).mockRejectedValue(new TypeError('Failed to fetch'))
+    await mount()
+    for (const label of [t('project.card.comments'), t('project.card.dependencies'), t('project.card.attachments')]) {
+      const section = document.body.querySelector(`section[aria-label="${label}"]`)!
+      expect(section.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    }
+    expect(document.body.textContent).not.toContain(t('project.card.comments_empty'))
+    expect(document.body.textContent).not.toContain(t('project.card.dependencies_empty'))
+    expect(document.body.textContent).not.toContain(t('project.card.attachments_empty'))
+  })
+
+  it('keeps the bundle visible but offers retry when the full card detail read fails', async () => {
+    vi.mocked(api.fetchCardDetail).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce({ contents: [], comments: [] })
+    await mount(true)
+    expect(document.body.querySelector('[data-card-detail="c1"]')).not.toBeNull()
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    await act(async () => { [...document.body.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchCardDetail).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -244,6 +278,14 @@ describe('comment edit/delete, paste image, archived placeholder (D-6/D-8/D-11)'
     confirmed.mockRestore()
   })
 
+  it('does not call an image archived when its attachment list failed to load', async () => {
+    const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'image', title: 'pic.png', fields: { attachmentId: 'gone' }, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
+    vi.mocked(api.listBoardFiles).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await mountWith([block])
+    expect(document.body.textContent).toContain(t('project.common.load_failed'))
+    expect(document.body.textContent).not.toContain(t('project.card.archived_file'))
+  })
+
   it('shows an archived placeholder when the image file is gone', async () => {
     const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'image', title: 'pic.png', fields: { attachmentId: 'gone' }, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
     await mountWith([block])
@@ -259,6 +301,7 @@ describe('comment edit/delete, paste image, archived placeholder (D-6/D-8/D-11)'
     Object.defineProperty(event, 'clipboardData', { value: { files: [new File(['x'], 'p.png', { type: 'image/png' })] } })
     await act(async () => { section.dispatchEvent(event) })
     expect(api.uploadBoardFile).toHaveBeenCalled()
+    expect(api.listBoardFiles).toHaveBeenCalledTimes(2)
     expect(api.createCardContent).toHaveBeenCalledWith('c1', expect.objectContaining({ type: 'image', fields: { attachmentId: 'f1' } }))
   })
 })

@@ -21,23 +21,28 @@ export function ArchiveDialog({ onClose, onRestored }: {
   onRestored: () => void
 }): ReactElement {
   const [boards, setBoards] = useState<ProjectBoardSummary[] | null>(null)
+  const [error, setError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const toast = useUi((state) => state.toast)
   const setBoardArchived = useProjectStore((state) => state.setBoardArchived)
 
   const load = useCallback(async (signal?: AbortSignal) => {
+    setBoards(null)
+    setError(false)
     setBoards(await fetchArchivedBoards(signal))
   }, [])
 
   useEffect(() => {
     const controller = new AbortController()
+    setError(false)
     void load(controller.signal).catch((reason: unknown) => {
       if (controller.signal.aborted) return
       toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
-      setBoards([])
+      setError(true)
     })
     return () => controller.abort()
-  }, [load, toast])
+  }, [load, toast, attempt])
 
   const restore = async (board: ProjectBoardSummary) => {
     setBusy(true)
@@ -56,7 +61,14 @@ export function ArchiveDialog({ onClose, onRestored }: {
   return (
     <Modal open onClose={onClose} title={t('project.archive.title')} width={480}>
       <div className="space-y-2" data-project-archive="">
-        {boards === null
+        {error
+          ? (
+              <div role="alert" className="flex flex-col items-center gap-3 py-6 text-center">
+                <p className="text-[length:var(--text-13)] text-[var(--danger)]">{t('project.common.load_failed')}</p>
+                <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+              </div>
+            )
+          : boards === null
           ? <LoadingBlock />
           : boards.length === 0
             ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.archive.empty')}</p>
