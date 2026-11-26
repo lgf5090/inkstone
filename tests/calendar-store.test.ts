@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { CalendarStore, type CalendarEventWriteInput, type RecurrenceChangeWrite } from '../src/worker/calendar/store'
 import { parseEventInput, parsePreferences } from '../src/worker/calendar/validation'
-import { MAX_EVENTS_PER_QUERY, type CalendarDto } from '../src/shared/calendar/model'
+import { MAX_EVENTS_PER_QUERY, isCalendarEntityId, parseSharedCalendarId, type CalendarDto } from '../src/shared/calendar/model'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const ALICE = 'user-alice'
@@ -300,6 +300,9 @@ describe('event round trips', () => {
     expect(remote.externalId).toBe('event-1@example.com')
 
     expect(() => eventInput({ id: 'master::repeat-1' })).toThrow()
+    expect(isCalendarEntityId('shared:owner:calendar')).toBe(false)
+    expect(isCalendarEntityId(remote.id)).toBe(true)
+    expect(parseSharedCalendarId(`shared:owner:${remote.id}`)).toEqual({ ownerId: 'owner', calendarId: remote.id })
   })
 })
 

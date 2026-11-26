@@ -15,8 +15,10 @@ export function isSharedCalendarId(id: string): boolean {
 
 export function parseSharedCalendarId(id: string): { ownerId: string; calendarId: string } | null {
   if (!isSharedCalendarId(id)) return null
-  const [, ownerId, calendarId] = id.split(':')
-  return ownerId && calendarId ? { ownerId, calendarId } : null
+  const rest = id.slice(SHARED_CALENDAR_PREFIX.length)
+  const separator = rest.indexOf(':')
+  if (separator <= 0 || separator === rest.length - 1) return null
+  return { ownerId: rest.slice(0, separator), calendarId: rest.slice(separator + 1) }
 }
 
 export const CALENDAR_SOURCES = ['local', 'ics', 'caldav', 'google', 'outlook'] as const
@@ -442,7 +444,8 @@ export interface CalendarRangeRevisionDto {
 const CALENDAR_ENTITY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9:._~@#%+-]{0,199}$/
 
 export function isCalendarEntityId(value: unknown): value is string {
-  return typeof value === 'string' && CALENDAR_ENTITY_ID_RE.test(value) && !value.includes('::repeat-')
+  return typeof value === 'string' && CALENDAR_ENTITY_ID_RE.test(value)
+    && !value.includes('::repeat-') && !value.startsWith(SHARED_CALENDAR_PREFIX)
 }
 
 export function isCalendarSource(value: unknown): value is CalendarSource {

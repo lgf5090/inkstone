@@ -430,6 +430,7 @@ describe('event routes', () => {
     const home = (await meta()).calendars[0]!
     expect((await call('GET', '/events?from=nope&to=also-nope')).status).toBe(400)
     expect((await call('POST', '/events', eventBody(home.id, { id: 'master::repeat-1' }))).status).toBe(400)
+    expect((await call('POST', '/events', eventBody(home.id, { id: 'shared:owner:calendar' }))).status).toBe(400)
     expect((await call('PATCH', '/events/bad!id', { rev: 1, title: 'X' })).status).toBe(400)
     expect((await call('DELETE', `/events/${home.id}`)).status).toBe(400)
   })

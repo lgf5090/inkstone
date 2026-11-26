@@ -73,7 +73,12 @@ function store(c: Ctx): CalendarStore {
 }
 
 function pathId(c: Ctx): string {
-  return parseEntityId(c.req.param('id'), 'id')
+  const value = c.req.param('id') ?? ''
+  if (isSharedCalendarId(value)) {
+    if (!parseSharedCalendarId(value)) throw ApiError.badRequest('id is not a valid id')
+    return value
+  }
+  return parseEntityId(value, 'id')
 }
 
 /** Provider identity is set by internal sync/import parsers, never by an HTTP request body. */
