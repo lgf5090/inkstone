@@ -30,7 +30,7 @@ const ALLOWED_TAGS = [
 
 const ALLOWED_ATTR = [
   'href', 'src', 'alt', 'title', 'width', 'height', 'colspan', 'rowspan', 'span', 'start', 'reversed',
-  'type', 'align', 'lang', 'dir', 'datetime', 'id', 'headers', 'scope',
+  'type', 'align', 'lang', 'dir', 'datetime', 'class', 'headers', 'scope',
 ]
 
 // The lazy-load attributes are the only `data-*` a body may keep, and only long enough to be
@@ -59,17 +59,23 @@ const CONFIG = {
  */
 export function sanitizeFeedHtml(html: string, base?: string): string {
   const clean = DOMPurify.sanitize(html || '', CONFIG)
-  if (!base) return clean
   const root = sanitizedElement(clean)
-  for (const node of Array.from(root.querySelectorAll(ADDRESS_SELECTOR))) {
-    for (const attribute of ADDRESS_ATTRS) {
-      if (!node.hasAttribute(attribute)) continue
-      const raw = node.getAttribute(attribute) || ''
-      const resolved = safeHttpUrl(raw, base)
-      // An address that is not http(s) after resolution — `mailto:`, `javascript:`, a fragment-only
-      // pointer to a page that is not this one — is dropped rather than kept for the browser to guess.
-      if (resolved) node.setAttribute(attribute, resolved.href)
-      else node.removeAttribute(attribute)
+  for (const node of Array.from(root.querySelectorAll('[class]'))) {
+    const safeLanguage = node.tagName.toLowerCase() === 'code'
+      && [...node.classList].every(name => /^language-[A-Za-z0-9_+-]+$/.test(name))
+    if (!safeLanguage) node.removeAttribute('class')
+  }
+  if (base) {
+    for (const node of Array.from(root.querySelectorAll(ADDRESS_SELECTOR))) {
+      for (const attribute of ADDRESS_ATTRS) {
+        if (!node.hasAttribute(attribute)) continue
+        const raw = node.getAttribute(attribute) || ''
+        const resolved = safeHttpUrl(raw, base)
+        // An address that is not http(s) after resolution — `mailto:`, `javascript:`, a fragment-only
+        // pointer to a page that is not this one — is dropped rather than kept for the browser to guess.
+        if (resolved) node.setAttribute(attribute, resolved.href)
+        else node.removeAttribute(attribute)
+      }
     }
   }
   return root.innerHTML

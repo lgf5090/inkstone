@@ -308,6 +308,15 @@ const RSS_READING_ENTRY_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_rss_reading_entry_recent ON rss_reading_entry(user_id, published_ts DESC, captured_at DESC, entry_id)`,
 ]
 
+const RSS_USER_DELETE_TRIGGER = `CREATE TRIGGER IF NOT EXISTS rss_feed_user_delete AFTER DELETE ON users BEGIN
+  DELETE FROM rss_feed_tag WHERE user_id = OLD.id;
+  DELETE FROM rss_reading_entry WHERE user_id = OLD.id;
+  DELETE FROM rss_mark WHERE user_id = OLD.id;
+  DELETE FROM rss_feed WHERE user_id = OLD.id;
+  DELETE FROM rss_group WHERE user_id = OLD.id;
+  DELETE FROM rss_state WHERE user_id = OLD.id;
+END`
+
 const RSS_LIBRARY_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS rss_feed (
     user_id TEXT NOT NULL,
@@ -377,6 +386,7 @@ const RSS_LIBRARY_STATEMENTS: readonly string[] = [
     saved_at INTEGER NOT NULL DEFAULT 0
   )`,
   ...RSS_READING_ENTRY_STATEMENTS,
+  RSS_USER_DELETE_TRIGGER,
 ]
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
@@ -4991,6 +5001,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 442,
     skipIfColumnExists: { table: 'rss_feed', column: 'read_before' },
     statements: [`ALTER TABLE rss_feed ADD COLUMN read_before INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 443,
+    statements: [RSS_USER_DELETE_TRIGGER],
   },
 ]
 

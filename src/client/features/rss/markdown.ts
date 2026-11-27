@@ -12,6 +12,8 @@
  * is the failure mode that keeps a saved note readable.
  */
 
+import { sanitizeFeedHtml } from './sanitize'
+
 /**
  * A `<br>` is kept as a marker until the whitespace pass is over, because that pass is exactly what
  * would eat the two spaces Markdown reads as a line break.
@@ -31,8 +33,8 @@ interface Writer {
 
 export function htmlToMarkdown(html: string, rewriteUrl: (url: string) => string = url => url): string {
   const writer: Writer = { rewriteUrl }
-  const host = document.createElement('div')
-  host.innerHTML = html || ''
+  const host = document.createElement('template')
+  host.innerHTML = sanitizeFeedHtml(html || '')
   const blocks: string[] = []
   let paragraph = ''
 
@@ -42,7 +44,7 @@ export function htmlToMarkdown(html: string, rewriteUrl: (url: string) => string
     paragraph = ''
   }
 
-  for (const node of Array.from(host.childNodes)) {
+  for (const node of Array.from(host.content.childNodes)) {
     const kind = nodeKind(node)
     if (kind === 'text') {
       paragraph += node.textContent || ''

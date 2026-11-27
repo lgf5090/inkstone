@@ -121,6 +121,15 @@ describe('the row store', () => {
     expect(await rssFeedExists(db, USER, 'missing')).toBe(false)
   })
 
+  it('removes every RSS row when the account is deleted', async () => {
+    await storeRssLibrary(db, USER, library(), 1)
+    await saveRssReadingFeed(db, USER, 'f1', [{ id: 'e1', feedId: 'f1', title: 'One', link: 'https://example.com/1', author: '', content: 'Body', summary: '', publishedTs: 1, imageUrl: '', audioUrl: '' }], 1)
+    sqlite.prepare('DELETE FROM users WHERE id = ?').run(USER)
+    for (const table of ['rss_feed', 'rss_feed_tag', 'rss_group', 'rss_mark', 'rss_state', 'rss_reading_entry']) {
+      expect(count(table, USER)).toBe(0)
+    }
+  })
+
   it('keeps one account inside its own rows', async () => {
     await storeRssLibrary(db, USER, library(), 500)
     expect(await loadRssLibrary(db, OTHER)).toEqual({ savedAt: 0, library: null })

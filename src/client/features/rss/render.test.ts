@@ -149,6 +149,14 @@ describe('htmlToMarkdown', () => {
     expect(merged).toContain('1 · 2')
   })
 
+  it('sanitizes old cached HTML before converting it and strips DOM-clobbering ids', () => {
+    const md = htmlToMarkdown('<p id="note">Safe</p><img src="https://cdn.example/i.png" onerror="alert(1)"><script>alert(2)</script>')
+    expect(md).toContain('Safe')
+    expect(md).not.toContain('onerror')
+    expect(md).not.toContain('<script')
+    expect(md).not.toContain('id=')
+  })
+
   it('keeps a line break the author asked for', () => {
     expect(htmlToMarkdown('<p>one<br>two</p>')).toBe('one  \ntwo')
   })

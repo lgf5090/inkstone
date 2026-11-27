@@ -16,7 +16,7 @@
  */
 import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
-import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, safeHttpUrl, type RssFeed, type RssFetchResult } from '@shared/rss/model'
+import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, safeHttpUrl, type RssFeed, type RssFetchReason, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty, patchIsMarksOnly } from '@shared/rss/patch'
 import { accountExists, deleteRssReadingFeed, loadRssLibrary, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
@@ -97,6 +97,11 @@ function decodeFeedDocument(bytes: Uint8Array, contentType: string): string | nu
   }
 }
 
+function feedFailure(url: string, status: number, reason: RssFetchReason): RssFetchResult {
+  console.warn('[inkstone] RSS fetch failed', { feed: rssHash(url), status, reason })
+  return { url, status, ok: false, reason }
+}
+
 /**
  * One feed, start to finish.
  *
@@ -110,7 +115,7 @@ async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
     url = assertFeedUrl(requested)
   }
   catch {
-    return { url: requested, status: 0, ok: false, reason: 'blocked' }
+    return feedFailure(requested, 0, 'blocked')
   }
   const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
   const etag = headerOnly(input.etag, 200)
@@ -128,23 +133,23 @@ async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
       }
       if (isRedirectResponse(response)) {
         const location = response.headers.get('location')
-        if (!location || hop === MAX_HOPS) return { url: requested, status: response.status, ok: false, reason: 'unreachable' }
+        if (!location || hop === MAX_HOPS) return feedFailure(requested, response.status, 'unreachable')
         try {
           url = assertFeedUrl(new URL(location, url).href)
         }
         catch {
-          return { url: requested, status: response.status, ok: false, reason: 'blocked' }
+          return feedFailure(requested, response.status, 'blocked')
         }
         continue
       }
-      if (!response.ok) return { url: requested, status: response.status, ok: false, reason: 'http' }
+      if (!response.ok) return feedFailure(requested, response.status, 'http')
       if (!looksLikeFeed(response.headers.get('content-type') || '')) {
-        return { url: requested, status: response.status, ok: false, reason: 'not-a-feed' }
+        return feedFailure(requested, response.status, 'not-a-feed')
       }
       const bytes = await readStreamWithinLimit(response.body, MAX_FEED_BYTES)
-      if (bytes === null) return { url: requested, status: response.status, ok: false, reason: 'too-large' }
+      if (bytes === null) return feedFailure(requested, response.status, 'too-large')
       const xml = decodeFeedDocument(bytes, response.headers.get('content-type') || '')
-      if (xml === null || !xml.trim()) return { url: requested, status: response.status, ok: false, reason: 'not-a-feed' }
+      if (xml === null || !xml.trim()) return feedFailure(requested, response.status, 'not-a-feed')
       return {
         url: requested,
         finalUrl: url.href,
@@ -155,10 +160,10 @@ async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
         lastModified: headerOnly(response.headers.get('last-modified'), 200) || undefined,
       }
     }
-    return { url: requested, status: 0, ok: false, reason: 'unreachable' }
+    return feedFailure(requested, 0, 'unreachable')
   }
   catch {
-    return { url: requested, status: 0, ok: false, reason: signal.aborted ? 'timeout' : 'unreachable' }
+    return feedFailure(requested, 0, signal.aborted ? 'timeout' : 'unreachable')
   }
 }
 
