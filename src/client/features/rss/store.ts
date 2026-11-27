@@ -205,6 +205,8 @@ const FETCH_BATCH = 25
 const SAVE_DEBOUNCE_MS = 900
 /** The browser's keepalive allowance; larger writes must survive in the local outbox snapshot. */
 const KEEPALIVE_BODY_BYTES = 64 * 1024
+/** Scroll events update the view immediately but coalesce the IndexedDB write. */
+const VIEW_WRITE_DEBOUNCE_MS = 250
 /** How many feed caches are read at once when a large channel opens. */
 const FEED_PREPARE_BATCH = 20
 
@@ -227,6 +229,7 @@ export const useRss = create<RssState>((set, get) => {
   let saveRevision = 0
   let saveGeneration = 0
   let autoRefreshTimer = 0
+  let viewTimer = 0
   let index: CacheIndex = emptyIndex()
   /**
    * What this device last handed the account, in full.
@@ -360,8 +363,11 @@ export const useRss = create<RssState>((set, get) => {
    * page that was already clean costs nothing.
    */
   const flushOnLeave = (): void => {
+    if (viewTimer) window.clearTimeout(viewTimer)
+    viewTimer = 0
     if (saveTimer) window.clearTimeout(saveTimer)
     saveTimer = 0
+    writeIndex()
     void flushSave(true)
   }
   function dueFeedIds(now = Date.now()): string[] {
@@ -545,7 +551,11 @@ export const useRss = create<RssState>((set, get) => {
     const next = { ...readView(key), ...patch }
     set(state => ({ views: { ...state.views, [key]: next } }))
     index = { ...index, views: { ...index.views, [key]: next } }
-    writeIndex()
+    if (viewTimer) window.clearTimeout(viewTimer)
+    viewTimer = window.setTimeout(() => {
+      viewTimer = 0
+      writeIndex()
+    }, VIEW_WRITE_DEBOUNCE_MS)
   }
 
   /** The feeds a channel is made of, with their articles read into memory first. */
@@ -850,6 +860,8 @@ export const useRss = create<RssState>((set, get) => {
       if (saveTimer) window.clearTimeout(saveTimer)
       if (autoRefreshTimer) window.clearInterval(autoRefreshTimer)
       autoRefreshTimer = 0
+      if (viewTimer) window.clearTimeout(viewTimer)
+      viewTimer = 0
       saveTimer = 0
       for (const timer of readingUploads.values()) window.clearTimeout(timer)
       readingUploads.clear()
@@ -1283,12 +1295,15 @@ export const useRss = create<RssState>((set, get) => {
       const cached = get().allCached
       if (cached) return cached
       const out: RssEntry[] = []
-      for (const feedId of Object.keys(index.articles)) {
-        const stored = await localDb.loadRssArticles(feedId)
-        if (!stored) continue
-        // The index exists to be searched, and a search reads a title and a summary. Keeping the
-        // bodies would hold a hundred megabytes of HTML for a lookup that never opens one.
-        for (const entry of stored.entries) out.push({ ...entry, content: '' })
+      const feedIds = Object.keys(index.articles)
+      for (let offset = 0; offset < feedIds.length; offset += FEED_PREPARE_BATCH) {
+        const stored = await Promise.all(feedIds.slice(offset, offset + FEED_PREPARE_BATCH).map(feedId => localDb.loadRssArticles(feedId)))
+        for (const value of stored) {
+          if (!value) continue
+          // The index exists to be searched, and a search reads a title and a summary. Keeping the
+          // bodies would hold a hundred megabytes of HTML for a lookup that never opens one.
+          for (const entry of value.entries) out.push({ ...entry, content: '' })
+        }
       }
       out.sort((a, b) => (b.publishedTs ?? 0) - (a.publishedTs ?? 0))
       set({ allCached: out })
@@ -1340,8 +1355,11 @@ export const useRss = create<RssState>((set, get) => {
     },
 
     async flush(options) {
+      if (viewTimer) window.clearTimeout(viewTimer)
+      viewTimer = 0
       if (saveTimer) window.clearTimeout(saveTimer)
       saveTimer = 0
+      writeIndex()
       await flushSave(options?.keepalive)
     },
 

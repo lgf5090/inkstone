@@ -94,6 +94,8 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   const settings = useSession(state => state.settings.rss)
   const hideEntries = useRss(state => state.hideEntries)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const readerFrame = useRef(0)
+  const pendingReaderTop = useRef(0)
   const barRef = useRef<HTMLDivElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const abortRef = useRef<(() => void) | null>(null)
@@ -128,6 +130,8 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   const stored = entry ? results[entry.id] : undefined
 
       useEffect(() => {
+    if (readerFrame.current) window.cancelAnimationFrame(readerFrame.current)
+    readerFrame.current = 0
     abortRef.current?.()
     abortRef.current = null
     setAi(null)
@@ -372,7 +376,13 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
         data-focus={focus ? 'true' : undefined}
         onScroll={(event) => {
           const node = event.currentTarget
-          setReaderTop(node.scrollTop)
+          pendingReaderTop.current = node.scrollTop
+          if (!readerFrame.current) {
+            readerFrame.current = window.requestAnimationFrame(() => {
+              readerFrame.current = 0
+              setReaderTop(pendingReaderTop.current)
+            })
+          }
           const span = node.scrollHeight - node.clientHeight
           const bar = barRef.current
           if (bar) bar.style.width = `${span > 0 ? Math.min(100, (node.scrollTop / span) * 100) : 0}%`

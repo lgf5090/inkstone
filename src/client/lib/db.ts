@@ -586,7 +586,7 @@ export const localDb = {
   /** The RSS cache record is also the outbox for unsaved marks, so failure must reach the caller. */
   persistRssCacheIndex: (value: unknown) => localWritesDisabled
     ? Promise.reject(new Error('local writes are disabled'))
-    : set(userScopedKey(KEY.rssCache), value, store),
+    : Promise.resolve().then(() => set(userScopedKey(KEY.rssCache), value, store)),
 
   /** The AI endpoint a reader configured here. The key is stored on this device and never sent
    * anywhere except the relay it is about to be used against.

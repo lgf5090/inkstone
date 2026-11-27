@@ -482,6 +482,15 @@ describe('the media relay', () => {
     return request(`/relay?url=${encodeURIComponent(url)}`, headers ? { headers } : undefined)
   }
 
+  it('shares one budget receipt across repeated Range requests for the same media', async () => {
+    stubFetch(() => new Response('audio', { headers: { 'content-type': 'audio/mpeg' } }))
+    const url = 'https://cdn.example.com/budget-seek.mp3'
+    expect((await relay(url, { range: 'bytes=0-1' })).status).toBe(200)
+    expect((await relay(url, { range: 'bytes=2-3' })).status).toBe(200)
+    const row = sqlite.prepare('SELECT fails FROM login_attempts WHERE key = ?1').get(`rss-relay:${USER}`) as { fails: number }
+    expect(row.fails).toBe(1)
+  })
+
   it('refuses an internal address and a non-media type', async () => {
     stubFetch((target) => {
       if (target.includes('cat')) return new Response('bytes', { headers: { 'content-type': 'image/png' } })

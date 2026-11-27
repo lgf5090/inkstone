@@ -23,6 +23,7 @@ import {
   stepIndex,
   uniqueRemoteEntries,
   unreadCounts,
+  UNREAD_CHANNEL_SIZE,
 } from './reading'
 
 function entry(feedId: string, id: string, publishedTs: number | null, title = id): RssEntry {
@@ -314,6 +315,12 @@ describe('nested folders, tags and the saved channels', () => {
   it('answers the unread channel with what is neither read nor hidden', () => {
     const view = shelf()
     expect(channelEntries(view, { kind: 'unread' }).map(item => item.id).sort()).toEqual(['a1', 'b2'])
+  })
+
+  it('bounds the unread channel to a usable work queue', () => {
+    const view = shelf()
+    view.articles.fa = Array.from({ length: UNREAD_CHANNEL_SIZE + 50 }, (_, index) => entry('fa', `u${index}`, index))
+    expect(channelEntries(view, { kind: 'unread' })).toHaveLength(UNREAD_CHANNEL_SIZE)
   })
 
   it('answers the recent channel in the order things were opened', () => {

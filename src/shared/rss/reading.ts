@@ -155,7 +155,7 @@ export function channelEntries(view: RssView, channel: RssChannel, options: Chan
     if (channel.kind === 'vault') return []
     if (channel.kind === 'starred') return byNewest(allEntries(view).filter(entry => marks.starred.has(entry.id) && keep(entry)))
     if (channel.kind === 'later') return byNewest(allEntries(view).filter(entry => marks.later.has(entry.id) && keep(entry)))
-    if (channel.kind === 'unread') return byNewest(allEntries(view).filter(entry => !marks.read.has(entry.id) && keep(entry)))
+    if (channel.kind === 'unread') return byNewest(allEntries(view).filter(entry => !marks.read.has(entry.id) && keep(entry))).slice(0, UNREAD_CHANNEL_SIZE)
     if (channel.kind === 'recent') {
       const opened = view.library.opened
       return allEntries(view)
@@ -171,6 +171,8 @@ export function channelEntries(view: RssView, channel: RssChannel, options: Chan
 
 /** How many articles the recently-read channel keeps on screen. */
 export const RECENT_CHANNEL_SIZE = 100
+/** The unread channel is a work queue, not an unlimited archive render. */
+export const UNREAD_CHANNEL_SIZE = 1000
 
 export function feedsForChannel(library: RssLibrary, channel: RssChannel): RssFeed[] {
   if (channel.kind === 'feed') {
@@ -493,6 +495,7 @@ export function stepIndex(current: number, delta: number, length: number): numbe
  * marked.
  */
 export function remoteContentKey(link: string): string {
+  if (link.slice(0, 8).toLowerCase() !== 'https://') return ''
   const url = safeHttpUrl(link)
   if (!url || url.protocol !== 'https:') return ''
   if (url.hostname === 'mp.weixin.qq.com' && url.pathname === '/s') {

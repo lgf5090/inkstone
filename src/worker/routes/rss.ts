@@ -329,9 +329,29 @@ rssRoutes.delete('/reading', async (c) => {
  * seeking a two-hour episode does not download it first.
  */
 const RELAY_TYPES = /^(image\/(?!svg)|audio\/|video\/mp4|video\/webm|application\/ogg)/i
+/** Repeated Range requests for one episode share a short-lived local budget receipt. */
+const relayBudgetReceipts = new Map<string, number>()
+const RELAY_RECEIPT_MS = 60_000
+
+async function spendRelayBudget(db: D1Database, userId: string, url: string): Promise<void> {
+  const key = `${userId}\u0000${url}`
+  const now = Date.now()
+  const until = relayBudgetReceipts.get(key) ?? 0
+  if (until > now) return
+  await spendBudget(db, `rss-relay:${userId}`, 600, 'Too many media requests')
+  if (relayBudgetReceipts.size >= 1000) {
+    for (const [receipt, expires] of relayBudgetReceipts) {
+      if (expires <= now) relayBudgetReceipts.delete(receipt)
+    }
+    if (relayBudgetReceipts.size >= 1000) {
+      const oldest = relayBudgetReceipts.keys().next().value
+      if (oldest) relayBudgetReceipts.delete(oldest)
+    }
+  }
+  relayBudgetReceipts.set(key, now + RELAY_RECEIPT_MS)
+}
 
 rssRoutes.get('/relay', async (c) => {
-  await spendBudget(c.env.DB, `rss-relay:${c.get('userId')}`, 600, 'Too many media requests')
   let url: URL
   try {
     url = assertFeedUrl(c.req.query('url'))
@@ -339,6 +359,7 @@ rssRoutes.get('/relay', async (c) => {
   catch {
     throw ApiError.badRequest('That address cannot be relayed')
   }
+  await spendRelayBudget(c.env.DB, c.get('userId'), url.href)
   const headers: Record<string, string> = { 'user-agent': READER_AGENT, accept: 'image/*, audio/*, video/*, */*' }
   const range = headerOnly(c.req.header('range'), 200)
   if (range) headers.range = range

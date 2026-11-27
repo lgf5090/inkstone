@@ -47,6 +47,9 @@ let fetchResults: Array<{ url: string, status: number, ok: boolean, xml?: string
 let saveFails = false
 let loadFails = false
 let indexWriteFails = false
+let indexWrites = 0
+let articleLoadActive = 0
+let articleLoadMaxActive = 0
 let patchWait: Promise<void> | null = null
 let fetchWait: Promise<void> | null = null
 let fetchActive = 0
@@ -57,11 +60,22 @@ vi.mock('../../lib/db', () => ({
   localDb: {
     loadRssCacheIndex: () => Promise.resolve(cache.get('index') ?? null),
     persistRssCacheIndex: (value: unknown) => {
+      indexWrites++
       if (indexWriteFails) return Promise.reject(new Error('IndexedDB unavailable'))
       cache.set('index', value)
       return Promise.resolve()
     },
-    loadRssArticles: (id: string) => Promise.resolve(cache.get(`articles:${id}`) ?? null),
+    loadRssArticles: async (id: string) => {
+      articleLoadActive++
+      articleLoadMaxActive = Math.max(articleLoadMaxActive, articleLoadActive)
+      try {
+        await Promise.resolve()
+        return cache.get(`articles:${id}`) ?? null
+      }
+      finally {
+        articleLoadActive--
+      }
+    },
     saveRssArticles: async (value: { feedId: string }) => {
       if (value.feedId === failedArticleFeed) throw new Error('IndexedDB quota exceeded')
       cache.set(`articles:${value.feedId}`, value)
@@ -159,6 +173,9 @@ function reset(): void {
   saveFails = false
   loadFails = false
   indexWriteFails = false
+  indexWrites = 0
+  articleLoadActive = 0
+  articleLoadMaxActive = 0
   patchWait = null
   fetchWait = null
   fetchActive = 0
@@ -347,6 +364,26 @@ describe('loading on a device', () => {
     cache.set('index', { articles, views: {} })
     await boot()
     expect(Object.keys(useRss.getState().articles)).toHaveLength(81)
+  })
+
+  it('loads cached search rows in bounded parallel batches', async () => {
+    const base = JSON.parse(JSON.stringify(saved)) as RssLibrary
+    base.feeds = []
+    base.lastChannel = 'all'
+    const articles: Record<string, unknown> = {}
+    for (let index = 0; index < 81; index++) {
+      const id = `f${index}`
+      base.feeds.push({ ...feed, id, url: `https://example.test/${id}` })
+      articles[id] = { fetchedAt: Date.now(), bytes: 10, count: 1 }
+      cache.set(`articles:${id}`, { feedId: id, fetchedAt: Date.now(), entries: [{ id: `e${index}`, feedId: id, title: id, link: `https://example.test/${index}`, author: '', publishedTs: index, summary: '', content: '', imageUrl: '', audioUrl: '' }] })
+    }
+    cache.set('library', base)
+    cache.set('index', { articles, views: {} })
+    await boot()
+    articleLoadMaxActive = 0
+    expect(await useRss.getState().loadAllCached()).toHaveLength(81)
+    expect(articleLoadMaxActive).toBeGreaterThan(1)
+    expect(articleLoadMaxActive).toBeLessThanOrEqual(20)
   })
 
   it('loads descendant folder feeds when the parent folder opens', async () => {
@@ -645,6 +682,19 @@ describe('marks', () => {
 })
 
 describe('saving', () => {
+  it('coalesces rapid scroll-position writes into one IndexedDB update', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    indexWrites = 0
+    useRss.getState().setListTop(10)
+    useRss.getState().setListTop(20)
+    useRss.getState().setListTop(30)
+    expect(indexWrites).toBe(0)
+    await vi.waitFor(() => expect(indexWrites).toBe(1))
+    const index = cache.get('index') as { views: Record<string, { listTop: number }> }
+    expect(index.views['feed:f1']?.listTop).toBe(30)
+  })
+
   it('persists an unsaved library snapshot without replacing the synced baseline', async () => {
     fetchResults = [{ url: feed.url, status: 304, ok: true }]
     await boot()

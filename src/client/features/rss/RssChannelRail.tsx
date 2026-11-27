@@ -17,6 +17,7 @@
  * claim about the world the rail has no way to make.
  */
 import { useMemo, useState } from 'react'
+import { useShallow } from 'zustand/shallow'
 import {
   ArrowDown,
   ArrowUp,
@@ -91,10 +92,35 @@ interface MenuState {
   target: MenuTarget
 }
 
+type RssRailState = Pick<ReturnType<typeof useRss.getState>,
+  | 'library' | 'articles' | 'channel' | 'cache' | 'open' | 'addGroup' | 'toggleGroupCollapsed'
+  | 'moveFeedTo' | 'moveGroupTo' | 'refresh' | 'renameFeed' | 'setFeedTags' | 'setPinned'
+  | 'setPaused' | 'removeFeed' | 'renameGroup' | 'setGroupAppearance' | 'removeGroup' | 'hideEntries'>
+
 export function RssChannelRail({ onPick }: { onPick?: () => void }) {
-  const state = useRss()
+  const state = useRss(useShallow((current): RssRailState => ({
+    library: current.library,
+    articles: current.articles,
+    channel: current.channel,
+    cache: current.cache,
+    open: current.open,
+    addGroup: current.addGroup,
+    toggleGroupCollapsed: current.toggleGroupCollapsed,
+    moveFeedTo: current.moveFeedTo,
+    moveGroupTo: current.moveGroupTo,
+    refresh: current.refresh,
+    renameFeed: current.renameFeed,
+    setFeedTags: current.setFeedTags,
+    setPinned: current.setPinned,
+    setPaused: current.setPaused,
+    removeFeed: current.removeFeed,
+    renameGroup: current.renameGroup,
+    setGroupAppearance: current.setGroupAppearance,
+    removeGroup: current.removeGroup,
+    hideEntries: current.hideEntries,
+  })))
   const library = state.library
-  const counts = unreadCounts({ library, articles: state.articles })
+  const counts = useMemo(() => unreadCounts({ library, articles: state.articles }), [library, state.articles])
   const active = channelKey(state.channel)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
@@ -263,7 +289,7 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
   )
 }
 
-async function newFolder(state: ReturnType<typeof useRss.getState>, parentId: string | null): Promise<void> {
+async function newFolder(state: RssRailState, parentId: string | null): Promise<void> {
   const name = await prompt({ title: parentId ? t('rss.new_subfolder') : t('rss.new_folder'), placeholder: t('rss.folder_placeholder') })
   if (name?.trim()) state.addGroup(name.trim(), parentId)
 }
@@ -554,7 +580,7 @@ function Row({ icon: Icon, label, count, active, onSelect, trailing, hint, muted
 /** The rail's whole right-click surface: a feed, a folder, a tag, or the empty space below them. */
 function buildMenuItems(
   target: MenuTarget,
-  state: ReturnType<typeof useRss.getState>,
+  state: RssRailState,
   library: RssLibrary,
 ): MenuItem[] {
   if (target.kind === 'feed') {

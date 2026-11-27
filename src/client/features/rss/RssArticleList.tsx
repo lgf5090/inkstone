@@ -55,6 +55,8 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
   const settings = useSession(session => session.settings.rss)
   const update = useSession(session => session.updateSettings)
   const listRef = useRef<HTMLDivElement | null>(null)
+  const scrollFrame = useRef(0)
+  const pendingScrollTop = useRef(0)
   const [limit, setLimit] = useState(PAGE)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [lastPicked, setLastPicked] = useState('')
@@ -121,6 +123,12 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
     if (!host) return
     host.scrollTop = view.listTop
   }, [state.channel])
+
+  useEffect(() => {
+    return () => {
+      if (scrollFrame.current) window.cancelAnimationFrame(scrollFrame.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!selected) return
@@ -325,9 +333,16 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
       <div
         ref={listRef}
         onScroll={(event) => {
-          state.setListTop(event.currentTarget.scrollTop)
+          const node = event.currentTarget
+          pendingScrollTop.current = node.scrollTop
+          if (!scrollFrame.current) {
+            scrollFrame.current = window.requestAnimationFrame(() => {
+              scrollFrame.current = 0
+              state.setListTop(pendingScrollTop.current)
+              markScrolled(node)
+            })
+          }
           setPreview(null)
-          markScrolled(event.currentTarget)
         }}
         className="min-h-0 flex-1 overflow-y-auto px-1 pb-3"
       >
