@@ -214,6 +214,8 @@ export const useRss = create<RssState>((set, get) => {
   let saveTimer = 0
   let saveInFlight: Promise<void> | null = null
   let dirty = false
+  let saveRevision = 0
+  let saveGeneration = 0
   let index: CacheIndex = emptyIndex()
   /**
    * What this device last handed the account, in full.
@@ -260,6 +262,7 @@ export const useRss = create<RssState>((set, get) => {
 
   function scheduleSave(): void {
     dirty = true
+    saveRevision++
     if (saveTimer) return
     saveTimer = window.setTimeout(() => {
       saveTimer = 0
@@ -275,20 +278,27 @@ export const useRss = create<RssState>((set, get) => {
     if (saveInFlight) return saveInFlight.then(() => (dirty ? flushSave() : undefined))
     if (!dirty) return Promise.resolve()
     const current = get().library
+    const snapshot = structuredClone(current)
+    const revision = saveRevision
+    const generation = saveGeneration
     const patch = sent ? diffLibrary(sent, current) : null
     if (patch && patchIsEmpty(patch)) {
       dirty = false
       return Promise.resolve()
     }
+    let retry = false
     const run: Promise<void> = (async () => {
       try {
         if (patch && patchChars(patch) < RSS_LIMITS.payloadChars) await api.rss.patch(patch)
-        else await api.rss.save(JSON.stringify(current))
-        sent = structuredClone(current)
-        dirty = false
+        else await api.rss.save(JSON.stringify(snapshot))
+        if (generation !== saveGeneration) return
+        sent = snapshot
+        dirty = saveRevision !== revision
+        retry = dirty
         set({ saveError: null, savedAt: Date.now() })
       }
       catch (error) {
+        if (generation !== saveGeneration) return
         // `dirty` stays set: a save the server refused is not a save that happened, and the next
         // action should carry the earlier one with it rather than lose both.
         set({ saveError: error instanceof Error && error.message ? error.message : t('rss.error.save_failed') })
@@ -297,7 +307,14 @@ export const useRss = create<RssState>((set, get) => {
     })()
     saveInFlight = run
     void run.finally(() => {
-      if (saveInFlight === run) saveInFlight = null
+      if (saveInFlight !== run) return
+      saveInFlight = null
+      if (retry && dirty && !saveTimer) {
+        saveTimer = window.setTimeout(() => {
+          saveTimer = 0
+          void flushSave()
+        }, SAVE_DEBOUNCE_MS)
+      }
     })
     return run
   }
@@ -596,6 +613,8 @@ export const useRss = create<RssState>((set, get) => {
       for (const timer of readingUploads.values()) window.clearTimeout(timer)
       readingUploads.clear()
       dirty = false
+      saveRevision = 0
+      saveGeneration++
       sent = null
       index = emptyIndex()
       loading.clear()

@@ -43,6 +43,7 @@ const cache = new Map<string, unknown>()
 const calls: Array<{ path: string, body?: unknown }> = []
 let fetchResults: Array<{ url: string, status: number, ok: boolean, xml?: string, etag?: string, reason?: string }> = []
 let saveFails = false
+let patchWait: Promise<void> | null = null
 
 vi.mock('../../lib/db', () => ({
   localDb: {
@@ -68,8 +69,9 @@ vi.mock('../../lib/api', () => ({
         cache.set('library', JSON.parse(library))
         return Promise.resolve({ savedAt: Date.now() })
       },
-      patch: (patch: unknown) => {
+      patch: async (patch: unknown) => {
         calls.push({ path: 'patch', body: patch })
+        if (patchWait) await patchWait
         if (saveFails) return Promise.reject(new Error('The RSS library holds entries that cannot be stored'))
         const base = parseRssLibrary(cache.get('library')).data ?? emptyLibrary()
         cache.set('library', applyLibraryPatch(base, patch as never))
@@ -113,6 +115,7 @@ function reset(): void {
   cache.clear()
   calls.length = 0
   saveFails = false
+  patchWait = null
   fetchResults = []
   cache.set('library', JSON.parse(JSON.stringify(saved)))
   useRss.getState().reset()
@@ -412,6 +415,25 @@ describe('saving', () => {
     }
     expect(patch.marks.upsert.map(row => `${row.kind}:${row.entryId}`).sort()).toEqual(['later:e2', 'star:e1'])
     expect((cache.get('library') as RssLibrary).favorites).toEqual(['e1'])
+  })
+
+  it('flushes changes made while an earlier save is still in flight', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    await useRss.getState().flush()
+    calls.length = 0
+    let release = (): void => {}
+    patchWait = new Promise<void>(resolve => { release = resolve })
+    useRss.getState().toggleFavorite('e1')
+    const first = useRss.getState().flush()
+    useRss.getState().toggleFavorite('e2')
+    const queued = useRss.getState().flush()
+    release()
+    await Promise.all([first, queued])
+    await vi.waitFor(() => expect(calls.filter(call => call.path === 'patch')).toHaveLength(2))
+    const writes = calls.filter(call => call.path === 'patch')
+    expect(writes.at(-1)?.body).toMatchObject({ marks: { upsert: [{ kind: 'star', entryId: 'e2' }] } })
+    expect((cache.get('library') as RssLibrary).favorites).toEqual(['e2', 'e1'])
   })
 
   it('sends one mark rather than the whole library', async () => {
