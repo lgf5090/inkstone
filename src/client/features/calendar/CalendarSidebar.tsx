@@ -25,6 +25,7 @@ import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Menu, Tooltip, confirm, type MenuItem, submenuFor } from '../../components/overlay'
 import { Checkbox } from '../../components/form'
 import { MiniMonth } from './MiniMonth'
+import { readCalendarSidebarSnapshot, sameCalendarSidebarSnapshot } from './sidebar-snapshot'
 import { downloadCalendarText } from './calendar-download'
 import {
   CalendarFormDialog,
@@ -189,12 +190,21 @@ export function CalendarSidebar({
   const [subscribeOpen, setSubscribeOpen] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dropId, setDropId] = useState<string | null>(null)
+  const [announcement, setAnnouncement] = useState('')
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [groupMenu, setGroupMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [inviteBusy, setInviteBusy] = useState<string | null>(null)
   const invites = meta.invites ?? []
 
-  useEffect(() => app.subscribe(() => bumpVersion()), [app])
+  useEffect(() => {
+    let previous = readCalendarSidebarSnapshot(app)
+    return app.subscribe(() => {
+      const next = readCalendarSidebarSnapshot(app)
+      if (sameCalendarSidebarSnapshot(previous, next)) return
+      previous = next
+      bumpVersion()
+    })
+  }, [app])
 
   const calendars = app.getCalendars()
   const currentDate = app.getCurrentDate()
@@ -299,6 +309,7 @@ export function CalendarSidebar({
     if (!neighbour) return
     const ids = app.getCalendars().map(item => item.id)
     app.reorderCalendars(ids.indexOf(calendarId), ids.indexOf(neighbour.id))
+    setAnnouncement(t('calendar.sidebar.reordered', { name: calendar.name }))
   }
 
   const dropCalendar = (targetId: string): void => {
@@ -316,6 +327,7 @@ export function CalendarSidebar({
     const to = ids.indexOf(targetId)
     if (from < 0 || to < 0) return
     app.reorderCalendars(from, to)
+    setAnnouncement(t('calendar.sidebar.reordered', { name: source.name }))
   }
 
   const makeDefault = async (calendar: CalendarDto): Promise<void> => {
@@ -410,6 +422,15 @@ export function CalendarSidebar({
         },
       ]
     }
+    const groupItems = [
+      { id: 'none', label: t('calendar.calendar.no_group'), checked: dto?.groupId == null, onSelect: () => { if (dto) void moveToGroup(dto, null) } },
+      ...groups.map(group => ({
+        id: group.id,
+        label: group.name,
+        checked: dto?.groupId === group.id,
+        onSelect: () => { if (dto) void moveToGroup(dto, group.id) },
+      })),
+    ]
     const items: MenuItem[] = [
       {
         id: 'default',
@@ -434,19 +455,8 @@ export function CalendarSidebar({
         id: 'group',
         label: t('calendar.calendar.move_to_group'),
         disabled: !dto,
-        submenu: submenuFor([
-          { id: 'none', label: t('calendar.calendar.no_group'), checked: dto?.groupId == null, onSelect: () => { if (dto) void moveToGroup(dto, null) } },
-          ...groups.map(group => ({
-            id: group.id,
-            label: group.name,
-            checked: dto?.groupId === group.id,
-            onSelect: () => { if (dto) void moveToGroup(dto, group.id) },
-          })),
-        ]),
-        subItems: [
-          { id: 'none', label: t('calendar.calendar.no_group'), onSelect: () => { if (dto) void moveToGroup(dto, null) } },
-          ...groups.map(group => ({ id: group.id, label: group.name, onSelect: () => { if (dto) void moveToGroup(dto, group.id) } })),
-        ],
+        submenu: submenuFor(groupItems),
+        subItems: groupItems,
       },
       {
         id: 'move-up',
@@ -528,6 +538,7 @@ export function CalendarSidebar({
         variant === 'drawer' ? 'w-full' : 'w-60',
       )}
     >
+      <p role="status" aria-live="polite" className="sr-only">{announcement}</p>
       <header className="flex h-11 shrink-0 items-center gap-1 border-b border-[var(--border-subtle)] px-2">
         {variant === 'inline'
           ? (
@@ -897,6 +908,7 @@ export function CalendarSidebar({
           <button
             type="button"
             draggable={!shared}
+            disabled={Boolean(shared)}
             aria-label={t('calendar.sidebar.reorder_calendar', { name: calendar.name })}
             onDragStart={(event) => {
               event.dataTransfer.effectAllowed = 'move'

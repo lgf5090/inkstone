@@ -1,6 +1,6 @@
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 
-const DB_NAME = 'inkstone-clouddrive-offline'
+const DB_NAME_PREFIX = 'inkstone-clouddrive-offline'
 const DB_VERSION = 1
 const STORE = 'files'
 const MAX_FILE_BYTES = 200 * 1024 * 1024
@@ -27,13 +27,19 @@ export interface OfflineMeta {
   path: string
 }
 
-function openDb(): Promise<IDBDatabase> {
+function requireUserId(userId: string): string {
+  if (!userId) throw new Error('offline_user_required')
+  return userId
+}
+
+function openDb(userId: string): Promise<IDBDatabase> {
+  const owner = requireUserId(userId)
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
       reject(new Error('offline_unavailable'))
       return
     }
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
+    const request = indexedDB.open(`${DB_NAME_PREFIX}.${encodeURIComponent(owner)}`, DB_VERSION)
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE)) request.result.createObjectStore(STORE, { keyPath: 'id' })
     }
@@ -42,8 +48,8 @@ function openDb(): Promise<IDBDatabase> {
   })
 }
 
-async function withStore<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  const db = await openDb()
+async function withStore<T>(userId: string, mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  const db = await openDb(userId)
   try {
     return await new Promise<T>((resolve, reject) => {
       const transaction = db.transaction(STORE, mode)
@@ -61,13 +67,13 @@ function metaOf(record: OfflineRecord): OfflineMeta {
   return meta
 }
 
-export async function listOffline(): Promise<OfflineMeta[]> {
-  const rows = await withStore<OfflineRecord[]>('readonly', (store) => store.getAll() as IDBRequest<OfflineRecord[]>)
+export async function listOffline(userId: string): Promise<OfflineMeta[]> {
+  const rows = await withStore<OfflineRecord[]>(userId, 'readonly', (store) => store.getAll() as IDBRequest<OfflineRecord[]>)
   return rows.map(metaOf).sort((left, right) => right.savedAt - left.savedAt)
 }
 
-export async function getOffline(id: string): Promise<OfflineRecord | null> {
-  const row = await withStore<OfflineRecord | undefined>('readonly', (store) => store.get(id) as IDBRequest<OfflineRecord | undefined>)
+export async function getOffline(userId: string, id: string): Promise<OfflineRecord | null> {
+  const row = await withStore<OfflineRecord | undefined>(userId, 'readonly', (store) => store.get(id) as IDBRequest<OfflineRecord | undefined>)
   return row ?? null
 }
 
@@ -87,13 +93,13 @@ export function offlineRefusal(
 }
 
 /** The two ceilings the offline cache honours, checked against the size a save is about to take. */
-async function assertOfflineRoom(entry: CloudDriveEntry, incoming: number): Promise<void> {
-  const refusal = offlineRefusal(await listOffline(), entry.id, incoming)
+async function assertOfflineRoom(userId: string, entry: CloudDriveEntry, incoming: number): Promise<void> {
+  const refusal = offlineRefusal(await listOffline(userId), entry.id, incoming)
   if (refusal) throw new Error(refusal)
 }
 
-export async function putOffline(entry: CloudDriveEntry, blob: Blob): Promise<void> {
-  await assertOfflineRoom(entry, blob.size)
+export async function putOffline(userId: string, entry: CloudDriveEntry, blob: Blob): Promise<void> {
+  await assertOfflineRoom(userId, entry, blob.size)
   const record: OfflineRecord = {
     id: entry.id,
     name: entry.name,
@@ -104,11 +110,11 @@ export async function putOffline(entry: CloudDriveEntry, blob: Blob): Promise<vo
     path: entry.path,
     blob,
   }
-  await withStore<IDBValidKey>('readwrite', (store) => store.put(record))
+  await withStore<IDBValidKey>(userId, 'readwrite', (store) => store.put(record))
 }
 
-export async function removeOffline(id: string): Promise<void> {
-  await withStore<undefined>('readwrite', (store) => store.delete(id) as IDBRequest<undefined>)
+export async function removeOffline(userId: string, id: string): Promise<void> {
+  await withStore<undefined>(userId, 'readwrite', (store) => store.delete(id) as IDBRequest<undefined>)
 }
 
 /**
@@ -142,14 +148,14 @@ export async function readOfflineResponse(
   return new Blob(chunks as BlobPart[], { type: mime || response.headers.get('content-type') || '' })
 }
 
-export async function fetchAndSaveOffline(entry: CloudDriveEntry): Promise<void> {
+export async function fetchAndSaveOffline(userId: string, entry: CloudDriveEntry): Promise<void> {
   // `entry.size` is known before the request: a 2 GB save used to be streamed into memory in full and
   // only then refused, which on a phone kills the tab instead of showing a message.
-  await assertOfflineRoom(entry, entry.size)
+  await assertOfflineRoom(userId, entry, entry.size)
   const response = await fetch(`/api/clouddrive/files/${encodeURIComponent(entry.id)}/content`, {
     credentials: 'same-origin',
   })
   if (!response.ok) throw new Error(`offline_fetch_${response.status}`)
-  const blob = await readOfflineResponse(response, entry.mime, (bytes) => assertOfflineRoom(entry, bytes))
-  await putOffline(entry, blob)
+  const blob = await readOfflineResponse(response, entry.mime, (bytes) => assertOfflineRoom(userId, entry, bytes))
+  await putOffline(userId, entry, blob)
 }

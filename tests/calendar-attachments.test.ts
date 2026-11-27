@@ -3,11 +3,12 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CalendarAttachmentDto, CalendarDto, CalendarEventDto } from '../src/shared/calendar/model'
-import { MAX_ATTACHMENTS_PER_EVENT } from '../src/shared/calendar/model'
+import { MAX_ATTACHMENTS_PER_EVENT, sharedCalendarId } from '../src/shared/calendar/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { calendarRoutes } from '../src/worker/routes/calendar'
 import { calendarAttachmentRoutes } from '../src/worker/routes/calendar-attachments'
+import { linkEventAttachment } from '../src/worker/calendar/attachments'
 import { filesRoutes } from '../src/worker/routes/files'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -113,6 +114,36 @@ beforeEach(() => {
   mocks.userId = ALICE
 })
 
+describe('shared event attachments', () => {
+  it('applies reader and writer access through the owner file namespace', async () => {
+    const calendar = await newCalendar('Shared trips')
+    const event = await newEvent(calendar.id)
+    const { attachment } = await json<{ attachment: CalendarAttachmentDto }>(await upload(event.id, 'owner.txt'))
+    sqlite.prepare(
+      `INSERT INTO calendar_members (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+       VALUES (?, ?, ?, 'reader', 'accepted', 1, 1)`,
+    ).run(ALICE, calendar.id, BOB)
+    const sharedId = sharedCalendarId(ALICE, event.id)
+
+    const listed = await json<{ attachments: CalendarAttachmentDto[] }>(await call('GET', `/events/${sharedId}/attachments`, undefined, BOB))
+    expect(listed.attachments.map(item => item.id)).toEqual([attachment.id])
+    const downloaded = await download(attachment.id, BOB)
+    expect(downloaded.status).toBe(200)
+    expect(downloaded.headers.get('cache-control')).toBe('private, no-store')
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(new Uint8Array([104, 105]))
+    expect((await upload(sharedId, 'reader.txt', 'text/plain', [104], BOB)).status).toBe(403)
+    expect((await call('DELETE', `/events/${sharedId}/attachments/${attachment.id}`, undefined, BOB)).status).toBe(403)
+
+    sqlite.prepare("UPDATE calendar_members SET role = 'writer' WHERE member_user_id = ?").run(BOB)
+    const written = await json<{ attachment: CalendarAttachmentDto }>(await upload(sharedId, 'writer.txt', 'text/plain', [119], BOB))
+    expect(written.attachment.id).toBeTruthy()
+    expect(count('SELECT COUNT(*) AS n FROM attachments WHERE id = ? AND user_id = ?', written.attachment.id, ALICE)).toBe(1)
+    expect((await call('DELETE', `/events/${sharedId}/attachments/${attachment.id}`, undefined, BOB)).status).toBe(204)
+    expect(count('SELECT COUNT(*) AS n FROM attachments WHERE id = ?', attachment.id)).toBe(0)
+    expect((await download(attachment.id, BOB)).status).toBe(404)
+  })
+})
+
 describe('an event attachment', () => {
   it('files a picture under the images folder and lists it back', async () => {
     const calendar = await newCalendar('Trips')
@@ -176,6 +207,29 @@ describe('an event attachment', () => {
     // The refusal happens before the upload, so nothing was written for it.
     expect(count('SELECT COUNT(*) AS n FROM attachments WHERE user_id = ?', ALICE)).toBe(1)
     expect(attachment.id).toBeTruthy()
+  })
+
+  it('enforces the attachment limit atomically when two links race', async () => {
+    const calendar = await newCalendar('Trips')
+    const event = await newEvent(calendar.id)
+    await upload(event.id, 'first.txt')
+    for (let index = 1; index < MAX_ATTACHMENTS_PER_EVENT - 1; index += 1) {
+      sqlite.prepare(
+        'INSERT INTO calendar_event_attachments (user_id, attachment_id, event_id, created_at) VALUES (?, ?, ?, ?)',
+      ).run(ALICE, `filler-${index}`, event.id, index)
+    }
+    for (const id of ['race-a', 'race-b']) {
+      sqlite.prepare(`INSERT INTO attachments
+        (id, user_id, scope, filename, mime, size, sha256, storage, created_at)
+        VALUES (?, ?, 'calendar', ?, 'text/plain', 1, 'hash', 'r2', 1)`).run(id, ALICE, `${id}.txt`)
+    }
+    const linked = await Promise.all([
+      linkEventAttachment(env.DB, ALICE, event.id, 'race-a', 1),
+      linkEventAttachment(env.DB, ALICE, event.id, 'race-b', 1),
+    ])
+    expect(linked.filter(Boolean)).toHaveLength(1)
+    expect(count('SELECT COUNT(*) AS n FROM calendar_event_attachments WHERE event_id = ?', event.id))
+      .toBe(MAX_ATTACHMENTS_PER_EVENT)
   })
 
   it('refuses another account at every door', async () => {

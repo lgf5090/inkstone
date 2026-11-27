@@ -1,10 +1,11 @@
 /**
- * A small, explicit holiday table.
+ * Published holiday ranges expanded into one all-day event per day off.
  *
- * Lunar holidays need a real almanac and are not guessed here; the fixed-date holidays are the ones
- * a local calendar can state without pretending to know a year's official shifts. The client supplies
- * the labels so the generated calendar speaks the reader's language.
+ * The shared notice table is the only source: locales translate its names but never choose different
+ * dates, makeup workdays stay workdays, and a year without a published notice produces no events.
  */
+import { Temporal } from 'temporal-polyfill'
+import { holidayNoticeOf } from '@shared/calendar/holidays'
 import { t } from '../../lib/i18n'
 
 export interface HolidayPreset {
@@ -12,28 +13,16 @@ export interface HolidayPreset {
   title: string
 }
 
-function key(year: number, month: number, day: number): string {
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-}
+export function holidayPresets(year: number): HolidayPreset[] {
+  const notice = holidayNoticeOf(year)
+  if (!notice) return []
 
-function fourthThursday(year: number, month: number): number {
-  const first = new Date(year, month - 1, 1)
-  const offset = (4 - first.getDay() + 7) % 7
-  return 1 + offset + 21
-}
-
-export function holidayPresets(locale: string, year: number): HolidayPreset[] {
-  if (locale.toLowerCase().startsWith('zh')) {
-    return [
-      { date: key(year, 1, 1), title: t('calendar.holidays.new_year') },
-      { date: key(year, 5, 1), title: t('calendar.holidays.labor_day') },
-      { date: key(year, 10, 1), title: t('calendar.holidays.national_day') },
-    ]
+  const presets: HolidayPreset[] = []
+  for (const range of notice.ranges) {
+    const end = Temporal.PlainDate.from(range.to)
+    for (let date = Temporal.PlainDate.from(range.from); Temporal.PlainDate.compare(date, end) <= 0; date = date.add({ days: 1 })) {
+      presets.push({ date: date.toString(), title: t(range.name) })
+    }
   }
-  return [
-    { date: key(year, 1, 1), title: t('calendar.holidays.new_year') },
-    { date: key(year, 7, 4), title: t('calendar.holidays.independence') },
-    { date: key(year, 11, fourthThursday(year, 11)), title: t('calendar.holidays.thanksgiving') },
-    { date: key(year, 12, 25), title: t('calendar.holidays.christmas') },
-  ]
+  return presets
 }

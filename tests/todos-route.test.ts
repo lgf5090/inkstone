@@ -8,10 +8,13 @@ import type { AppBindings, Env } from '../src/worker/env'
 import { todoRoutes, WRITE_BUDGET_PER_MINUTE } from '../src/worker/routes/todos'
 import { todoFeedRoutes } from '../src/worker/routes/todo-feeds'
 import { localDate, parseLocalTime } from '../src/shared/assistant-time'
+import { addDays } from '../src/worker/todos/stats'
 import { LIMITS } from '../src/shared/constants'
 import { AssistantStore } from '../src/worker/assistant/store'
 import {
   MAX_BATCH_TASKS,
+  MAX_STEPS_PER_TASK,
+  MAX_TAGS_PER_TASK,
   MAX_TASK_ICON_CHARS,
   type TaskBatchResult,
   type TaskCounts,
@@ -215,12 +218,12 @@ describe('the task endpoints', () => {
     expect(single.task.title).toBe('Renew the licence')
     expect(single.task.archivedAt).toBeTypeOf('number')
 
+    // A year around the account's own today: the statistics read is capped at 366 days, so a window
+    // of a century is refused rather than answered.
+    const day = localDate(Date.now(), 'UTC')
     const stats = await json<{ summary: { completed: number, open: number } }>(
-      // The route's own default window — the last 30 days, ending on the account's today — rather than
-      // the eighty-year span this case used to name. Both rows were written today, so the window the
-      // screen opens on answers the same question, and a day-bucket range that long is now a 400: the
-      // buckets a statistics answer carries are bounded (M-02).
-      await send('GET', '/stats'))
+      // A 361-day window stays inside the 366-day ceiling and still covers both rows written today.
+      await send('GET', `/stats?from=${addDays(day, -180)}&to=${addDays(day, 180)}`))
     // The statistics read the work, not the shelf, and that is a decision rather than an accident:
     // putting a task away is neither finishing it (so its finish still counts) nor abandoning it (so the
     // one still owed stays owed, and can be taken down and done). `cancelled` is the state that leaves
@@ -303,6 +306,47 @@ describe('the task endpoints', () => {
     expect((await send('POST', '', { title: '   ' })).status).toBe(400)
     const task = await create({ title: 'One' })
     expect((await send('PATCH', `/${task.id}`, { status: 'someday' })).status).toBe(400)
+  })
+
+  it('clears pending reminders when a task reaches either terminal state', async () => {
+    const now = Date.now()
+    const done = await create({ title: 'Finish me', reminders: [now + 60_000, now + 120_000] })
+    const cancelled = await create({ title: 'Cancel me', reminders: [now + 60_000] })
+    expect((await send('PATCH', `/${done.id}`, { status: 'done' })).status).toBe(200)
+    expect((await send('PATCH', `/${cancelled.id}`, { status: 'cancelled' })).status).toBe(200)
+
+    const row = sqlite.prepare(
+      `SELECT COUNT(*) AS n FROM todos_reminders
+        WHERE user_id = ?1 AND task_id IN (?2, ?3) AND fired_at IS NULL`,
+    ).get(USER, done.id, cancelled.id) as { n: number }
+    expect(row.n).toBe(0)
+  })
+
+  it('keeps an all-day due date distinct from a real 23:59 instant', async () => {
+    const store = new AssistantStore(env.DB as D1Database, USER, env)
+    await store.saveSettings({ ...(await store.getSettings()), timezone: 'Asia/Shanghai' })
+    const allDay = await create({ title: 'Whole day', dueAt: '2026-10-21T23:59', dueAllDay: true, dueOn: '2026-10-21' })
+    expect(allDay).toMatchObject({ dueAllDay: true, dueOn: '2026-10-21' })
+    expect(new Date(allDay.dueAt!).toISOString()).toBe('2026-10-21T15:59:00.000Z')
+
+    const timed = await create({ title: 'Really 23:59', dueAt: '2026-10-21T23:59' })
+    expect(timed).toMatchObject({ dueAllDay: false, dueOn: null })
+    expect(new Date(timed.dueAt!).toISOString()).toBe('2026-10-21T15:59:00.000Z')
+
+    const moved = await json<{ task: TodoTask }>(await send('PATCH', `/${allDay.id}`, { dueOn: '2026-10-22' }))
+    expect(moved.task).toMatchObject({ dueAllDay: true, dueOn: '2026-10-22' })
+    expect(new Date(moved.task.dueAt!).toISOString()).toBe('2026-10-22T15:59:00.000Z')
+    expect((await send('POST', '', { title: 'Impossible day', dueAllDay: true, dueOn: '2026-02-30' })).status).toBe(400)
+  })
+
+  it('refuses invalid timestamps, date order and oversized collections', async () => {
+    mocks.userId = `taskinput${'0'.repeat(20)}`
+    expect((await send('POST', '', { title: 'x', dueAt: 1e100 })).status).toBe(400)
+    expect((await send('POST', '', { title: 'x', dueAt: -1 })).status).toBe(400)
+    expect((await send('POST', '', { title: 'x', startAt: '2026-10-21T09:00', dueAt: '2026-10-20T09:00' })).status).toBe(400)
+    expect((await send('POST', '', { title: 'x', tags: Array.from({ length: MAX_TAGS_PER_TASK + 1 }, (_, index) => `tag-${index}`) })).status).toBe(400)
+    expect((await send('POST', '', { title: 'x', steps: Array.from({ length: MAX_STEPS_PER_TASK + 1 }, (_, index) => `step-${index}`) })).status).toBe(400)
+    expect((await send('POST', '', { title: 'x', steps: [1] })).status).toBe(400)
   })
 
   /**
@@ -869,6 +913,15 @@ describe('snooze', () => {
   const AT = Date.parse('2026-10-20T09:00:00Z')
   const before = Date.now()
 
+  // Each case spends a caller of its own: the write budget is module-wide and keyed by whoever is
+  // signed in, and these cases must not eat into what the task cases above already spent.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `snoozecase${String(caller).padStart(17, '0')}`
+  })
+
   it('appends a reminder and keeps the ones the task already had', async () => {
     const task = await create({ title: 'Snooze me', reminders: [AT] })
 
@@ -885,11 +938,32 @@ describe('snooze', () => {
     expect(body.task.reminders).toEqual(body.reminders)
   })
 
-  it('refuses a duration that is not one of the four steps', async () => {
+  it('takes a length nobody put on the menu', async () => {
+    const task = await create({ title: 'Snooze me for a while' })
+    const before = Date.now()
+
+    const response = await send('POST', `/${task.id}/snooze`, { minutes: 45 })
+    expect(response.status).toBe(200)
+    const body = await json<{ reminders: number[] }>(response)
+    const added = body.reminders.at(-1)!
+    // The four presets are a shortcut; the route's own range is what a custom length is judged by.
+    expect(added).toBeGreaterThanOrEqual(before + 45 * 60_000)
+    expect(added).toBeLessThanOrEqual(Date.now() + 45 * 60_000)
+  })
+
+  it('refuses a length outside the range, and one that is not a whole minute', async () => {
     const task = await create({ title: 'One' })
-    expect((await send('POST', `/${task.id}/snooze`, { minutes: 30 })).status).toBe(400)
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 0 })).status).toBe(400)
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 10_081 })).status).toBe(400)
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 1.5 })).status).toBe(400)
     expect((await send('POST', `/${task.id}/snooze`, { minutes: '10' })).status).toBe(400)
     expect((await send('POST', `/${task.id}/snooze`, { until: new Date().toISOString() })).status).toBe(400)
+  })
+
+  it('accepts the edges of the range', async () => {
+    const task = await create({ title: 'Edges' })
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 1 })).status).toBe(200)
+    expect((await send('POST', `/${task.id}/snooze`, { minutes: 10_080 })).status).toBe(200)
   })
 
   it('refuses a finished task and a sixth reminder', async () => {
@@ -1006,6 +1080,12 @@ describe('calendar subscriptions', () => {
 })
 
 describe('another account', () => {
+  // A caller of its own for the same reason the blocks above name one: the shared account has spent
+  // its minute by the time these cases run, and a 429 here would read as a scoping failure.
+  beforeEach(() => {
+    mocks.userId = 'anotheracct0000000000000'
+  })
+
   it('cannot read or write a task by its id', async () => {
     const task = await create({ title: 'Mine' })
     mocks.userId = OTHER
@@ -1013,8 +1093,63 @@ describe('another account', () => {
     expect((await send('GET', `/${task.id}`)).status).toBe(404)
     expect((await send('PATCH', `/${task.id}`, { title: 'Stolen' })).status).toBe(404)
     expect((await send('DELETE', `/${task.id}`)).status).toBe(404)
+    expect((await send('GET', `/${task.id}/events`)).status).toBe(404)
     const page = await json<{ tasks: TodoTask[] }>(await send('GET', ''))
     expect(page.tasks).toEqual([])
+  })
+})
+
+describe('a task’s history', () => {
+  interface EventAnswer {
+    id: string
+    kind: 'born' | 'status'
+    fromStatus: string | null
+    toStatus: string
+    at: number
+  }
+
+  // Each case spends a caller of its own: the write budget is module-wide and keyed by whoever is
+  // signed in, and these cases must not eat into what the task cases above already spent.
+  let caller = 0
+
+  beforeEach(() => {
+    caller += 1
+    mocks.userId = `historycase${String(caller).padStart(15, '0')}`
+  })
+
+  it('reads back the birth and each move, newest first', async () => {
+    const task = await create({ title: 'Water the plants' })
+    const done = await send('PATCH', `/${task.id}`, { status: 'done' })
+    expect(done.status).toBe(200)
+    const reopened = await send('PATCH', `/${task.id}`, { status: 'todo' })
+    expect(reopened.status).toBe(200)
+
+    const response = await send('GET', `/${task.id}/events`)
+    expect(response.status).toBe(200)
+    const { events } = await json<{ events: EventAnswer[] }>(response)
+
+    // Three rows: the birth, the completion and the reopen — the same rows the flow replay reads.
+    expect(events.map((event) => [event.kind, event.fromStatus, event.toStatus])).toEqual([
+      ['status', 'done', 'todo'],
+      ['status', 'todo', 'done'],
+      ['born', null, 'todo'],
+    ])
+    // Newest first, which is the order a panel prints them in.
+    const stamps = events.map((event) => event.at)
+    expect([...stamps].sort((left, right) => right - left)).toEqual(stamps)
+  })
+
+  it('answers an empty history for a task that has never moved', async () => {
+    const task = await create({ title: 'Only born' })
+    const { events } = await json<{ events: EventAnswer[] }>(await send('GET', `/${task.id}/events`))
+    // A birth is written with the row, so even an untouched task has one row rather than none.
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ kind: 'born', fromStatus: null, toStatus: 'todo' })
+  })
+
+  it('answers 404 for a task that does not exist', async () => {
+    const missing = await send('GET', '/00000000000000000000000000/events')
+    expect(missing.status).toBe(404)
   })
 })
 
@@ -1216,6 +1351,36 @@ describe('a conditional write', () => {
     expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.reminders).toHaveLength(1)
   })
 
+  it('guards single and batch deletes and batch tag writes with the revision they read', async () => {
+    const single = await create({ title: 'Keep me' })
+    await send('PATCH', `/${single.id}`, { title: 'Changed first' })
+    const refused = await send('DELETE', `/${single.id}`, undefined, { 'If-Match': '1' })
+    expect(refused.status).toBe(409)
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${single.id}`))).task.title).toBe('Changed first')
+
+    const freshDelete = await create({ title: 'Delete me' })
+    const staleDelete = await create({ title: 'Do not delete' })
+    await send('PATCH', `/${staleDelete.id}`, { title: 'Moved first' })
+    const deleted = await json<TaskBatchResult>(await send('POST', '/batch', {
+      ids: [freshDelete.id, staleDelete.id], op: 'delete',
+      revs: { [freshDelete.id]: 1, [staleDelete.id]: 1 },
+    }))
+    expect(deleted).toEqual({
+      done: [{ id: freshDelete.id, next: null }],
+      failed: [{ id: staleDelete.id, reason: 'conflict' }],
+    })
+    expect((await send('GET', `/${freshDelete.id}`)).status).toBe(404)
+    expect((await send('GET', `/${staleDelete.id}`)).status).toBe(200)
+
+    const staleTag = await create({ title: 'No new tag' })
+    await send('PATCH', `/${staleTag.id}`, { title: 'Tag target moved' })
+    const tagged = await json<TaskBatchResult>(await send('POST', '/batch', {
+      ids: [staleTag.id], op: 'tag', value: 'late', revs: { [staleTag.id]: 1 },
+    }))
+    expect(tagged.failed).toEqual([{ id: staleTag.id, reason: 'conflict' }])
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${staleTag.id}`))).task.tags).toEqual([])
+  })
+
   it('answers a stale revision per row instead of failing the whole batch', async () => {
     const fresh = await create({ title: 'Fresh' })
     const moved = await create({ title: 'Moved' })
@@ -1277,6 +1442,23 @@ describe('an idempotent task create', () => {
 
     expect(clash.status).toBe(409)
     expect((await json<{ tasks: TodoTask[] }>(await send('GET', '?status=open'))).tasks).toHaveLength(1)
+  })
+
+  it('replays an idempotent patch before rechecking the revision it already spent', async () => {
+    const task = await create({ title: 'Retry this edit' })
+    const body = { title: 'Edited once' }
+    const headers = { 'If-Match': '1', 'Idempotency-Key': 'todo-update-retry-1' }
+
+    const first = await send('PATCH', `/${task.id}`, body, headers)
+    expect(first.status).toBe(200)
+    const firstBody = await json<{ task: TodoTask }>(first)
+    expect(firstBody.task.rev).toBe(2)
+
+    const replay = await send('PATCH', `/${task.id}`, body, headers)
+    expect(replay.status).toBe(200)
+    expect(await json(replay)).toEqual(firstBody)
+    expect((await send('PATCH', `/${task.id}`, { title: 'Different edit' }, headers)).status).toBe(409)
+    expect((await json<{ task: TodoTask }>(await send('GET', `/${task.id}`))).task.title).toBe('Edited once')
   })
 
   it('creates once per key, so two keys are two tasks', async () => {

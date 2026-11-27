@@ -103,6 +103,7 @@ export function SyncPage() {
     setProgress(null)
     setTruncatedId(null)
     try {
+      await clouddriveApi.prepareSync(target.id)
       const result = await runMirror({
         mountId: target.mountId,
         remoteBase: target.remotePath,

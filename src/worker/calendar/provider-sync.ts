@@ -1,132 +1,18 @@
-/**
- * The connection↔calendar map the background provider sync is allowed to touch.
- *
- * The browser discovers provider calendars and reports the remote/local id pair after it has created
- * the local rows. The server never invents this map: a calendar without a row here is read-only from
- * the cron's point of view. A local calendar may belong to one connection only, so two same-kind
- * accounts cannot both write the same rows.
- */
-import type { D1Database } from '@cloudflare/workers-types'
-import { ApiError } from '../lib/errors'
-import { isCalendarEntityId } from '@shared/calendar/model'
-
-export interface ProviderCalendarMapping {
-  remoteId: string
-  localId: string
-}
-
-export interface ProviderCalendarRow {
-  connection_id: string
-  remote_calendar_id: string
-  local_calendar_id: string
-  last_sync_at: number | null
-  last_error_code: string | null
-}
-
-const MAX_MAPPINGS = 500
-const MAX_REMOTE_ID = 4096
-
-export function parseProviderCalendarMappings(value: unknown): ProviderCalendarMapping[] {
-  if (!Array.isArray(value)) throw ApiError.badRequest('calendars must be an array')
-  if (value.length > MAX_MAPPINGS) throw ApiError.badRequest('Too many calendars in one report')
-  const mappings: ProviderCalendarMapping[] = []
-  const remoteIds = new Set<string>()
-  const localIds = new Set<string>()
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw ApiError.badRequest('Each calendar mapping must be an object')
-    }
-    const record = entry as Record<string, unknown>
-    const remoteId = typeof record.remoteId === 'string' ? record.remoteId.trim() : ''
-    const localId = record.localId
-    if (!remoteId || remoteId.length > MAX_REMOTE_ID) {
-      throw ApiError.badRequest('A remote calendar id is not valid')
-    }
-    if (!isCalendarEntityId(localId)) throw ApiError.badRequest('A local calendar id is not valid')
-    if (remoteIds.has(remoteId)) throw ApiError.badRequest('A remote calendar is reported twice')
-    if (localIds.has(localId)) throw ApiError.badRequest('A local calendar is reported twice')
-    remoteIds.add(remoteId)
-    localIds.add(localId)
-    mappings.push({ remoteId, localId })
-  }
-  return mappings
-}
-
-/** Replace this connection's map; rows omitted from the report stop being background-synced. */
-export async function saveProviderCalendarMappings(
-  db: D1Database,
-  userId: string,
-  connectionId: string,
-  mappings: readonly ProviderCalendarMapping[],
-): Promise<number> {
-  const existing = await db.prepare(
-    `SELECT connection_id, local_calendar_id FROM calendar_provider_calendars
-      WHERE user_id = ?1 AND local_calendar_id IN (
-        SELECT value FROM json_each(?2)
-      )`,
-  ).bind(userId, JSON.stringify(mappings.map(mapping => mapping.localId))).all<{
-    connection_id: string
-    local_calendar_id: string
-  }>()
-  const conflicts = (existing.results ?? [])
-    .filter(row => row.connection_id !== connectionId)
-    .map(row => row.local_calendar_id)
-  if (conflicts.length > 0) {
-    throw ApiError.conflict('A calendar is already mapped to another connection')
-  }
-
-  const now = Date.now()
-  const statements = [
-    db.prepare(
-      `DELETE FROM calendar_provider_calendars
-        WHERE user_id = ?1 AND connection_id = ?2
-          AND remote_calendar_id NOT IN (SELECT value FROM json_each(?3))`,
-    ).bind(userId, connectionId, JSON.stringify(mappings.map(mapping => mapping.remoteId))),
-  ]
-  for (const mapping of mappings) {
-    statements.push(db.prepare(
-      `INSERT INTO calendar_provider_calendars
-        (user_id, connection_id, remote_calendar_id, local_calendar_id, last_sync_at, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?5)
-       ON CONFLICT(user_id, connection_id, remote_calendar_id) DO UPDATE SET
-         local_calendar_id = excluded.local_calendar_id,
-         updated_at = excluded.updated_at`,
-    ).bind(userId, connectionId, mapping.remoteId, mapping.localId, now))
-  }
-  try {
-    await db.batch(statements)
-  } catch {
-    throw ApiError.conflict('A calendar is already mapped to another connection')
-  }
-  return mappings.length
-}
-
-export async function listProviderCalendarMappings(
-  db: D1Database,
-  userId: string,
-  connectionId: string,
-): Promise<ProviderCalendarRow[]> {
-  const { results } = await db.prepare(
-    `SELECT connection_id, remote_calendar_id, local_calendar_id, last_sync_at, last_error_code
-       FROM calendar_provider_calendars
-      WHERE user_id = ?1 AND connection_id = ?2
-      ORDER BY local_calendar_id ASC`,
-  ).bind(userId, connectionId).all<ProviderCalendarRow>()
-  return results ?? []
-}
-
+import { listProviderCalendarMappings, type ProviderCalendarRow } from './provider-mappings'
 import {
   createCalDAVAdapter,
-  createCalDAVSync,
   mapCalDAVEventToDayFlow,
   type CalDAVDeletedEvent,
+  type CalDAVEventData,
 } from '@dayflow/caldav'
 import { createGoogleSync, createGoogleSyncAdapter } from '@dayflow/google-sync'
 import { createOutlookSync, createOutlookSyncAdapter } from '@dayflow/outlook-sync'
 import { Temporal } from 'temporal-polyfill'
 import {
   TASK_PRIORITIES,
+  isCalendarEntityId,
   toTemporalValue,
+  type CalendarAttendeeDto,
   type CalendarConferenceDto,
   type CalendarEventInput,
   type CalendarSource,
@@ -136,8 +22,15 @@ import {
 import { sha256Hex } from '../lib/encoding'
 import { proxyCalendarRequest } from './proxy'
 import { CalendarStore } from './store'
+import { normalizeEventAttendees } from './attendees'
 import { parseEventInput } from './validation'
-import { getCalendarConnection, updateCalendarConnectionStatus, type CalendarConnectionRecord } from './connections'
+import {
+  assertCalendarConnectionKind,
+  calendarConnectionBase,
+  getCalendarConnection,
+  updateCalendarConnectionStatus,
+  type CalendarConnectionRecord,
+} from './connections'
 import { syncProjectCardForCalendarEvent } from '../project/project-calendar'
 import type { Env } from '../env'
 
@@ -146,6 +39,7 @@ const PROVIDER_SYNC_LIMIT = 2
 const PROVIDER_RANGE_PAST_MS = 30 * 24 * 60 * 60 * 1000
 const PROVIDER_RANGE_FUTURE_MS = 365 * 24 * 60 * 60 * 1000
 const PROVIDER_EVENT_CHUNK = 100
+const MAX_PROVIDER_SYNC_TOKEN_CHARS = 16 * 1024
 const RENDER_ONLY_META_KEYS = new Set([
   'day',
   '_originalStartHour',
@@ -213,8 +107,8 @@ function cleanMeta(meta: Record<string, unknown> | undefined): Record<string, un
 function taskFor(event: { task?: { completed?: boolean; completedAt?: unknown; priority?: string } }): CalendarTaskDto | null {
   if (!event.task) return null
   const completed = event.task.completed === true
-  const completedAt = completed && event.task.completedAt
-    ? toTemporalValue(event.task.completedAt as Temporal.ZonedDateTime)
+  const completedAt = completed && event.task.completedAt instanceof Temporal.ZonedDateTime
+    ? toTemporalValue(event.task.completedAt)
     : undefined
   const priority = (TASK_PRIORITIES as readonly string[]).includes(event.task.priority ?? '')
     ? event.task.priority as CalendarTaskPriority
@@ -253,26 +147,107 @@ type ProviderRemoteEvent = {
   icon?: boolean | { toString(): string }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isProviderTemporal(value: unknown): value is ProviderRemoteEvent['start'] {
+  return value instanceof Temporal.ZonedDateTime
+    || value instanceof Temporal.PlainDateTime
+    || value instanceof Temporal.PlainDate
+}
+
+/** Validate the vendor's mapped shape before any field is trusted or written to D1. */
+function isProviderRemoteEvent(value: unknown): value is ProviderRemoteEvent {
+  if (!isRecord(value) || !isProviderTemporal(value.start) || !isProviderTemporal(value.end)) return false
+  if (value.meta !== undefined && !isRecord(value.meta)) return false
+  if (value.task !== undefined && value.task !== null && !isRecord(value.task)) return false
+  if (isRecord(value.task) && value.task.completedAt != null && !(value.task.completedAt instanceof Temporal.ZonedDateTime)) {
+    return false
+  }
+  return value.conference === undefined || value.conference === null || isRecord(value.conference)
+}
+
+function validateProviderSyncResult(
+  value: unknown,
+  source: CalendarSource,
+): { events: unknown[]; deleted: Array<string | CalDAVDeletedEvent>; token?: string } {
+  if (!isRecord(value) || !Array.isArray(value.events) || !Array.isArray(value.deleted)) {
+    throw new Error(`${source} sync result must contain events and deleted arrays`)
+  }
+  const tokenKey = source === 'outlook' ? 'deltaToken' : 'syncToken'
+  const rawToken = value[tokenKey]
+  if (rawToken !== undefined && (
+    typeof rawToken !== 'string'
+    || !rawToken.trim()
+    || rawToken.length > MAX_PROVIDER_SYNC_TOKEN_CHARS
+  )) {
+    throw new Error(`${source} sync result has an invalid ${tokenKey}`)
+  }
+  const deleted: Array<string | CalDAVDeletedEvent> = []
+  for (const ref of value.deleted) {
+    if (source === 'caldav') {
+      if (!isRecord(ref)
+        || typeof ref.calendarId !== 'string'
+        || typeof ref.href !== 'string'
+        || (ref.uid !== undefined && typeof ref.uid !== 'string')) {
+        throw new Error('caldav sync result has an invalid deleted event')
+      }
+      deleted.push(ref as unknown as CalDAVDeletedEvent)
+    } else {
+      if (typeof ref !== 'string' || !ref) throw new Error(`${source} sync result has an invalid deleted event`)
+      deleted.push(ref)
+    }
+  }
+  return {
+    events: value.events,
+    deleted,
+    ...(typeof rawToken === 'string' ? { token: rawToken } : {}),
+  }
+}
+
+function validMappedEvents(events: readonly unknown[], source: CalendarSource, calendarId: string): ProviderRemoteEvent[] {
+  const valid: ProviderRemoteEvent[] = []
+  events.forEach((event, index) => {
+    if (!isProviderRemoteEvent(event)) {
+      console.warn('[inkstone] Provider event skipped:', { provider: source, calendarId, index, reason: 'invalid mapped event' })
+      return
+    }
+    valid.push(event)
+  })
+  return valid
+}
+
+function isCalDAVEventData(value: unknown): value is CalDAVEventData {
+  return isRecord(value)
+    && typeof value.calendarId === 'string'
+    && typeof value.uid === 'string'
+    && typeof value.href === 'string'
+    && typeof value.icalData === 'string'
+    && (value.etag === undefined || typeof value.etag === 'string')
+}
+
 async function providerEventInput(
   event: ProviderRemoteEvent,
   source: CalendarSource,
   localCalendarId: string,
-): Promise<CalendarEventInput | null> {
+): Promise<(CalendarEventInput & { attendees?: CalendarAttendeeDto[] }) | null> {
   const rawId = providerId(event, source)
   if (!rawId) return null
   const meta = cleanMeta(event.meta)
   return {
-    title: (event.title ?? '').trim() || 'Untitled',
-    description: event.description ?? '',
-    kind: event.kind ?? 'event',
+    title: typeof event.title === 'string' ? event.title.trim() || 'Untitled' : 'Untitled',
+    description: typeof event.description === 'string' ? event.description : '',
+    kind: event.kind === 'task' ? 'task' : 'event',
     task: taskFor(event),
     conference: conferenceFor(event),
     start: toTemporalValue(event.start),
     end: toTemporalValue(event.end),
-    allDay: event.allDay ?? event.start instanceof Temporal.PlainDate,
+    allDay: typeof event.allDay === 'boolean' ? event.allDay : event.start instanceof Temporal.PlainDate,
     calendarId: localCalendarId,
     calendarIds: [localCalendarId],
     meta,
+    attendees: normalizeEventAttendees(meta.attendees),
     icon: typeof event.icon === 'boolean' ? event.icon : null,
     recurrenceRule: typeof meta.recurrenceRule === 'string' ? meta.recurrenceRule : null,
     source,
@@ -318,40 +293,45 @@ async function deleteProviderEvents(
   source: CalendarSource,
   externalIds: readonly string[],
 ): Promise<number> {
+  const store = new CalendarStore(env.DB, userId)
   let deleted = 0
   for (let index = 0; index < externalIds.length; index += 60) {
     const ids = externalIds.slice(index, index + 60)
     const placeholders = ids.map((_, offset) => `?${offset + 4}`).join(', ')
-    await env.DB.prepare(
-      `DELETE FROM calendar_event_calendars
-        WHERE user_id = ?1 AND event_id IN (
-          SELECT id FROM calendar_events
-           WHERE user_id = ?1 AND calendar_source = ?2 AND external_scope = ?3
-             AND external_id IN (${placeholders})
-        )`,
-    ).bind(userId, source, localCalendarId, ...ids).run()
-    await env.DB.prepare(
-      `DELETE FROM calendar_event_attendees
-        WHERE user_id = ?1 AND event_id IN (
-          SELECT id FROM calendar_events
-           WHERE user_id = ?1 AND calendar_source = ?2 AND external_scope = ?3
-             AND external_id IN (${placeholders})
-        )`,
-    ).bind(userId, source, localCalendarId, ...ids).run()
-    await env.DB.prepare(
-      `DELETE FROM calendar_event_reminders
-        WHERE user_id = ?1 AND event_id IN (
-          SELECT id FROM calendar_events
-           WHERE user_id = ?1 AND calendar_source = ?2 AND external_scope = ?3
-             AND external_id IN (${placeholders})
-        )`,
-    ).bind(userId, source, localCalendarId, ...ids).run()
-    const removed = await env.DB.prepare(
-      `DELETE FROM calendar_events
+    const { results } = await env.DB.prepare(
+      `SELECT id FROM calendar_events
         WHERE user_id = ?1 AND calendar_source = ?2 AND external_scope = ?3
           AND external_id IN (${placeholders})`,
-    ).bind(userId, source, localCalendarId, ...ids).run()
-    deleted += removed.meta.changes ?? 0
+    ).bind(userId, source, localCalendarId, ...ids).all<{ id: string }>()
+    deleted += await store.removeEventMembershipsAndDeleteOrphans(
+      localCalendarId,
+      (results ?? []).map(row => row.id),
+    )
+  }
+  return deleted
+}
+
+async function deleteCalDAVEventsByHref(
+  env: Env,
+  userId: string,
+  localCalendarId: string,
+  refs: readonly CalDAVDeletedEvent[],
+): Promise<number> {
+  const hrefs = [...new Set(refs.map(ref => ref.href).filter(Boolean))]
+  const store = new CalendarStore(env.DB, userId)
+  let deleted = 0
+  for (let index = 0; index < hrefs.length; index += 60) {
+    const chunk = hrefs.slice(index, index + 60)
+    const placeholders = chunk.map((_, offset) => `?${offset + 3}`).join(', ')
+    const { results } = await env.DB.prepare(
+      `SELECT id FROM calendar_events
+        WHERE user_id = ?1 AND calendar_source = 'caldav' AND external_scope = ?2
+          AND json_extract(meta_json, '$.caldav.href') IN (${placeholders})`,
+    ).bind(userId, localCalendarId, ...chunk).all<{ id: string }>()
+    deleted += await store.removeEventMembershipsAndDeleteOrphans(
+      localCalendarId,
+      (results ?? []).map(row => row.id),
+    )
   }
   return deleted
 }
@@ -363,6 +343,7 @@ async function syncConnection(
   mappings: readonly ProviderCalendarRow[],
   now: number,
 ): Promise<{ events: number; deleted: number; failed: number }> {
+  const baseUrl = calendarConnectionBase(env, connection)
   const store = new CalendarStore(env.DB, userId)
   const timeZone = (await store.preferences()).timeZone
   const fetchImpl = providerFetch(env, userId, connection.id)
@@ -374,51 +355,102 @@ async function syncConnection(
 
   for (const mapping of mappings) {
     try {
-      let mapped: ProviderRemoteEvent[]
-      let deletedRefs: Array<string | CalDAVDeletedEvent>
-      if (connection.kind === 'caldav') {
-        const adapter = createCalDAVAdapter({ calendarHomeUrl: connection.calendarHomeUrl ?? '', fetch: fetchImpl })
-        const sync = createCalDAVSync({ adapter })
-        const result = await sync.syncEvents({ calendarId: mapping.remote_calendar_id, range: { start: rangeStart, end: rangeEnd } })
-        mapped = result.events
-          .map(data => mapCalDAVEventToDayFlow(data) as ProviderRemoteEvent | null)
-          .filter((event): event is ProviderRemoteEvent => Boolean(event))
-        deletedRefs = result.deleted
-      } else if (connection.kind === 'google') {
-        const sync = createGoogleSync(createGoogleSyncAdapter({ fetch: fetchImpl }))
-        const result = await sync.syncEvents(mapping.remote_calendar_id, {
-          start: rangeStart.toISOString(),
-          end: rangeEnd.toISOString(),
-        })
-        mapped = result.events as ProviderRemoteEvent[]
-        deletedRefs = result.deleted
-      } else {
-        const sync = createOutlookSync(createOutlookSyncAdapter({ fetch: fetchImpl }))
-        const result = await sync.syncEvents(mapping.remote_calendar_id, {
-          start: rangeStart.toISOString(),
-          end: rangeEnd.toISOString(),
-        })
-        mapped = result.events as ProviderRemoteEvent[]
-        deletedRefs = result.deleted
+      let mapped: ProviderRemoteEvent[] = []
+      let deletedRefs: Array<string | CalDAVDeletedEvent> = []
+      let token: string | undefined
+      const incremental = Boolean(mapping.sync_token)
+      switch (connection.kind) {
+        case 'caldav': {
+          const adapter = createCalDAVAdapter({ calendarHomeUrl: baseUrl, fetch: fetchImpl })
+          const result = validateProviderSyncResult(
+            await adapter.syncEvents({
+              calendarId: mapping.remote_calendar_id,
+              range: incremental ? undefined : { start: rangeStart, end: rangeEnd },
+              syncToken: mapping.sync_token ?? undefined,
+            }),
+            connection.kind,
+          )
+          token = result.token
+          mapped = []
+          result.events.forEach((data, index) => {
+            if (!isCalDAVEventData(data)) {
+              console.warn('[inkstone] Provider event skipped:', {
+                provider: connection.kind, calendarId: mapping.remote_calendar_id, index, reason: 'invalid CalDAV resource',
+              })
+              return
+            }
+            try {
+              const event = mapCalDAVEventToDayFlow(data)
+              if (event) mapped.push(event as unknown as ProviderRemoteEvent)
+              else console.warn('[inkstone] Provider event skipped:', {
+                provider: connection.kind, calendarId: mapping.remote_calendar_id, index, reason: 'unmappable VEVENT',
+              })
+            } catch (error) {
+              console.warn('[inkstone] Provider event skipped:', {
+                provider: connection.kind, calendarId: mapping.remote_calendar_id, index,
+                error: error instanceof Error ? error.message : error,
+              })
+            }
+          })
+          mapped = validMappedEvents(mapped, connection.kind, mapping.remote_calendar_id)
+          deletedRefs = result.deleted
+          break
+        }
+        case 'google': {
+          const sync = createGoogleSync(createGoogleSyncAdapter({ fetch: fetchImpl }))
+          const result = validateProviderSyncResult(
+            await sync.syncEvents(
+              mapping.remote_calendar_id,
+              incremental ? undefined : { start: rangeStart.toISOString(), end: rangeEnd.toISOString() },
+              mapping.sync_token ?? undefined,
+            ),
+            connection.kind,
+          )
+          mapped = validMappedEvents(result.events, connection.kind, mapping.remote_calendar_id)
+          deletedRefs = result.deleted
+          token = result.token
+          break
+        }
+        case 'outlook': {
+          const sync = createOutlookSync(createOutlookSyncAdapter({ baseUrl, fetch: fetchImpl }))
+          const result = validateProviderSyncResult(
+            await sync.syncEvents(
+              mapping.remote_calendar_id,
+              incremental ? undefined : { start: rangeStart.toISOString(), end: rangeEnd.toISOString() },
+              mapping.sync_token ?? undefined,
+            ),
+            connection.kind,
+          )
+          mapped = validMappedEvents(result.events, connection.kind, mapping.remote_calendar_id)
+          deletedRefs = result.deleted
+          token = result.token
+          break
+        }
+        default:
+          assertCalendarConnectionKind(connection.kind)
       }
       const inputs = []
       const keepExternalIds = new Set<string>()
-      for (const event of mapped) {
-        const input = await providerEventInput(event, connection.kind, mapping.local_calendar_id)
-        if (!input) continue
+      for (const [index, event] of mapped.entries()) {
         try {
+          const input = await providerEventInput(event, connection.kind, mapping.local_calendar_id)
+          if (!input) continue
           const parsed = parseEventInput(input, { defaultTimeZone: timeZone })
           inputs.push(parsed)
           if (parsed.externalId) keepExternalIds.add(parsed.externalId)
         } catch (error) {
-          console.warn('[inkstone] Provider event skipped:', error instanceof Error ? error.message : error)
+          console.warn('[inkstone] Provider event skipped:', {
+            provider: connection.kind, calendarId: mapping.remote_calendar_id, index,
+            error: error instanceof Error ? error.message : error,
+          })
         }
       }
       for (let index = 0; index < inputs.length; index += PROVIDER_EVENT_CHUNK) {
         const chunk = inputs.slice(index, index + PROVIDER_EVENT_CHUNK)
-        events += (await store.createEvents(chunk, 'upsert')).length
-        for (const input of chunk) {
-          if (input.id) await syncProjectCardForCalendarEvent(env.DB, userId, input.id).catch((error: unknown) => {
+        const created = await store.createEvents(chunk, 'upsert')
+        events += created.length
+        for (const event of created) {
+          await syncProjectCardForCalendarEvent(env.DB, userId, event.id).catch((error: unknown) => {
             console.warn('[inkstone] Provider-to-project calendar sync failed:', error instanceof Error ? error.message : error)
           })
         }
@@ -430,21 +462,31 @@ async function syncConnection(
       for (const raw of rawDeleted) {
         if (raw) externalIds.push(await externalIdFor(raw))
       }
+      if (connection.kind === 'caldav') {
+        deleted += await deleteCalDAVEventsByHref(
+          env, userId, mapping.local_calendar_id,
+          deletedRefs.filter((ref): ref is CalDAVDeletedEvent => typeof ref !== 'string'),
+        )
+      }
       deleted += await deleteProviderEvents(env, userId, mapping.local_calendar_id, connection.kind, externalIds)
-      deleted += await mirrorProviderCalendar(
-        env,
-        userId,
-        mapping.local_calendar_id,
-        connection.kind,
-        keepExternalIds,
-        rangeStart.getTime(),
-        rangeEnd.getTime(),
-      )
+      // A delta names changes, not the complete remote calendar. Absence from it is never a deletion.
+      if (!incremental) {
+        deleted += await mirrorProviderCalendar(
+          env,
+          userId,
+          mapping.local_calendar_id,
+          connection.kind,
+          keepExternalIds,
+          rangeStart.getTime(),
+          rangeEnd.getTime(),
+        )
+      }
       await env.DB.prepare(
         `UPDATE calendar_provider_calendars
-            SET last_sync_at = ?4, last_error_code = NULL, updated_at = ?4
+            SET last_sync_at = ?4, sync_token = COALESCE(?5, sync_token),
+                last_error_code = NULL, updated_at = ?4
           WHERE user_id = ?1 AND connection_id = ?2 AND remote_calendar_id = ?3`,
-      ).bind(userId, connection.id, mapping.remote_calendar_id, now).run()
+      ).bind(userId, connection.id, mapping.remote_calendar_id, now, token ?? null).run()
     } catch (error) {
       failed += 1
       console.warn('[inkstone] Provider calendar sync failed:', {
@@ -454,9 +496,9 @@ async function syncConnection(
       })
       await env.DB.prepare(
         `UPDATE calendar_provider_calendars
-            SET last_error_code = ?4, updated_at = ?5
+            SET last_sync_at = ?4, last_error_code = ?5, updated_at = ?4
           WHERE user_id = ?1 AND connection_id = ?2 AND remote_calendar_id = ?3`,
-      ).bind(userId, connection.id, mapping.remote_calendar_id, 'sync_failed', now).run()
+      ).bind(userId, connection.id, mapping.remote_calendar_id, now, 'sync_failed').run()
     }
   }
   return { events, deleted, failed }
@@ -467,10 +509,13 @@ export async function syncDueProviderConnections(
   now = Date.now(),
 ): Promise<ProviderSyncResult> {
   const { results } = await env.DB.prepare(
-    `SELECT DISTINCT connection_id, user_id
-       FROM calendar_provider_calendars
-      WHERE last_sync_at IS NULL OR last_sync_at <= ?1
-      ORDER BY last_sync_at ASC
+    `SELECT DISTINCT m.connection_id, m.user_id
+       FROM calendar_provider_calendars m
+       JOIN calendar_connections c
+         ON c.user_id = m.user_id AND c.id = m.connection_id
+      WHERE c.status IN ('connected', 'error')
+        AND (m.last_sync_at IS NULL OR m.last_sync_at <= ?1)
+      ORDER BY m.last_sync_at ASC
       LIMIT ?2`,
   ).bind(now - PROVIDER_SYNC_INTERVAL_MS, PROVIDER_SYNC_LIMIT).all<{
     connection_id: string
@@ -494,7 +539,7 @@ export async function syncDueProviderConnections(
       deleted += result.deleted
       failed += result.failed
       await updateCalendarConnectionStatus(env.DB, row.user_id, row.connection_id, {
-        status: 'connected',
+        status: result.failed > 0 ? 'error' : 'connected',
         lastSyncedAt: now,
         errorCode: null,
       })

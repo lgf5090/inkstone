@@ -11,10 +11,17 @@
  */
 
 import { Hono, type Context } from 'hono'
-import { MAX_CALENDAR_NAME, MAX_EVENTS_PER_BATCH, isSharedCalendarId, parseSharedCalendarId, sharedCalendarId, temporalValueToEpochMs } from '@shared/calendar/model'
-import type { CalendarEventDto } from '@shared/calendar/model'
+import { MAX_CALENDAR_NAME, MAX_EVENTS_PER_BATCH, sharedCalendarId, temporalValueToEpochMs } from '@shared/calendar/model'
 import type { AppBindings } from '../env'
-import { CalendarStore } from '../calendar/store'
+import { CalendarStore, type CalendarEventWriteInput } from '../calendar/store'
+import {
+  assertSharedBatchUpsertWritable,
+  calendarPathId,
+  prepareSharedWrite,
+  sharedEventDto,
+  sharedEventTarget,
+  type SharedWriterTarget,
+} from '../calendar/shared-access'
 import { CountdownStore } from '../calendar/countdowns'
 import { listEventAttachments } from '../calendar/attachments'
 import { expandRecurringEvents } from '../calendar/ics'
@@ -47,10 +54,13 @@ type Ctx = Context<AppBindings>
 
 /** Enough for a fast client dragging events and checking boxes. */
 export const CALENDAR_WRITE_BUDGET_PER_MINUTE = 120
+/** A search box and range navigation are cheap; a scripted loop is not. */
+export const CALENDAR_READ_BUDGET_PER_MINUTE = 240
+/** Snoozing beyond one day is a reminder edit, not a snooze. */
+export const MAX_CALENDAR_SNOOZE_MINUTES = 1440
 
 const writeBudget = createMinuteBudget(CALENDAR_WRITE_BUDGET_PER_MINUTE, 'Too many calendar changes at once. Try again in a minute.')
-/** A search box and range navigation are cheap; a scripted loop is not. */
-const readBudget = createMinuteBudget(240, 'Too many calendar reads at once. Try again in a minute.')
+const readBudget = createMinuteBudget(CALENDAR_READ_BUDGET_PER_MINUTE, 'Too many calendar reads at once. Try again in a minute.')
 
 /** A single event can carry a 20k description and a 16 KiB meta object. */
 const EVENT_BODY_LIMIT = 64 * 1024
@@ -73,81 +83,13 @@ function store(c: Ctx): CalendarStore {
   return new CalendarStore(c.env.DB, c.get('userId'))
 }
 
-function pathId(c: Ctx): string {
-  return parseEntityId(c.req.param('id'), 'id')
+/** Provider identity is set by internal sync/import parsers, never by an HTTP request body. */
+function publicEventInput(value: unknown, defaultTimeZone: string): CalendarEventWriteInput {
+  return parseEventInput(value, { defaultTimeZone, allowSourceIdentity: false })
 }
 
 function noContent(c: Ctx): Response {
   return c.body(null, 204)
-}
-
-interface SharedWriterTarget {
-  ownerId: string
-  store: CalendarStore
-  /** Raw ids in the owner's own namespace. */
-  calendarIds: string[]
-}
-
-/**
- * A write a guest points at a synthetic shared calendar id.
- *
- * Every named calendar must belong to the same owner and every membership must say writer; a reader
- * gets the same 403 an owner's read-only calendar gets. Mixing a guest's own calendar with a shared
- * one is refused because the response DTO cannot name two different owners in one id.
- */
-async function sharedWriterIds(c: Ctx, ids: readonly string[]): Promise<SharedWriterTarget> {
-  const parsed = ids.map(id => parseSharedCalendarId(id))
-  if (parsed.some(entry => entry === null)) {
-    throw ApiError.badRequest('A shared write cannot mix shared and owned calendars')
-  }
-  const owners = new Set(parsed.map(entry => entry!.ownerId))
-  if (owners.size !== 1) throw ApiError.badRequest('A shared write must name one owner')
-  const ownerId = [...owners][0]!
-  const raw = parsed.map(entry => entry!.calendarId)
-  const writable = await new CalendarStore(c.env.DB, c.get('userId')).sharedWriterCalendarIds(ownerId, raw)
-  if (raw.some(calendarId => !writable.has(calendarId))) {
-    throw ApiError.forbidden('The shared calendar is read-only for this account')
-  }
-  return { ownerId, store: new CalendarStore(c.env.DB, ownerId), calendarIds: raw }
-}
-
-function sharedEventDto(ownerId: string, event: CalendarEventDto): CalendarEventDto {
-  return {
-    ...event,
-    id: sharedCalendarId(ownerId, event.id),
-    calendarId: sharedCalendarId(ownerId, event.calendarId),
-    calendarIds: event.calendarIds.map(calendarId => sharedCalendarId(ownerId, calendarId)),
-  }
-}
-
-/** Rewrite synthetic calendar ids in a create/patch body before validation sees them. */
-async function prepareSharedWrite(
-  c: Ctx,
-  body: Record<string, unknown>,
-): Promise<{ body: Record<string, unknown>; target: SharedWriterTarget | null }> {
-  const named = Array.isArray(body.calendarIds)
-    ? body.calendarIds.filter((id): id is string => typeof id === 'string')
-    : typeof body.calendarId === 'string' ? [body.calendarId] : []
-  if (!named.some(isSharedCalendarId)) return { body, target: null }
-  if (named.some(id => !isSharedCalendarId(id))) {
-    throw ApiError.badRequest('A shared write cannot mix shared and owned calendars')
-  }
-  const target = await sharedWriterIds(c, named)
-  const rawIds = target.calendarIds
-  const next = { ...body }
-  if (Array.isArray(body.calendarIds)) next.calendarIds = rawIds
-  if (typeof body.calendarId === 'string') next.calendarId = rawIds[0]
-  return { body: next, target }
-}
-
-async function sharedEventTarget(c: Ctx, id: string): Promise<{ ownerId: string; store: CalendarStore; eventId: string; event: CalendarEventDto } | null> {
-  const parsed = parseSharedCalendarId(id)
-  if (!parsed) return null
-  const store = new CalendarStore(c.env.DB, parsed.ownerId)
-  const event = await store.getEvent(parsed.calendarId)
-  if (!event) return null
-  const target = await sharedWriterIds(c, event.calendarIds.map(calendarId => sharedCalendarId(parsed.ownerId, calendarId)))
-  return { ownerId: parsed.ownerId, store: target.store, eventId: event.id, event }
 }
 
 async function fallbackTimeZone(s: CalendarStore): Promise<string> {
@@ -172,11 +114,8 @@ calendarRoutes.get('/preferences', async (c) => {
 
 calendarRoutes.put('/preferences', async (c) => {
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
-  // Accept both `{preferences: {...}}` and a bare preferences object. The wrapper exists because a
-  // GET answers with it; unwrapping keeps old clients and the obvious PUT body working.
-  const raw = body.preferences !== undefined && typeof body.preferences === 'object' && !Array.isArray(body.preferences)
-    ? body.preferences
-    : body
+  const raw = body.preferences
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw ApiError.badRequest('preferences must be an object')
   const preferences = parsePreferences(raw)
   return c.json({ preferences: await store(c).savePreferences(preferences) })
 })
@@ -317,8 +256,11 @@ calendarRoutes.post('/events/batch', async (c) => {
     }
     prepared.push(answer.body)
   }
-  const inputs = prepared.map((event) => parseEventInput(event, { defaultTimeZone: timeZone }))
-  const events = await (shared ? shared.store.createEvents(inputs, body.mode) : s.createEvents(inputs, body.mode))
+  const inputs = prepared.map((event) => publicEventInput(event, timeZone))
+  if (shared && body.mode === 'upsert') await assertSharedBatchUpsertWritable(c, shared, inputs)
+  const events = await (shared
+    ? shared.store.createEvents(inputs, body.mode, { requireRevision: body.mode === 'upsert' })
+    : s.createEvents(inputs, body.mode, { requireRevision: body.mode === 'upsert' }))
   return c.json({ events: shared ? events.map(event => sharedEventDto(shared!.ownerId, event)) : events })
 })
 
@@ -327,7 +269,7 @@ calendarRoutes.post('/events', async (c) => {
   const timeZone = await fallbackTimeZone(s)
   const raw = await readJson<Record<string, unknown>>(c, EVENT_BODY_LIMIT)
   const prepared = await prepareSharedWrite(c, raw)
-  const input = parseEventInput(prepared.body, { defaultTimeZone: timeZone })
+  const input = publicEventInput(prepared.body, timeZone)
   if (prepared.target) {
     const event = await prepared.target.store.createEvent(input)
     return c.json({ event: sharedEventDto(prepared.target.ownerId, event) })
@@ -350,7 +292,7 @@ calendarRoutes.get('/events/revision', async (c) => {
 
 calendarRoutes.get('/events/:id', async (c) => {
   readBudget(c.get('userId'))
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const shared = await store(c).sharedEvent(id)
   if (shared) return c.json({ event: shared.event })
   const event = await store(c).getEvent(id)
@@ -359,7 +301,7 @@ calendarRoutes.get('/events/:id', async (c) => {
 })
 
 calendarRoutes.patch('/events/:id', async (c) => {
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const s = store(c)
   const timeZone = await fallbackTimeZone(s)
   const target = await sharedEventTarget(c, id)
@@ -384,7 +326,7 @@ calendarRoutes.patch('/events/:id', async (c) => {
 })
 
 calendarRoutes.post('/events/:id/recurrence', async (c) => {
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const s = store(c)
   const timeZone = await fallbackTimeZone(s)
   const target = await sharedEventTarget(c, id)
@@ -410,7 +352,7 @@ calendarRoutes.post('/events/:id/recurrence', async (c) => {
 })
 
 calendarRoutes.delete('/events/:id', async (c) => {
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const rev = parseRevQuery(c.req.query('rev'))
   if (rev === null) throw ApiError.badRequest('rev is required')
   const target = await sharedEventTarget(c, id)
@@ -430,7 +372,7 @@ calendarRoutes.delete('/events/:id', async (c) => {
 
 calendarRoutes.get('/events/:id/extras', async (c) => {
   readBudget(c.get('userId'))
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const s = store(c)
   const shared = await s.sharedEvent(id)
   if (shared) {
@@ -453,25 +395,42 @@ calendarRoutes.get('/events/:id/extras', async (c) => {
 })
 
 calendarRoutes.post('/events/:id/snooze', async (c) => {
-  const id = pathId(c)
+  const rawId = c.req.param('id')
+  const marker = rawId.lastIndexOf('::repeat-')
+  const id = marker < 0 ? calendarPathId(c) : parseEntityId(rawId.slice(0, marker), 'id')
+  const occurrenceStartMs = marker < 0 ? undefined : Number(rawId.slice(marker + '::repeat-'.length))
+  if (occurrenceStartMs !== undefined && (!Number.isSafeInteger(occurrenceStartMs) || occurrenceStartMs < 0)) {
+    throw ApiError.badRequest('Invalid occurrence id')
+  }
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
   const minutes = body.minutes
-  if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
-    throw ApiError.badRequest('minutes must be a whole number between 1 and 1440')
+  if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > MAX_CALENDAR_SNOOZE_MINUTES) {
+    throw ApiError.badRequest(`minutes must be a whole number between 1 and ${MAX_CALENDAR_SNOOZE_MINUTES}`)
   }
-  return c.json(await store(c).snoozeEvent(id, minutes))
+  const target = await sharedEventTarget(c, id)
+  const event = target ? target.event : await store(c).getEvent(id)
+  if (!event) throw ApiError.notFound('Event not found')
+  if (occurrenceStartMs !== undefined && !event.recurrenceRule) {
+    throw ApiError.badRequest('Only a recurring event can snooze one occurrence')
+  }
+  return c.json(await (target ? target.store : store(c)).snoozeEvent(target?.eventId ?? id, minutes, occurrenceStartMs))
 })
 
 calendarRoutes.get('/events/:id/reminders', async (c) => {
   readBudget(c.get('userId'))
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const s = store(c)
+  const shared = await s.sharedEvent(id)
+  if (shared) {
+    const owner = new CalendarStore(c.env.DB, shared.ownerId)
+    return c.json({ minutes: (await owner.eventReminders([shared.eventId])).get(shared.eventId) ?? [] })
+  }
   if (!(await s.getEvent(id))) throw ApiError.notFound('Event not found')
   const found = await s.eventReminders([id])
   return c.json({ minutes: found.get(id) ?? [] })
 })
 calendarRoutes.put('/events/:id/reminders', async (c) => {
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const target = await sharedEventTarget(c, id)
   const body = parseReminderMinutes(await readJson<unknown>(c, JSON_BODY_LIMITS.small))
   const answer = target
@@ -482,14 +441,19 @@ calendarRoutes.put('/events/:id/reminders', async (c) => {
 
 calendarRoutes.get('/events/:id/attendees', async (c) => {
   readBudget(c.get('userId'))
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const s = store(c)
+  const shared = await s.sharedEvent(id)
+  if (shared) {
+    const owner = new CalendarStore(c.env.DB, shared.ownerId)
+    return c.json({ attendees: await owner.eventAttendees(shared.eventId) })
+  }
   if (!(await s.getEvent(id))) throw ApiError.notFound('Event not found')
   return c.json({ attendees: await s.eventAttendees(id) })
 })
 
 calendarRoutes.put('/events/:id/attendees', async (c) => {
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const target = await sharedEventTarget(c, id)
   const body = parseAttendeeList(await readJson<unknown>(c, JSON_BODY_LIMITS.small))
   const answer = target
@@ -512,13 +476,13 @@ calendarRoutes.put('/calendars/order', async (c) => {
 })
 
 calendarRoutes.patch('/calendars/:id', async (c) => {
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const patch = parseCalendarPatch(await readJson<unknown>(c, JSON_BODY_LIMITS.small))
   return c.json({ calendar: await store(c).updateCalendar(id, patch) })
 })
 
 calendarRoutes.delete('/calendars/:id', async (c) => {
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const mode = c.req.query('mode')
   if (mode !== 'merge' && mode !== 'delete') {
     throw ApiError.badRequest('mode must be merge or delete')
@@ -526,10 +490,12 @@ calendarRoutes.delete('/calendars/:id', async (c) => {
   const targetId = mode === 'merge'
     ? parseEntityId(c.req.query('targetId'), 'targetId')
     : null
+  const rev = parseRevQuery(c.req.query('rev'))
+  if (rev === null) throw ApiError.badRequest('rev is required')
   await store(c).deleteCalendar(id, {
     mode,
     targetId,
-    rev: parseRevQuery(c.req.query('rev')),
+    rev,
   })
   return noContent(c)
 })
@@ -548,13 +514,13 @@ calendarRoutes.put('/groups/order', async (c) => {
 })
 
 calendarRoutes.patch('/groups/:id', async (c) => {
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const { name } = parseGroupPatch(await readJson<unknown>(c, JSON_BODY_LIMITS.small))
   return c.json({ group: await store(c).renameGroup(id, name) })
 })
 
 calendarRoutes.delete('/groups/:id', async (c) => {
-  await store(c).deleteGroup(pathId(c))
+  await store(c).deleteGroup(calendarPathId(c))
   return noContent(c)
 })
 
@@ -588,14 +554,16 @@ calendarRoutes.post('/countdowns', async (c) => {
 })
 
 calendarRoutes.patch('/countdowns/:id', async (c) => {
-  const id = pathId(c)
+  const id = calendarPathId(c)
   const patch = parseCountdownPatch(await readJson<unknown>(c, JSON_BODY_LIMITS.small))
   const updated = await new CountdownStore(c.env.DB, c.get('userId')).update(id, patch)
   return c.json({ countdown: updated })
 })
 
 calendarRoutes.delete('/countdowns/:id', async (c) => {
-  const id = pathId(c)
-  await new CountdownStore(c.env.DB, c.get('userId')).delete(id, parseRevQuery(c.req.query('rev')) ?? 0)
+  const id = calendarPathId(c)
+  const rev = parseRevQuery(c.req.query('rev'))
+  if (rev === null) throw ApiError.badRequest('rev is required')
+  await new CountdownStore(c.env.DB, c.get('userId')).delete(id, rev)
   return noContent(c)
 })

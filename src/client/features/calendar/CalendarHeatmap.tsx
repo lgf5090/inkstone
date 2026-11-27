@@ -11,7 +11,7 @@
  * signal.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { ChevronLeft, ChevronRight, ExternalLink, Flame } from 'lucide-react'
 import {
   ACTIVITY_KINDS,
@@ -21,12 +21,13 @@ import {
   type HeatmapResponse,
 } from '@shared/activity/heatmap'
 import { cn } from '../../lib/cn'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import type { MessageKey } from '@shared/locales/en-US'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Modal, Tooltip } from '../../components/overlay'
-import { request } from '../../lib/api'
 import { navigateToPath } from '../../lib/app-history'
+import { getActivityHeatmap } from './api'
+import { calendarStorageKey } from '../../lib/calendar-storage'
 
 const KIND_KEYS: Record<ActivityKind, MessageKey> = {
   notes: 'calendar.heatmap.kind.notes',
@@ -50,18 +51,22 @@ const KIND_PATHS: Record<ActivityKind, string> = {
   chat: '/chat',
 }
 
-const KINDS_STORAGE_KEY = 'inkstone:calendar:heatmap-kinds'
+const KINDS_STORAGE_KEY = calendarStorageKey('heatmap-kinds')
+const LEGACY_KINDS_STORAGE_KEY = 'inkstone:calendar:heatmap-kinds'
 const CELL = 12
 const ROWS = 7
+const HEAT_LEVEL_ACCENTS = [0, 18, 34, 52, 70, 88] as const
 
 function readKinds(): ActivityKind[] {
   try {
-    const raw = localStorage.getItem(KINDS_STORAGE_KEY)
+    const raw = localStorage.getItem(KINDS_STORAGE_KEY) ?? localStorage.getItem(LEGACY_KINDS_STORAGE_KEY)
     const parsed: unknown = raw ? JSON.parse(raw) : null
     if (!Array.isArray(parsed)) return [...ACTIVITY_KINDS]
     const chosen = parsed.filter((value): value is ActivityKind => (ACTIVITY_KINDS as readonly string[]).includes(value as string))
     return chosen.length > 0 ? chosen : [...ACTIVITY_KINDS]
-  } catch {
+  } catch (cause) {
+    // A corrupt filter should leave every activity kind visible rather than show an empty grid.
+    console.debug('[inkstone] Activity heatmap filters could not be read; using every kind.', cause)
     return [...ACTIVITY_KINDS]
   }
 }
@@ -69,6 +74,7 @@ function readKinds(): ActivityKind[] {
 function writeKinds(kinds: ActivityKind[]): void {
   try {
     localStorage.setItem(KINDS_STORAGE_KEY, JSON.stringify(kinds))
+    localStorage.removeItem(LEGACY_KINDS_STORAGE_KEY)
   } catch {
     // The selection is a convenience; a full quota must not stop the grid from drawing.
   }
@@ -85,25 +91,28 @@ function dayTotal(response: HeatmapResponse | null, date: string, kinds: Activit
 export function CalendarHeatmapCard({ today }: { today: Date }) {
   const [open, setOpen] = useState(false)
   const [response, setResponse] = useState<HeatmapResponse | null>(null)
-  const [kinds] = useState<ActivityKind[]>(readKinds)
+  const [kinds, setKinds] = useState<ActivityKind[]>(readKinds)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const year = today.getFullYear()
 
   useEffect(() => {
     const controller = new AbortController()
-    const params = new URLSearchParams({
-      from: `${year}-01-01`,
-      to: `${year}-12-31`,
-      kinds: kinds.join(','),
-    })
-    void request<HeatmapResponse>(`/api/activity/heatmap?${params.toString()}`, { signal: controller.signal })
+    setLoading(true)
+    setError(null)
+    void getActivityHeatmap({ from: `${year}-01-01`, to: `${year}-12-31`, kinds: kinds.join(',') }, controller.signal)
       .then((answer) => {
         if (controller.signal.aborted) return
         setResponse(answer)
+        setLoading(false)
       })
-      .catch(() => {
-        // The card still opens the dialog, which reports its own failure; a missing badge is not an
-        // error worth a toast on a screen the reader did not ask about yet.
-        if (!controller.signal.aborted) setResponse(null)
+      .catch((cause: unknown) => {
+        // The card still opens the dialog, which can retry; the summary must not claim a real zero.
+        if (!controller.signal.aborted) {
+          setResponse(null)
+          setError(cause instanceof Error && cause.message ? cause.message : t('calendar.heatmap.load_failed'))
+          setLoading(false)
+        }
       })
     return () => controller.abort()
   }, [year, kinds])
@@ -121,7 +130,7 @@ export function CalendarHeatmapCard({ today }: { today: Date }) {
       </SectionLabel>
       <button
         type="button"
-        aria-label={`${t('calendar.heatmap.title')} · ${t('calendar.heatmap.total', { count: total })}`}
+        aria-label={`${t('calendar.heatmap.title')} · ${error ? t('calendar.heatmap.load_failed') : t('calendar.heatmap.total', { count: total })}`}
         onClick={() => setOpen(true)}
         className="mt-1 block w-full rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1.5 text-left transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
       >
@@ -144,11 +153,15 @@ export function CalendarHeatmapCard({ today }: { today: Date }) {
           ))}
         </svg>
         <div className="mt-1 flex items-center justify-between gap-1 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
-          <span className="tabular">{t('calendar.heatmap.total', { count: total })}</span>
+          {loading
+            ? <span role="status">{t('common.loading')}</span>
+            : error
+              ? <span role="alert" className="text-[var(--danger)]">{t('calendar.heatmap.load_failed')}</span>
+              : <span className="tabular">{t('calendar.heatmap.total', { count: total })}</span>}
           <span className="shrink-0 text-[var(--accent)]">{t('calendar.heatmap.open')}</span>
         </div>
       </button>
-      {open && <HeatmapDialog year={year} today={today} onClose={() => setOpen(false)} />}
+      {open && <HeatmapDialog year={year} today={today} kinds={kinds} onKindsChange={setKinds} onClose={() => setOpen(false)} />}
     </section>
   )
 }
@@ -192,7 +205,7 @@ function buildMiniGrid(
         y: rowIndex * cellSize,
         fill: level === 0
           ? 'color-mix(in oklab, var(--text-quaternary) 14%, var(--bg-base))'
-          : `color-mix(in oklab, var(--accent) ${[0, 18, 34, 52, 70, 88][level]}%, var(--bg-base))`,
+          : `color-mix(in oklab, var(--accent) ${HEAT_LEVEL_ACCENTS[level]}%, var(--bg-base))`,
       })
     })
   })
@@ -204,10 +217,17 @@ function buildMiniGrid(
   }
 }
 
-function HeatmapDialog({ year: initialYear, today, onClose }: { year: number; today: Date; onClose: () => void }) {
+function HeatmapDialog({ year: initialYear, today, kinds, onKindsChange, onClose }: {
+  year: number
+  today: Date
+  kinds: ActivityKind[]
+  onKindsChange: (kinds: ActivityKind[]) => void
+  onClose: () => void
+}) {
+  const locale = useLocale()
+  const dateFormatter = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }), [locale])
   const currentYear = today.getFullYear()
   const [year, setYear] = useState(initialYear)
-  const [kinds, setKinds] = useState<ActivityKind[]>(readKinds)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [response, setResponse] = useState<HeatmapResponse | null>(null)
@@ -219,12 +239,7 @@ function HeatmapDialog({ year: initialYear, today, onClose }: { year: number; to
     const controller = new AbortController()
     setLoading(true)
     setError(null)
-    const params = new URLSearchParams({
-      from: `${year}-01-01`,
-      to: `${year}-12-31`,
-      kinds: kinds.join(','),
-    })
-    void request<HeatmapResponse>(`/api/activity/heatmap?${params.toString()}`, { signal: controller.signal })
+    void getActivityHeatmap({ from: `${year}-01-01`, to: `${year}-12-31`, kinds: kinds.join(',') }, controller.signal)
       .then((answer) => {
         if (controller.signal.aborted) return
         setResponse(answer)
@@ -259,7 +274,7 @@ function HeatmapDialog({ year: initialYear, today, onClose }: { year: number; to
     const next = kinds.includes(kind)
       ? (kinds.length > 1 ? kinds.filter(value => value !== kind) : kinds)
       : [...kinds, kind]
-    setKinds(next)
+    onKindsChange(next)
     writeKinds(next)
   }
 
@@ -336,14 +351,14 @@ function HeatmapDialog({ year: initialYear, today, onClose }: { year: number; to
             <div
               role="group"
               aria-label={t('calendar.heatmap.grid', { year })}
-              className="grid w-max gap-[3px]"
-              style={{ gridTemplateRows: `repeat(${ROWS}, ${CELL}px)`, gridAutoFlow: 'column', gridAutoColumns: `${CELL}px` }}
+              className="grid w-max grid-flow-col gap-[var(--sp-0-75)] [grid-template-rows:repeat(var(--heatmap-rows),var(--heatmap-cell))] [grid-auto-columns:var(--heatmap-cell)]"
+              style={{ '--heatmap-rows': ROWS, '--heatmap-cell': `${CELL}px` } as CSSProperties}
             >
               {grid.flatMap((column, columnIndex) => column.map((cell, rowIndex) => {
                 if (!cell.date) return <span key={`pad-${columnIndex}-${rowIndex}`} aria-hidden="true" />
                 const count = dayTotal(response, cell.date, kinds)
                 const level = heatLevel(count, max)
-                const label = t('calendar.heatmap.cell', { date: cell.date, count })
+                const label = t('calendar.heatmap.cell', { date: dateFormatter.format(new Date(`${cell.date}T00:00:00Z`)), count })
                 return (
                   <Tooltip key={cell.date} label={label}>
                     <button
@@ -362,7 +377,7 @@ function HeatmapDialog({ year: initialYear, today, onClose }: { year: number; to
                         else if (event.key === 'ArrowDown') { event.preventDefault(); moveFocus(cell.date!, 1) }
                         else if (event.key === 'ArrowUp') { event.preventDefault(); moveFocus(cell.date!, -1) }
                       }}
-                      className="rounded-[2px] p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
+                      className="rounded-[var(--r-2)] p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
                     >
                       <svg width={CELL} height={CELL} viewBox={`0 0 ${CELL} ${CELL}`} aria-hidden="true" className="block">
                         <rect
@@ -371,7 +386,7 @@ function HeatmapDialog({ year: initialYear, today, onClose }: { year: number; to
                           rx={2}
                           style={{ fill: level === 0
                             ? 'color-mix(in oklab, var(--text-quaternary) 14%, var(--bg-base))'
-                            : `color-mix(in oklab, var(--accent) ${[0, 18, 34, 52, 70, 88][level]}%, var(--bg-base))` }}
+                            : `color-mix(in oklab, var(--accent) ${HEAT_LEVEL_ACCENTS[level]}%, var(--bg-base))` }}
                         />
                       </svg>
                     </button>
@@ -393,7 +408,7 @@ function HeatmapDialog({ year: initialYear, today, onClose }: { year: number; to
                   rx={2}
                   style={{ fill: level === 0
                     ? 'color-mix(in oklab, var(--text-quaternary) 14%, var(--bg-base))'
-                    : `color-mix(in oklab, var(--accent) ${[0, 18, 34, 52, 70, 88][level]}%, var(--bg-base))` }}
+                    : `color-mix(in oklab, var(--accent) ${HEAT_LEVEL_ACCENTS[level]}%, var(--bg-base))` }}
                 />
               </svg>
             ))}

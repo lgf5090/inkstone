@@ -39,9 +39,20 @@ describe('solar to lunar', () => {
     expect(date?.month).toBe(2)
   })
 
-  it('refuses a year outside the table', () => {
+  it.each([
+    [1933, 7, 22, 1933, 5, 30, true],
+    [2052, 8, 24, 2052, 8, 1, false],
+    [2033, 12, 22, 2033, 11, 1, true],
+    [2027, 2, 6, 2027, 1, 1, false],
+  ] as const)('resolves %i-%i-%i from the shared table', (year, month, day, lunarYear, lunarMonth, lunarDay, isLeap) => {
+    expect(solar2lunar(year, month, day)).toMatchObject({ year: lunarYear, month: lunarMonth, day: lunarDay, isLeap })
+  })
+
+  it('keeps the endpoint and refuses the day beyond it', () => {
+    expect(solar2lunar(2101, 1, 28)).toMatchObject({ year: 2100, month: 12, day: 29, isLeap: false })
+    expect(lunar2solar({ year: 2100, month: 12, day: 29, isLeap: false })).toEqual({ year: 2101, month: 1, day: 28 })
     expect(solar2lunar(1899, 12, 31)).toBeNull()
-    expect(solar2lunar(2101, 1, 1)).toBeNull()
+    expect(solar2lunar(2101, 1, 29)).toBeNull()
   })
 })
 

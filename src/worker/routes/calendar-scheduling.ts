@@ -22,8 +22,11 @@ import {
   getSchedulingLink,
   insertSchedulingLink,
   listSchedulingLinks,
+  schedulingLinkDays,
+  toSchedulingLinkDto,
   updateSchedulingLink,
   type SchedulingLinkRow,
+  type SchedulingLinkWithOwner,
 } from '../calendar/scheduling'
 import { expandRecurringEvents } from '../calendar/ics'
 import { temporalValueToEpochMs } from '@shared/calendar/model'
@@ -32,6 +35,9 @@ const writeBudget = createMinuteBudget(60, 'Too many calendar changes. Try again
 const readBudget = createMinuteBudget(240, 'Too many calendar reads. Try again in a minute.')
 const BODY_LIMIT = 16 * 1024
 const MAX_PUBLIC_RANGE_MS = 14 * 24 * 60 * 60 * 1000
+const SLOT_INTERVAL_MINUTES = 15
+const SLOT_INTERVAL_MS = SLOT_INTERVAL_MINUTES * 60 * 1000
+const OWNER_BOOKING_DAILY_LIMIT = 300
 
 function parseDays(raw: unknown): number[] {
   if (!Array.isArray(raw) || raw.length === 0) throw ApiError.badRequest('days must name weekdays')
@@ -66,24 +72,16 @@ function title(value: unknown): string {
   return trimmed
 }
 
-function toDto(row: SchedulingLinkRow): CalendarSchedulingLinkDto {
-  let days = [1, 2, 3, 4, 5]
-  try {
-    const parsed: unknown = JSON.parse(row.days_json)
-    if (Array.isArray(parsed)) days = parsed.filter((day): day is number => typeof day === 'number' && day >= 0 && day <= 6)
-  } catch {
-    // Keep the weekday default for a malformed row.
-  }
+function toPublicDto(row: SchedulingLinkRow): Omit<CalendarSchedulingLinkDto, 'id' | 'calendarId'> {
+  const dto = toSchedulingLinkDto(row)
   return {
-    id: row.id,
-    calendarId: row.calendar_id,
-    slug: row.slug,
-    title: row.title,
-    durationMinutes: Number(row.duration_minutes),
-    days,
-    startHour: Number(row.start_hour),
-    endHour: Number(row.end_hour),
-    enabled: row.enabled === 1,
+    slug: dto.slug,
+    title: dto.title,
+    durationMinutes: dto.durationMinutes,
+    days: dto.days,
+    startHour: dto.startHour,
+    endHour: dto.endHour,
+    enabled: dto.enabled,
   }
 }
 
@@ -98,7 +96,7 @@ calendarSchedulingRoutes.use('*', requireAuth)
 calendarSchedulingRoutes.get('/scheduling-links', async (c) => {
   readBudget(c.get('userId'))
   const links = await listSchedulingLinks(c.env.DB, c.get('userId'))
-  return c.json({ links: links.map(toDto) })
+  return c.json({ links: links.map(toSchedulingLinkDto) })
 })
 
 calendarSchedulingRoutes.post('/scheduling-links', async (c) => {
@@ -129,7 +127,7 @@ calendarSchedulingRoutes.post('/scheduling-links', async (c) => {
     enabled: body.enabled !== false,
     now,
   })
-  return c.json({ link: toDto(await linkRow(c, id) as SchedulingLinkRow) })
+  return c.json({ link: toSchedulingLinkDto(await linkRow(c, id) as SchedulingLinkRow) })
 })
 
 calendarSchedulingRoutes.patch('/scheduling-links/:id', async (c) => {
@@ -151,7 +149,7 @@ calendarSchedulingRoutes.patch('/scheduling-links/:id', async (c) => {
     endHour,
     enabled: body.enabled === undefined ? existing.enabled === 1 : body.enabled === true,
   })
-  return c.json({ link: toDto(await linkRow(c, existing.id) as SchedulingLinkRow) })
+  return c.json({ link: toSchedulingLinkDto(await linkRow(c, existing.id) as SchedulingLinkRow) })
 })
 
 calendarSchedulingRoutes.delete('/scheduling-links/:id', async (c) => {
@@ -172,33 +170,37 @@ function publicSlug(c: Context<AppBindings>): string {
   return raw
 }
 
-async function publicLink(c: Context<AppBindings>): Promise<{ row: SchedulingLinkRow; userId: string }> {
+async function publicLink(c: Context<AppBindings>): Promise<{ row: SchedulingLinkWithOwner; userId: string }> {
   const slug = publicSlug(c)
   const row = await getPublicSchedulingLink(c.env.DB, slug)
   if (!row) throw ApiError.notFound('Scheduling link not found')
   return { row, userId: row.user_id }
 }
 
-async function throttle(c: Context<AppBindings>, slug: string): Promise<void> {
+async function throttle(c: Context<AppBindings>, slug: string, userId: string): Promise<void> {
   const ip = requestClientIp(c)
   await assertAttemptBudget(async () => {
     await consumeAttemptBudget(c.env.DB, [
       { key: `calendar-booking:${slug}:ip:${ip}`, maxAttempts: 30, windowMs: 10 * 60 * 1000 },
+      { key: `calendar-booking:owner:${userId}:day`, maxAttempts: OWNER_BOOKING_DAILY_LIMIT, windowMs: 24 * 60 * 60 * 1000 },
     ])
   })
 }
 
 async function busyFor(
   c: Context<AppBindings>,
-  userId: string,
+  row: SchedulingLinkWithOwner,
   fromMs: number,
   toMs: number,
 ): Promise<Array<{ startMs: number; endMs: number }>> {
-  const store = new CalendarStore(c.env.DB, userId)
+  const store = new CalendarStore(c.env.DB, row.user_id)
   const preferences = await store.preferences()
-  const result = await store.listEvents(fromMs, toMs)
+  const result = await store.listEvents(fromMs, toMs, [row.calendar_id])
   const expansion = expandRecurringEvents(result.events, fromMs, toMs, preferences.timeZone)
-  return [...result.events, ...expansion.occurrences]
+  if (result.truncated || expansion.truncated) {
+    throw new ApiError(503, 'storage_unavailable', 'Calendar availability cannot be read completely')
+  }
+  const blocks = [...result.events, ...expansion.occurrences]
     .filter(event => event.kind !== 'task')
     .map(event => ({
       startMs: temporalValueToEpochMs(event.start, preferences.timeZone),
@@ -206,16 +208,23 @@ async function busyFor(
     }))
     .filter(block => block.endMs > fromMs && block.startMs < toMs)
     .sort((left, right) => left.startMs - right.startMs)
+  const merged: Array<{ startMs: number; endMs: number }> = []
+  for (const block of blocks) {
+    const previous = merged.at(-1)
+    if (previous && block.startMs <= previous.endMs) previous.endMs = Math.max(previous.endMs, block.endMs)
+    else merged.push({ ...block })
+  }
+  return merged
 }
 
 calendarBookingRoutes.get('/scheduling/:slug', async (c) => {
-  await throttle(c, publicSlug(c))
   const { row, userId } = await publicLink(c)
+  await throttle(c, row.slug, userId)
   const preferences = await new CalendarStore(c.env.DB, userId).preferences()
   const now = Date.now()
-  const busy = await busyFor(c, userId, now, now + MAX_PUBLIC_RANGE_MS)
+  const busy = await busyFor(c, row, now, now + MAX_PUBLIC_RANGE_MS)
   return c.json({
-    link: toDto(row),
+    link: toPublicDto(row),
     timeZone: preferences.timeZone,
     fromMs: now,
     toMs: now + MAX_PUBLIC_RANGE_MS,
@@ -225,39 +234,45 @@ calendarBookingRoutes.get('/scheduling/:slug', async (c) => {
 
 async function reserve(
   c: Context<AppBindings>,
-  row: SchedulingLinkRow,
+  row: SchedulingLinkWithOwner,
   userId: string,
   startMs: number,
   guestName: string,
   email: string,
-): Promise<{ eventId: string; startMs: number; endMs: number }> {
-  if (!Number.isFinite(startMs)) throw ApiError.badRequest('startMs is required')
-  if (!guestName) throw ApiError.badRequest('name is required')
-  if (email && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) throw ApiError.badRequest('email is invalid')
+): Promise<{ startMs: number; endMs: number }> {
+  if (!Number.isSafeInteger(startMs)) throw ApiError.badRequest('startMs is required')
+  if (!guestName || guestName.length > 120 || /[\u0000-\u001f\u007f]/.test(guestName)) {
+    throw ApiError.badRequest('name must be 1–120 characters without control characters')
+  }
+  if (email.length > 200 || (email && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email))) {
+    throw ApiError.badRequest('email is invalid')
+  }
+  const now = Date.now()
+  if (startMs < now || startMs > now + MAX_PUBLIC_RANGE_MS) {
+    throw ApiError.badRequest('startMs must be within the next fourteen days')
+  }
   const preferences = await new CalendarStore(c.env.DB, userId).preferences()
   const zone = preferences.timeZone
   const start = Temporal.Instant.fromEpochMilliseconds(startMs).toZonedDateTimeISO(zone)
   const end = start.add({ minutes: Number(row.duration_minutes) })
   const day = start.dayOfWeek % 7
-  let days: number[] = [1, 2, 3, 4, 5]
-  try {
-    const parsed: unknown = JSON.parse(row.days_json)
-    if (Array.isArray(parsed)) days = parsed.filter((value): value is number => typeof value === 'number')
-  } catch {
-    // Defaults stay.
+  if (start.minute % SLOT_INTERVAL_MINUTES !== 0 || start.second !== 0 || start.millisecond !== 0) {
+    throw ApiError.badRequest('startMs must align with an offered slot')
   }
+  const days = schedulingLinkDays(row.days_json)
   if (!days.includes(day)) throw ApiError.badRequest('That day is not offered')
-  if (start.hour < Number(row.start_hour) || end.hour > Number(row.end_hour)
-    || (end.hour === Number(row.end_hour) && end.minute > 0)) {
+  const windowStart = start.toPlainDate().toZonedDateTime(zone).add({ hours: Number(row.start_hour) })
+  const windowEnd = start.toPlainDate().toZonedDateTime(zone).add({ hours: Number(row.end_hour) })
+  if (start.epochMilliseconds < windowStart.epochMilliseconds || end.epochMilliseconds > windowEnd.epochMilliseconds
+    || end.epochMilliseconds > now + MAX_PUBLIC_RANGE_MS) {
     throw ApiError.badRequest('That time is outside the booking window')
   }
-  if (startMs < Date.now() - 60_000) throw ApiError.badRequest('That time has passed')
-  const busy = await busyFor(c, userId, startMs, end.epochMilliseconds)
+  const busy = await busyFor(c, row, startMs, end.epochMilliseconds)
   if (busy.some(block => block.startMs < end.epochMilliseconds && block.endMs > startMs)) {
     throw ApiError.conflict('That slot was just booked')
   }
   const owner = new CalendarStore(c.env.DB, userId)
-  const event = await owner.createEvent({
+  await owner.createEvent({
     title: `${row.title} · ${guestName}`,
     description: email
       ? `Booked through a scheduling link: ${guestName} <${email}>`
@@ -268,21 +283,23 @@ async function reserve(
     calendarIds: [row.calendar_id],
     meta: {},
     source: 'local',
-    externalId: null,
+    attendees: email ? [{ email, name: guestName, status: 'needs-action' }] : [],
+    // The existing unique external-id index is the atomic slot claim: concurrent requests may both
+    // pass the busy read, but only one event/membership batch can commit this identity.
+    externalId: `inkstone-booking:${row.calendar_id}:${startMs}`,
   })
-  if (email) {
-    await owner.setEventAttendees(event.id, [{ email, name: guestName, status: 'needs-action' }], event.rev)
-  }
-  return { eventId: event.id, startMs, endMs: end.epochMilliseconds }
+  return { startMs, endMs: end.epochMilliseconds }
 }
 
 calendarBookingRoutes.post('/scheduling/:slug/book', async (c) => {
-  await throttle(c, publicSlug(c))
   const { row, userId } = await publicLink(c)
+  await throttle(c, row.slug, userId)
   const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
   const startMs = body.startMs
   if (typeof startMs !== 'number') throw ApiError.badRequest('startMs is required')
-  const guestName = typeof body.name === 'string' ? body.name.trim().slice(0, 120) : ''
+  if (body.email !== undefined && typeof body.email !== 'string') throw ApiError.badRequest('email is invalid')
+  if (typeof body.company === 'string' && body.company.trim()) throw ApiError.badRequest('That time cannot be booked')
+  const guestName = typeof body.name === 'string' ? body.name.trim() : ''
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
   return c.json(await reserve(c, row, userId, startMs, guestName, email))
 })
@@ -312,13 +329,7 @@ function offeredSlots(
   busy: ReadonlyArray<{ startMs: number; endMs: number }>,
   locale: string,
 ): OfferedSlot[] {
-  let days: number[] = [1, 2, 3, 4, 5]
-  try {
-    const parsed: unknown = JSON.parse(row.days_json)
-    if (Array.isArray(parsed)) days = parsed.filter((value): value is number => typeof value === 'number')
-  } catch {
-    // Defaults stay.
-  }
+  const days = schedulingLinkDays(row.days_json)
   const duration = Number(row.duration_minutes)
   const startHour = Number(row.start_hour)
   const endHour = Number(row.end_hour)
@@ -333,7 +344,8 @@ function offeredSlots(
     let cursor = windowStart
     const earliest = now + 30 * 60_000
     if (cursor.epochMilliseconds < earliest) {
-      cursor = Temporal.Instant.fromEpochMilliseconds(earliest).toZonedDateTimeISO(zone)
+      const intervals = Math.ceil((earliest - cursor.epochMilliseconds) / SLOT_INTERVAL_MS)
+      cursor = cursor.add({ minutes: Math.max(0, intervals) * SLOT_INTERVAL_MINUTES })
     }
     while (cursor.add({ minutes: duration }).epochMilliseconds <= windowEnd.epochMilliseconds && slots.length < 60) {
       const startMs = cursor.epochMilliseconds
@@ -349,7 +361,7 @@ function offeredSlots(
           }).format(new Date(startMs)),
         })
       }
-      cursor = cursor.add({ minutes: 15 })
+      cursor = cursor.add({ minutes: SLOT_INTERVAL_MINUTES })
     }
   }
   return slots
@@ -410,11 +422,11 @@ function bookingForm(row: SchedulingLinkRow, slots: OfferedSlot[], slug: string,
 
 calendarBookingPageRoutes.get('/:slug', async (c) => {
   const slug = publicSlug(c)
-  await throttle(c, slug)
   const { row, userId } = await publicLink(c)
+  await throttle(c, slug, userId)
   const preferences = await new CalendarStore(c.env.DB, userId).preferences()
   const now = Date.now()
-  const busy = await busyFor(c, userId, now, now + MAX_PUBLIC_RANGE_MS)
+  const busy = await busyFor(c, row, now, now + MAX_PUBLIC_RANGE_MS)
   const locale = (c.req.header('accept-language') ?? '').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
   const slots = offeredSlots(row, preferences.timeZone, busy, locale)
   return c.html(pageShell(row.title, bookingForm(row, slots, slug, null), locale), 200, {
@@ -425,8 +437,8 @@ calendarBookingPageRoutes.get('/:slug', async (c) => {
 
 calendarBookingPageRoutes.post('/:slug/book', async (c) => {
   const slug = publicSlug(c)
-  await throttle(c, slug)
   const { row, userId } = await publicLink(c)
+  await throttle(c, slug, userId)
   const body = await c.req.parseBody()
   const value = (field: string): string => typeof body[field] === 'string' ? String(body[field]).trim() : ''
   const locale = (c.req.header('accept-language') ?? '').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
@@ -438,7 +450,7 @@ calendarBookingPageRoutes.post('/:slug/book', async (c) => {
   }
   const startMs = Number(value('startMs'))
   try {
-    const booked = await reserve(c, row, userId, startMs, value('name').slice(0, 120), value('email').toLowerCase())
+    const booked = await reserve(c, row, userId, startMs, value('name'), value('email').toLowerCase())
     const when = new Intl.DateTimeFormat(locale, {
       dateStyle: 'full', timeStyle: 'short', timeZone: (await new CalendarStore(c.env.DB, userId).preferences()).timeZone,
     }).format(new Date(booked.startMs))
@@ -458,7 +470,7 @@ calendarBookingPageRoutes.post('/:slug/book', async (c) => {
     }
     const preferences = await new CalendarStore(c.env.DB, userId).preferences()
     const now = Date.now()
-    const busy = await busyFor(c, userId, now, now + MAX_PUBLIC_RANGE_MS)
+    const busy = await busyFor(c, row, now, now + MAX_PUBLIC_RANGE_MS)
     const slots = offeredSlots(row, preferences.timeZone, busy, locale)
     return c.html(pageShell(row.title, bookingForm(row, slots, slug, message), locale), error instanceof ApiError ? error.status : 500, {
       'Cache-Control': 'no-store',

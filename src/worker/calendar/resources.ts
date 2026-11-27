@@ -24,6 +24,12 @@ export async function listResources(db: D1Database, userId: string): Promise<Cal
   return (results ?? []).map(toDto)
 }
 
+export async function countResources(db: D1Database, userId: string): Promise<number> {
+  const row = await db.prepare('SELECT COUNT(*) AS count FROM calendar_resources WHERE user_id = ?')
+    .bind(userId).first<{ count: number }>()
+  return Number(row?.count ?? 0)
+}
+
 export async function getResource(db: D1Database, userId: string, id: string): Promise<CalendarResourceDto | null> {
   const row = await db.prepare(
     'SELECT id, calendar_id, name, capacity FROM calendar_resources WHERE user_id = ?1 AND id = ?2',

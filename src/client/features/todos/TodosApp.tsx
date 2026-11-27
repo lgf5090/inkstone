@@ -19,11 +19,11 @@ import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { isImeComposing } from '../../lib/ime'
 import { useMediaQuery } from '../../lib/hooks'
-import { IconButton } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { DEFAULT_TODO_WORKDAY } from '@shared/constants'
 import { Input } from '../../components/form'
 import { Menu, type MenuItem } from '../../components/overlay'
-import { LoadingBlock } from '../../components/feedback'
+import { Empty, LoadingBlock } from '../../components/feedback'
 import { useSession } from '../../store/session'
 import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
 import { Resizer } from '../shell/Resizer'
@@ -92,6 +92,7 @@ function useWide(): boolean {
 export function TodosApp() {
   const wide = useWide()
   const status = useTodos((state) => state.status)
+  const error = useTodos((state) => state.error)
   const load = useTodos((state) => state.load)
   const view = useTodos((state) => state.view)
   const setView = useTodos((state) => state.setView)
@@ -113,6 +114,7 @@ export function TodosApp() {
   const timezone = useTodos((state) => state.timezone)
   const dueFrom = useTodos((state) => state.dueFrom)
   const dueTo = useTodos((state) => state.dueTo)
+  const dayEnd = useTodos((state) => state.dayEnd)
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const todoNavWidth = useUi((state) => state.todoNavWidth)
   const setLayout = useUi((state) => state.setLayout)
@@ -135,6 +137,8 @@ export function TodosApp() {
   const [moreOpen, setMoreOpen] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const lastAssistantScreen = useRef<string | null>(null)
+  /** The last end-of-day deadline this tab has already acted on; see the rollover effect below. */
+  const lastRolledDayEnd = useRef(0)
   const assistantScreen = `${view}|${listId ?? ''}|${tagId ?? ''}|${query}|${dueFrom ?? ''}|${dueTo ?? ''}|${editorOpen ? draft?.id ?? 'new' : ''}`
 
   useEffect(() => {
@@ -174,6 +178,39 @@ export function TodosApp() {
   }, [assistantScreen, completed, draft, editorOpen, dueFrom, dueTo, listId, lists, query, tagId, tags, tasks, timezone, view])
 
   useAssistantToolRefresh(TODO_WRITE_TOOLS, () => useTodos.getState().load())
+
+  // The account's "today" ends at an instant the server names (`dayEnd`), and a tab left open across
+  // it would keep yesterday's rows under today's heading and yesterday's numbers on the badges until
+  // something read again. So the deadline arms one timer, and waking the tab re-checks it — a machine
+  // that slept through midnight never fires the timer it set. Either way the answer carries the next
+  // `dayEnd`, which re-arms this effect for the day after.
+  useEffect(() => {
+    if (!dayEnd) return
+    // One roll per named deadline: a read that fails leaves `dayEnd` where it was, and re-entering
+    // this effect for the same value would ask again and again for a day that already ended.
+    if (dayEnd <= lastRolledDayEnd.current) return
+    let cancelled = false
+    const roll = (): void => {
+      if (cancelled || dayEnd <= lastRolledDayEnd.current) return
+      lastRolledDayEnd.current = dayEnd
+      void useTodos.getState().load()
+    }
+    const remaining = dayEnd - Date.now()
+    if (remaining <= 0) {
+      roll()
+      return
+    }
+    const timer = window.setTimeout(roll, remaining)
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') roll()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [dayEnd])
 
   const openList = (target: { listId?: string; tagId?: string }): void => {
     setPage('main')
@@ -529,7 +566,20 @@ export function TodosApp() {
               the calendar and the close-out read their own rows, so their own controls replace this bar
               rather than join it — a filter that narrowed nothing would be a control that lies. */}
           {page === 'main' && !readsOwnRows(view) && <TodoFilters />}
-          {status === 'loading' && !counts ? <LoadingBlock /> : content}
+          {status === 'error' ? (
+            <div role="alert" className="px-4 py-10">
+              <Empty
+                title={t('todo.error.load')}
+                description={
+                  <>
+                    {t('todo.error.load_hint')}
+                    {error && <span className="mt-1 block break-words">{error}</span>}
+                  </>
+                }
+                action={<Button onClick={() => { void load() }}>{t('common.retry')}</Button>}
+              />
+            </div>
+          ) : status === 'loading' && !counts ? <LoadingBlock /> : content}
         </div>
         {assistantDockOpen && !IS_DEMO_MODE && <AssistantDock surface="todos" />}
       </div>
@@ -552,7 +602,7 @@ export function TodosApp() {
           </button>}
           <nav
             aria-label={t('todo.app.navigation')}
-            className={cn('flex shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)]', PHONE_TAB_BAR_CLASS)}
+            className={cn('mobile-bottom-nav flex shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)]', PHONE_TAB_BAR_CLASS)}
           >
             {/* Order, glyphs, labels and the one badge all come from the surface table, so a view that
                 earns a tab on the phone is added there rather than here. */}
@@ -642,8 +692,12 @@ function MobileTab({ icon, label, active, badge, onClick }: {
       aria-current={active ? 'page' : undefined}
       className={cn('relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-[length:var(--text-10-5)]', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}
     >
-      {icon}
-      <span className="truncate">{label}</span>
+      {/* The shared pill, so this bar's pressed state and 56×48 floor are the notebook's rather than a
+          fourth copy of them: `aria-current` is what paints it, and that is set on the button. */}
+      <span className="mobile-tab-content">
+        {icon}
+        <span className="truncate">{label}</span>
+      </span>
       {badge > 0 && (
         <span className="absolute right-[22%] top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[length:var(--text-9)] font-semibold text-[var(--danger-contrast)]">
           {badge > BADGE_CEILING ? `${BADGE_CEILING}+` : badge}

@@ -91,6 +91,13 @@ describe('the day a row prints', () => {
     expect(dayFiledUnder(shanghaiTonight, 'UTC')).not.toBe(t('todo.smart.today'))
   })
 
+  it('distinguishes a real 23:59 instant from an explicit all-day task', () => {
+    const dueAt = Date.parse('2026-10-20T15:59:00Z')
+    expect(dueLabel(dueAt, bounds, 'Asia/Shanghai', { allDay: false, dueOn: null })?.text).toBe('23:59')
+    expect(dueLabel(dueAt, bounds, 'Asia/Shanghai', { allDay: true, dueOn: '2026-10-20' }))
+      .toMatchObject({ text: t('todo.smart.today'), overdue: false })
+  })
+
   it('keeps the clock it prints in the same zone as the day', () => {
     process.env.TZ = 'UTC'
     // Half past two on the 20th in UTC is half past ten in Shanghai, the zone the row is read in.

@@ -5,6 +5,7 @@ import type { CloudDriveBootstrap } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { cloudDriveFilesRoutes } from './routes-files'
+import { clouddriveCommentRoutes } from './routes-comments'
 import { cloudDriveSettingsRoutes } from './routes-settings'
 import { clouddriveUploadRoutes } from './routes-upload'
 import { clouddriveUploadUrlRoutes } from './routes-upload-url'
@@ -24,6 +25,10 @@ import { clouddriveJobRoutes } from './routes-jobs'
 import { clouddriveMetaRoutes } from './routes-meta'
 import { clouddriveOAuthRoutes } from './routes-oauth'
 import { cloudDriveUsage, ensurePrimaryMount, listMounts, readCloudDriveSettings } from './store'
+import { clouddriveActivityRoutes } from './routes-activity'
+import { clouddriveSnapshotRoutes } from './routes-snapshots'
+import { clouddriveBackupRoutes } from './routes-backups'
+import { clouddriveVaultRoutes } from './routes-vault'
 
 export const clouddriveRoutes = new Hono<AppBindings>()
 
@@ -60,6 +65,7 @@ clouddriveRoutes.get('/health', async (c) => {
 })
 
 clouddriveRoutes.route('/', cloudDriveFilesRoutes)
+clouddriveRoutes.route('/', clouddriveCommentRoutes)
 clouddriveRoutes.route('/', cloudDriveSettingsRoutes)
 clouddriveRoutes.route('/', clouddriveUploadRoutes)
 clouddriveRoutes.route('/', clouddriveUploadUrlRoutes)
@@ -78,6 +84,10 @@ clouddriveRoutes.route('/', clouddriveAdminRoutes)
 clouddriveRoutes.route('/', clouddriveJobRoutes)
 clouddriveRoutes.route('/', clouddriveMetaRoutes)
 clouddriveRoutes.route('/', clouddriveOAuthRoutes)
+clouddriveRoutes.route('/', clouddriveActivityRoutes)
+clouddriveRoutes.route('/', clouddriveSnapshotRoutes)
+clouddriveRoutes.route('/', clouddriveBackupRoutes)
+clouddriveRoutes.route('/', clouddriveVaultRoutes)
 
 clouddriveRoutes.all('*', () => {
   throw ApiError.notFound('CloudDrive endpoint not found')

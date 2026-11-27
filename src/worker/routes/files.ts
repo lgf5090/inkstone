@@ -8,6 +8,7 @@ import {
   readAttachmentObjectStream,
 } from '../attachments/backend'
 import { drainAttachmentCleanup } from '../attachments/cleanup'
+import { canReadCalendarAttachment } from '../calendar/attachments'
 import { collectAttachmentReferences } from '../attachments/references'
 import { attachmentObjectKey } from '../attachments/keys'
 import { persistAttachmentWithinQuota, replaceNoteAttachment } from '../attachments/storage'
@@ -230,6 +231,9 @@ filesRoutes.get('/:id', async (c) => {
   const userId = c.get('userId')
   const owner = Boolean(userId && userId === row.user_id)
   let allowed = owner
+  if (!allowed && userId && row.note_id === null) {
+    allowed = await canReadCalendarAttachment(c.env.DB, userId, id)
+  }
   if (!allowed && isValidSlug(shareSlug)) {
     const share = await shareForAsset(c.env.DB, shareSlug, row.user_id)
     allowed = Boolean(

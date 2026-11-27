@@ -22,6 +22,9 @@ import { MAX_TASK_DESCRIPTION_CHARS } from '@shared/todos/model'
 import { AssistantStore } from '../assistant/store'
 import { initializeDatabase } from '../db/schema'
 import type { Env } from '../env'
+import { sha256Hex } from '../lib/encoding'
+import { ApiError } from '../lib/errors'
+import { assertAttemptBudget, consumeAttemptBudget, type AttemptBudgetTarget } from '../lib/throttle'
 import { claimMailMessage, findMailTokenOwner, releaseMailMessage } from '../todos/schema'
 
 /** How much raw MIME one delivery may carry. The note itself is capped far below this. */
@@ -38,6 +41,12 @@ const MAX_SENDER_CHARS = 320
 
 /** How long a processed Message-ID is remembered. Far longer than any delivery retry. */
 const MAIL_IDEMPOTENCY_WINDOW_MS = 90 * 24 * 60 * 60 * 1000
+
+/** Hourly ceilings for one token, one sender on that token, and one IP on that token. */
+export const INBOUND_MAIL_HOURLY_BUDGET = { token: 30, sender: 10, ip: 20 } as const
+
+/** The fixed window shared by every inbound-mail budget. */
+const INBOUND_MAIL_BUDGET_WINDOW_MS = 60 * 60 * 1000
 
 /** How many random characters an address token carries. 40 × 5 bits = 200 bits. */
 export const MAIL_TOKEN_CHARS = 40
@@ -206,8 +215,22 @@ export async function handleInboundMail(message: ForwardableEmailMessage, env: E
 
   const now = Date.now()
   const messageId = await inboundMessageId(message.headers.get('message-id'), raw)
+  const budgetTargets = await inboundMailBudgetTargets(token, sender, message.headers)
   if (!(await claimMailMessage(env.DB, userId, messageId, now, now - MAIL_IDEMPOTENCY_WINDOW_MS))) {
     return 'duplicate'
+  }
+
+  try {
+    await assertAttemptBudget(
+      () => consumeAttemptBudget(env.DB, budgetTargets),
+      'Too many inbound emails',
+    )
+  } catch (error) {
+    const rateLimited = error instanceof ApiError && error.status === 429
+    await releaseInboundMailClaim(env.DB, userId, messageId, rateLimited ? 'rate limiting' : 'budget check failure')
+    if (!rateLimited) throw error
+    console.warn('[inkstone] inbound mail dropped: the hourly attempt budget was exceeded')
+    return 'ignored'
   }
 
   try {
@@ -216,17 +239,60 @@ export async function handleInboundMail(message: ForwardableEmailMessage, env: E
       description: mailTaskDescription(sender, content.text),
     })
   } catch (error) {
-    try {
-      await releaseMailMessage(env.DB, userId, messageId)
-    } catch (releaseError) {
-      // Best effort: the message is already failing, and a stuck claim only means a retry is
-      // treated as a duplicate. Reporting both failures is what lets an operator see the first one.
-      console.error('[inkstone] inbound mail claim could not be released', releaseError)
-    }
+    await releaseInboundMailClaim(env.DB, userId, messageId, 'task creation failure')
     console.error('[inkstone] inbound mail could not be filed as a task', error)
     throw error
   }
   return 'created'
+}
+
+/** Hashed budget keys keep the capability token and sender metadata out of the shared throttle table. */
+async function inboundMailBudgetTargets(
+  token: string,
+  sender: string,
+  headers: Headers,
+): Promise<AttemptBudgetTarget[]> {
+  const ip = inboundMailIp(headers)
+  const [tokenKey, senderKey, ipKey] = await Promise.all([
+    inboundMailBudgetKey('token', token),
+    inboundMailBudgetKey('sender', token, sender.toLowerCase()),
+    ip ? inboundMailBudgetKey('ip', token, ip) : Promise.resolve(null),
+  ])
+  const target = (key: string, maxAttempts: number): AttemptBudgetTarget => ({
+    key,
+    maxAttempts,
+    windowMs: INBOUND_MAIL_BUDGET_WINDOW_MS,
+  })
+  const targets = [target(tokenKey, INBOUND_MAIL_HOURLY_BUDGET.token), target(senderKey, INBOUND_MAIL_HOURLY_BUDGET.sender)]
+  if (ipKey) targets.push(target(ipKey, INBOUND_MAIL_HOURLY_BUDGET.ip))
+  return targets
+}
+
+async function inboundMailBudgetKey(scope: 'token' | 'sender' | 'ip', ...parts: string[]): Promise<string> {
+  return `mail-todo-${scope}:${await sha256Hex(JSON.stringify(parts))}`
+}
+
+/** Only the optional edge address is eligible; sender-supplied forwarding and Received headers are not. */
+function inboundMailIp(headers: Headers): string | null {
+  const value = (headers.get('cf-connecting-ip') ?? '').trim().toLowerCase()
+  if (!value || value.length > 64 || !/^[0-9a-f:.]+$/.test(value)) return null
+  return value
+}
+
+/** Release a claim after a failed attempt so Email Routing can retry the same Message-ID. */
+async function releaseInboundMailClaim(
+  db: D1Database,
+  userId: string,
+  messageId: string,
+  reason: string,
+): Promise<void> {
+  try {
+    await releaseMailMessage(db, userId, messageId)
+  } catch (error) {
+    // Best effort: the message is already failing, and a stuck claim only means a retry is
+    // treated as a duplicate. Reporting both failures is what lets an operator see the first one.
+    console.error(`[inkstone] inbound mail claim could not be released after ${reason}`, error)
+  }
 }
 
 /**

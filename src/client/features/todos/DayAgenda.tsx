@@ -30,7 +30,7 @@ function tasksOfDay(tasks: readonly TodoTask[], dayKey: string, timezone: string
   return tasks
     .filter((task) => {
       if (isTaskDone(task.status) || task.dueAt === null) return false
-      const end = localDate(task.dueAt, timezone)
+      const end = task.dueAllDay && task.dueOn ? task.dueOn : localDate(task.dueAt, timezone)
       const start = task.startAt != null ? localDate(task.startAt, timezone) : end
       return dayKey >= start && dayKey <= end
     })

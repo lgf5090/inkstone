@@ -23,7 +23,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Input, Select, commitOnEnter } from '../../components/form'
 import { X, Trash2, Copy, CopyPlus, FolderInput, BookmarkPlus, Video, Download } from 'lucide-react'
 import * as api from './api'
-import { CALENDAR_COLOR_PRESETS } from './model'
+import { CALENDAR_COLOR_PRESETS, CALENDAR_COLOR_LABEL_KEYS } from './model'
 import { downloadCalendarText } from './calendar-download'
 import { CalendarFilePicker } from './CalendarFilePicker'
 import { CalendarEventTransferDialog } from './CalendarEventTransferDialog'
@@ -31,6 +31,7 @@ import { CalendarTemplatesDialog } from './CalendarTemplatesDialog'
 import { CalendarTimeZoneField } from './CalendarTimeZoneField'
 import { addAttendee, normalizeAttendeeEmail, withAttendeeStatus, withoutAttendee } from './attendees'
 import { eventTimeZone, reanchorValue, shiftTemporalValue } from './timezone'
+import { jitsiMeetingUrl } from '../../lib/runtime'
 
 interface CalendarEventExtrasProps {
   eventId: string
@@ -106,7 +107,7 @@ export function CalendarEventExtras({
     let cancelled = false
     void api.getContacts().then((rows) => {
       if (!cancelled) setContacts(rows.map(row => ({ name: row.name, email: row.email })))
-    }).catch(() => { /* The address book is a suggestion, not a requirement. */ })
+    }).catch((cause: unknown) => { /* The address book is a suggestion, not a requirement. */ console.debug('[inkstone] Calendar address book could not be loaded.', cause) })
     setEvent(null)
     setMinutes([])
     setAttendees([])
@@ -130,6 +131,7 @@ export function CalendarEventExtras({
           return
         }
         setEvent(found.event)
+        latestRev.current = found.event.rev
         setMinutes(found.reminders)
         setAttendees(found.attendees)
         setFiles(found.attachments)
@@ -144,10 +146,19 @@ export function CalendarEventExtras({
   }, [eventId])
 
   const rev = event?.rev ?? null
+  const latestRev = useRef<number | null>(null)
+  const writeQueue = useRef<Promise<unknown>>(Promise.resolve())
 
-  const save = async (write: () => Promise<CalendarEventDto>): Promise<void> => {
+  const serializedWrite = <T,>(write: () => Promise<T>): Promise<T> => {
+    const run = writeQueue.current.then(write, write)
+    writeQueue.current = run.catch(() => undefined)
+    return run
+  }
+
+  const save = async (write: (rev: number) => Promise<CalendarEventDto>): Promise<void> => {
     try {
-      const saved = await write()
+      const saved = await serializedWrite(() => write(latestRev.current!))
+      latestRev.current = saved.rev
       setEvent(saved)
       onRevision(eventId, saved.rev)
       onChanged(eventId)
@@ -166,7 +177,8 @@ export function CalendarEventExtras({
     setSavingReminders(true)
     void (async () => {
       try {
-        const answer = await api.setEventReminders(eventId, next, rev)
+        const answer = await serializedWrite(() => api.setEventReminders(eventId, next, latestRev.current!))
+        latestRev.current = answer.event.rev
         setEvent(answer.event)
         onRevision(eventId, answer.event.rev)
         setError(null)
@@ -213,7 +225,8 @@ export function CalendarEventExtras({
     setSavingAttendees(true)
     void (async () => {
       try {
-        const answer = await api.setEventAttendees(eventId, next, rev)
+        const answer = await serializedWrite(() => api.setEventAttendees(eventId, next, latestRev.current!))
+        latestRev.current = answer.event.rev
         setEvent(answer.event)
         setAttendees(answer.attendees)
         onRevision(eventId, answer.event.rev)
@@ -301,7 +314,8 @@ export function CalendarEventExtras({
     setSavingColor(true)
     void (async () => {
       try {
-        const saved = await api.updateEventPatch(eventId, { color }, rev)
+        const saved = await serializedWrite(() => api.updateEventPatch(eventId, { color }, latestRev.current!))
+        latestRev.current = saved.rev
         setEvent(saved)
         onRevision(eventId, saved.rev)
         onChanged(eventId)
@@ -339,11 +353,12 @@ export function CalendarEventExtras({
     void (async () => {
       try {
         const meetingId = `inkstone-${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
-        const saved = await api.updateEventPatch(eventId, {
+        const saved = await serializedWrite(() => api.updateEventPatch(eventId, {
           conference: add
-            ? { provider: 'jitsi', joinUrl: `https://meet.jit.si/${meetingId}`, meetingId }
+            ? { provider: 'jitsi', joinUrl: jitsiMeetingUrl(meetingId), meetingId }
             : null,
-        }, rev)
+        }, latestRev.current!))
+        latestRev.current = saved.rev
         setEvent(saved)
         onRevision(eventId, saved.rev)
         setError(null)
@@ -367,7 +382,7 @@ export function CalendarEventExtras({
       end: reanchorValue(event.end, zone),
     }
     setEvent({ ...event, start: moved.start, end: moved.end })
-    void save(() => api.updateEvent(eventId, moved, rev).catch((error: unknown) => {
+    void save(currentRev => api.updateEvent(eventId, moved, currentRev).catch((error: unknown) => {
       setEvent(previous)
       throw error
     }))
@@ -425,7 +440,7 @@ export function CalendarEventExtras({
   const startMillis = event ? Number(temporalValueToEpochMs(event.start, accountTimeZone)) : 0
 
   return (
-    <section className="max-h-[45vh] shrink-0 overflow-y-auto overscroll-contain border-t border-[var(--border-subtle)] px-3 py-2.5">
+    <section className="max-h-[var(--calendar-scroll-max-height)] shrink-0 overflow-y-auto overscroll-contain border-t border-[var(--border-subtle)] px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
         <h3 className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-semibold text-[var(--text-primary)]">
           {event?.title || t('calendar.event.untitled')}
@@ -476,11 +491,11 @@ export function CalendarEventExtras({
         >
           {t('calendar.event.no_color')}
         </Button>
-        {CALENDAR_COLOR_PRESETS.map(color => (
+        {CALENDAR_COLOR_PRESETS.map((color, index) => (
           <button
             key={color}
             type="button"
-            aria-label={color}
+            aria-label={t(CALENDAR_COLOR_LABEL_KEYS[index]!)}
             aria-pressed={event?.color?.toLowerCase() === color}
             disabled={rev === null || readOnly || savingColor}
             onClick={() => changeColor(color)}

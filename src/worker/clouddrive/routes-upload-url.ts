@@ -19,6 +19,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { readJson } from '../lib/request'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { assertMetaAccess } from './routes-meta'
 import { PRIMARY_MOUNT_ID, ensurePrimaryMount, readCloudDriveSettings } from './store'
 import {
@@ -41,6 +42,10 @@ const MAX_URL_LENGTH = 4096
 const MIME_MAX_LENGTH = 255
 /** A task owns its lock while the request that started it is still working. */
 const TASK_LOCK_MS = 120_000
+/** Bound outbound probe/transfer work per account before any remote request is made. */
+const URL_UPLOAD_RATE_MAX = 5
+const URL_UPLOAD_RATE_WINDOW_MS = 60 * 60 * 1000
+const URL_UPLOAD_RATE_LOCK_MS = 15 * 60 * 1000
 
 interface UrlUploadBody {
   url?: unknown
@@ -62,6 +67,12 @@ function invalidPath(message: string): ApiError {
 
 clouddriveUploadUrlRoutes.post('/uploads/url', async (c) => {
   const userId = requireUserId(c)
+  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [{
+    key: `clouddrive-url-upload:${userId}`,
+    maxAttempts: URL_UPLOAD_RATE_MAX,
+    windowMs: URL_UPLOAD_RATE_WINDOW_MS,
+    lockMs: URL_UPLOAD_RATE_LOCK_MS,
+  }]), 'Too many URL uploads')
   await ensurePrimaryMount(c.env.DB, userId)
   const body = await readJson<UrlUploadBody>(c, JSON_MAX_BYTES)
   const mountId = body.mountId === undefined || body.mountId === ''

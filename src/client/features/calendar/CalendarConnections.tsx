@@ -1,10 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { Link2, Trash2 } from 'lucide-react'
 import type { CalendarConnectionDto } from '@shared/calendar/model'
 import { t, useLocaleRepaint } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { confirm, Modal } from '../../components/overlay'
-import { Input, Select, SettingRow, Switch } from '../../components/form'
+import { Field, Input, Select, SettingRow, Switch } from '../../components/form'
 import { useUi } from '../../store/ui'
 import * as api from './api'
 
@@ -16,17 +16,6 @@ interface CalendarConnectionsProps {
 }
 
 type Preset = api.CalDavConnectionInput['preset']
-
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1.5 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
-      <span className="font-medium">{label}</span>
-      {children}
-      {hint && <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{hint}</span>}
-    </label>
-  )
-}
 
 function statusLabel(status: CalendarConnectionDto['status']): string {
   if (status === 'connected') return t('calendar.connections.status_connected')
@@ -71,7 +60,7 @@ export function CalendarConnections({ open, onClose, connections, onChanged }: C
       setError(t('calendar.connections.credentials_required'))
       return
     }
-    if (preset === 'custom' && !serverUrl.trim()) {
+    if (preset !== 'icloud' && !serverUrl.trim()) {
       setError(t('calendar.connections.server_required'))
       return
     }
@@ -80,7 +69,7 @@ export function CalendarConnections({ open, onClose, connections, onChanged }: C
     try {
       await api.createCalDavConnection({
         preset,
-        ...(preset === 'custom' ? { serverUrl: serverUrl.trim() } : {}),
+        serverUrl: serverUrl.trim(),
         username: username.trim(),
         password,
         ...(label.trim() ? { label: label.trim() } : {}),
@@ -141,7 +130,7 @@ export function CalendarConnections({ open, onClose, connections, onChanged }: C
     >
       <div className="flex flex-col gap-5">
         <section className="flex flex-col gap-3">
-          <h3 className="text-[length:var(--text-11)] font-semibold uppercase tracking-[0.07em] text-[var(--text-quaternary)]">
+          <h3 className="text-[length:var(--text-11)] font-semibold uppercase tracking-[var(--tracking-section)] text-[var(--text-quaternary)]">
             {t('calendar.connections.existing')}
           </h3>
           {connections.length === 0
@@ -171,7 +160,7 @@ export function CalendarConnections({ open, onClose, connections, onChanged }: C
         </section>
 
         <section className="flex flex-col gap-3 border-t border-[var(--border-subtle)] pt-4">
-          <h3 className="text-[length:var(--text-11)] font-semibold uppercase tracking-[0.07em] text-[var(--text-quaternary)]">
+          <h3 className="text-[length:var(--text-11)] font-semibold uppercase tracking-[var(--tracking-section)] text-[var(--text-quaternary)]">
             {t('calendar.connections.add')}
           </h3>
           <div className="grid grid-cols-2 gap-3">
@@ -188,7 +177,7 @@ export function CalendarConnections({ open, onClose, connections, onChanged }: C
               />
             </Field>
           </div>
-          {preset === 'custom' && (
+          {preset !== 'icloud' && (
             <Field label={t('calendar.connections.server')} hint={t('calendar.connections.server_hint')}>
               <Input
                 type="url"

@@ -158,10 +158,9 @@ export function restoredName(name: string): string {
 }
 
 /**
- * The scopes an API key can carry. Only WebDAV consumes a key today, so the list names what works;
- * a bearer/REST surface brings its own scopes when it exists.
+ * Existing `webdav` keys stay read/write during migration. New keys should choose the narrower scopes.
  */
-export const CLOUDDRIVE_KEY_SCOPES = ['webdav'] as const
+export const CLOUDDRIVE_KEY_SCOPES = ['webdav', 'webdav:read', 'webdav:write'] as const
 export type CloudDriveKeyScope = (typeof CLOUDDRIVE_KEY_SCOPES)[number]
 
 export const CLOUDDRIVE_SORT_KEYS = ['name', 'size', 'uploaded', 'modified', 'type'] as const
@@ -170,6 +169,10 @@ export type CloudDriveSortDirection = 'asc' | 'desc'
 
 export const CLOUDDRIVE_VIEW_MODES = ['icon', 'list', 'gallery', 'column'] as const
 export type CloudDriveViewMode = (typeof CLOUDDRIVE_VIEW_MODES)[number]
+
+/** Optional list columns; name and the selection control are always present. */
+export const CLOUDDRIVE_LIST_COLUMNS = ['size', 'modified', 'type', 'tags', 'status'] as const
+export type CloudDriveListColumn = (typeof CLOUDDRIVE_LIST_COLUMNS)[number]
 
 /** What an upload does when the destination already holds that name. */
 export const CLOUDDRIVE_UPLOAD_CONFLICTS = ['rename', 'overwrite', 'skip'] as const
@@ -181,6 +184,7 @@ export interface CloudDrivePrefs {
   density: number
   gap: number
   showCheckboxes: boolean
+  listColumns: CloudDriveListColumn[]
   sortKey: CloudDriveSortKey
   sortDir: CloudDriveSortDirection
   foldersFirst: boolean
@@ -205,12 +209,16 @@ export function parseCloudDrivePrefs(value: unknown): CloudDrivePrefs {
     ? record.sortKey as CloudDriveSortKey
     : 'name'
   const sortDir = record.sortDir === 'desc' ? 'desc' : 'asc'
+  const listColumns = CLOUDDRIVE_LIST_COLUMNS.filter((column) => (
+    Array.isArray(record.listColumns) && record.listColumns.includes(column)
+  ))
   return {
     viewMode,
     iconSize: clampNumber(record.iconSize, 32, 128, 72),
     density: clampNumber(record.density, 0, 100, 50),
     gap: clampNumber(record.gap, 0, 24, 8),
     showCheckboxes: record.showCheckboxes !== false,
+    listColumns: Array.isArray(record.listColumns) ? listColumns : [...CLOUDDRIVE_LIST_COLUMNS],
     sortKey,
     sortDir,
     foldersFirst: record.foldersFirst !== false,

@@ -27,6 +27,7 @@ import type {
   ScheduleLogEntry,
   SubscriptionBundle,
   SubscriptionDetail,
+  SubscriptionExpiryPage,
   SubscriptionInput,
   SubscriptionItem,
   SubscriptionSettings,
@@ -153,10 +154,10 @@ import type {
   SavedMessage,
 } from '@shared/assistant'
 import type {
-  SnoozeMinutes,
   TaskBatchRequestOp,
   TaskBatchResult,
   TaskCounts,
+  TaskEvent,
   TaskList,
   TaskPage,
   TaskStatsBucket,
@@ -871,6 +872,35 @@ function logQueryParams(query: LogQuery): URLSearchParams {
 export interface EmailScheduledSendPage {
   items: EmailScheduledSend[]
   nextCursor: string | null
+}
+/** How many rows one import request writes; the route's own default, named here so the loop is explicit. */
+const TODO_CSV_IMPORT_SLICE = 50
+
+/** One slice of a CSV import, as the route answers it. */
+export interface TodoCsvImportSlice {
+  created: number
+  updated: number
+  skipped: number
+  invalid: number
+  missingLists: number
+  total: number
+  errors: { line: number, reason: string }[]
+  /** Where the next slice starts, or null when this one finished the file. */
+  nextOffset: number | null
+}
+
+/** What a whole CSV import cost, added up over its slices. */
+export type TodoCsvImportResult = Omit<TodoCsvImportSlice, 'nextOffset'>
+
+export interface TodoJsonImportResult {
+  total: number
+  created: number
+  skipped: number
+  failed: number
+  partial: boolean
+  imported: Array<{ row: number, sourceId: string, taskId: string }>
+  errors: Array<{ row: number, sourceId: string | null, reason: string, taskId?: string }>
+  warnings: Array<{ row: number, sourceId: string, reason: string }>
 }
 
 export const api = {
@@ -1794,8 +1824,8 @@ export const api = {
       q?: string, dueFrom?: string, dueTo?: string, completedFrom?: string, completedTo?: string,
       archived?: string, scope?: string,
       sort?: string, limit?: number, offset?: number
-    } = {}) =>
-      request<TaskPage>(`/api/todos${toQuery(params)}`),
+    } = {}, signal?: AbortSignal) =>
+      request<TaskPage>(`/api/todos${toQuery(params)}`, { signal }),
     /**
      * The sidebar's numbers, without a task row attached.
      *
@@ -1815,6 +1845,31 @@ export const api = {
     exportJson: () => request<TodoExportDocument>('/api/todos/export?format=json'),
     exportCsv: () => request<string>('/api/todos/export?format=csv'),
     get: (id: string) => request<{ task: TodoTask, steps: TaskStep[] }>(`/api/todos/${id}`),
+    /** Upload one file through the task route, which owns storage validation and the link row. */
+    uploadAttachment: (id: string, file: File) => {
+      const formData = new FormData()
+      formData.set('file', file)
+      return request<{ attachment: Attachment }>(`/api/todos/${encodeURIComponent(id)}/attachments`, {
+        method: 'POST',
+        formData,
+      })
+    },
+    /** The files linked to one live task, in the route's own order. */
+    attachments: (id: string, signal?: AbortSignal) =>
+      request<{ attachments: Attachment[] }>(`/api/todos/${encodeURIComponent(id)}/attachments`, { signal }),
+    /** Remove one task link without deleting the shared stored file. */
+    removeAttachment: (id: string, attachmentId: string) =>
+      request<{ deleted: true }>(
+        `/api/todos/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`,
+        { method: 'DELETE' },
+      ),
+    /**
+     * One task's history — its birth and every move between statuses, newest first.
+     *
+     * Read when the panel's history section is opened rather than with the task, so a panel that is
+     * opened to change a title does not pay for a table nobody asked to see.
+     */
+    events: (id: string) => request<{ events: TaskEvent[] }>(`/api/todos/${id}/events`),
     /**
      * A new task.
      *
@@ -1833,11 +1888,12 @@ export const api = {
      * `rev` is the revision the row was read at. Naming it makes the write conditional: a stale one is
      * refused with a 409 instead of replacing an edit this client never saw.
      */
-    update: (id: string, body: Record<string, unknown>, rev?: number) =>
+    update: (id: string, body: Record<string, unknown>, rev?: number, idempotencyKey?: string) =>
       request<{ task: TodoTask, next?: TodoTask }>(`/api/todos/${id}`, {
         method: 'PATCH',
         body: withReminderList(body),
         ...(rev === undefined ? {} : { ifMatch: String(rev) }),
+        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
       }),
     /**
      * Picks a task into a day, or takes it back out with `null`.
@@ -1867,7 +1923,7 @@ export const api = {
      * The earlier reminders stay — a snooze is a second chance, not a cancellation. `rev` is the same
      * conditional guard a pick carries, so a snooze replayed from a row that moved since is refused.
      */
-    snooze: (id: string, minutes: SnoozeMinutes, rev?: number) =>
+    snooze: (id: string, minutes: number, rev?: number) =>
       request<{ task: TodoTask, reminders: number[] }>(`/api/todos/${id}/snooze`, {
         method: 'POST',
         body: { minutes },
@@ -1892,6 +1948,9 @@ export const api = {
      */
     stopTimer: (id: string, body: { endAt?: number } = {}) =>
       request<{ entries: TodoTimeEntry[] }>(`/api/todos/${id}/timer/stop`, { method: 'POST', body }),
+    /** Every ledger row for one task, including the open timer row when there is one. */
+    time: (id: string, signal?: AbortSignal) =>
+      request<{ entries: TodoTimeEntry[] }>(`/api/todos/${encodeURIComponent(id)}/time`, { signal }),
     /**
      * Back-fill one span by hand: the answer to "I worked on this and never started the timer".
      *
@@ -1901,6 +1960,9 @@ export const api = {
      */
     addTime: (id: string, body: { startAt: number, endAt: number }) =>
       request<{ entries: TodoTimeEntry[] }>(`/api/todos/${id}/time`, { method: 'POST', body }),
+    /** Remove one ledger row; the route scopes the entry to the signed-in account. */
+    removeTime: (entryId: string) =>
+      request<{ deleted: true }>(`/api/todos/time/${encodeURIComponent(entryId)}`, { method: 'DELETE' }),
     remove: (id: string) => request<{ deleted: true }>(`/api/todos/${id}`, { method: 'DELETE' }),
 
     /**
@@ -2016,20 +2078,70 @@ export const api = {
      * Import tasks from a CSV the reader picked.
      *
      * The file is the document; `conflict` is the one rule it cannot answer for itself — keep what is here,
-     * let the file win, or file a second copy. Rows the parser refused come back in `errors` while the rest
-     * still land, so the screen can honestly print both numbers.
+     * let the file win, or file a second copy. A row costs several D1 statements, so one request writes
+     * only a slice of the file: this walks the slices until the route says the file is done, adding the
+     * counters up and reporting how far it has read. Rows the parser refused come back in `errors` while
+     * the rest still land, so the screen can honestly print both numbers.
+     *
+     * A failed slice stops the walk. Its message names the offset to resume from, because starting the
+     * file again would re-read what already landed.
      */
-    importCsv: (file: File, conflict: 'skip' | 'newer' | 'duplicate' = 'skip') => {
-      const form = new FormData()
-      form.append('file', file)
-      form.append('conflict', conflict)
-      return request<{
-        created: number
-        updated: number
-        skipped: number
-        missingLists: number
-        errors: { line: number, reason: string }[]
-      }>('/api/todos/import', { method: 'POST', formData: form })
+    importCsv: async (
+      file: File,
+      conflict: 'skip' | 'newer' | 'duplicate' = 'skip',
+      onProgress?: (processed: number, total: number) => void,
+    ): Promise<TodoCsvImportResult> => {
+      const totals: TodoCsvImportResult = {
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        invalid: 0,
+        missingLists: 0,
+        total: 0,
+        errors: [],
+      }
+      let offset = 0
+      for (;;) {
+        const form = new FormData()
+        form.append('file', file)
+        form.append('conflict', conflict)
+        form.append('offset', String(offset))
+        form.append('limit', String(TODO_CSV_IMPORT_SLICE))
+        let slice: TodoCsvImportSlice
+        try {
+          slice = await request<TodoCsvImportSlice>('/api/todos/import', { method: 'POST', formData: form })
+        } catch (cause) {
+          const reason = cause instanceof Error ? cause.message : String(cause)
+          throw new Error(`${reason} (stopped at offset ${offset}; resume from there)`)
+        }
+        totals.created += slice.created
+        totals.updated += slice.updated
+        totals.skipped += slice.skipped
+        // The route answers these two for the file rather than for the slice, so they are assigned.
+        totals.invalid = slice.invalid
+        totals.total = slice.total
+        totals.missingLists += slice.missingLists
+        totals.errors.push(...slice.errors)
+        if (slice.nextOffset === null) {
+          onProgress?.(slice.total, slice.total)
+          return totals
+        }
+        onProgress?.(slice.nextOffset, slice.total)
+        offset = slice.nextOffset
+      }
+    },
+
+    importJson: async (
+      file: File,
+      conflict: 'skip' | 'duplicate',
+      idempotencyKey: string,
+    ): Promise<TodoJsonImportResult> => {
+      const document = JSON.parse(await file.text()) as unknown
+      return await request<TodoJsonImportResult>(`/api/todos/import-json?conflict=${conflict}`, {
+        method: 'POST',
+        body: document,
+        idempotencyKey,
+      })
     },
 
     /**
@@ -2039,6 +2151,18 @@ export const api = {
      * its slug. The passcode is an optional plaintext on the way in only; the answer carries the
      * `hasPassword` marker, and a protected feed's subscriber appends `?key=` to the copied address.
      */
+    /**
+     * The address this account may post mail to, and the three verbs that own it.
+     *
+     * One address per account, so `create` both issues the first one and rotates an existing one: the
+     * old token stops resolving the moment the new row lands. The address is read back rather than
+     * hashed because the owner's settings screen has to show it again — the token is the capability.
+     */
+    mailToken: {
+      get: () => request<{ address: string | null, createdAt: number | null }>('/api/todos/mail-token'),
+      create: () => request<{ address: string, createdAt: number }>('/api/todos/mail-token', { method: 'POST' }),
+      remove: () => request<{ revoked: true }>('/api/todos/mail-token', { method: 'DELETE' }),
+    },
     feed: {
       list: () => request<{ feeds: TodoFeedInfo[] }>('/api/todos/feed'),
       create: (body: { password?: string | null, expiresIn?: number | null } = {}) =>
@@ -2658,6 +2782,8 @@ export const api = {
    */
   subscriptions: {
     bundle: () => request<SubscriptionBundle>('/api/subscriptions'),
+    expiring: (day: string, limit = 500, cursor?: string, signal?: AbortSignal) =>
+      request<SubscriptionExpiryPage>(`/api/subscriptions/expiring${toQuery({ day, limit, cursor })}`, { signal }),
     /**
      * Drop the cached day of exchange rates and read a fresh one.
      *

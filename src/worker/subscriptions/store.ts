@@ -13,7 +13,7 @@
  *  - a payment record and the expiry date it bought are written together, because a receipt without
  *    its period (or a period without its receipt) is what makes a history untrustworthy.
  */
-import type { LabelEntry, LabelKind, SubscriptionDetail, SubscriptionItem, SubscriptionInput, SubscriptionSettings, PaymentRecord, ReminderRule, ReminderRuleInput, RenewOptions } from '@shared/subscriptions/model'
+import type { LabelEntry, LabelKind, SubscriptionDetail, SubscriptionExpiry, SubscriptionExpiryPage, SubscriptionItem, SubscriptionInput, SubscriptionSettings, PaymentRecord, ReminderRule, ReminderRuleInput, RenewOptions } from '@shared/subscriptions/model'
 import {
   BULK_LIMIT,
   defaultPresetRules,
@@ -32,6 +32,7 @@ import { spendingByYear, type SpendingInput } from '@shared/subscriptions/curren
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
 import { addCalendarPeriodInTimezone, getTimezoneDateParts, getTimezoneMidnightTimestamp, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
 import { getNextFireTime, soonestFire } from '@shared/subscriptions/reminder-engine'
+import { calendarDayBounds } from '@shared/calendar/day-bounds'
 import { newId } from '../lib/id'
 
 /** Statements per `batch` call when emptying the trash: four per row, kept well under D1's ceiling. */
@@ -150,6 +151,33 @@ interface PaidTotals {
   byCurrency: PaidAmount[]
 }
 
+export const SUBSCRIPTION_EXPIRY_LIMIT = 500
+const DEFAULT_EXPIRY_LIMIT = 100
+
+interface ExpiryCursor {
+  expiryDate: number
+  id: string
+}
+
+function expiryCursor(cursor: string | undefined): ExpiryCursor | null {
+  if (!cursor) return null
+  try {
+    if (!/^[A-Za-z0-9_-]+$/.test(cursor)) throw new Error('shape')
+    const decoded = atob(cursor.replaceAll('-', '+').replaceAll('_', '/'))
+    const value = JSON.parse(decoded) as { version?: unknown; expiryDate?: unknown; id?: unknown }
+    if (value.version !== 1 || typeof value.expiryDate !== 'number' || !Number.isSafeInteger(value.expiryDate) || value.expiryDate < 0
+      || typeof value.id !== 'string' || !value.id || value.id.length > 200) throw new Error('shape')
+    return { expiryDate: value.expiryDate, id: value.id }
+  } catch {
+    throw new Error('invalid_cursor')
+  }
+}
+
+function encodeExpiryCursor(row: ItemRow): string {
+  const value = JSON.stringify({ version: 1, expiryDate: row.expiry_date, id: row.id })
+  return btoa(value).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
+}
+
 export class SubscriptionsStore {
   constructor(
     private readonly db: D1Database,
@@ -201,6 +229,45 @@ export class SubscriptionsStore {
       paid.get(row.id),
       bySubscription.get(row.id) ?? [],
     ))
+  }
+
+  async listExpiring(
+    context: StoreContext,
+    day: string,
+    limit = DEFAULT_EXPIRY_LIMIT,
+    cursor?: string,
+  ): Promise<SubscriptionExpiryPage> {
+    if (!Number.isInteger(limit) || limit < 1) throw new Error('invalid_limit')
+    const size = Math.min(limit, SUBSCRIPTION_EXPIRY_LIMIT)
+    let bounds: { start: number; end: number }
+    try {
+      bounds = calendarDayBounds(day, context.timezone)
+    } catch {
+      throw new Error('invalid_day')
+    }
+    const after = expiryCursor(cursor)
+    const keyset = after ? 'AND (expiry_date > ?5 OR (expiry_date = ?5 AND id > ?6))' : ''
+    const values = after
+      ? [this.userId, bounds.start, bounds.end, size + 1, after.expiryDate, after.id]
+      : [this.userId, bounds.start, bounds.end, size + 1]
+    const { results } = await this.db.prepare(
+      `SELECT ${ITEM_COLUMNS} FROM sub_item
+        WHERE user_id = ?1 AND deleted_at IS NULL AND expiry_date >= ?2 AND expiry_date < ?3
+        ${keyset}
+        ORDER BY expiry_date, id LIMIT ?4`,
+    ).bind(...values).all<ItemRow>()
+    const page = results.slice(0, size)
+    return {
+      items: page.map((row) => ({
+        id: row.id,
+        name: row.name,
+        amount: row.amount === null ? null : roundMoney(row.amount),
+        currency: row.currency as SubscriptionExpiry['currency'],
+        expiryDate: toIso(row.expiry_date)!,
+        isActive: row.is_active === 1,
+      })),
+      nextCursor: results.length > size && page.length > 0 ? encodeExpiryCursor(page[page.length - 1]!) : null,
+    }
   }
 
   async get(id: string, context: StoreContext): Promise<SubscriptionDetail | null> {

@@ -90,7 +90,7 @@ function mount(node: Parameters<typeof renderElement>[0]): HTMLElement {
  * Both the reading column and the board's grid mark that container, and a case mounts one of them.
  */
 function listColumn(container: HTMLElement): HTMLElement {
-  const column = container.querySelector<HTMLElement>('[role="list"]')
+  const column = container.querySelector<HTMLElement>('[role="group"][aria-label]')
   if (!column) throw new Error('the page drew no list')
   return column
 }

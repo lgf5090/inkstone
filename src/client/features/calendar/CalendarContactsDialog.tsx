@@ -170,7 +170,7 @@ export function CalendarContactsDialog({ open, onClose, onChanged }: CalendarCon
         </div>
         {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
         <div>
-          <p className="text-[length:var(--text-11)] font-semibold uppercase tracking-[0.07em] text-[var(--text-quaternary)]">
+          <p className="text-[length:var(--text-11)] font-semibold uppercase tracking-[var(--tracking-section)] text-[var(--text-quaternary)]">
             {t('calendar.contacts.list')}
           </p>
           {loading && <p role="status" className="py-3 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>}

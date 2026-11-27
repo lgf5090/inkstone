@@ -48,6 +48,13 @@ describe('quick add parser', () => {
     expect(fridayEvening?.start.toString()).toBe('2026-10-30T19:00:00+08:00[Asia/Shanghai]')
   })
 
+  it('rejects impossible dates and clock values instead of clamping them', () => {
+    expect(parse('2026-02-30 09:00 会议')).toBeNull()
+    expect(parse('2月30日 09:00 会议')).toBeNull()
+    expect(parse('明天 25:00 会议')).toBeNull()
+    expect(parse('明天 10:70 会议')).toBeNull()
+  })
+
   it('keeps the period on a colon clock and honours half past', () => {
     expect(parse('下午3:30 评审')?.start.toString()).toBe('2026-10-26T15:30:00+08:00[Asia/Shanghai]')
     expect(parse('上午10点半 站会')?.start.toString()).toBe('2026-10-26T10:30:00+08:00[Asia/Shanghai]')

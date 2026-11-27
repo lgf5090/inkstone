@@ -54,7 +54,7 @@ import {
   saveChannel,
   saveSettings,
 } from '../subscriptions/settings'
-import { SubscriptionsStore, storeContext, type StoreContext } from '../subscriptions/store'
+import { SubscriptionsStore, storeContext, SUBSCRIPTION_EXPIRY_LIMIT, type StoreContext } from '../subscriptions/store'
 
 const BODY_LIMIT = 32 * 1024
 /** Rows one import may carry. Above this a reader is syncing, not migrating, and needs a real tool. */
@@ -82,6 +82,9 @@ function fail(error: unknown): never {
   if (message.startsWith('invalid_url:')) throw ApiError.badRequest(`The ${message.slice(12)} field is not a valid address`)
   if (message.startsWith('invalid_json:')) throw ApiError.badRequest(`The ${message.slice(13)} field is not valid JSON`)
   if (message === 'invalid_expiry') throw ApiError.badRequest('An expiry date is required')
+  if (message === 'invalid_day') throw ApiError.badRequest('Use a calendar day like 2026-11-04')
+  if (message === 'invalid_limit') throw ApiError.badRequest(`Limit must be a whole number from 1 to ${SUBSCRIPTION_EXPIRY_LIMIT}`)
+  if (message === 'invalid_cursor') throw ApiError.badRequest('That expiry cursor is not valid')
   if (message === 'lunar_out_of_range') throw ApiError.badRequest('That lunar date is outside 1900-2100')
   if (message === 'invalid_timezone') throw ApiError.badRequest('That time zone is not recognised')
   if (message === 'invalid_base_currency') throw ApiError.badRequest('That currency is not supported')
@@ -172,6 +175,23 @@ subscriptionRoutes.get('/', async (c) => {
     store.trashCount(),
   ])
   return c.json({ items, types, categories, settings, channels, overview, trashCount })
+})
+
+subscriptionRoutes.get('/expiring', async (c) => {
+  const day = c.req.query('day') ?? ''
+  const rawLimit = c.req.query('limit') ?? '100'
+  const limit = Number(rawLimit)
+  const cursor = c.req.query('cursor')
+  if (!/^\d+$/.test(rawLimit) || !Number.isInteger(limit) || limit < 1 || limit > SUBSCRIPTION_EXPIRY_LIMIT) {
+    throw ApiError.badRequest(`Limit must be a whole number from 1 to ${SUBSCRIPTION_EXPIRY_LIMIT}`)
+  }
+  if (cursor !== undefined && (!cursor || cursor.length > 512)) throw ApiError.badRequest('That expiry cursor is not valid')
+  const { store, context } = await contextOf(c)
+  try {
+    return c.json(await store.listExpiring(context, day, limit, cursor))
+  } catch (error) {
+    fail(error)
+  }
 })
 
 subscriptionRoutes.get('/trash', async (c) => {

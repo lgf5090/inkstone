@@ -22,17 +22,19 @@ export function CalendarResourcesDialog({
   const [name, setName] = useState('')
   const [capacityText, setCapacityText] = useState('')
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
     setSaving(false)
+    setLoading(true)
     setError(null)
     void api.getResources().then(
       (rows) => { if (!cancelled) setResources(rows) },
       (cause: unknown) => { if (!cancelled) setError(cause instanceof Error && cause.message ? cause.message : t('calendar.resources.failed')) },
-    )
+    ).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [open])
 
@@ -119,11 +121,12 @@ export function CalendarResourcesDialog({
         </form>
         {error && (
           <p role="alert" className="flex items-start gap-1.5 text-[length:var(--text-12)] leading-relaxed text-[var(--danger)]">
-            <AlertTriangle size={13} className="mt-[2px] shrink-0" aria-hidden="true" />
+            <AlertTriangle size={13} className="mt-[var(--sp-0-5)] shrink-0" aria-hidden="true" />
             <span>{error}</span>
           </p>
         )}
-        {resources.length === 0
+        {loading && <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>}
+        {!loading && !error && (resources.length === 0
           ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('calendar.resources.empty')}</p>
           : (
               <ul className="max-h-64 space-y-1 overflow-y-auto">
@@ -146,7 +149,7 @@ export function CalendarResourcesDialog({
                   </li>
                 ))}
               </ul>
-            )}
+            ))}
       </div>
     </Modal>
   )

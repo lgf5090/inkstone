@@ -101,7 +101,8 @@ export function taskStartKey(task: TodoTask, timezone: string): string | null {
 
 /** The day a task ends on: its due date. A task with no due date has no place on a calendar. */
 export function taskEndKey(task: TodoTask, timezone: string): string | null {
-  return task.dueAt === null ? null : localDate(task.dueAt, timezone)
+  if (task.dueAt === null) return null
+  return task.dueAllDay && task.dueOn ? task.dueOn : localDate(task.dueAt, timezone)
 }
 
 /** Whether a task covers more than one day, which is what makes it a bar instead of a chip. */

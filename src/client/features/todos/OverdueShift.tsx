@@ -30,19 +30,26 @@ export function OverdueShift({ className }: { className: string }) {
   const shift = async (): Promise<void> => {
     setBusy(true)
     try {
-      const page = await api.todos.list({ view: 'overdue', limit: MAX_TASKS_PER_QUERY })
-      const ids = page.tasks.filter((task) => isTaskOpen(task.status)).map((task) => task.id)
       let done = 0
       let failed = 0
-      for (let start = 0; start < ids.length; start += MAX_BATCH_TASKS) {
-        const result = await api.todos.batch({ ids: ids.slice(start, start + MAX_BATCH_TASKS), op: 'due' })
-        done += result.done.length
-        failed += result.failed.length
+      let offset = 0
+      let total = overdue
+      while (offset < total) {
+        const page = await api.todos.list({ view: 'overdue', limit: MAX_TASKS_PER_QUERY, offset })
+        const ids = page.tasks.filter((task) => isTaskOpen(task.status)).map((task) => task.id)
+        for (let start = 0; start < ids.length; start += MAX_BATCH_TASKS) {
+          const result = await api.todos.batch({ ids: ids.slice(start, start + MAX_BATCH_TASKS), op: 'due' })
+          done += result.done.length
+          failed += result.failed.length
+        }
+        offset += page.tasks.length
+        total = page.total
+        if (!page.tasks.length) break
       }
       // The rows moved, so the page and the count are read again rather than patched by hand — the
       // same rule every other write in this feature follows.
       await useTodos.getState().load()
-      if (!ids.length) return
+      if (!done && !failed) return
       useUi.getState().toast(failed
         ? { title: t('todo.toast.batch_partial', { failed, total: done + failed }), tone: 'danger' }
         : { title: t('todo.toast.batch_due', { count: done }), tone: 'success' })
@@ -64,6 +71,7 @@ export function OverdueShift({ className }: { className: string }) {
         size="sm"
         block
         data-todo-overdue-shift=""
+        aria-busy={busy}
         disabled={busy}
         onClick={() => { void shift() }}
         className="justify-start text-[var(--text-secondary)]"

@@ -47,6 +47,12 @@ describe('countdownOccurrence', () => {
     expect(occurrence.ordinal).toBe(4)
   })
 
+  it('uses the first future date instead of an earlier anniversary', () => {
+    const occurrence = countdownOccurrence(item({ date: '2027-06-01', repeat: 'yearly' }), today)
+    expect(occurrence.date.toString()).toBe('2027-06-01')
+    expect(occurrence.ordinal).toBe(1)
+  })
+
   it('keeps a 29 February birthday on the 28th in an ordinary year', () => {
     const occurrence = countdownOccurrence(
       item({ date: '2024-02-29', repeat: 'yearly' }),

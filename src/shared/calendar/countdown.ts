@@ -13,7 +13,7 @@
  */
 
 import { Temporal } from 'temporal-polyfill'
-import { leapMonth, lunar2solar, solar2lunar } from '../subscriptions/lunar'
+import { leapMonth, lunar2solar, solar2lunar } from './lunar'
 
 export const COUNTDOWN_REPEATS = ['none', 'yearly', 'lunar'] as const
 export type CountdownRepeat = (typeof COUNTDOWN_REPEATS)[number]
@@ -84,13 +84,7 @@ function dayOf(value: string): Temporal.PlainDate {
 }
 
 function withYear(date: Temporal.PlainDate, year: number): Temporal.PlainDate {
-  try {
-    return date.with({ year })
-  } catch {
-    // Only 29 February can land here: the year has no such day, and a birthday that falls on a
-    // missing date is kept on the 28th rather than skipped altogether.
-    return date.with({ year, day: 28 })
-  }
+  return date.with({ year }, { overflow: 'constrain' })
 }
 
 /** The solar day a lunar month/day names in one lunar year, clamping down when the day is missing. */
@@ -134,13 +128,15 @@ export function countdownOccurrence(
   if (item.repeat === 'none') {
     return { date: first, days: first.since(today).days, ordinal: 1, clamped: false }
   }
+  if (first.since(today).days > 0) {
+    return { date: first, days: first.since(today).days, ordinal: 1, clamped: false }
+  }
 
   if (item.repeat === 'lunar' && item.lunarMonth && item.lunarDay) {
     const month = item.lunarMonth
     const day = item.lunarDay
     const isLeap = item.lunarLeap
     let year = lunarYearOf(today)
-    let ordinal = Math.max(1, year - lunarYearOf(first) + 1)
     for (let guard = 0; guard < 3; guard++) {
       const found = lunarDayInYear(year, month, day, isLeap)
       if (found) {
@@ -150,7 +146,6 @@ export function countdownOccurrence(
         }
       }
       year += 1
-      ordinal += 1
     }
     // A lunar day that resolves nowhere in three years is a table problem, not a reader problem;
     // falling back to the first date keeps the card readable instead of throwing in a render pass.

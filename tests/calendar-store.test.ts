@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
-import { CalendarStore, type CalendarEventWriteInput } from '../src/worker/calendar/store'
+import { CalendarStore, type CalendarEventWriteInput, type RecurrenceChangeWrite } from '../src/worker/calendar/store'
 import { parseEventInput, parsePreferences } from '../src/worker/calendar/validation'
-import type { CalendarDto } from '../src/shared/calendar/model'
+import { MAX_EVENTS_PER_QUERY, isCalendarEntityId, parseSharedCalendarId, type CalendarDto } from '../src/shared/calendar/model'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const ALICE = 'user-alice'
@@ -67,6 +67,11 @@ describe('the default calendar', () => {
     expect(calendars.find((entry) => entry.id === work.id)?.isDefault).toBe(true)
   })
 
+  it('allows internal cleanup to remove the only newly created calendar', async () => {
+    await store.deleteCalendar(calendar.id, { mode: 'delete', allowLast: true })
+    expect(await store.listCalendars()).toEqual([])
+  })
+
   it('is reassigned when the default calendar is deleted', async () => {
     const work = await store.createCalendar({ name: 'Work', isDefault: true })
     await store.deleteCalendar(work.id, { mode: 'delete' })
@@ -74,6 +79,28 @@ describe('the default calendar', () => {
     expect(calendars).toHaveLength(1)
     expect(calendars[0]?.id).toBe(calendar.id)
     expect(calendars[0]?.isDefault).toBe(true)
+  })
+})
+
+describe('stored event metadata', () => {
+  it('keeps a readable event and reports malformed completion and conference JSON', async () => {
+    const created = await store.createEvent(eventInput({
+      kind: 'task',
+      task: { completed: true, completedAt: { value: '2026-10-26T10:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' } },
+      conference: { joinUrl: 'https://meet.example.com/join' },
+    }))
+    sqlite.prepare('UPDATE calendar_events SET task_completed_at_value = ?, conference_json = ? WHERE user_id = ? AND id = ?')
+      .run('{broken', '{broken', ALICE, created.id)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const event = await store.getEvent(created.id)
+      expect(event?.title).toBe('Meeting')
+      expect(event?.task?.completedAt ?? null).toBeNull()
+      expect(event?.conference ?? null).toBeNull()
+      expect(warn).toHaveBeenCalledTimes(2)
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 
@@ -104,6 +131,47 @@ describe('calendar CRUD', () => {
       .rejects.toMatchObject({ status: 409 })
     await store.deleteCalendar(work.id, { mode: 'delete', rev: work.rev })
     expect(await store.listCalendars()).toHaveLength(1)
+  })
+
+  it('leaves events and the default flag untouched when the revision changes before deletion', async () => {
+    const work = await store.createCalendar({ name: 'Work', isDefault: true })
+    const event = await store.createEvent(eventInput({ calendarId: work.id }))
+    const batch = db.batch.bind(db)
+    const mutableDb = db as unknown as { batch: typeof db.batch }
+    let changed = false
+    mutableDb.batch = async (statements) => {
+      if (!changed) {
+        changed = true
+        sqlite.prepare('UPDATE calendar_calendars SET rev = rev + 1 WHERE user_id = ? AND id = ?')
+          .run(ALICE, work.id)
+      }
+      return batch(statements)
+    }
+
+    await expect(store.deleteCalendar(work.id, { mode: 'delete', rev: work.rev }))
+      .rejects.toMatchObject({ status: 409 })
+    expect(await store.getEvent(event.id)).not.toBeNull()
+    expect(count('SELECT COUNT(*) AS count FROM calendar_event_calendars WHERE user_id = ? AND event_id = ?', ALICE, event.id)).toBe(1)
+    expect((await store.listCalendars()).find(entry => entry.id === work.id)?.isDefault).toBe(true)
+  })
+
+  it('removes members, resources, booking links and provider mappings with the calendar', async () => {
+    const work = await store.createCalendar({ name: 'Work' })
+    sqlite.prepare('INSERT INTO calendar_members (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(ALICE, work.id, BOB, 'writer', 'accepted', 1, 1)
+    sqlite.prepare('INSERT INTO calendar_resources (user_id, id, calendar_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(ALICE, 'resource-1', work.id, 'Room', 1, 1)
+    sqlite.prepare(`INSERT INTO calendar_scheduling_links
+      (user_id,id,calendar_id,slug,title,duration_minutes,days_json,start_hour,end_hour,enabled,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(ALICE, 'link-1', work.id, 'calendarfix1', 'Meeting', 30, '[1]', 9, 17, 1, 1, 1)
+    sqlite.prepare(`INSERT INTO calendar_provider_calendars
+      (user_id,connection_id,remote_calendar_id,local_calendar_id,created_at,updated_at)
+      VALUES (?,?,?,?,?,?)`).run(ALICE, 'connection-1', 'remote-1', work.id, 1, 1)
+    await store.deleteCalendar(work.id, { mode: 'delete', rev: work.rev })
+    expect(count('SELECT COUNT(*) AS count FROM calendar_members WHERE owner_user_id = ? AND calendar_id = ?', ALICE, work.id)).toBe(0)
+    expect(count('SELECT COUNT(*) AS count FROM calendar_resources WHERE user_id = ? AND calendar_id = ?', ALICE, work.id)).toBe(0)
+    expect(count('SELECT COUNT(*) AS count FROM calendar_scheduling_links WHERE user_id = ? AND calendar_id = ?', ALICE, work.id)).toBe(0)
+    expect(count('SELECT COUNT(*) AS count FROM calendar_provider_calendars WHERE user_id = ? AND local_calendar_id = ?', ALICE, work.id)).toBe(0)
   })
 
   it('reorders every calendar exactly once', async () => {
@@ -254,6 +322,9 @@ describe('event round trips', () => {
     expect(remote.externalId).toBe('event-1@example.com')
 
     expect(() => eventInput({ id: 'master::repeat-1' })).toThrow()
+    expect(isCalendarEntityId('shared:owner:calendar')).toBe(false)
+    expect(isCalendarEntityId(remote.id)).toBe(true)
+    expect(parseSharedCalendarId(`shared:owner:${remote.id}`)).toEqual({ ownerId: 'owner', calendarId: remote.id })
   })
 })
 
@@ -285,6 +356,70 @@ describe('event ranges and revisions', () => {
     expect(events.map((event) => event.id)).toEqual([both.id])
     expect(events[0]?.calendarId).toBe(calendar.id)
     expect(first.id).not.toBe(both.id)
+  })
+
+  it('filters shared range rows and revisions by the requested synthetic calendar', async () => {
+    const second = await store.createCalendar({ id: 'cal-second', name: 'Shared second' })
+    const firstEvent = await store.createEvent(eventInput({ title: 'First only' }))
+    await store.createEvent(eventInput({ title: 'Second only', calendarId: second.id }))
+    sqlite.prepare(`INSERT INTO calendar_members
+      (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(ALICE, calendar.id, BOB, 'reader', 'accepted', 1, 1)
+    sqlite.prepare(`INSERT INTO calendar_members
+      (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(ALICE, second.id, BOB, 'reader', 'accepted', 1, 1)
+
+    const bob = new CalendarStore(db, BOB)
+    const sharedFirst = `shared:${ALICE}:${calendar.id}`
+    const page = await bob.listEvents(day('2026-10-01'), day('2026-11-01'), [sharedFirst])
+    expect(page.events.map(event => event.id)).toEqual([`shared:${ALICE}:${firstEvent.id}`])
+    expect(page.events[0]?.calendarId).toBe(sharedFirst)
+    const revision = await bob.eventsRevision(day('2026-10-01'), day('2026-11-01'), [sharedFirst])
+    expect(revision).toMatchObject({ count: 1, revSum: firstEvent.rev })
+    expect((await bob.listEvents(day('2026-10-01'), day('2026-11-01'), ['shared:other:calendar'])).events)
+      .toEqual([])
+  })
+
+  it('keeps ordinary range events ahead of a full page of recurrence masters', async () => {
+    const masters = Array.from({ length: MAX_EVENTS_PER_QUERY + 1 }, (_, index) => eventInput({
+      id: `old-master-${index}`,
+      title: `Old master ${index}`,
+      start: { value: '2020-01-06T09:00:00', type: 'datetime' },
+      end: { value: '2020-01-06T10:00:00', type: 'datetime' },
+      recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO',
+    }))
+    for (let index = 0; index < masters.length; index += 200) {
+      await store.createEvents(masters.slice(index, index + 200), 'create')
+    }
+    const ordinary = await store.createEvent(eventInput({ title: 'Inside ordinary window' }))
+    const page = await store.listEvents(day('2026-10-01'), day('2026-11-01'))
+    expect(page.truncated).toBe(true)
+    expect(page.events[0]?.id).toBe(ordinary.id)
+    expect(page.events.some(event => event.id === ordinary.id)).toBe(true)
+    expect(await store.eventsRevision(day('2026-10-01'), day('2026-11-01')))
+      .toMatchObject({ count: MAX_EVENTS_PER_QUERY + 2, revSum: MAX_EVENTS_PER_QUERY + 2 })
+  })
+
+  it('keeps the split revision query inside the D1 bind ceiling', async () => {
+    const strict = new CalendarStore(makeD1(sqlite, { maxBoundParameters: 100 }), ALICE)
+    const ids = Array.from({ length: 90 }, (_, index) => `calendar-${index}`)
+    expect(await strict.eventsRevision(day('2026-10-01'), day('2026-11-01'), ids))
+      .toEqual({ count: 0, revSum: 0, maxUpdatedAt: 0 })
+  })
+
+  it('keeps shared range and search queries inside the D1 bind ceiling', async () => {
+    sqlite.prepare(`INSERT INTO calendar_members
+      (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'reader', 'accepted', 1, 1)`)
+      .run(ALICE, calendar.id, BOB)
+    const strict = new CalendarStore(makeD1(sqlite, { maxBoundParameters: 100 }), BOB)
+    const ids = Array.from({ length: 90 }, (_, index) => `shared:${ALICE}:calendar-${index}`)
+    expect((await strict.listEvents(day('2026-10-01'), day('2026-11-01'), ids)).events).toEqual([])
+    expect(await strict.eventsRevision(day('2026-10-01'), day('2026-11-01'), ids))
+      .toEqual({ count: 0, revSum: 0, maxUpdatedAt: 0 })
+    expect((await strict.searchEvents('', 50, { calendarIds: ids })).results).toEqual([])
   })
 
   it('bumps rev on update and refuses a stale revision', async () => {
@@ -323,6 +458,45 @@ describe('event ranges and revisions', () => {
   })
 })
 
+describe('recurrence changes', () => {
+  function change(rev: number): RecurrenceChangeWrite {
+    return {
+      rev,
+      occurrenceStart: { value: '2026-10-27T09:00:00', type: 'datetime' },
+      occurrenceEnd: { value: '2026-10-27T10:00:00', type: 'datetime' },
+      scope: 'this',
+      action: 'update',
+      patch: { rev, title: 'Override' },
+    }
+  }
+
+  it('refuses a stale master revision without creating an override', async () => {
+    const master = await store.createEvent(eventInput({
+      id: 'stale-master', recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    }))
+    await store.updateEvent(master.id, { rev: master.rev, title: 'Changed elsewhere' })
+    await expect(store.applyRecurrenceChange(master.id, change(master.rev)))
+      .rejects.toMatchObject({ status: 409 })
+    expect(count('SELECT COUNT(*) AS count FROM calendar_events WHERE user_id = ?', ALICE)).toBe(1)
+    expect(await store.getEvent(master.id)).toMatchObject({ title: 'Changed elsewhere', rev: master.rev + 1 })
+  })
+
+  it('rolls back the override and EXDATE when the guarded master update fails', async () => {
+    const master = await store.createEvent(eventInput({
+      id: 'atomic-master', recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    }))
+    sqlite.exec(`CREATE TRIGGER fail_recurrence_master
+      BEFORE UPDATE ON calendar_events
+      WHEN OLD.id = 'atomic-master' AND NEW.meta_json LIKE '%exdates%'
+      BEGIN SELECT RAISE(ABORT, 'forced recurrence failure'); END`)
+    await expect(store.applyRecurrenceChange(master.id, change(master.rev)))
+      .rejects.toThrow('forced recurrence failure')
+    expect(count('SELECT COUNT(*) AS count FROM calendar_events WHERE user_id = ?', ALICE)).toBe(1)
+    expect(count('SELECT COUNT(*) AS count FROM calendar_event_calendars WHERE user_id = ?', ALICE)).toBe(1)
+    expect(await store.getEvent(master.id)).toMatchObject({ title: master.title, rev: master.rev, meta: {} })
+  })
+})
+
 describe('batch writes', () => {
   it('creates 200 events and rejects a larger batch', async () => {
     const inputs = Array.from({ length: 200 }, (_value, index) => eventInput({
@@ -336,6 +510,28 @@ describe('batch writes', () => {
 
     const tooMany = Array.from({ length: 201 }, (_value, index) => eventInput({ title: `Over ${index}` }))
     await expect(store.createEvents(tooMany, 'create')).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('honors the revision on guarded upserts without rewriting memberships on a stale write', async () => {
+    const created = await store.createEvent(eventInput({ id: 'guarded-upsert' }))
+    const second = await store.createCalendar({ name: 'Second' })
+    const updated = await store.createEvents([eventInput({
+      id: created.id,
+      title: 'Guarded',
+      calendarIds: [second.id],
+      rev: created.rev,
+    })], 'upsert')
+    expect(updated[0]).toMatchObject({ title: 'Guarded', rev: created.rev + 1, calendarIds: [second.id] })
+
+    await expect(store.createEvents([eventInput({
+      id: created.id,
+      title: 'Stale',
+      calendarIds: [calendar.id],
+      rev: created.rev,
+    })], 'upsert')).rejects.toMatchObject({ status: 409 })
+    expect(await store.getEvent(created.id)).toMatchObject({
+      title: 'Guarded', rev: created.rev + 1, calendarIds: [second.id],
+    })
   })
 
   it('upserts by id and by external id', async () => {
@@ -352,6 +548,37 @@ describe('batch writes', () => {
     expect(byExternal[0]?.id).toBe(created.id)
     expect(byExternal[0]?.title).toBe('By external')
     expect(byExternal[0]?.rev).toBe(created.rev + 2)
+  })
+
+  it('keeps internal provider sync writes and upserts available on read-only calendars', async () => {
+    const readOnly = await store.createCalendar({ name: 'Provider feed', readOnly: true })
+    const created = await store.createEvents([eventInput({
+      calendarId: readOnly.id,
+      source: 'caldav',
+      externalId: 'remote-sync-1',
+      title: 'First sync',
+    })], 'create')
+    expect(created[0]).toMatchObject({
+      source: 'caldav',
+      externalId: 'remote-sync-1',
+      calendarIds: [readOnly.id],
+      rev: 1,
+    })
+
+    const updated = await store.createEvents([eventInput({
+      calendarId: readOnly.id,
+      source: 'caldav',
+      externalId: 'remote-sync-1',
+      title: 'Second sync',
+    })], 'upsert')
+    expect(updated[0]).toMatchObject({
+      id: created[0]!.id,
+      source: 'caldav',
+      externalId: 'remote-sync-1',
+      calendarIds: [readOnly.id],
+      title: 'Second sync',
+      rev: 2,
+    })
   })
 
   it('scopes an external id to its calendar so two accounts cannot overwrite each other', async () => {
@@ -443,6 +670,40 @@ describe('search', () => {
     expect(home.id).not.toBe(other.id)
   })
 
+  it('searches accepted shared calendars and returns synthetic ids', async () => {
+    const sharedCalendar = await store.createCalendar({ id: 'shared-search-calendar', name: 'Shared search' })
+    const created = await store.createEvent(eventInput({
+      title: 'Shared design review', calendarId: sharedCalendar.id,
+    }))
+    sqlite.prepare(`INSERT INTO calendar_members
+      (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'reader', 'accepted', 1, 1)`)
+      .run(ALICE, sharedCalendar.id, BOB)
+    const bob = new CalendarStore(db, BOB)
+    const answer = await bob.searchEvents('design', 20)
+    expect(answer.results).toHaveLength(1)
+    expect(answer.results[0]).toMatchObject({
+      event: { id: `shared:${ALICE}:${created.id}`, title: 'Shared design review' },
+      calendarName: 'Shared search',
+    })
+    expect((await bob.listEvents(day('2026-10-01'), day('2026-11-01'))).events.map(event => event.id))
+      .toEqual([`shared:${ALICE}:${created.id}`])
+  })
+
+  it('searches location values without matching JSON keys and keeps FTS current', async () => {
+    const created = await store.createEvent(eventInput({
+      title: 'Original title', meta: { location: 'Room 3', custom: 'recurrence' },
+    }))
+    expect((await store.searchEvents('', 50, { location: 'recurrence' })).results).toEqual([])
+    expect((await store.searchEvents('', 50, { location: 'Room' })).results).toHaveLength(1)
+    expect((await store.searchEvents('original', 50)).results).toHaveLength(1)
+    await store.updateEvent(created.id, { rev: created.rev, title: 'Renamed title' })
+    expect((await store.searchEvents('original', 50)).results).toEqual([])
+    expect((await store.searchEvents('renamed', 50)).results).toHaveLength(1)
+    await store.deleteEvent(created.id, created.rev + 1)
+    expect((await store.searchEvents('renamed', 50)).results).toEqual([])
+  })
+
   it('treats percent and underscore as literals', async () => {
     await store.createEvent(eventInput({ title: '100% done' }))
     await store.createEvent(eventInput({ title: '100x done' }))
@@ -455,6 +716,15 @@ describe('search', () => {
 })
 
 describe('account isolation', () => {
+  it('refuses writes when an event membership points at a missing calendar', async () => {
+    const created = await store.createEvent(eventInput())
+    sqlite.prepare('DELETE FROM calendar_calendars WHERE user_id = ? AND id = ?').run(ALICE, calendar.id)
+    await expect(store.updateEvent(created.id, { rev: created.rev, title: 'Must not land' }))
+      .rejects.toMatchObject({ status: 404 })
+    expect(sqlite.prepare('SELECT title FROM calendar_events WHERE user_id = ? AND id = ?').get(ALICE, created.id))
+      .toEqual({ title: 'Meeting' })
+  })
+
   it('never lets another account read, change or delete an event', async () => {
     const created = await store.createEvent(eventInput({ title: 'Private' }))
     const bobStore = new CalendarStore(db, BOB)

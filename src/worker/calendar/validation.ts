@@ -12,7 +12,7 @@
  */
 
 import { Temporal } from 'temporal-polyfill'
-import { isValidTimeZone } from '@shared/assistant-schedule'
+import { isValidTimeZone } from '@shared/time-zone'
 import {
   CALENDAR_EVENT_TRIGGERS,
   CALENDAR_REMINDER_MINUTES,
@@ -28,6 +28,7 @@ import {
   isTemporalKind,
   CALENDAR_RANGE_MAX_MS,
   MAX_CALENDAR_IDS_PER_EVENT,
+  MAX_CALENDAR_IDS_PER_QUERY,
   MAX_CALENDAR_NAME,
   MAX_CONFERENCE_URL,
   MAX_EVENT_DESCRIPTION,
@@ -81,6 +82,8 @@ import type {
 export interface ParseEventOptions {
   /** The account's display zone, used when the value carries no zone of its own. */
   defaultTimeZone?: string
+  /** Public event APIs disable this; only server-side sync/import callers may preserve provider identity. */
+  allowSourceIdentity?: boolean
 }
 
 interface ParsedTemporal {
@@ -95,7 +98,7 @@ function requireRecord(value: unknown, field: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-function entityId(value: unknown, field: string): string {
+export function parseEntityId(value: unknown, field: string): string {
   if (!isCalendarEntityId(value)) throw ApiError.badRequest(`${field} is not a valid id`)
   return value
 }
@@ -236,7 +239,7 @@ function parseCalendarIds(record: Record<string, unknown>, required: boolean): s
   }
   const ids: string[] = []
   for (const value of values) {
-    const id = entityId(value, 'calendarIds')
+    const id = parseEntityId(value, 'calendarIds')
     if (!ids.includes(id)) ids.push(id)
   }
   if (ids.length === 0) throw ApiError.badRequest('An event needs at least one calendar')
@@ -248,7 +251,11 @@ function parseCalendarIds(record: Record<string, unknown>, required: boolean): s
 
 function parseMeta(value: unknown): Record<string, unknown> {
   if (value === undefined || value === null) return {}
-  const meta = requireRecord(value, 'meta')
+  const meta = { ...requireRecord(value, 'meta') }
+  // Guests have their own table. Old clients used to hide them in meta; that intermediate shape is
+  // accepted at the boundary but never allowed to become a second source of truth.
+  delete meta.attendees
+  if ('resourceId' in meta) throw ApiError.badRequest('resourceId is not supported')
   if (utf8ByteLength(JSON.stringify(meta)) > MAX_EVENT_META_BYTES) {
     throw ApiError.badRequest('meta is too large')
   }
@@ -257,6 +264,8 @@ function parseMeta(value: unknown): Record<string, unknown> {
   }
   return meta
 }
+
+const MAX_RECURRENCE_TIMES_PER_DAY = 24
 
 function normalizeRecurrence(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null
@@ -270,6 +279,14 @@ function normalizeRecurrence(value: unknown, field: string): string | null {
   }
   if (!/(?:^|;)FREQ=(?:DAILY|WEEKLY|MONTHLY|YEARLY)(?:;|$)/i.test(rule)) {
     throw ApiError.badRequest(`${field} must name a daily, weekly, monthly or yearly frequency`)
+  }
+  const part = (name: string): string | undefined => rule.split(';').find(entry => entry.toUpperCase().startsWith(`${name}=`))
+  const times = (name: string): number => {
+    const raw = part(name)
+    return raw === undefined ? 1 : Math.max(1, new Set(raw.slice(name.length + 1).split(',')).size)
+  }
+  if (times('BYHOUR') * times('BYMINUTE') * times('BYSECOND') > MAX_RECURRENCE_TIMES_PER_DAY) {
+    throw ApiError.badRequest(`${field} creates more than ${MAX_RECURRENCE_TIMES_PER_DAY} occurrences per day`)
   }
   return rule
 }
@@ -363,7 +380,7 @@ function recurringRuleFrom(
 export function parseEventInput(value: unknown, options: ParseEventOptions = {}): CalendarEventWriteInput {
   const record = requireRecord(value, 'event')
   const fallback = options.defaultTimeZone ?? defaultTimeZone()
-  const id = record.id === undefined || record.id === null ? undefined : entityId(record.id, 'Event id')
+  const id = record.id === undefined || record.id === null ? undefined : parseEntityId(record.id, 'Event id')
   if (record.start === undefined || record.end === undefined) {
     throw ApiError.badRequest('An event needs a start and an end')
   }
@@ -376,6 +393,10 @@ export function parseEventInput(value: unknown, options: ParseEventOptions = {})
     ? { completed: false, completedAt: null, completedAtMs: null, priority: null }
     : null)
   const recurrenceRule = recurringRuleFrom(record, meta)
+  const source = record.source === undefined ? 'local' : parseSource(record.source)
+  const externalId = record.externalId === undefined || record.externalId === null
+    ? null
+    : parseEntityId(record.externalId, 'External id')
   return {
     ...(id === undefined ? {} : { id }),
     title: eventTitle(record.title),
@@ -390,13 +411,13 @@ export function parseEventInput(value: unknown, options: ParseEventOptions = {})
     allDay: allDayFlag(record.allDay, start.value, end.value),
     calendarIds: parseCalendarIds(record, true)!,
     meta,
+    ...(record.attendees === undefined ? {} : { attendees: parseAttendees(record.attendees, 'attendees') }),
     icon: parseIcon(record.icon),
     color: record.color === undefined || record.color === null ? null : calendarColor(record.color, 'color'),
     recurrenceRule,
-    source: record.source === undefined ? 'local' : parseSource(record.source),
-    externalId: record.externalId === undefined || record.externalId === null
-      ? null
-      : entityId(record.externalId, 'External id'),
+    source: options.allowSourceIdentity === false ? 'local' : source,
+    externalId: options.allowSourceIdentity === false ? null : externalId,
+    ...(record.rev === undefined ? {} : { rev: integerValue(record.rev, 'rev', 1, Number.MAX_SAFE_INTEGER) }),
   }
 }
 
@@ -457,6 +478,10 @@ export function parseEventPatch(value: unknown, options: ParseEventOptions = {})
     patch.meta = meta
     touched = true
   }
+  if (record.attendees !== undefined) {
+    patch.attendees = parseAttendees(record.attendees, 'attendees')
+    touched = true
+  }
   if (record.icon !== undefined) {
     patch.icon = parseIcon(record.icon)
     touched = true
@@ -483,6 +508,7 @@ export const RECURRENCE_CHANGE_ACTIONS = ['update', 'cancel'] as const
 export type RecurrenceChangeAction = (typeof RECURRENCE_CHANGE_ACTIONS)[number]
 
 export interface RecurrenceChangeInput {
+  rev: number
   occurrenceStart: TemporalValue
   occurrenceEnd: TemporalValue
   scope: RecurrenceChangeScope
@@ -494,6 +520,7 @@ export interface RecurrenceChangeInput {
 export function parseRecurrenceChange(value: unknown, options: ParseEventOptions = {}): RecurrenceChangeInput {
   const record = requireRecord(value, 'recurrence')
   const fallback = options.defaultTimeZone ?? defaultTimeZone()
+  const rev = integerValue(record.rev, 'rev', 1, Number.MAX_SAFE_INTEGER)
   if (!(RECURRENCE_CHANGE_SCOPES as readonly string[]).includes(record.scope as string)) {
     throw ApiError.badRequest('scope must be this, following or all')
   }
@@ -504,9 +531,10 @@ export function parseRecurrenceChange(value: unknown, options: ParseEventOptions
   const occurrenceEnd = parseTemporalField(record.occurrenceEnd, 'occurrenceEnd', fallback).value
   const patch = record.patch === undefined || record.patch === null
     ? null
-    : parseEventPatch({ ...requireRecord(record.patch, 'patch'), rev: 1 }, options)
+    : parseEventPatch({ ...requireRecord(record.patch, 'patch'), rev }, options)
   if (record.action === 'update' && !patch) throw ApiError.badRequest('An update needs a patch')
   return {
+    rev,
     occurrenceStart,
     occurrenceEnd,
     scope: record.scope as RecurrenceChangeScope,
@@ -553,13 +581,17 @@ const ATTENDEE_EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
 export function parseAttendeeList(value: unknown): { attendees: CalendarAttendeeDto[]; rev: number } {
   const record = requireRecord(value, 'body')
   const rev = integerValue(record.rev, 'rev', 1, Number.MAX_SAFE_INTEGER)
-  if (!Array.isArray(record.attendees)) throw ApiError.badRequest('attendees must be an array')
-  if (record.attendees.length > MAX_ATTENDEES_PER_EVENT) {
+  return { attendees: parseAttendees(record.attendees, 'attendees'), rev }
+}
+
+function parseAttendees(value: unknown, field: string): CalendarAttendeeDto[] {
+  if (!Array.isArray(value)) throw ApiError.badRequest(`${field} must be an array`)
+  if (value.length > MAX_ATTENDEES_PER_EVENT) {
     throw ApiError.badRequest(`An event may invite at most ${MAX_ATTENDEES_PER_EVENT} guests`)
   }
   const seen = new Set<string>()
   const attendees: CalendarAttendeeDto[] = []
-  for (const entry of record.attendees) {
+  for (const entry of value) {
     const guest = requireRecord(entry, 'attendee')
     const email = attendeeEmail(guest.email)
     if (seen.has(email)) continue
@@ -572,7 +604,7 @@ export function parseAttendeeList(value: unknown): { attendees: CalendarAttendee
         : attendeeStatus(guest.status),
     })
   }
-  return { attendees, rev }
+  return attendees
 }
 
 function attendeeEmail(value: unknown): string {
@@ -618,12 +650,12 @@ export function parseCalendarInput(value: unknown): CalendarWriteInput {
   }
   if (CONTROL_CHARS.test(name)) throw ApiError.badRequest('name must not contain control characters')
   const input: CalendarWriteInput = { name }
-  if (record.id !== undefined && record.id !== null) input.id = entityId(record.id, 'Calendar id')
+  if (record.id !== undefined && record.id !== null) input.id = parseEntityId(record.id, 'Calendar id')
   if (record.color !== undefined) input.color = calendarColor(record.color, 'color')
   if (record.darkColor !== undefined) input.darkColor = calendarColor(record.darkColor, 'darkColor')
   if (record.icon !== undefined) input.icon = parseIconName(record.icon)
   if (record.groupId !== undefined) {
-    input.groupId = record.groupId === null ? null : entityId(record.groupId, 'groupId')
+    input.groupId = record.groupId === null ? null : parseEntityId(record.groupId, 'groupId')
   }
   if (record.isDefault !== undefined) input.isDefault = booleanValue(record.isDefault, 'isDefault')
   if (record.isVisible !== undefined) input.isVisible = booleanValue(record.isVisible, 'isVisible')
@@ -656,7 +688,7 @@ export function parseCalendarPatch(value: unknown): CalendarPatchInput {
     touched = true
   }
   if (record.groupId !== undefined) {
-    patch.groupId = record.groupId === null ? null : entityId(record.groupId, 'groupId')
+    patch.groupId = record.groupId === null ? null : parseEntityId(record.groupId, 'groupId')
     touched = true
   }
   if (record.isDefault !== undefined) {
@@ -685,7 +717,7 @@ export function parseGroupInput(value: unknown): CalendarGroupWriteInput {
   }
   if (CONTROL_CHARS.test(name)) throw ApiError.badRequest('name must not contain control characters')
   const input: CalendarGroupWriteInput = { name }
-  if (record.id !== undefined && record.id !== null) input.id = entityId(record.id, 'Group id')
+  if (record.id !== undefined && record.id !== null) input.id = parseEntityId(record.id, 'Group id')
   return input
 }
 
@@ -856,11 +888,11 @@ export function parseCalendarIdList(raw: string | undefined): string[] | undefin
   for (const part of raw.split(',')) {
     const trimmed = part.trim()
     if (!trimmed) continue
-    const id = entityId(trimmed, 'calendarIds')
+    const id = parseEntityId(trimmed, 'calendarIds')
     if (!ids.includes(id)) ids.push(id)
   }
   if (ids.length === 0) return undefined
-  if (ids.length > 1_000) throw ApiError.badRequest('Too many calendars named')
+  if (ids.length > MAX_CALENDAR_IDS_PER_QUERY) throw ApiError.badRequest('Too many calendars named')
   return ids
 }
 
@@ -869,7 +901,7 @@ export function parseReorder(value: unknown): string[] {
   if (!Array.isArray(record.ids)) throw ApiError.badRequest('ids must be an array')
   if (record.ids.length === 0) throw ApiError.badRequest('ids may not be empty')
   if (record.ids.length > MAX_EVENTS_PER_BATCH) throw ApiError.badRequest('ids is too long')
-  const ids = record.ids.map((id) => entityId(id, 'ids'))
+  const ids = record.ids.map((id) => parseEntityId(id, 'ids'))
   if (new Set(ids).size !== ids.length) throw ApiError.badRequest('ids must not repeat')
   return ids
 }
@@ -880,11 +912,6 @@ export function parseRevQuery(raw: string | undefined): number | null {
   const value = Number(raw)
   if (!Number.isInteger(value) || value < 1) throw ApiError.badRequest('rev must be a positive integer')
   return value
-}
-
-/** Kept for the route's 404-on-malformed decision; the shared predicate is the single authority. */
-export function parseEntityId(value: unknown, field: string): string {
-  return entityId(value, field)
 }
 
 const COLOR_HEX = /^#[0-9a-fA-F]{6}$/
@@ -932,7 +959,7 @@ function countdownRepeat(value: unknown): CountdownRepeat {
  */
 export function parseCountdownInput(value: unknown): CountdownWriteInput {
   const record = requireRecord(value, 'countdown')
-  const id = record.id === undefined ? undefined : entityId(record.id, 'id')
+  const id = record.id === undefined ? undefined : parseEntityId(record.id, 'id')
   if (!isCountdownDate(record.date)) throw ApiError.badRequest('date must be a YYYY-MM-DD day that exists')
   return {
     ...(id ? { id } : {}),

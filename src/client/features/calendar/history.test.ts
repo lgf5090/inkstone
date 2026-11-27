@@ -25,6 +25,7 @@ describe('calendar edit history', () => {
     history.record({ id: 'b', before: event('b', 'B before'), after: event('b', 'B after') })
 
     expect(history.undo(app, 'a')).toBe(true)
+    history.finishReplay('a')
 
     expect(applyEventsChanges).toHaveBeenCalledTimes(1)
     expect(applyEventsChanges.mock.calls[0]?.[0]).toMatchObject({
@@ -40,7 +41,9 @@ describe('calendar edit history', () => {
     const history = new CalendarEditHistory()
     history.record({ id: 'a', before: event('a', 'A before'), after: event('a', 'A after') })
     expect(history.undo(app)).toBe(true)
+    history.finishReplay('a')
     expect(history.redo(app)).toBe(true)
+    history.finishReplay('a')
     expect(applyEventsChanges).toHaveBeenLastCalledWith(
       { update: [{ id: 'a', updates: expect.objectContaining({ title: 'A after' }) }] },
       false,
@@ -48,6 +51,27 @@ describe('calendar edit history', () => {
     )
     expect(history.canUndo).toBe(true)
     expect(history.canRedo).toBe(false)
+  })
+
+  it('keeps a hidden series rule through undo and redo', () => {
+    const applyEventsChanges = vi.fn()
+    const app = { applyEventsChanges } as unknown as ICalendarApp
+    const history = new CalendarEditHistory()
+    const before = { ...event('a', 'A before'), meta: { exdates: ['2026-10-27'], seriesRule: 'FREQ=DAILY;COUNT=8' } }
+    const after = { ...event('a', 'A after'), meta: { exdates: ['2026-10-28'], seriesRule: 'FREQ=DAILY;COUNT=8' } }
+    history.record({ id: 'a', before, after })
+
+    history.undo(app)
+    history.finishReplay('a')
+    history.redo(app)
+    history.finishReplay('a')
+
+    expect(applyEventsChanges.mock.calls[0]?.[0]).toMatchObject({
+      update: [{ id: 'a', updates: { meta: { exdates: ['2026-10-27'], seriesRule: 'FREQ=DAILY;COUNT=8' } } }],
+    })
+    expect(applyEventsChanges.mock.calls[1]?.[0]).toMatchObject({
+      update: [{ id: 'a', updates: { meta: { exdates: ['2026-10-28'], seriesRule: 'FREQ=DAILY;COUNT=8' } } }],
+    })
   })
 
   it('does not let the write queue turn a replay into a fresh entry', () => {
@@ -61,8 +85,42 @@ describe('calendar edit history', () => {
     history.record({ id: 'a', before: after, after: before })
     expect(history.canRedo).toBe(true)
     expect(history.redo(app)).toBe(true)
+    history.finishReplay('a')
     expect(history.canUndo).toBe(true)
     expect(history.canRedo).toBe(false)
+  })
+
+  it('restores the original stack when a replay fails', () => {
+    const app = { applyEventsChanges: vi.fn() } as unknown as ICalendarApp
+    const history = new CalendarEditHistory()
+    history.record({ id: 'a', before: event('a', 'A before'), after: event('a', 'A after') })
+    expect(history.undo(app)).toBe(true)
+    expect(history.canUndo).toBe(false)
+    expect(history.canRedo).toBe(false)
+    history.failReplay('a')
+    expect(history.canUndo).toBe(true)
+    expect(history.canRedo).toBe(false)
+    expect(history.undo(app)).toBe(true)
+  })
+
+  it('publishes replay settlement so controls can refresh after a refusal', () => {
+    const app = { applyEventsChanges: vi.fn() } as unknown as ICalendarApp
+    const history = new CalendarEditHistory()
+    const listener = vi.fn()
+    const unsubscribe = history.subscribe(listener)
+    history.record({ id: 'a', before: event('a', 'A before'), after: event('a', 'A after') })
+    listener.mockClear()
+
+    history.undo(app)
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(history.canUndo).toBe(false)
+    history.failReplay('a')
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(history.canUndo).toBe(true)
+
+    unsubscribe()
+    history.undo(app)
+    expect(listener).toHaveBeenCalledTimes(2)
   })
 
   it('falls back to the newest entry when no id is named', () => {

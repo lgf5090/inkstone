@@ -125,6 +125,16 @@ describe('writing a dependency set', () => {
     expect(response.status).toBe(400)
   })
 
+  it('refuses a cycle longer than the old twelve-edge walk', async () => {
+    const chain = [await create('节点0')]
+    for (let index = 1; index <= 13; index += 1) {
+      chain.push(await create(`节点${index}`, [chain[index - 1]!.id]))
+    }
+
+    const response = await send('PATCH', `/${chain[0]!.id}`, { dependsOn: [chain[13]!.id] })
+    expect(response.status).toBe(400)
+  })
+
   it('refuses an id that is not this account’s task without saying whether it exists', async () => {
     const foreign = await store(OTHER).createTask({ title: '别人的' }, 'UTC')
     const mine = await create('我的')

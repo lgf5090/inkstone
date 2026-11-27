@@ -89,6 +89,8 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_events_range
      ON calendar_events(user_id, start_ms)`,
+  `CREATE INDEX IF NOT EXISTS idx_calendar_events_range_end
+     ON calendar_events(user_id, end_ms, start_ms) WHERE recurrence_rule IS NULL`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_events_updated
      ON calendar_events(user_id, updated_at)`,
   // The activity heatmap counts events by the day they were created; the range index is ordered by
@@ -104,6 +106,22 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_external
      ON calendar_events(user_id, calendar_source, external_scope, external_id)
      WHERE external_id IS NOT NULL`,
+  `CREATE VIRTUAL TABLE IF NOT EXISTS calendar_events_fts USING fts5(
+     title, description, content='calendar_events', content_rowid='rowid',
+     tokenize='unicode61 remove_diacritics 2'
+   )`,
+  `CREATE TRIGGER IF NOT EXISTS calendar_events_fts_insert AFTER INSERT ON calendar_events BEGIN
+     INSERT INTO calendar_events_fts(rowid, title, description) VALUES (new.rowid, new.title, new.description);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS calendar_events_fts_delete AFTER DELETE ON calendar_events BEGIN
+     INSERT INTO calendar_events_fts(calendar_events_fts, rowid, title, description)
+     VALUES ('delete', old.rowid, old.title, old.description);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS calendar_events_fts_update AFTER UPDATE ON calendar_events BEGIN
+     INSERT INTO calendar_events_fts(calendar_events_fts, rowid, title, description)
+     VALUES ('delete', old.rowid, old.title, old.description);
+     INSERT INTO calendar_events_fts(rowid, title, description) VALUES (new.rowid, new.title, new.description);
+   END`,
 
   `CREATE TABLE IF NOT EXISTS calendar_event_calendars (
     user_id TEXT NOT NULL,
@@ -136,6 +154,9 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
      ON calendar_subscriptions(user_id, calendar_id)`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_subscriptions_connection
      ON calendar_subscriptions(user_id, connection_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_calendar_subscriptions_due
+     ON calendar_subscriptions(kind, enabled, last_sync_at, last_error_at)
+     WHERE url IS NOT NULL`,
 
   `CREATE TABLE IF NOT EXISTS calendar_connections (
     user_id TEXT NOT NULL,
@@ -222,6 +243,7 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
     connection_id TEXT NOT NULL,
     remote_calendar_id TEXT NOT NULL,
     local_calendar_id TEXT NOT NULL,
+    sync_token TEXT,
     last_sync_at INTEGER,
     last_error_code TEXT,
     created_at INTEGER NOT NULL,
@@ -375,6 +397,7 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
     event_id TEXT NOT NULL,
+    occurrence_start_ms INTEGER,
     notify_at INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -410,6 +433,7 @@ export const CALENDAR_REQUIRED_TABLES: readonly string[] = [
   'calendar_members',
   'calendar_contacts',
   'calendar_event_templates',
+  'calendar_countdowns',
   'calendar_resources',
   'calendar_scheduling_links',
 ]
@@ -422,13 +446,16 @@ export const CALENDAR_REQUIRED_INDEXES: readonly string[] = [
   'idx_calendar_groups_name',
   'idx_calendar_groups_order',
   'idx_calendar_events_range',
+  'idx_calendar_events_range_end',
   'idx_calendar_events_updated',
+  'idx_calendar_events_created',
   'idx_calendar_events_recurring',
   'idx_calendar_events_batch',
   'idx_calendar_events_external',
   'idx_calendar_event_calendars_calendar',
   'idx_calendar_subscriptions_calendar',
   'idx_calendar_subscriptions_connection',
+  'idx_calendar_subscriptions_due',
   'idx_calendar_connections_kind',
   'idx_calendar_credentials_connection',
   'idx_calendar_oauth_expiry',
@@ -445,6 +472,7 @@ export const CALENDAR_REQUIRED_INDEXES: readonly string[] = [
   'idx_calendar_members_calendar',
   'idx_calendar_contacts_email',
   'idx_calendar_templates_user',
+  'idx_calendar_countdowns_order',
   'idx_calendar_resources_calendar',
   'idx_calendar_scheduling_slug',
 ]
@@ -484,13 +512,13 @@ export const CALENDAR_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[
   calendar_preferences: ['user_id', 'preferences_json', 'updated_at'],
   calendar_reminder_fires: ['user_id', 'event_id', 'occurrence_start_ms', 'minutes', 'fired_at'],
   calendar_event_reminders: ['user_id', 'event_id', 'minutes', 'created_at'],
-  calendar_reminder_snoozes: ['user_id', 'id', 'event_id', 'notify_at', 'created_at'],
+  calendar_reminder_snoozes: ['user_id', 'id', 'event_id', 'occurrence_start_ms', 'notify_at', 'created_at'],
   calendar_event_attendees: ['user_id', 'event_id', 'email', 'name', 'status', 'created_at'],
   calendar_shares: ['user_id', 'calendar_id', 'slug', 'views', 'created_at', 'updated_at', 'last_viewed_at'],
   calendar_event_attachments: ['user_id', 'attachment_id', 'event_id', 'created_at'],
   calendar_provider_calendars: [
-    'user_id', 'connection_id', 'remote_calendar_id', 'local_calendar_id', 'last_sync_at',
-    'last_error_code', 'created_at', 'updated_at',
+    'user_id', 'connection_id', 'remote_calendar_id', 'local_calendar_id', 'sync_token',
+    'last_sync_at', 'last_error_code', 'created_at', 'updated_at',
   ],
   calendar_members: [
     'owner_user_id', 'calendar_id', 'member_user_id', 'role', 'status', 'created_at',
@@ -500,6 +528,10 @@ export const CALENDAR_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[
   calendar_event_templates: [
     'user_id', 'id', 'name', 'title', 'description', 'kind', 'all_day', 'duration_minutes',
     'color', 'meta_json', 'created_at', 'updated_at', 'rev',
+  ],
+  calendar_countdowns: [
+    'user_id', 'id', 'title', 'target_date', 'repeat_mode', 'lunar_month', 'lunar_day',
+    'lunar_leap', 'note', 'color', 'pinned', 'created_at', 'updated_at', 'rev',
   ],
   calendar_resources: ['user_id', 'id', 'calendar_id', 'name', 'capacity', 'created_at', 'updated_at'],
   calendar_scheduling_links: [

@@ -69,7 +69,9 @@ function daysUntil(expiresAt: number | null): string {
 export function SharesPage() {
   const toast = useUi((state) => state.toast)
   const [shares, setShares] = useState<Share[]>([])
+  const [cursor, setCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const refreshKey = useCloudDriveStore((state) => state.refreshKey)
   const [qr, setQr] = useState<Share | null>(null)
   const [filter, setFilter] = useState<ShareFilter>('all')
@@ -118,15 +120,18 @@ export function SharesPage() {
     }
   }
 
-  const load = async () => {
-    setLoading(true)
+  const load = async (next: string | null = null, append = false) => {
+    if (append) setLoadingMore(true)
+    else setLoading(true)
     try {
-      const result = await clouddriveApi.shares()
-      setShares(result.shares as Share[])
+      const result = await clouddriveApi.shares(next)
+      setShares((current) => append ? [...current, ...result.shares as Share[]] : result.shares as Share[])
+      setCursor(result.cursor)
     } catch (error) {
-      toast({ title: t('clouddrive.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+      toast({ title: t(append ? 'clouddrive.search.load_more_failed' : 'clouddrive.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
   }
   useEffect(() => { void load() }, [refreshKey])
@@ -181,6 +186,13 @@ export function SharesPage() {
             </li>
           ))}
         </ul>
+      )}
+      {!loading && cursor && (
+        <div className="mt-3 flex justify-center">
+          <Button size="sm" variant="secondary" loading={loadingMore} onClick={() => void load(cursor, true)}>
+            {t('clouddrive.search.load_more')}
+          </Button>
+        </div>
       )}
       <Modal
         open={statsFor !== null}

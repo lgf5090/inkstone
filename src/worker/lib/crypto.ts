@@ -605,10 +605,15 @@ async function decryptCredential(env: Env, scope: string, stored: string): Promi
   }
 }
 
-async function vaultRequest(env: Env, path: '/encrypt' | '/decrypt', body: unknown): Promise<Response> {
+export async function vaultRequest(
+  env: Env,
+  path: '/encrypt' | '/decrypt' | '/calendar-oauth/refresh',
+  body: unknown,
+  objectName = VAULT_NAME,
+): Promise<Response> {
   if (!env.CREDENTIAL_VAULT) throw new CryptoUnavailableError()
   try {
-    const id = env.CREDENTIAL_VAULT.idFromName(VAULT_NAME)
+    const id = env.CREDENTIAL_VAULT.idFromName(objectName)
     return await env.CREDENTIAL_VAULT.get(id).fetch(`${VAULT_ORIGIN}${path}`, {
       method: 'POST',
       headers: {

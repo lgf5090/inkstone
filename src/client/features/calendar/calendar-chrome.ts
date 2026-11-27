@@ -11,7 +11,9 @@
  * attributes and text it does not read, so the mirror cannot fight its render.
  */
 import { getCalendarColorsForHex, type ICalendarApp } from '@dayflow/react'
+import type { CalendarWorkingHours } from '@shared/calendar/model'
 import { narrowWeekdayLabel, narrowWeekdayLabels, type WeekStartDay } from '../../lib/time'
+import type { EventSelectionModifiers } from './event-selection'
 
 const EVENT_SELECTOR = '.df-event'
 const REPEAT_MARKER = '::repeat-'
@@ -25,16 +27,19 @@ export interface CalendarChromeOptions {
   weekStart: number
   /** The gesture that opens the library's editor. */
   detailTrigger: 'click' | 'dbClick'
+  timeFormat?: '12h' | '24h'
+  workingHours?: CalendarWorkingHours
   addLabel: string
   untitledLabel: string
   allDayLabel: string
   /** Desktop only: on a touch layout the library's sheet is the right editor. */
   interceptEvents: boolean
   onAdd: () => void
-  onRecurring: () => void
+  onRecurring: (id: string) => void
   /** The reader pointed at this event; the surface owns the extras card and its dismissed state. */
-  onSelect: (id: string) => void
+  onSelect: (id: string, modifiers?: EventSelectionModifiers) => void
   onOpenDetail: (id: string) => void
+  isSelected?: (id: string) => boolean
 }
 
 function elementOf(target: EventTarget | null): Element | null {
@@ -98,15 +103,16 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
     if (!header || !labels || !dates || !content || !timeColumn || !firstRow) return
     const columns = firstRow.querySelectorAll('.df-week-time-grid-cell').length
     if (columns < 1) return
+    const selected = options.app.getCurrentDate()
+    const key = `${columns}:${selected.toDateString()}`
+    if (header.dataset.inkstoneHeader === key) return
+    header.dataset.inkstoneHeader = key
     const headerRect = header.getBoundingClientRect()
     const contentRect = content.getBoundingClientRect()
     const column = contentRect.width / columns
     if (column <= 0) return
     const timeWidth = timeColumn.getBoundingClientRect().width
     const shift = contentRect.left - headerRect.left - timeWidth
-    const selected = options.app.getCurrentDate()
-    const key = `${columns}:${Math.round(column)}:${Math.round(shift)}:${Math.round(timeWidth)}:${selected.toDateString()}`
-    header.dataset.inkstoneHeader = key
     for (const grid of [labels, dates]) {
       grid.style.gridTemplateColumns = `repeat(${columns}, ${column}px)`
       grid.style.width = `${column * columns}px`
@@ -146,9 +152,29 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
     })
   }
 
+  const syncTimedGrid = (): void => {
+    const workingHours = options.workingHours ?? { enabled: false, startHour: 9, endHour: 18 }
+    const markWorking = (element: HTMLElement, index: number): void => {
+      const working = !workingHours.enabled || (index >= workingHours.startHour && index < workingHours.endHour)
+      if (element.dataset.inkstoneWorking !== String(working)) element.dataset.inkstoneWorking = String(working)
+    }
+    options.root.querySelectorAll<HTMLElement>('.df-time-grid-row').forEach(markWorking)
+    options.root.querySelectorAll<HTMLElement>('.df-time-slot').forEach(markWorking)
+    if (options.timeFormat !== '24h') return
+    options.root.querySelectorAll<HTMLElement>(
+      '.df-week-time-grid-boundary-tail .df-time-label, '
+      + '.df-week-time-grid-boundary-tail .df-time-column-tz-value:last-child, '
+      + '.df-day-content-bottom .df-midnight-label, '
+      + '.df-day-content-bottom-tz-row span:last-child',
+    ).forEach(element => {
+      if (element.textContent !== '24:00') element.textContent = '24:00'
+    })
+  }
+
   const decorate = (): void => {
     if (disposed) return
     syncCompactHeader()
+    syncTimedGrid()
     const header = options.root.querySelector<HTMLElement>('.df-compact-header')
     if (header?.dataset.inkstoneRolling !== '1') {
       const labels = narrowWeekdayLabels(options.locale, options.weekStart as WeekStartDay)
@@ -168,11 +194,17 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
     const byId = new Map(options.app.getEvents().map(event => [event.id, event]))
     options.root.querySelectorAll<HTMLElement>(EVENT_SELECTOR).forEach((element) => {
       if (element.tabIndex !== 0) element.tabIndex = 0
+      // DayFlow renders events as divs and exposes no semantic event slot. This bridge supplies the
+      // equivalent button role, focus stop and keyboard activation because the app intercepts selection.
       if (element.getAttribute('role') !== 'button') element.setAttribute('role', 'button')
+      const id = element.getAttribute('data-event-id')
+      const selected = id ? options.isSelected?.(id) === true : false
+      element.toggleAttribute('data-inkstone-selected', selected)
+      element.setAttribute('aria-pressed', String(selected))
       const name = eventAccessibleName(element, options.untitledLabel, options.allDayLabel)
       if (name && element.getAttribute('aria-label') !== name) element.setAttribute('aria-label', name)
-      const id = element.getAttribute('data-event-id')
-      const color = id ? byId.get(id)?.meta?.color : undefined
+      const eventId = element.getAttribute('data-event-id')
+      const color = eventId ? byId.get(eventId)?.meta?.color : undefined
       const hex = typeof color === 'string' ? color : ''
       const applied = element.dataset.inkstoneColor
       // The library paints the block's own colour inline. On the first pass there is nothing of ours
@@ -220,13 +252,18 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
     nativeEvent.preventDefault()
     nativeEvent.stopImmediatePropagation()
     if (id.includes(REPEAT_MARKER)) {
-      options.onRecurring()
+      options.onRecurring(id)
       return
     }
-    options.app.selectEvent(id)
-    options.app.highlightEvent(id)
-    options.onSelect(id)
-    if (options.detailTrigger === 'click') options.onOpenDetail(id)
+    const modifiers = { shift: nativeEvent.shiftKey, meta: nativeEvent.metaKey || nativeEvent.ctrlKey }
+    if (!modifiers.shift && !modifiers.meta) {
+      options.app.selectEvent(id)
+      options.app.highlightEvent(id)
+      options.onSelect(id)
+    } else {
+      options.onSelect(id, modifiers)
+    }
+    if (options.detailTrigger === 'click' && !modifiers.shift && !modifiers.meta) options.onOpenDetail(id)
   }
 
   const onDoubleClick = (nativeEvent: MouseEvent): void => {
@@ -251,13 +288,18 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
       nativeEvent.preventDefault()
       nativeEvent.stopImmediatePropagation()
       if (id.includes(REPEAT_MARKER)) {
-        options.onRecurring()
+        options.onRecurring(id)
         return
       }
-      options.app.selectEvent(id)
-      options.app.highlightEvent(id)
-      options.onSelect(id)
-      options.onOpenDetail(id)
+      const modifiers = { shift: nativeEvent.shiftKey, meta: nativeEvent.metaKey || nativeEvent.ctrlKey }
+      if (!modifiers.shift && !modifiers.meta) {
+        options.app.selectEvent(id)
+        options.app.highlightEvent(id)
+        options.onSelect(id)
+      } else {
+        options.onSelect(id, modifiers)
+      }
+      if (!modifiers.shift && !modifiers.meta) options.onOpenDetail(id)
       return
     }
     if (nativeEvent.key !== 'ArrowDown' && nativeEvent.key !== 'ArrowRight'

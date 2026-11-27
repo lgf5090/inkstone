@@ -225,7 +225,10 @@ export class SyncStore {
   }
 
   /**
-   * The task delta: every row written after `since`, tombstones included.
+   * The task delta: every row written at or after `since`, tombstones included.
+   *
+   * The inclusive bound is deliberate overlap: a snapshot and a write can share the same millisecond,
+   * and `>` would lose that write forever. Clients fold rows by id, so replaying the cursor row is safe.
    *
    * The cursor is the newest `updated_at` on the page rather than the change sequence: task writes do
    * not record change rows, and their own write stamp is the only ordering they share. A deleted task
@@ -237,7 +240,7 @@ export class SyncStore {
     const { results } = await this.db
       .prepare(
         `${TODO_SYNC_SELECT}
-          WHERE user_id = ?1 AND updated_at > ?2
+          WHERE user_id = ?1 AND updated_at >= ?2
           ORDER BY updated_at ASC, id ASC`,
       )
       .bind(this.userId, since)

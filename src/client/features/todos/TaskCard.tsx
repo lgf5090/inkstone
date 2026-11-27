@@ -42,7 +42,7 @@ import { toPlainText } from '@shared/markdown-utils'
 import { formatTaskDuration } from '@shared/todos/duration'
 import { isTaskDone, isTaskOpen } from '@shared/todos/status'
 import { taskIsBlocked } from '@shared/todos/model'
-import type { SnoozeMinutes, TaskList, TodoTask } from '@shared/todos/model'
+import type { TaskList, TodoTask } from '@shared/todos/model'
 
 /** How long a finger has to stay down before the row joins a selection instead of opening. */
 const LONG_PRESS_MS = 500
@@ -428,7 +428,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
   // the inbox's fallback here — a card's checkbox is the row's own mark — where the calendar, whose
   // chips sit beside other days' work, draws the neutral instead (`task-face.ts`).
   const colour = taskColorOf(task, lists)
-  const due = dueLabel(task.dueAt, bounds, timezone)
+  const due = dueLabel(task.dueAt, bounds, timezone, { allDay: task.dueAllDay, dueOn: task.dueOn })
   /**
    * The two questions the card used to ask with one boolean.
    *
@@ -699,7 +699,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
     lists,
     move,
     update: (patch: Record<string, unknown>) => { void updateTask(task.id, patch) },
-    snooze: (minutes: SnoozeMinutes) => { void snooze(task.id, minutes) },
+    snooze: (minutes: number) => { void snooze(task.id, minutes) },
     quadrant,
   }
   const menuItems = buildTaskMenuItems(task, { ...menuHandlers, onClose: () => setMenuOpen(false) })
@@ -1115,7 +1115,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
               : t('todo.timer.start_aria', { title: task.title })}
             onClick={() => { void (timed ? stopTimer(task.id) : startTimer(task)) }}
             className={cn(
-              'flex size-9 items-center justify-center rounded-full transition-colors md:size-7',
+              'flex size-11 items-center justify-center rounded-full transition-colors md:size-7',
               'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
               timed
                 ? 'text-[var(--accent)] opacity-100'
@@ -1134,7 +1134,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
             aria-pressed={task.starred}
             onClick={onStar}
             className={cn(
-              'flex size-9 items-center justify-center rounded-full transition-colors md:size-7',
+              'flex size-11 items-center justify-center rounded-full transition-colors md:size-7',
               'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
               task.starred ? 'text-[var(--warning)]' : 'text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]',
               // A star that only appears on hover is a star a thumb never finds.
@@ -1150,7 +1150,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
             aria-label={t('todo.today.remove', { title: task.title })}
             title={t('todo.today.remove', { title: task.title })}
             onClick={onUnplan}
-            className="flex size-9 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--danger)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
+            className="flex size-11 items-center justify-center rounded-full text-[var(--text-quaternary)] hover:text-[var(--danger)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-7"
           >
             <CalendarMinus size={14} />
           </button>

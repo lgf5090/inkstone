@@ -5,9 +5,15 @@
  * paint before the network answers. That is exactly why they must not outlive a sign-out: on a
  * shared browser the next person would be able to read the previous account's day.
  */
+import { CALENDAR_STORAGE_PREFIX } from '../../lib/calendar-storage'
+
 export const CALENDAR_CACHE_PREFIXES = [
-  'inkstone.calendar.first-paint.',
-  'inkstone.calendar.range.',
+  `${CALENDAR_STORAGE_PREFIX}first-paint.`,
+  `${CALENDAR_STORAGE_PREFIX}range.`,
+  `${CALENDAR_STORAGE_PREFIX}outbox.`,
+  `${CALENDAR_STORAGE_PREFIX}hidden-shared.`,
+  'inkstone:calendar:outbox:',
+  'inkstone:calendar:hidden-shared',
 ] as const
 
 function readStorage(): Storage | null {

@@ -7,10 +7,11 @@
  * because discovery is a redirect by another name, and a redirect that is followed without a check is
  * how a proxy ends up talking to a metadata endpoint.
  *
- * The XML reader is deliberately small: CalDAV answers are well-formed XML with a handful of known
- * elements, so namespace prefixes are normalized away and the first matching element is read. It is
- * not a general XML parser and never sees HTML.
+ * CalDAV answers are parsed as XML, not searched as text. The parser resolves namespace URIs so a
+ * server may choose any prefix (or a default namespace) without letting an unrelated namespace impersonate
+ * a DAV property. DTDs are refused because discovery has no legitimate use for entity declarations.
  */
+import { Parser } from 'htmlparser2'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { toBase64, utf8 } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
@@ -28,6 +29,10 @@ const MAX_URL_LENGTH = 2048
 const MAX_USERNAME_LENGTH = 256
 const MAX_PASSWORD_LENGTH = 4096
 
+const DAV_NAMESPACE = 'DAV:'
+const CALDAV_NAMESPACE = 'urn:ietf:params:xml:ns:caldav'
+const XML_ELEMENT_NAME = /^[A-Za-z_][A-Za-z0-9_.-]*$/
+
 const CURRENT_USER_PRINCIPAL_BODY = `<?xml version="1.0" encoding="utf-8"?>
 <D:propfind xmlns:D="DAV:">
   <D:prop>
@@ -39,6 +44,14 @@ const CALENDAR_HOME_BODY = `<?xml version="1.0" encoding="utf-8"?>
 <D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
   <D:prop>
     <C:calendar-home-set/>
+  </D:prop>
+</D:propfind>`
+
+const CALENDAR_HOME_VERIFICATION_BODY = `<?xml version="1.0" encoding="utf-8"?>
+<D:propfind xmlns:D="DAV:">
+  <D:prop>
+    <D:resourcetype/>
+    <D:current-user-privilege-set/>
   </D:prop>
 </D:propfind>`
 
@@ -196,6 +209,12 @@ export async function discoverCalendarConnection(
   if (!calendarHomeUrl) {
     const discovered = await discoverCalendarHome(preset.serverUrl, preset.username, password)
     calendarHomeUrl = discovered.calendarHomeUrl
+  } else {
+    const authorization = `Basic ${toBase64(utf8(`${preset.username}:${password}`))}`
+    const xml = await propfind(new URL(calendarHomeUrl), CALENDAR_HOME_VERIFICATION_BODY, authorization)
+    if (!hasXmlElement(xml, 'resourcetype')) {
+      throw new ApiError(502, 'internal', 'The calendar server did not confirm a CalDAV calendar home')
+    }
   }
   return {
     baseUrl: canonicalBaseUrl(preset.serverUrl),
@@ -228,7 +247,7 @@ export async function discoverCalendarHome(
   assertAllowedDiscoveryUrl(principalUrl, serverUrl)
 
   const homeXml = await propfind(principalUrl, CALENDAR_HOME_BODY, authorization)
-  const homeHref = extractFirstHref(homeXml, 'calendar-home-set')
+  const homeHref = extractFirstHref(homeXml, 'calendar-home-set', CALDAV_NAMESPACE)
   if (!homeHref) {
     throw new ApiError(502, 'internal', 'The calendar server did not say where the calendars live')
   }
@@ -262,7 +281,7 @@ async function propfind(url: URL, body: string, authorization: string): Promise<
   if (isRedirectResponse(response)) {
     throw new ApiError(502, 'internal', 'The calendar server redirected discovery, which is not followed')
   }
-  if (!response.ok) {
+  if (response.status !== 207) {
     throw new ApiError(502, 'internal', `The calendar server refused discovery (${response.status})`)
   }
   const xml = await readStreamTextWithinLimit(response.body, MAX_DISCOVERY_BYTES)
@@ -305,60 +324,159 @@ function resolveHref(base: URL, href: string): URL {
 
 // ---------------------------------------------------------------------------- XML
 
-/**
- * Remove namespace prefixes and declarations so one regex can match whichever prefix a server chose.
- * Comments and processing instructions go too; neither carries discovery state.
- */
-export function normalizeXml(xml: string): string {
-  return xml
-    .replaceAll(/<!--[\s\S]*?-->/g, '')
-    .replaceAll(/<\?[\s\S]*?\?>/g, '')
-    .replaceAll(/\s+xmlns(?::\w+)?\s*=\s*("[^"]*"|'[^']*')/g, '')
-    .replaceAll(/<(\/?)\w+:([\w-]+)/g, '<$1$2')
+interface DiscoveryElement {
+  name: string
+  namespace: string
+  children: DiscoveryElement[]
+  text: string
 }
 
-/** Text content of the first matching element, with the five XML entities and numeric ones decoded. */
-export function extractFirstText(xml: string, tag: string): string | null {
-  const normalized = normalizeXml(xml)
-  const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = normalized.match(new RegExp(`<${safeTag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${safeTag}>`, 'i'))
-  return match ? decodeXmlText(match[1]!.trim()) : null
+interface OpenElement {
+  node: DiscoveryElement
+  namespaces: ReadonlyMap<string, string>
+  qualifiedName: string
+  selfClosing: boolean
 }
 
-/** The first `<href>` inside the named element, which is how every CalDAV property carries a URL. */
-export function extractFirstHref(xml: string, tag: string): string | null {
-  const inner = extractFirstText(xml, tag)
-  if (!inner) return null
-  const match = inner.match(/<href(?:\s[^>]*)?>([\s\S]*?)<\/href>/i)
-  return match ? match[1]!.trim() : null
+function openingTag(xml: string, start: number): { end: number; selfClosing: boolean } {
+  let quote = ''
+  for (let index = start + 1; index < xml.length; index += 1) {
+    const character = xml[index]!
+    if (quote) {
+      if (character === quote) quote = ''
+    } else if (character === '"' || character === "'") {
+      quote = character
+    } else if (character === '>') {
+      return { end: index, selfClosing: xml.slice(start + 1, index).trimEnd().endsWith('/') }
+    }
+  }
+  throw new Error('Unclosed XML tag')
+}
+
+function qualifiedName(name: string): { prefix: string; local: string } {
+  const parts = name.split(':')
+  if (parts.length > 2 || parts.some(part => !XML_ELEMENT_NAME.test(part))) throw new Error('Invalid XML name')
+  return parts.length === 2 ? { prefix: parts[0]!, local: parts[1]! } : { prefix: '', local: name }
+}
+
+/** Parse one bounded CalDAV XML response, rejecting malformed documents and every DTD. */
+function parseDiscoveryXml(xml: string): DiscoveryElement {
+  try {
+    const rootBox: { current: DiscoveryElement | null } = { current: null }
+    const stack: OpenElement[] = []
+    const parser = new Parser({
+      onopentag(name, attributes) {
+        if (stack.length === 0 && rootBox.current) throw new Error('Multiple XML roots')
+        const namespaces = new Map(stack.at(-1)?.namespaces ?? [])
+        for (const [attribute, value] of Object.entries(attributes)) {
+          if (attribute === 'xmlns') namespaces.set('', value)
+          else if (attribute.startsWith('xmlns:')) {
+            const prefix = attribute.slice('xmlns:'.length)
+            if (!XML_ELEMENT_NAME.test(prefix) || !value) throw new Error('Invalid namespace declaration')
+            namespaces.set(prefix, value)
+          }
+        }
+        const qualified = qualifiedName(name)
+        const namespace = (qualified.prefix ? namespaces.get(qualified.prefix) : namespaces.get('')) ?? ''
+        if (qualified.prefix && !namespace) throw new Error('Undeclared XML namespace')
+        const node: DiscoveryElement = { name: qualified.local, namespace, children: [], text: '' }
+        if (stack.at(-1)) stack.at(-1)!.node.children.push(node)
+        else rootBox.current = node
+        const tag = openingTag(xml, parser.startIndex)
+        stack.push({ node, namespaces, qualifiedName: name, selfClosing: tag.selfClosing })
+      },
+      onclosetag(name, implied) {
+        const open = stack.at(-1)
+        if (!open) throw new Error('Unexpected XML close tag')
+        if (open.selfClosing && implied) {
+          stack.pop()
+          return
+        }
+        if (implied || open.qualifiedName !== name) throw new Error('Mismatched XML close tag')
+        stack.pop()
+      },
+      ontext(value) {
+        if (!stack.length) {
+          if (value.trim()) throw new Error('Text outside the XML root')
+          return
+        }
+        stack.at(-1)!.node.text += value
+      },
+      onprocessinginstruction(name) {
+        if (name.toLowerCase() === '!doctype') throw new Error('DTD is not allowed')
+      },
+      onerror(error) {
+        throw error
+      },
+    }, { xmlMode: true, decodeEntities: true })
+    parser.write(xml)
+    parser.end()
+    const root = rootBox.current
+    if (stack.length > 0 || !root) throw new Error('Incomplete XML document')
+    if (root.namespace !== DAV_NAMESPACE || root.name !== 'multistatus') {
+      throw new Error('Expected a DAV multistatus document')
+    }
+    return root
+  } catch (error) {
+    console.warn('[inkstone] CalDAV discovery XML rejected:', error instanceof Error ? error.message : error)
+    throw new ApiError(502, 'internal', 'The calendar server returned malformed discovery XML')
+  }
+}
+
+function descendants(element: DiscoveryElement): DiscoveryElement[] {
+  return element.children.flatMap(child => [child, ...descendants(child)])
+}
+
+function firstElement(element: DiscoveryElement, tag: string, namespace = DAV_NAMESPACE): DiscoveryElement | null {
+  return descendants(element).find(candidate => candidate.name === tag && candidate.namespace === namespace) ?? null
+}
+
+function elementText(element: DiscoveryElement): string {
+  return element.text + element.children.map(elementText).join('')
+}
+
+function hasXmlElement(xml: string, tag: string, namespace = DAV_NAMESPACE): boolean {
+  if (!XML_ELEMENT_NAME.test(tag)) throw new Error('Invalid XML element name')
+  return firstElement(parseDiscoveryXml(xml), tag, namespace) !== null
+}
+
+/** Text content of the first element in the expected namespace, decoded by the XML parser. */
+export function extractFirstText(
+  xml: string,
+  tag: string,
+  namespace = DAV_NAMESPACE,
+): string | null {
+  if (!XML_ELEMENT_NAME.test(tag)) throw new Error('Invalid XML element name')
+  const element = firstElement(parseDiscoveryXml(xml), tag, namespace)
+  return element ? elementText(element).trim() : null
+}
+
+/** The first DAV `<href>` inside the named property, resolved by namespace rather than prefix. */
+export function extractFirstHref(
+  xml: string,
+  tag: string,
+  namespace = DAV_NAMESPACE,
+): string | null {
+  if (!XML_ELEMENT_NAME.test(tag)) throw new Error('Invalid XML element name')
+  const property = firstElement(parseDiscoveryXml(xml), tag, namespace)
+  const href = property ? firstElement(property, 'href') : null
+  return href ? elementText(href).trim() || null : null
 }
 
 /** `current-user-privilege-set`, or null when the server omitted it (Radicale does). */
 export function parseCalendarPrivileges(xml: string): CalendarPrivileges | null {
-  const inner = extractFirstText(xml, 'current-user-privilege-set')
-  if (!inner) return null
-  const has = (name: string) => new RegExp(`<${name}(?:[\\s/>]|>)`).test(inner)
-  const write = has('write') || has('write-content')
-  return {
-    canCreate: has('bind') || write,
-    canUpdate: write,
-    canDelete: has('unbind') || write,
+  const property = firstElement(parseDiscoveryXml(xml), 'current-user-privilege-set')
+  if (!property) return null
+  const privileges = new Set<string>()
+  for (const privilege of descendants(property).filter(element => element.name === 'privilege' && element.namespace === DAV_NAMESPACE)) {
+    for (const child of privilege.children) {
+      if (child.namespace === DAV_NAMESPACE) privileges.add(child.name)
+    }
   }
-}
-
-function decodeXmlText(value: string): string {
-  return value
-    .replaceAll(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => codePoint(Number.parseInt(hex, 16)))
-    .replaceAll(/&#(\d+);/g, (_, decimal: string) => codePoint(Number.parseInt(decimal, 10)))
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&apos;', "'")
-    .replaceAll('&amp;', '&')
-}
-
-function codePoint(value: number): string {
-  return Number.isSafeInteger(value) && value >= 0 && value <= 0x10ffff
-    ? String.fromCodePoint(value)
-    : '\ufffd'
+  const write = privileges.has('write') || privileges.has('write-content')
+  return {
+    canCreate: privileges.has('bind') || write,
+    canUpdate: write,
+    canDelete: privileges.has('unbind') || write,
+  }
 }

@@ -22,18 +22,17 @@ import {
   MAX_COUNTDOWN_TITLE,
   sortCountdowns,
 } from '@shared/calendar/countdown'
-import { CALENDAR_COLOR_PRESETS } from './model'
+import { CALENDAR_COLOR_PRESETS, CALENDAR_COLOR_LABEL_KEYS } from './model'
 import { cn } from '../../lib/cn'
-import { dateKey } from '../../lib/time'
 import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Field, Input, Segmented, Switch, Textarea } from '../../components/form'
-import { Modal, Tooltip } from '../../components/overlay'
+import { Modal, Tooltip, confirm } from '../../components/overlay'
 import { DatePicker } from '../../components/date-picker'
 import * as api from './api'
 
-function todayOf(): Temporal.PlainDate {
-  return Temporal.PlainDate.from(dateKey(new Date()))
+function todayOf(timeZone: string): Temporal.PlainDate {
+  return Temporal.Instant.fromEpochMilliseconds(Date.now()).toZonedDateTimeISO(timeZone).toPlainDate()
 }
 
 function distanceLabel(days: number): string {
@@ -49,11 +48,12 @@ function rowColor(item: CalendarCountdownDto): string {
 
 interface CountdownStripProps {
   items: readonly CalendarCountdownDto[]
+  timeZone: string
   onOpen: (id: string) => void
 }
 
-export function CountdownStrip({ items, onOpen }: CountdownStripProps) {
-  const today = useMemo(todayOf, [])
+export function CountdownStrip({ items, timeZone, onOpen }: CountdownStripProps) {
+  const today = useMemo(() => todayOf(timeZone), [timeZone])
   const pinned = useMemo(
     () => sortCountdowns(items.filter(item => item.pinned), today),
     [items, today],
@@ -86,14 +86,15 @@ export function CountdownStrip({ items, onOpen }: CountdownStripProps) {
 
 interface CountdownsCardProps {
   items: readonly CalendarCountdownDto[]
+  timeZone: string
   loading: boolean
   error: string | null
   onOpenCountdown: (id: string) => void
   onAdd: () => void
 }
 
-export function CountdownsCard({ items, loading, error, onOpenCountdown, onAdd }: CountdownsCardProps) {
-  const today = useMemo(todayOf, [])
+export function CountdownsCard({ items, timeZone, loading, error, onOpenCountdown, onAdd }: CountdownsCardProps) {
+  const today = useMemo(() => todayOf(timeZone), [timeZone])
   const sorted = useMemo(() => sortCountdowns(items, today), [items, today])
   return (
     <section aria-label={t('calendar.countdown.title')} className="px-3 py-2">
@@ -148,7 +149,7 @@ export function CountdownsCard({ items, loading, error, onOpenCountdown, onAdd }
           })}
         </ul>
       )}
-      {!loading && !error && sorted.length > 0 && (
+      {!loading && !error && (
         <div className="mt-1">
           <Button size="sm" variant="ghost" icon={<Plus size={12} aria-hidden="true" />} onClick={onAdd}>{t('calendar.countdown.add')}</Button>
         </div>
@@ -161,13 +162,14 @@ interface CountdownDialogProps {
   open: boolean
   /** The row being edited, or null for a new one. */
   item: CalendarCountdownDto | null
+  timeZone: string
   onClose: () => void
   onSaved: () => void
 }
 
-export function CountdownDialog({ open, item, onClose, onSaved }: CountdownDialogProps) {
+export function CountdownDialog({ open, item, timeZone, onClose, onSaved }: CountdownDialogProps) {
   const [title, setTitle] = useState(item?.title ?? '')
-  const [date, setDate] = useState(item?.date ?? dateKey(new Date()))
+  const [date, setDate] = useState(item?.date ?? todayOf(timeZone).toString())
   const [repeat, setRepeat] = useState<CountdownRepeat>(item?.repeat ?? 'none')
   const [note, setNote] = useState(item?.note ?? '')
   const [color, setColor] = useState(item?.color ?? '')
@@ -204,6 +206,12 @@ export function CountdownDialog({ open, item, onClose, onSaved }: CountdownDialo
 
   const remove = async (): Promise<void> => {
     if (!item) return
+    if (!await confirm({
+      title: t('common.delete'),
+      description: t('calendar.countdown.delete_confirm', { name: item.title }),
+      confirmLabel: t('common.delete'),
+      tone: 'danger',
+    })) return
     setSaving(true)
     setError(null)
     try {
@@ -216,6 +224,10 @@ export function CountdownDialog({ open, item, onClose, onSaved }: CountdownDialo
       setSaving(false)
     }
   }
+
+  const errorField = error === t('calendar.countdown.date_invalid') ? 'date' : null
+  const errorId = 'calendar-countdown-form-error'
+  const describedBy = (field: string): string | undefined => errorField === field ? errorId : undefined
 
   return (
     <Modal
@@ -239,10 +251,10 @@ export function CountdownDialog({ open, item, onClose, onSaved }: CountdownDialo
     >
       <div className="space-y-3">
         <Field label={t('calendar.countdown.field.title')} required>
-          <Input value={title} maxLength={MAX_COUNTDOWN_TITLE} onChange={event => setTitle(event.target.value)} />
+          <Input id="calendar-countdown-title" value={title} maxLength={MAX_COUNTDOWN_TITLE} onChange={event => setTitle(event.target.value)} />
         </Field>
         <Field label={t('calendar.countdown.field.date')}>
-          <DatePicker label={t('calendar.countdown.field.date')} value={date} onChange={setDate} />
+          <DatePicker id="calendar-countdown-date" label={t('calendar.countdown.field.date')} value={date} onChange={setDate} invalid={errorField === 'date'} aria-describedby={describedBy('date')} />
         </Field>
         <Field label={t('calendar.countdown.field.repeat')} hint={t('calendar.countdown.repeat_hint')}>
           <Segmented<CountdownRepeat>
@@ -257,11 +269,29 @@ export function CountdownDialog({ open, item, onClose, onSaved }: CountdownDialo
           />
         </Field>
         <Field label={t('calendar.countdown.field.color')}>
-          <div role="radiogroup" aria-label={t('calendar.countdown.field.color')} className="flex flex-wrap gap-1.5">
+          <div
+            role="radiogroup"
+            aria-label={t('calendar.countdown.field.color')}
+            className="flex flex-wrap gap-1.5"
+            onKeyDown={(event) => {
+              const choices = ['', ...CALENDAR_COLOR_PRESETS]
+              const current = choices.indexOf(color)
+              let next = current
+              if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (current + 1) % choices.length
+              else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (current - 1 + choices.length) % choices.length
+              else if (event.key === 'Home') next = 0
+              else if (event.key === 'End') next = choices.length - 1
+              else return
+              event.preventDefault()
+              setColor(choices[next]!)
+              event.currentTarget.querySelectorAll<HTMLButtonElement>('button')[next]?.focus()
+            }}
+          >
             <button
               type="button"
               role="radio"
               aria-checked={color === ''}
+              tabIndex={color === '' ? 0 : -1}
               aria-label={t('calendar.countdown.color_default')}
               onClick={() => setColor('')}
               className={cn(
@@ -269,15 +299,16 @@ export function CountdownDialog({ open, item, onClose, onSaved }: CountdownDialo
                 color === '' && 'ring-2 ring-[var(--accent)] ring-offset-1',
               )}
             >
-              —
+              <span aria-hidden="true">—</span>
             </button>
-            {CALENDAR_COLOR_PRESETS.map((hex) => (
+            {CALENDAR_COLOR_PRESETS.map((hex, index) => (
               <button
                 key={hex}
                 type="button"
                 role="radio"
                 aria-checked={color === hex}
-                aria-label={hex}
+                tabIndex={color === hex ? 0 : -1}
+                aria-label={t(CALENDAR_COLOR_LABEL_KEYS[index]!)}
                 onClick={() => setColor(hex)}
                 className={cn('size-6 rounded-full', color === hex && 'ring-2 ring-[var(--accent)] ring-offset-1')}
                 style={{ backgroundColor: hex }}
@@ -289,7 +320,7 @@ export function CountdownDialog({ open, item, onClose, onSaved }: CountdownDialo
           <Textarea value={note} maxLength={MAX_COUNTDOWN_NOTE} rows={3} onChange={event => setNote(event.target.value)} />
         </Field>
         <Switch checked={pinned} onChange={setPinned} label={t('calendar.countdown.field.pinned')} />
-        {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
+        {error && <p id={errorId} role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
       </div>
     </Modal>
   )

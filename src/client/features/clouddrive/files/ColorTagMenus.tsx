@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Ban, Plus, Trash2 } from 'lucide-react'
 import {
   ORGANIZER_COLORS,
@@ -88,6 +88,7 @@ export function FolderColorMenu({
   const surface = useResolvedSurface(surfaceRef)
   const [draft, setDraft] = useState(value ?? '')
   const [error, setError] = useState<string | null>(null)
+  const errorId = useId()
 
   useEffect(() => {
     setDraft(value ?? '')
@@ -163,11 +164,13 @@ export function FolderColorMenu({
           placeholder={t('clouddrive.color.custom_placeholder')}
           aria-label={t('clouddrive.color.custom_placeholder')}
           aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          invalid={Boolean(error)}
           className="h-8 min-w-0 flex-1"
         />
         <Button size="sm" variant="secondary" onClick={applyCustom}>{t('common.save')}</Button>
       </div>
-      {error && <p role="alert" className="mt-1.5 px-1 text-[length:var(--text-11)] text-[var(--danger)]">{error}</p>}
+      {error && <p id={errorId} role="alert" className="mt-1.5 px-1 text-[length:var(--text-11)] text-[var(--danger)]">{error}</p>}
     </div>
   )
 }
@@ -187,8 +190,9 @@ export function TagEditorMenu({
   const [name, setName] = useState('')
   const [color, setColor] = useState<string>(DEFAULT_TAG_COLOR)
   const [error, setError] = useState<string | null>(null)
+  const errorId = useId()
 
-  const submit = () => {
+  const submit = async () => {
     const trimmed = name.trim().normalize('NFC')
     if (!trimmed) return
     if (trimmed.length > 32) {
@@ -200,8 +204,20 @@ export function TagEditorMenu({
       return
     }
     setError(null)
-    setName('')
-    void onAdd(trimmed, color)
+    try {
+      await onAdd(trimmed, color)
+      setName('')
+    } catch {
+      setError(t('clouddrive.toast.failed'))
+    }
+  }
+
+  const remove = async (tag: string) => {
+    try {
+      await onRemove(tag)
+    } catch {
+      setError(t('clouddrive.toast.failed'))
+    }
   }
 
   return (
@@ -221,7 +237,7 @@ export function TagEditorMenu({
                   size="xs"
                   label={`${t('clouddrive.tags.remove')}: ${tag.name}`}
                   disabled={busy}
-                  onClick={() => void onRemove(tag.name)}
+                  onClick={() => void remove(tag.name)}
                 >
                   <Trash2 size={12} />
                 </IconButton>
@@ -248,17 +264,19 @@ export function TagEditorMenu({
             setName(event.target.value)
             setError(null)
           }}
-          onKeyDown={(event) => commitOnEnter(event, submit)}
+          onKeyDown={(event) => commitOnEnter(event, () => { void submit() })}
           placeholder={t('clouddrive.tags.placeholder')}
           aria-label={t('clouddrive.tags.placeholder')}
           aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          invalid={Boolean(error)}
           className="h-8 min-w-0 flex-1"
         />
-        <Button size="sm" variant="secondary" icon={<Plus size={12} />} onClick={submit} disabled={busy}>
+        <Button size="sm" variant="secondary" icon={<Plus size={12} />} onClick={() => void submit()} disabled={busy}>
           {t('clouddrive.tags.add')}
         </Button>
       </div>
-      {error && <p role="alert" className="mt-1.5 px-1 text-[length:var(--text-11)] text-[var(--danger)]">{error}</p>}
+      {error && <p id={errorId} role="alert" className="mt-1.5 px-1 text-[length:var(--text-11)] text-[var(--danger)]">{error}</p>}
     </div>
   )
 }

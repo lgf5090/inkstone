@@ -200,6 +200,7 @@ describe('the pair of move rows', () => {
       t('todo.layout.group.priority'),
       t('todo.move.to_list'),
       ...SNOOZE_MINUTES.map((minutes) => snoozeLabel(minutes)),
+      t('todo.snooze.custom'),
     ])
   })
 
@@ -211,6 +212,7 @@ describe('the pair of move rows', () => {
       t('todo.status.mark_in_progress'),
       t('todo.layout.group.priority'),
       ...SNOOZE_MINUTES.map((minutes) => snoozeLabel(minutes)),
+      t('todo.snooze.custom'),
     ])
   })
 

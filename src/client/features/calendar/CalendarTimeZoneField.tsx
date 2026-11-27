@@ -5,7 +5,7 @@
  * them. The datalist keeps the same underlying value and lets the browser filter suggestions, while
  * the component only commits a zone the runtime recognises. An invalid draft is abandoned on blur.
  */
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Input } from '../../components/form'
 import { supportedTimeZones } from './timezone'
 
@@ -33,6 +33,9 @@ export function CalendarTimeZoneField({
   const listId = useId()
   const zones = useMemo(supportedTimeZones, [])
   const [draft, setDraft] = useState(value)
+  const commitTimer = useRef<number | undefined>(undefined)
+
+  useEffect(() => () => window.clearTimeout(commitTimer.current), [])
 
   useEffect(() => setDraft(value), [value])
 
@@ -60,9 +63,14 @@ export function CalendarTimeZoneField({
         onChange={(event) => {
           const next = event.target.value
           setDraft(next)
-          commit(next)
+          window.clearTimeout(commitTimer.current)
+          commitTimer.current = window.setTimeout(() => commit(next), 300)
         }}
-        onBlur={() => setDraft(value)}
+        onBlur={() => {
+          window.clearTimeout(commitTimer.current)
+          commit(draft)
+          setDraft(value)
+        }}
       />
       <datalist id={listId}>
         {zones.map(zone => <option key={zone} value={zone} />)}

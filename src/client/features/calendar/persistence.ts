@@ -22,8 +22,8 @@ const RECURRING_NOTICE_MS = 3000
 const RELOAD_STATUSES = new Set([400, 404])
 
 type Intent =
-  | { kind: 'save'; event: Event; remote: boolean }
-  | { kind: 'delete'; remote: boolean }
+  | { kind: 'save'; event: Event; remote: boolean; baseRev: number | null }
+  | { kind: 'delete'; remote: boolean; baseRev: number | null }
 
 interface Draft {
   before: Event | null
@@ -41,6 +41,7 @@ export interface ConflictRequest {
 /** An edit aimed at one occurrence, before it is turned into an exception or a split. */
 export interface RecurrenceOccurrenceRequest {
   masterId: string
+  masterRev: number
   intent: 'save' | 'delete'
   before: Event
   after: Event | null
@@ -70,8 +71,8 @@ export interface EventPersistenceOptions {
   onDeleted?: (id: string, title: string | undefined) => void
   /** The write met a dead network; keeping it is the caller's call. */
   onOffline?: (entry:
-    | { kind: 'save'; eventId: string; input: CalendarEventInput }
-    | { kind: 'delete'; eventId: string; rev: number }) => void
+    | { kind: 'save'; eventId: string; input: CalendarEventInput; baseRev: number | null }
+    | { kind: 'delete'; eventId: string; rev: number | null }) => void | boolean | Promise<void | boolean>
 }
 
 function changeEvent(change: EventChange): Event {
@@ -120,6 +121,11 @@ export class EventPersistence {
     return this.pending.has(id) || this.inFlight.has(id) || this.conflicts.has(id)
   }
 
+  /** Adopt a stale durable-queue write so the existing dialog can resolve it like an online 409. */
+  acceptConflict(request: ConflictRequest): void {
+    if (!this.conflicts.has(request.id)) this.conflicts.set(request.id, request)
+  }
+
   /**
    * Finish a parked conflict.
    *
@@ -129,6 +135,7 @@ export class EventPersistence {
   async resolveConflict(id: string, resolution: ConflictResolution): Promise<void> {
     if (!this.conflicts.delete(id)) return
     if (resolution.action === 'server') {
+      this.options.history.failReplay(id)
       this.drafts.delete(id)
       await this.options.onServerState(id)
       return
@@ -147,6 +154,7 @@ export class EventPersistence {
       this.commitDraft(id, toDayFlowEvent(updated, this.options.timeZone()))
       await this.options.onServerState(id)
     } catch (error) {
+      this.options.history.failReplay(id)
       this.drafts.delete(id)
       this.options.onError(error)
       await this.options.onServerState(id)
@@ -177,9 +185,11 @@ export class EventPersistence {
         const after = change.type === 'update' ? change.after : null
         this.revert(change)
         const masterId = before._recurrenceMasterId ?? before.id.split('::repeat-')[0] ?? ''
-        if (this.options.onRecurrenceOccurrence && masterId) {
+        const masterRev = this.options.revs.get(masterId)
+        if (this.options.onRecurrenceOccurrence && masterId && masterRev !== undefined) {
           this.options.onRecurrenceOccurrence({
             masterId,
+            masterRev,
             intent: change.type === 'delete' ? 'delete' : 'save',
             before,
             after,
@@ -212,8 +222,9 @@ export class EventPersistence {
     }
 
     const remote = change.source === 'remote'
-    if (change.type === 'delete') this.pending.set(id, { kind: 'delete', remote })
-    else this.pending.set(id, { kind: 'save', event: event, remote })
+    const baseRev = this.options.revs.get(id) ?? null
+    if (change.type === 'delete') this.pending.set(id, { kind: 'delete', remote, baseRev })
+    else this.pending.set(id, { kind: 'save', event: event, remote, baseRev })
 
     this.schedule()
   }
@@ -252,23 +263,16 @@ export class EventPersistence {
     } catch (error) {
       // A stale revision is not a failure to guess around: the row changed elsewhere, so the reader
       // chooses which parts survive. The edit stays on screen while they decide.
-      if (error instanceof ApiError && !error.isOffline && error.status === 409 && !this.conflicts.has(id)) {
-        const request: ConflictRequest = {
-          id,
-          intent: intent.kind,
-          mine: this.mineFor(id, intent),
-        }
-        this.conflicts.set(id, request)
-        this.options.onConflict(request)
-        return
-      }
+      if (this.parkConflict(id, intent, error)) return
       if (isPermanent(error) && error instanceof ApiError && RELOAD_STATUSES.has(error.status)) {
+        this.options.history.failReplay(id)
         this.drafts.delete(id)
         this.options.onError(error)
         await this.options.onServerState(id, error.status)
         return
       }
       if (isPermanent(error)) {
+        this.options.history.failReplay(id)
         this.revertDraft(id)
         this.options.onError(error)
         return
@@ -278,39 +282,58 @@ export class EventPersistence {
         await wait(RETRY_DELAY_MS)
         await this.attempt(id, intent)
       } catch (retryError) {
+        if (this.parkConflict(id, intent, retryError)) return
         if (retryError instanceof ApiError && retryError.isOffline && this.options.onOffline) {
-          this.keepOffline(id, intent)
+          await this.keepOffline(id, intent)
           return
         }
+        this.options.history.failReplay(id)
         this.revertDraft(id)
         this.options.onError(retryError)
       }
     }
   }
 
+  private parkConflict(id: string, intent: Intent, error: unknown): boolean {
+    if (!(error instanceof ApiError) || error.isOffline || error.status !== 409 || this.conflicts.has(id)) return false
+    const request: ConflictRequest = {
+      id,
+      intent: intent.kind,
+      mine: this.mineFor(id, intent),
+    }
+    this.conflicts.set(id, request)
+    this.options.onConflict(request)
+    return true
+  }
+
   /** Keep the optimistic row and hand the write to the account's durable queue. */
-  private keepOffline(id: string, intent: Intent): void {
-    const rev = this.options.revs.get(id)
+  private async keepOffline(id: string, intent: Intent): Promise<void> {
     if (intent.kind === 'delete') {
-      if (rev === undefined) {
-        // The row never reached the server, so there is nothing for the queue to delete.
-        this.drafts.delete(id)
+      const title = this.drafts.get(id)?.before?.title
+      const kept = await this.options.onOffline?.({ kind: 'delete', eventId: id, rev: intent.baseRev })
+      if (kept === false) {
+        this.options.history.failReplay(id)
+        this.revertDraft(id)
         return
       }
-      const title = this.drafts.get(id)?.before?.title
-      this.options.onOffline?.({ kind: 'delete', eventId: id, rev })
+      // A null revision also cancels a queued save for a row created only on this device.
       this.drafts.delete(id)
       this.options.onDeleted?.(id, title)
       return
     }
-    this.options.onOffline?.({
+    const input = this.mineFor(id, intent)
+    if (!input) return
+    const kept = await this.options.onOffline?.({
       kind: 'save',
       eventId: id,
-      input: toEventInput(intent.event, {
-        fallbackTitle: this.options.fallbackTitle(),
-        timeZone: this.options.timeZone(),
-      }),
+      input,
+      baseRev: intent.baseRev,
     })
+    if (kept === false) {
+      this.options.history.failReplay(id)
+      this.revertDraft(id)
+      return
+    }
     this.commitDraft(id, undefined, true)
   }
 
@@ -329,8 +352,18 @@ export class EventPersistence {
     const rev = this.options.revs.get(id)
     if (intent.kind === 'delete') {
       if (rev === undefined) {
-        // Created and deleted before either reached the server: there is nothing to delete.
-        this.drafts.delete(id)
+        // A queued create may still be durable even though this device has no server revision. Delete
+        // cancels that save; if cancellation failed, keep the row visible rather than claim it is gone.
+        const cancelled = await this.options.onOffline?.({ kind: 'delete', eventId: id, rev: null })
+        if (cancelled === false) {
+          this.options.history.failReplay(id)
+          this.revertDraft(id)
+        } else {
+          const title = this.drafts.get(id)?.before?.title
+          this.drafts.delete(id)
+          this.options.history.finishReplay(id)
+          this.options.onDeleted?.(id, title)
+        }
         return
       }
       const title = this.drafts.get(id)?.before?.title
@@ -375,6 +408,7 @@ export class EventPersistence {
    * app's copy under the new id keeps the reader's own edit pointing at the same event.
    */
   private remapCreated(id: string, created: CalendarEventDto): void {
+    this.options.history.remapReplay(id, created.id)
     this.options.revs.delete(id)
     this.options.revs.set(created.id, created.rev)
     const draft = this.drafts.get(id)
@@ -388,7 +422,7 @@ export class EventPersistence {
     const queued = this.pending.get(id)
     if (queued) {
       this.pending.delete(id)
-      this.pending.set(created.id, queued)
+      this.pending.set(created.id, { ...queued, baseRev: created.rev })
     }
     const conflict = this.conflicts.get(id)
     if (conflict) {
@@ -406,7 +440,10 @@ export class EventPersistence {
 
   private commitDraft(id: string, after?: Event, offline = false): void {
     const draft = this.drafts.get(id)
-    if (!draft) return
+    if (!draft) {
+      this.options.history.finishReplay(id)
+      return
+    }
     const committed = after ?? draft.after
     const recurring = Boolean(
       draft.before?.meta?.recurrenceRule || committed?.meta?.recurrenceRule,

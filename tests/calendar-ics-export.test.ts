@@ -103,6 +103,31 @@ beforeEach(() => {
   user = ALICE
 })
 
+describe('POST /api/calendar/ics/import', () => {
+  it('imports valid events and reports invalid ones as warnings', async () => {
+    const calendar = await createCalendar('Imports')
+    const content = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Audit//EN',
+      'BEGIN:VEVENT', 'UID:good', 'DTSTART:20261126T010000Z', 'DTEND:20261126T020000Z', 'SUMMARY:Good', 'END:VEVENT',
+      'BEGIN:VEVENT', 'UID:bad', 'DTSTART:20261126T010000Z', 'DTEND:20261126T020000Z', `SUMMARY:${'x'.repeat(301)}`, 'END:VEVENT',
+      'END:VCALENDAR', '',
+    ].join('\r\n')
+    const response = await call('POST', '/ics/import', { calendarId: calendar.id, content })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ imported: 1, warnings: [expect.objectContaining({ code: 'invalid_event', uid: 'bad' })] })
+  })
+
+  it('does not leave an empty calendar when every event is invalid', async () => {
+    const content = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Audit//EN',
+      'BEGIN:VEVENT', 'UID:bad', 'DTSTART:20261126T010000Z', 'DTEND:20261126T020000Z', `SUMMARY:${'x'.repeat(301)}`, 'END:VEVENT',
+      'END:VCALENDAR', '',
+    ].join('\r\n')
+    const response = await call('POST', '/ics/import', { newCalendar: { name: 'Broken import' }, content })
+    expect(response.status).toBe(400)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_calendars').get()).toEqual({ count: 0 })
+  })
+})
 describe('GET /api/calendar/ics/export', () => {
   it('needs a session', async () => {
     user = ''
@@ -139,6 +164,70 @@ describe('GET /api/calendar/ics/export', () => {
 
     const again = parseIcsCalendar({ content: text, defaultTimeZone: 'UTC', maxEvents: 10 })
     expect(again.events.map((event) => event.title).sort()).toEqual(['Standup', '设计评审'])
+  })
+
+  it('keeps valid attendees and the organizer in a private export without CN injection', async () => {
+    const calendar = await createCalendar('Work')
+    const event = await createEvent(calendar.id)
+    const store = new CalendarStore(db, ALICE)
+    await store.setEventAttendees(event.id, [{
+      email: 'guest@example.com',
+      name: 'Guest\r\nX-INJECTED:yes',
+      status: 'accepted',
+    }], event.rev)
+    const preferences = await store.preferences()
+    await store.savePreferences({ ...preferences, organizerEmail: 'organizer@example.com' })
+
+    const response = await call('GET', `/ics/export?calendarId=${calendar.id}`)
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    const unfolded = text.replace(/\r\n[ \t]/g, '')
+    expect(text).toContain('ORGANIZER:mailto:organizer@example.com')
+    expect(unfolded).toContain('ATTENDEE;CN="Guest X-INJECTED:yes";PARTSTAT=ACCEPTED:mailto:guest@example.com')
+    expect(text.split('\r\n')).not.toContain('X-INJECTED:yes')
+
+    const parsed = parseIcsCalendar({ content: text, defaultTimeZone: 'UTC', maxEvents: 10 })
+    expect(parsed.events[0]?.meta?.attendees).toEqual([{
+      email: 'guest@example.com',
+      name: 'Guest X-INJECTED:yes',
+      status: 'accepted',
+    }])
+  })
+
+  it('does not turn CRLF in a URL into new ICS properties', async () => {
+    const calendar = await createCalendar('Work')
+    await createEvent(calendar.id, {
+      meta: { url: 'https://example.com/\r\nATTENDEE;CN=injected:mailto:attacker@example.com' },
+    })
+    await createEvent(calendar.id, {
+      title: 'Line feed',
+      meta: { url: 'https://example.com/\nX-INJECTED:yes' },
+    })
+
+    const response = await call('GET', `/ics/export?calendarId=${calendar.id}`)
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).not.toContain('URL:')
+    expect(text).not.toMatch(/^(?:ATTENDEE|X-INJECTED)[;:]/m)
+    expect(text.split('\r\n')).not.toContain('X-INJECTED:yes')
+  })
+
+  it('never falls back to legacy meta attendees when the table is empty', async () => {
+    const calendar = await createCalendar('Work')
+    const event = await createEvent(calendar.id)
+    sqlite.prepare('UPDATE calendar_events SET meta_json = ? WHERE user_id = ? AND id = ?')
+      .run(JSON.stringify({
+        attendees: [
+          { email: 'valid@example.com', name: 'Valid Guest', status: 'accepted' },
+          { email: 'not-an-email', name: 'Invalid Guest', status: 'accepted' },
+        ],
+      }), ALICE, event.id)
+
+    const response = await call('GET', `/ics/export?calendarId=${calendar.id}`)
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).not.toContain('ATTENDEE')
+    expect(text).not.toContain('mailto:valid@example.com')
   })
 
   it('exports only the requested calendar', async () => {

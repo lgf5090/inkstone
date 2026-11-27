@@ -4,10 +4,16 @@ import type { ReactNode } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
-import { clouddriveApi } from '../api'
+import { clouddriveApi, type CloudDriveAclGrant, type CloudDriveAclRole } from '../api'
 import { Button, IconButton } from '../../../components/primitives'
-import { Input, Textarea } from '../../../components/form'
+import { DatePicker } from '../../../components/date-picker'
+import { Input, Select, Textarea } from '../../../components/form'
+import { Drawer } from '../../../components/overlay'
+import { useMediaQuery } from '../../../lib/hooks'
+import { useSession } from '../../../store/session'
 import { useUi } from '../../../store/ui'
+import { useCloudDriveStore } from '../store'
+import { CommentsPanel } from './CommentsPanel'
 import { FileIcon } from './FileIcon'
 import { FolderColorMenu, TagEditorMenu } from './ColorTagMenus'
 import { entryKindLabel, formatEntryDate, formatEntrySize, totalEntryBytes } from './format'
@@ -21,31 +27,60 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
   )
 }
 
+function expiryInputValue(value: number | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
 function AclEditor({ entry }: { entry: CloudDriveEntry }) {
   const toast = useUi((state) => state.toast)
-  const [grants, setGrants] = useState<{ granteeId: string; username: string; name: string }[]>([])
+  const [grants, setGrants] = useState<CloudDriveAclGrant[]>([])
+  const [cursor, setCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [username, setUsername] = useState('')
+  const [role, setRole] = useState<CloudDriveAclRole>('viewer')
+  const [expiresAt, setExpiresAt] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
-  const load = () => {
-    void clouddriveApi.aclGrants(entry.id).then((result) => setGrants(result.grants)).catch((error) => {
+  const load = (next: string | null = null) => {
+    if (next) setLoadingMore(true)
+    void clouddriveApi.aclGrants(entry.id, next).then((result) => {
+      setGrants((current) => next ? [...current, ...result.grants] : result.grants)
+      setCursor(result.cursor)
+    }).catch((error) => {
       console.warn('[inkstone] CloudDrive ACL grants could not be read', error)
-    })
+    }).finally(() => setLoadingMore(false))
   }
   useEffect(() => { load() }, [entry.id])
+  const fail = (caught: unknown) => toast({
+    title: t('clouddrive.toast.failed'),
+    description: caught instanceof Error ? caught.message : '',
+    tone: 'danger',
+  })
   const add = async () => {
     if (!username.trim()) return
     setBusy(true)
     try {
-      await clouddriveApi.addAclGrant(entry.id, username.trim())
+      await clouddriveApi.addAclGrant(entry.id, username.trim(), role, expiresAt)
       setUsername('')
+      setExpiresAt(null)
       load()
       toast({ title: t('clouddrive.inspector.acl_added') })
     } catch (caught) {
-      toast({
-        title: t('clouddrive.toast.failed'),
-        description: caught instanceof Error ? caught.message : '',
-        tone: 'danger',
-      })
+      fail(caught)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const update = async (grant: CloudDriveAclGrant, patch: { role?: CloudDriveAclRole; expiresAt?: number | null }) => {
+    setBusy(true)
+    try {
+      const result = await clouddriveApi.patchAclGrant(entry.id, grant.granteeId, patch)
+      setGrants((current) => current.map((one) => one.granteeId === grant.granteeId ? result.grant : one))
+    } catch (caught) {
+      fail(caught)
+      load()
     } finally {
       setBusy(false)
     }
@@ -56,8 +91,8 @@ function AclEditor({ entry }: { entry: CloudDriveEntry }) {
       await clouddriveApi.removeAclGrant(entry.id, granteeId)
       load()
       toast({ title: t('clouddrive.inspector.acl_removed') })
-    } catch {
-      toast({ title: t('clouddrive.toast.failed'), tone: 'danger' })
+    } catch (caught) {
+      fail(caught)
     } finally {
       setBusy(false)
     }
@@ -66,19 +101,51 @@ function AclEditor({ entry }: { entry: CloudDriveEntry }) {
     <section>
       <h3 className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.acl')}</h3>
       <p className="mb-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.inspector.acl_hint')}</p>
-      <div className="flex gap-1.5">
+      <div className="flex flex-col gap-1.5">
         <Input value={username} onChange={(event) => setUsername(event.target.value)} placeholder={t('clouddrive.inspector.acl')} aria-label={t('clouddrive.inspector.acl')} />
+        <div className="flex gap-1.5">
+          <Select value={role} onChange={(event) => setRole(event.target.value as CloudDriveAclRole)} aria-label={t('clouddrive.inspector.acl_role')} disabled={busy}>
+            <option value="viewer">{t('clouddrive.acl.role.viewer')}</option>
+            <option value="commenter">{t('clouddrive.acl.role.commenter')}</option>
+            <option value="editor">{t('clouddrive.acl.role.editor')}</option>
+          </Select>
+          <DatePicker label={t('clouddrive.inspector.acl_expires')} value={expiryInputValue(expiresAt)} onChange={(value) => setExpiresAt(value ? new Date(value).getTime() : null)} withTime className="min-w-0 flex-1" />
+        </div>
         <Button size="sm" variant="secondary" loading={busy} onClick={() => void add()}>{t('clouddrive.inspector.acl_add')}</Button>
       </div>
       {grants.length === 0 ? <p className="mt-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.inspector.acl_empty')}</p> : (
-        <ul className="mt-1 flex flex-col gap-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+        <ul className="mt-2 flex flex-col gap-2 text-[length:var(--text-11)] text-[var(--text-secondary)]">
           {grants.map((grant) => (
-            <li key={grant.granteeId} className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate">{grant.username}{grant.name && grant.name !== grant.username ? ` · ${grant.name}` : ''}</span>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void remove(grant.granteeId)}>{t('clouddrive.inspector.acl_remove')}</Button>
+            <li key={grant.granteeId} className="flex flex-col gap-1 border-t border-[var(--border-subtle)] pt-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate">{grant.username}{grant.name && grant.name !== grant.username ? ` · ${grant.name}` : ''}</span>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => void remove(grant.granteeId)}>{t('clouddrive.inspector.acl_remove')}</Button>
+              </div>
+              <div className="flex gap-1.5">
+                <Select value={grant.role} onChange={(event) => void update(grant, { role: event.target.value as CloudDriveAclRole })} aria-label={t('clouddrive.inspector.acl_role')} disabled={busy}>
+                  <option value="viewer">{t('clouddrive.acl.role.viewer')}</option>
+                  <option value="commenter">{t('clouddrive.acl.role.commenter')}</option>
+                  <option value="editor">{t('clouddrive.acl.role.editor')}</option>
+                </Select>
+                <DatePicker
+                  label={t('clouddrive.inspector.acl_expires')}
+                  value={expiryInputValue(grant.expiresAt)}
+                  withTime
+                  className="min-w-0 flex-1"
+                  onChange={(value) => {
+                    const next = value ? new Date(value).getTime() : null
+                    if (!busy && next !== grant.expiresAt) void update(grant, { expiresAt: next })
+                  }}
+                />
+              </div>
             </li>
           ))}
         </ul>
+      )}
+      {cursor && (
+        <Button size="sm" variant="secondary" className="mt-1" loading={loadingMore} onClick={() => load(cursor)}>
+          {t('clouddrive.search.load_more')}
+        </Button>
       )}
     </section>
   )
@@ -235,6 +302,10 @@ export function Inspector({
   // it when it first opens instead of claiming "not shared" for files it never looked at.
   const [sharedIds, setSharedIds] = useState<Set<string> | null>(null)
   const sharesRequested = useRef(false)
+  const mobile = useMediaQuery('(max-width: 767px)')
+  const sessionUserId = useSession((state) => state.user?.id)
+  const bootstrapUserId = useCloudDriveStore((state) => state.bootstrap?.user.id)
+  const currentUserId = sessionUserId ?? bootstrapUserId ?? ''
 
   useEffect(() => {
     if (!open || sharesRequested.current) return
@@ -256,14 +327,7 @@ export function Inspector({
   if (!open) return null
   const single = entries.length === 1 ? entries[0] : null
   const metadataWritable = single !== null && !readOnly && !single.readOnly && single.storageKind !== 'external'
-  return (
-    <aside className="cd-inspector flex min-h-0 flex-col" aria-label={t('clouddrive.inspector.title')}>
-      <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
-        <h2 className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">{t('clouddrive.inspector.title')}</h2>
-        <IconButton label={t('common.close')} size="sm" onClick={onClose}>
-          <X size={14} />
-        </IconButton>
-      </header>
+  const content = (
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {entries.length === 0 && (
           <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.inspector.none')}</p>
@@ -317,6 +381,9 @@ export function Inspector({
               </DetailRow>
               )}
             </dl>
+            {single.storageKind !== 'external' && currentUserId && (
+              <CommentsPanel key={single.id} entry={single} ownerId={currentUserId} currentUserId={currentUserId} />
+            )}
             {single.storageKind === 'distributed' && <DistributedParts entry={single} />}
             {single.storageKind !== 'external' && !readOnly && !single.readOnly && <AclEditor entry={single} />}
             {single.kind === 'folder' && folderSummary && <FolderSizeTool entry={single} />}
@@ -356,6 +423,23 @@ export function Inspector({
           </div>
         )}
       </div>
+  )
+  if (mobile) {
+    return (
+      <Drawer open onClose={onClose} side="right" width={320} title={t('clouddrive.inspector.title')}>
+        {content}
+      </Drawer>
+    )
+  }
+  return (
+    <aside className="cd-inspector flex min-h-0 flex-col" aria-label={t('clouddrive.inspector.title')}>
+      <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
+        <h2 className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">{t('clouddrive.inspector.title')}</h2>
+        <IconButton label={t('common.close')} size="sm" onClick={onClose}>
+          <X size={14} />
+        </IconButton>
+      </header>
+      {content}
     </aside>
   )
 }

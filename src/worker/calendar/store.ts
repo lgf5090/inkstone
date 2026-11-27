@@ -17,7 +17,6 @@
 
 import type {
   CalendarConferenceDto,
-  CalendarConnectionDto,
   CalendarDto,
   CalendarEventDto,
   CalendarEventInput,
@@ -27,8 +26,6 @@ import type {
   CalendarMetaDto,
   CalendarPreferences,
   CalendarRangeRevisionDto,
-  CalendarResourceDto,
-  CalendarSchedulingLinkDto,
   CalendarSearchResultDto,
   CalendarSource,
   CalendarSubscriptionDto,
@@ -59,9 +56,14 @@ import {
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { Temporal } from 'temporal-polyfill'
+import { RRule } from 'rrule'
 import { parseStoredJson, storedObject } from '../lib/json'
+import { normalizeEventAttendees } from './attendees'
 import { eventAttachmentDeleteStatements } from './attachments'
 import { attachmentCleanupTargetSql } from '../attachments/keys'
+import { listCalendarConnections } from './connections'
+import { listResources } from './resources'
+import { listSchedulingLinkDtos } from './scheduling'
 
 /** Light/dark pairs the first calendar and any uncoloured create draw from, in order. */
 const DEFAULT_CALENDAR_COLORS: ReadonlyArray<{ color: string; darkColor: string }> = [
@@ -98,6 +100,8 @@ export interface CalendarEventWriteInput extends Omit<CalendarEventInput, 'task'
   task?: CalendarTaskDto | CalendarTaskWrite | null
   startMs?: number
   endMs?: number
+  /** Server-side normalized guest list; public callers use the top-level `attendees` field. */
+  attendees?: readonly CalendarAttendeeDto[]
 }
 
 type TimelineEventWrite = CalendarEventWriteInput & {
@@ -110,18 +114,19 @@ type TimelineEventWrite = CalendarEventWriteInput & {
   allDay: boolean
   calendarIds: string[]
   meta: Record<string, unknown>
+  attendees?: readonly CalendarAttendeeDto[]
   icon: boolean | null
   color: string | null
   recurrenceRule: string | null
   recurrenceParentId: string | null
   recurrenceId: string | null
   recurrenceCancelled: boolean
-  resourceId: string | null
   source: CalendarSource
   externalId: string | null
 }
 
 export interface RecurrenceChangeWrite {
+  rev: number
   occurrenceStart: TemporalValue
   occurrenceEnd: TemporalValue
   scope: 'this' | 'following' | 'all'
@@ -143,6 +148,7 @@ export interface CalendarEventPatchInput {
   allDay?: boolean
   calendarIds?: string[]
   meta?: Record<string, unknown>
+  attendees?: readonly CalendarAttendeeDto[]
   icon?: boolean | null
   color?: string | null
   recurrenceRule?: string | null
@@ -183,6 +189,7 @@ export interface CalendarDeleteOptions {
   mode: 'merge' | 'delete'
   targetId?: string | null
   rev?: number | null
+  allowLast?: boolean
 }
 
 interface CalendarRow {
@@ -215,6 +222,7 @@ interface GroupRow {
 }
 
 interface EventRow {
+  user_id: string
   id: string
   title: string
   description: string
@@ -239,7 +247,6 @@ interface EventRow {
   recurrence_parent_id: string | null
   recurrence_id: string | null
   recurrence_cancelled: number
-  resource_id: string | null
   calendar_source: string
   external_scope: string
   external_id: string | null
@@ -256,20 +263,6 @@ interface SubscriptionRow {
   last_error_code: string | null
   created_at: number
   updated_at: number
-}
-
-interface ConnectionRow {
-  id: string
-  kind: string
-  label: string
-  base_url: string
-  calendar_home_url: string | null
-  username: string | null
-  scope: string | null
-  writable: number
-  status: string
-  last_synced_at: number | null
-  last_error_code: string | null
 }
 
 function placeholders(count: number): string {
@@ -294,7 +287,8 @@ function subscriptionHost(raw: string | null): string | null {
   if (!raw) return null
   try {
     return new URL(raw).hostname
-  } catch {
+  } catch (cause) {
+    console.warn('[inkstone] Calendar subscription URL host could not be read.', cause)
     return null
   }
 }
@@ -323,27 +317,37 @@ function temporalKey(value: TemporalValue): string {
   return value.value
 }
 
-function shiftTemporal(value: TemporalValue, deltaMs: number, fallbackZone: string): TemporalValue {
-  if (value.type === 'date') {
-    const days = Math.round(deltaMs / 86_400_000)
-    return { type: 'date', value: Temporal.PlainDate.from(value.value).add({ days }).toString() }
-  }
-  if (value.type === 'datetime') {
-    return {
-      type: 'datetime',
-      value: Temporal.PlainDateTime.from(value.value).add({ milliseconds: deltaMs })
-        .toString({ smallestUnit: 'second' }),
-    }
-  }
-  const zone = value.timeZone ?? fallbackZone
+function temporalPlainDateTime(value: TemporalValue, fallbackZone: string): Temporal.PlainDateTime {
+  if (value.type === 'date') return Temporal.PlainDate.from(value.value).toPlainDateTime()
+  if (value.type === 'datetime') return Temporal.PlainDateTime.from(value.value)
   const zoned = value.value.includes('[')
     ? Temporal.ZonedDateTime.from(value.value)
-    : Temporal.PlainDateTime.from(value.value).toZonedDateTime(zone)
-  return {
-    type: 'zoned',
-    value: zoned.add({ milliseconds: deltaMs }).toPlainDateTime().toString({ smallestUnit: 'second' }),
-    timeZone: zone,
+    : Temporal.PlainDateTime.from(value.value).toZonedDateTime(value.timeZone ?? fallbackZone)
+  return zoned.withTimeZone(value.timeZone ?? fallbackZone).toPlainDateTime()
+}
+
+function wallClockDate(value: TemporalValue, fallbackZone: string): Date {
+  const plain = temporalPlainDateTime(value, fallbackZone)
+  return new Date(Date.UTC(plain.year, plain.month - 1, plain.day, plain.hour, plain.minute, plain.second))
+}
+
+function shiftTemporal(value: TemporalValue, from: TemporalValue, to: TemporalValue, fallbackZone: string): TemporalValue {
+  if (value.type === 'date' && from.type === 'date' && to.type === 'date') {
+    const days = Temporal.PlainDate.from(from.value).until(Temporal.PlainDate.from(to.value)).days
+    return { type: 'date', value: Temporal.PlainDate.from(value.value).add({ days }).toString() }
   }
+  const delta = temporalPlainDateTime(from, fallbackZone)
+    .since(temporalPlainDateTime(to, fallbackZone), { largestUnit: 'days' }).negated()
+  const shifted = temporalPlainDateTime(value, fallbackZone).add(delta)
+  if (value.type === 'datetime') {
+    return { type: 'datetime', value: shifted.toString({ smallestUnit: 'second' }) }
+  }
+  const zone = value.timeZone ?? fallbackZone
+  const zoned = Temporal.ZonedDateTime.from({
+    timeZone: zone, year: shifted.year, month: shifted.month, day: shifted.day,
+    hour: shifted.hour, minute: shifted.minute, second: shifted.second,
+  })
+  return { type: 'zoned', value: zoned.toString(), timeZone: zone }
 }
 
 function readMetaDates(meta: Record<string, unknown>, key: string): TemporalValue[] {
@@ -356,30 +360,105 @@ function readMetaDates(meta: Record<string, unknown>, key: string): TemporalValu
   })
 }
 
-/** Turn a rule into one that stops before the occurrence, whichever end condition it carried. */
-function ruleBefore(rule: string, occurrenceStart: TemporalValue, occurrenceStartMs: number): string {
-  const parts = rule.split(';').map(part => part.trim()).filter(part => part.length > 0 && !/^(UNTIL|COUNT)=/i.test(part))
-  if (occurrenceStart.type === 'date') {
-    const previous = new Date(new Date(`${occurrenceStart.value}T00:00:00Z`).getTime() - 86_400_000)
-    parts.push(`UNTIL=${previous.toISOString().slice(0, 10).replaceAll('-', '')}`)
-  } else {
-    const previous = new Date(occurrenceStartMs - 1000)
-    parts.push(`UNTIL=${previous.toISOString().replaceAll('-', '').replaceAll(':', '').slice(0, 15)}Z`)
+function ruleParts(rule: string): string[] {
+  return rule.split(';').map(part => part.trim()).filter(Boolean)
+}
+
+function formatRuleUntil(value: Date, start: TemporalValue): string {
+  const instant = Temporal.Instant.fromEpochMilliseconds(value.getTime())
+  if (start.type === 'date') return instant.toZonedDateTimeISO('UTC').toPlainDate().toString().replaceAll('-', '')
+  if (start.type === 'datetime') {
+    return instant.toZonedDateTimeISO('UTC').toPlainDateTime()
+      .toString({ smallestUnit: 'second' }).replaceAll('-', '').replaceAll(':', '')
   }
-  return parts.join(';')
+  return instant.toString({ smallestUnit: 'second' }).replaceAll('-', '').replaceAll(':', '')
+}
+
+function splitRule(
+  rule: string,
+  start: TemporalValue,
+  occurrenceStart: TemporalValue,
+  fallbackZone: string,
+): { past: string; future: string | null; pastCount: number } {
+  const parts = ruleParts(rule)
+  const countPart = parts.find(part => /^COUNT=/i.test(part))
+  const untilPart = parts.find(part => /^UNTIL=/i.test(part))
+  const originalCount = countPart ? Number(countPart.slice(6)) : null
+  if (originalCount !== null && (!Number.isSafeInteger(originalCount) || originalCount < 1)) {
+    throw ApiError.badRequest('The recurrence count is invalid')
+  }
+  const parsed = RRule.fromString(rule)
+  const options = { ...parsed.origOptions, dtstart: wallClockDate(start, fallbackZone) }
+  if (options.until && start.type === 'zoned') {
+    const until = Temporal.Instant.from(options.until.toISOString())
+      .toZonedDateTimeISO(start.timeZone ?? fallbackZone).toPlainDateTime()
+    options.until = new Date(Date.UTC(until.year, until.month - 1, until.day, until.hour, until.minute, until.second))
+  }
+  const boundary = wallClockDate(occurrenceStart, fallbackZone)
+  const pastDates = new RRule(options).between(new Date(options.dtstart.getTime() - 1), boundary, false)
+  if (pastDates.length > 50_000) throw ApiError.badRequest('The recurrence is too large to split')
+  const pastCount = pastDates.length
+  const base = parts.filter(part => !/^(COUNT|UNTIL)=/i.test(part))
+  const previous = pastDates.at(-1)
+  const past = pastCount === 0 || !previous
+    ? rule
+    : [...base, originalCount === null
+      ? `UNTIL=${formatRuleUntil(previous, start)}`
+      : `COUNT=${pastCount}`].join(';')
+  const futureCount = originalCount === null ? null : Math.max(0, originalCount - pastCount)
+  const future = futureCount === 0
+    ? null
+    : [...base, futureCount === null
+      ? (untilPart ? [untilPart] : [])
+      : [`COUNT=${futureCount}`]].join(';')
+  return { past, future, pastCount }
+}
+
+function partitionMetaDates(
+  meta: Record<string, unknown>,
+  boundaryMs: number,
+  zone: string,
+): { past: Record<string, unknown>; future: Record<string, unknown> } {
+  const past = { ...meta }
+  const future = { ...meta }
+  for (const key of ['exdates', 'rdates'] as const) {
+    const dates = readMetaDates(meta, key)
+    const before = dates.filter(value => temporalValueToEpochMs(value, zone) < boundaryMs)
+    const after = dates.filter(value => temporalValueToEpochMs(value, zone) >= boundaryMs)
+    if (before.length > 0) past[key] = before
+    else delete past[key]
+    if (after.length > 0) future[key] = after
+    else delete future[key]
+  }
+  return { past, future }
 }
 
 function readCompletedAt(raw: string | null): TemporalValue | null {
   if (!raw) return null
   const value = parseStoredJson(raw)
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    console.warn('[inkstone] Task completion timestamp is invalid; omitting it.')
+    return null
+  }
   const record = value as Record<string, unknown>
-  if (typeof record.value !== 'string' || !isTemporalKind(record.type)) return null
+  if (typeof record.value !== 'string' || !isTemporalKind(record.type)) {
+    console.warn('[inkstone] Task completion timestamp has an invalid shape; omitting it.')
+    return null
+  }
   return record.timeZone === undefined
     ? { value: record.value, type: record.type }
     : typeof record.timeZone === 'string'
       ? { value: record.value, type: record.type, timeZone: record.timeZone }
       : { value: record.value, type: record.type }
+}
+
+function readConferenceJson(raw: string): CalendarConferenceDto | null {
+  const value = parseStoredJson(raw)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    console.warn('[inkstone] Event conference metadata is invalid; omitting it.')
+    return null
+  }
+  return value as CalendarConferenceDto
 }
 
 function readIcon(raw: string | null): boolean | null {
@@ -418,6 +497,12 @@ function toGroupDto(row: GroupRow): CalendarGroupDto {
   return { id: row.id, name: row.name, position: row.position }
 }
 
+function eventMetaForDto(raw: string): Record<string, unknown> {
+  const meta = storedObject(raw)
+  delete meta.attendees
+  return meta
+}
+
 function toEventDto(row: EventRow, calendarIds: readonly string[]): CalendarEventDto {
   const hasTask = row.task_completed !== null
     || row.task_completed_at_value !== null
@@ -433,7 +518,7 @@ function toEventDto(row: EventRow, calendarIds: readonly string[]): CalendarEven
     : asKind(row.kind) === 'task'
       ? { completed: false }
       : null
-  const conference = row.conference_json ? parseStoredJson(row.conference_json) : null
+  const conference = row.conference_json ? readConferenceJson(row.conference_json) : null
   return {
     id: row.id,
     title: row.title,
@@ -448,7 +533,7 @@ function toEventDto(row: EventRow, calendarIds: readonly string[]): CalendarEven
     allDay: row.all_day === 1,
     calendarId: calendarIds[0] ?? '',
     calendarIds: [...calendarIds],
-    meta: storedObject(row.meta_json),
+    meta: eventMetaForDto(row.meta_json),
     icon: readIcon(row.icon_json),
     color: row.color,
     recurrenceRule: row.recurrence_rule,
@@ -467,7 +552,7 @@ const EVENT_WRITE_COLUMNS = [
   'task_completed_at_value', 'task_priority', 'conference_json', 'start_value', 'start_type',
   'time_zone', 'start_ms', 'end_value', 'end_type', 'end_ms', 'all_day', 'icon_json',
   'color', 'meta_json', 'recurrence_rule', 'recurrence_parent_id', 'recurrence_id',
-  'recurrence_cancelled', 'resource_id', 'calendar_source', 'external_scope', 'external_id',
+  'recurrence_cancelled', 'calendar_source', 'external_scope', 'external_id',
 ] as const
 
 export class CalendarStore {
@@ -587,13 +672,13 @@ export class CalendarStore {
       this.ensureDefaultCalendar(defaultCalendarName),
       this.listGroups(),
       this.listSubscriptions(),
-      this.listConnections(),
+      listCalendarConnections(this.db, this.userId),
       this.preferences(),
       this.hasPreferences(),
       this.listSharedCalendars(),
       this.listInvites(),
-      this.listResources(),
-      this.listSchedulingLinks(),
+      listResources(this.db, this.userId),
+      listSchedulingLinkDtos(this.db, this.userId),
     ])
     return {
       calendars: [...owned, ...shared],
@@ -606,58 +691,6 @@ export class CalendarStore {
       resources,
       schedulingLinks,
     }
-  }
-
-  private async listResources(): Promise<CalendarResourceDto[]> {
-    const { results } = await this.db.prepare(
-      `SELECT id, calendar_id, name, capacity FROM calendar_resources
-        WHERE user_id = ? ORDER BY lower(name) ASC, id ASC`,
-    ).bind(this.userId).all<{ id: string; calendar_id: string; name: string; capacity: number | null }>()
-    return (results ?? []).map(row => ({
-      id: row.id,
-      calendarId: row.calendar_id,
-      name: row.name,
-      capacity: row.capacity === null ? null : Number(row.capacity),
-    }))
-  }
-
-  private async listSchedulingLinks(): Promise<CalendarSchedulingLinkDto[]> {
-    const { results } = await this.db.prepare(
-      `SELECT id, calendar_id, slug, title, duration_minutes, days_json, start_hour, end_hour, enabled
-         FROM calendar_scheduling_links WHERE user_id = ? ORDER BY created_at ASC, id ASC`,
-    ).bind(this.userId).all<{
-      id: string
-      calendar_id: string
-      slug: string
-      title: string
-      duration_minutes: number
-      days_json: string
-      start_hour: number
-      end_hour: number
-      enabled: number
-    }>()
-    return (results ?? []).map(row => {
-      let days: number[] = [1, 2, 3, 4, 5]
-      try {
-        const parsed: unknown = JSON.parse(row.days_json)
-        if (Array.isArray(parsed)) {
-          days = parsed.filter((day): day is number => typeof day === 'number' && day >= 0 && day <= 6)
-        }
-      } catch {
-        // A malformed window keeps the weekday default rather than hiding the link.
-      }
-      return {
-        id: row.id,
-        calendarId: row.calendar_id,
-        slug: row.slug,
-        title: row.title,
-        durationMinutes: Number(row.duration_minutes),
-        days,
-        startHour: Number(row.start_hour),
-        endHour: Number(row.end_hour),
-        enabled: row.enabled === 1,
-      }
-    })
   }
 
   private async hasPreferences(): Promise<boolean> {
@@ -802,7 +835,7 @@ export class CalendarStore {
       throw ApiError.conflict('The calendar changed elsewhere. Refresh and try again')
     }
     const calendars = await this.listCalendars()
-    if (calendars.length <= 1) throw ApiError.conflict('The last calendar cannot be deleted')
+    if (calendars.length <= 1 && options.allowLast !== true) throw ApiError.conflict('The last calendar cannot be deleted')
     let targetId: string | null = null
     if (options.mode === 'merge') {
       targetId = options.targetId ?? null
@@ -814,24 +847,34 @@ export class CalendarStore {
     }
     const remaining = calendars.filter((calendar) => calendar.id !== id)
     const nextDefault = source.is_default === 1
-      ? remaining[0]!.id
-      : (calendars.find((calendar) => calendar.isDefault)?.id ?? remaining[0]!.id)
+      ? remaining[0]?.id ?? null
+      : calendars.find(calendar => calendar.isDefault)?.id ?? remaining[0]?.id ?? null
+    const guarded = options.rev !== null && options.rev !== undefined
+    const revision = options.rev ?? 0
+    const revisionGuard = guarded
+      ? 'AND EXISTS (SELECT 1 FROM calendar_calendars c WHERE c.user_id = ?1 AND c.id = ?2 AND c.rev = ?3)'
+      : ''
+    const revisionValues = guarded ? [revision] : []
     const statements: D1PreparedStatement[] = []
     if (options.mode === 'merge') {
+      const mergeGuard = guarded
+        ? 'AND EXISTS (SELECT 1 FROM calendar_calendars c WHERE c.user_id = ?1 AND c.id = ?2 AND c.rev = ?4)'
+        : ''
       statements.push(this.db.prepare(
         `INSERT OR IGNORE INTO calendar_event_calendars (user_id, event_id, calendar_id, position)
          SELECT user_id, event_id, ?3, position
            FROM calendar_event_calendars
-          WHERE user_id = ?1 AND calendar_id = ?2`,
-      ).bind(this.userId, id, targetId))
+          WHERE user_id = ?1 AND calendar_id = ?2 ${mergeGuard}`,
+      ).bind(this.userId, id, targetId, ...revisionValues))
       statements.push(this.db.prepare(
-        `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2`,
-      ).bind(this.userId, id))
+        `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2 ${mergeGuard}`,
+      ).bind(this.userId, id, ...revisionValues))
     } else {
       // The events this delete really removes: the ones that live in no other calendar. Every statement
       // below reads the same set, so a file cannot be reclaimed while an event that survives still shows it.
       const doomedEvents = `SELECT ec.event_id FROM calendar_event_calendars ec
              WHERE ec.user_id = ?1 AND ec.calendar_id = ?2
+               ${revisionGuard}
                AND NOT EXISTS (
                  SELECT 1 FROM calendar_event_calendars other
                   WHERE other.user_id = ?1 AND other.event_id = ec.event_id AND other.calendar_id <> ?2
@@ -840,58 +883,74 @@ export class CalendarStore {
       // links, and only then the events themselves.
       statements.push(this.db.prepare(
         `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
-         SELECT ${attachmentCleanupTargetSql('a.storage', 'a.object_key')}, ?1, ?3
+         SELECT ${attachmentCleanupTargetSql('a.storage', 'a.object_key')}, ?1, ${guarded ? '?4' : '?3'}
            FROM attachments a
            JOIN calendar_event_attachments l ON l.user_id = a.user_id AND l.attachment_id = a.id
           WHERE a.user_id = ?1 AND a.object_key IS NOT NULL AND a.scope = 'calendar'
             AND l.event_id IN (${doomedEvents})`,
-      ).bind(this.userId, id, Date.now()))
+      ).bind(this.userId, id, ...revisionValues, Date.now()))
       statements.push(this.db.prepare(
         `DELETE FROM attachments
           WHERE user_id = ?1 AND scope = 'calendar' AND id IN (
             SELECT l.attachment_id FROM calendar_event_attachments l WHERE l.user_id = ?1 AND l.event_id IN (${doomedEvents})
           )`,
-      ).bind(this.userId, id))
+      ).bind(this.userId, id, ...revisionValues))
       statements.push(this.db.prepare(
         `DELETE FROM calendar_event_attachments WHERE user_id = ?1 AND event_id IN (${doomedEvents})`,
-      ).bind(this.userId, id))
+      ).bind(this.userId, id, ...revisionValues))
       statements.push(this.db.prepare(
         `DELETE FROM calendar_events
           WHERE user_id = ?1 AND id IN (${doomedEvents})`,
-      ).bind(this.userId, id))
+      ).bind(this.userId, id, ...revisionValues))
       statements.push(this.db.prepare(
         `DELETE FROM calendar_event_attendees
           WHERE user_id = ?1 AND event_id IN (${doomedEvents})`,
-      ).bind(this.userId, id))
+      ).bind(this.userId, id, ...revisionValues))
       statements.push(this.db.prepare(
         `DELETE FROM calendar_event_reminders
           WHERE user_id = ?1 AND event_id IN (${doomedEvents})`,
-      ).bind(this.userId, id))
+      ).bind(this.userId, id, ...revisionValues))
       statements.push(this.db.prepare(
-        `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2`,
-      ).bind(this.userId, id))
+        `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+      ).bind(this.userId, id, ...revisionValues))
     }
     statements.push(this.db.prepare(
-      `DELETE FROM calendar_subscriptions WHERE user_id = ?1 AND calendar_id = ?2`,
-    ).bind(this.userId, id))
+      `DELETE FROM calendar_subscriptions WHERE user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
     // A published link to a calendar that no longer exists must stop answering in the same statement
     // batch, so the delete cannot leave a public address behind.
     statements.push(this.db.prepare(
-      `DELETE FROM calendar_shares WHERE user_id = ?1 AND calendar_id = ?2`,
-    ).bind(this.userId, id))
-    const guarded = options.rev !== null && options.rev !== undefined
+      `DELETE FROM calendar_shares WHERE user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
+    statements.push(this.db.prepare(
+      `DELETE FROM calendar_members WHERE owner_user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
+    statements.push(this.db.prepare(
+      `DELETE FROM calendar_resources WHERE user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
+    statements.push(this.db.prepare(
+      `DELETE FROM calendar_scheduling_links WHERE user_id = ?1 AND calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
+    statements.push(this.db.prepare(
+      `DELETE FROM calendar_provider_calendars WHERE user_id = ?1 AND local_calendar_id = ?2 ${revisionGuard}`,
+    ).bind(this.userId, id, ...revisionValues))
+    const deleteIndex = statements.length
     statements.push(guarded
       ? this.db.prepare(
         `DELETE FROM calendar_calendars WHERE user_id = ?1 AND id = ?2 AND rev = ?3`,
-      ).bind(this.userId, id, options.rev)
+      ).bind(this.userId, id, revision)
       : this.db.prepare(
         `DELETE FROM calendar_calendars WHERE user_id = ?1 AND id = ?2`,
       ).bind(this.userId, id))
-    statements.push(this.db.prepare(
-      `UPDATE calendar_calendars SET is_default = CASE WHEN id = ?2 THEN 1 ELSE 0 END WHERE user_id = ?1`,
-    ).bind(this.userId, nextDefault))
+    if (nextDefault) {
+      statements.push(this.db.prepare(
+        `UPDATE calendar_calendars SET is_default = CASE WHEN id = ?2 THEN 1 ELSE 0 END
+          WHERE user_id = ?1
+            AND NOT EXISTS (SELECT 1 FROM calendar_calendars WHERE user_id = ?1 AND id = ?3)`,
+      ).bind(this.userId, nextDefault, id))
+    }
     const outcomes = await this.db.batch(statements)
-    if (!outcomes[statements.length - 2]?.meta.changes) {
+    if (!outcomes[deleteIndex]?.meta.changes) {
       throw ApiError.conflict('The calendar changed elsewhere. Refresh and try again')
     }
   }
@@ -1039,56 +1098,16 @@ export class CalendarStore {
     const wantsOwned = requested === null || requestedOwned!.length > 0
     const wantsShared = requested === null || requestedShared.length > 0
     const groups = new Map<string, { row: EventRow; calendarIds: string[]; shared?: { ownerId: string } }>()
-
-    if (wantsOwned) {
-      const ownedIds = requestedOwned && requestedOwned.length > 0 ? requestedOwned : requested === null ? undefined : []
-      const filter = ownedIds === undefined || ownedIds.length > 0 ? rangeCalendarFilter(ownedIds) : 'AND 0'
-      const { results } = await this.db.prepare(
-        `SELECT e.*, m.calendar_id AS membership_calendar_id
-           FROM (
-             SELECT * FROM calendar_events e
-              WHERE e.user_id = ?
-                AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
-                ${filter}
-              ORDER BY e.start_ms ASC, e.id ASC
-              LIMIT ?
-           ) e
-           JOIN calendar_event_calendars m
-             ON m.user_id = e.user_id AND m.event_id = e.id
-          ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC`,
-      ).bind(
-        this.userId,
-        toMs,
-        fromMs,
-        ...(ownedIds ?? []),
-        MAX_EVENTS_PER_QUERY + 1,
-      ).all<EventRow & { membership_calendar_id: string }>()
+    const collectOwned = (results: Array<EventRow & { membership_calendar_id: string }> | null | undefined): void => {
       for (const row of results ?? []) {
         const group = groups.get(row.id)
         if (group) group.calendarIds.push(row.membership_calendar_id)
         else groups.set(row.id, { row, calendarIds: [row.membership_calendar_id] })
       }
     }
-
-    if (wantsShared) {
-      const { results } = await this.db.prepare(
-        `SELECT e.*, m.calendar_id AS shared_calendar_id, c.user_id AS shared_owner_id
-           FROM calendar_events e
-           JOIN calendar_event_calendars m
-             ON m.user_id = e.user_id AND m.event_id = e.id
-           JOIN calendar_calendars c
-             ON c.user_id = m.user_id AND c.id = m.calendar_id
-           JOIN calendar_members mem
-             ON mem.owner_user_id = c.user_id AND mem.calendar_id = c.id
-          WHERE mem.member_user_id = ? AND mem.status = 'accepted'
-            AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
-          ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC
-          LIMIT ?`,
-      ).bind(this.userId, toMs, fromMs, MAX_EVENTS_PER_QUERY + 1)
-        .all<EventRow & { shared_calendar_id: string; shared_owner_id: string }>()
+    const collectShared = (results: Array<EventRow & { shared_calendar_id: string; shared_owner_id: string }> | null | undefined): void => {
       for (const row of results ?? []) {
         const synthetic = sharedCalendarId(row.shared_owner_id, row.shared_calendar_id)
-        if (requestedShared.length > 0 && !requestedShared.includes(synthetic)) continue
         const key = sharedCalendarId(row.shared_owner_id, row.id)
         const group = groups.get(key)
         if (group) {
@@ -1098,7 +1117,101 @@ export class CalendarStore {
         }
       }
     }
+    let ownedMasters: Array<EventRow & { membership_calendar_id: string }> = []
+    let sharedMasters: Array<EventRow & { shared_calendar_id: string; shared_owner_id: string }> = []
 
+    if (wantsOwned) {
+      const ownedIds = requestedOwned && requestedOwned.length > 0 ? requestedOwned : requested === null ? undefined : []
+      const filter = ownedIds === undefined || ownedIds.length > 0 ? rangeCalendarFilter(ownedIds) : 'AND 0'
+      const ordinary = await this.db.prepare(
+        `SELECT e.*, m.calendar_id AS membership_calendar_id
+           FROM (
+             SELECT * FROM calendar_events e
+              WHERE e.user_id = ? AND e.recurrence_rule IS NULL
+                AND e.start_ms <= ? AND e.end_ms >= ?
+                ${filter}
+              ORDER BY e.start_ms ASC, e.id ASC
+              LIMIT ?
+           ) e
+           JOIN calendar_event_calendars m
+             ON m.user_id = e.user_id AND m.event_id = e.id
+          ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC`,
+      ).bind(
+        this.userId, toMs, fromMs,
+        ...(ownedIds ?? []),
+        MAX_EVENTS_PER_QUERY + 1,
+      ).all<EventRow & { membership_calendar_id: string }>()
+      collectOwned(ordinary.results)
+      const masters = await this.db.prepare(
+        `SELECT e.*, m.calendar_id AS membership_calendar_id
+           FROM calendar_events e
+           JOIN calendar_event_calendars m
+             ON m.user_id = e.user_id AND m.event_id = e.id
+          WHERE e.user_id = ? AND e.recurrence_rule IS NOT NULL AND e.start_ms <= ?
+            ${filter}
+          ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC
+          LIMIT ?`,
+      ).bind(this.userId, toMs, ...(ownedIds ?? []), MAX_EVENTS_PER_QUERY + 1)
+        .all<EventRow & { membership_calendar_id: string }>()
+      ownedMasters = masters.results ?? []
+    }
+
+    if (wantsShared) {
+      const sharedPairs = requestedShared.flatMap((id) => {
+        const parsed = parseSharedCalendarId(id)
+        return parsed ? [[parsed.ownerId, parsed.calendarId] as const] : []
+      })
+      const pairChunks = sharedPairs.length > 0 ? chunks(sharedPairs, 40) : [[]]
+      for (const pairChunk of pairChunks) {
+        const sharedFilter = pairChunk.length > 0
+          ? `AND (${pairChunk.map(() => '(c.user_id = ? AND m.calendar_id = ?)').join(' OR ')})`
+          : requested === null ? '' : 'AND 0'
+        const pairValues = pairChunk.flatMap(([ownerId, calendarId]) => [ownerId, calendarId])
+        const ordinary = await this.db.prepare(
+          `SELECT e.*, m.calendar_id AS shared_calendar_id, c.user_id AS shared_owner_id
+             FROM calendar_events e
+             JOIN calendar_event_calendars m
+               ON m.user_id = e.user_id AND m.event_id = e.id
+             JOIN calendar_calendars c
+               ON c.user_id = m.user_id AND c.id = m.calendar_id
+             JOIN calendar_members mem
+               ON mem.owner_user_id = c.user_id AND mem.calendar_id = c.id
+            WHERE mem.member_user_id = ? AND mem.status = 'accepted'
+              AND e.recurrence_rule IS NULL AND e.start_ms <= ? AND e.end_ms >= ?
+              ${sharedFilter}
+            ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC
+            LIMIT ?`,
+        ).bind(
+          this.userId, toMs, fromMs,
+          ...pairValues,
+          MAX_EVENTS_PER_QUERY + 1,
+        ).all<EventRow & { shared_calendar_id: string; shared_owner_id: string }>()
+        collectShared(ordinary.results)
+        const masters = await this.db.prepare(
+          `SELECT e.*, m.calendar_id AS shared_calendar_id, c.user_id AS shared_owner_id
+             FROM calendar_events e
+             JOIN calendar_event_calendars m
+               ON m.user_id = e.user_id AND m.event_id = e.id
+             JOIN calendar_calendars c
+               ON c.user_id = m.user_id AND c.id = m.calendar_id
+             JOIN calendar_members mem
+               ON mem.owner_user_id = c.user_id AND mem.calendar_id = c.id
+            WHERE mem.member_user_id = ? AND mem.status = 'accepted'
+              AND e.recurrence_rule IS NOT NULL AND e.start_ms <= ?
+              ${sharedFilter}
+            ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC
+            LIMIT ?`,
+        ).bind(
+          this.userId, toMs,
+          ...pairValues,
+          MAX_EVENTS_PER_QUERY + 1,
+        ).all<EventRow & { shared_calendar_id: string; shared_owner_id: string }>()
+        sharedMasters.push(...(masters.results ?? []))
+      }
+    }
+
+    collectOwned(ownedMasters)
+    collectShared(sharedMasters)
     const entries = [...groups.entries()]
     const truncated = entries.length > MAX_EVENTS_PER_QUERY
     return {
@@ -1137,39 +1250,71 @@ export class CalendarStore {
     if (wantsOwned) {
       const ownedIds = requestedOwned && requestedOwned.length > 0 ? requestedOwned : requested === null ? undefined : []
       const filter = ownedIds === undefined || ownedIds.length > 0 ? rangeCalendarFilter(ownedIds) : 'AND 0'
+      const revisionFilter = ownedIds && ownedIds.length > 0
+        ? `AND EXISTS (
+             SELECT 1 FROM calendar_event_calendars ec
+              WHERE ec.user_id = e.user_id AND ec.event_id = e.id
+                AND ec.calendar_id IN (${ownedIds.map((_, index) => `?${index + 4}`).join(', ')})
+           )`
+        : filter
       const row = await this.db.prepare(
-        `SELECT COUNT(*) AS count, COALESCE(SUM(e.rev), 0) AS rev_sum,
-                COALESCE(MAX(e.updated_at), 0) AS updated_at
-           FROM calendar_events e
-          WHERE e.user_id = ?
-            AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
-            ${filter}`,
-      ).bind(this.userId, toMs, fromMs, ...(ownedIds ?? []))
-        .first<{ count: number; rev_sum: number; updated_at: number }>()
+        `SELECT COUNT(*) AS count, COALESCE(SUM(rev), 0) AS rev_sum,
+                COALESCE(MAX(updated_at), 0) AS updated_at
+           FROM (
+             SELECT e.rev, e.updated_at FROM calendar_events e
+              WHERE e.user_id = ?1 AND e.recurrence_rule IS NULL
+                AND e.start_ms <= ?2 AND e.end_ms >= ?3
+                ${revisionFilter}
+             UNION ALL
+             SELECT e.rev, e.updated_at FROM calendar_events e
+              WHERE e.user_id = ?1 AND e.recurrence_rule IS NOT NULL AND e.start_ms <= ?2
+                ${revisionFilter}
+           )`,
+      ).bind(
+        this.userId, toMs, fromMs, ...(ownedIds ?? []),
+      ).first<{ count: number; rev_sum: number; updated_at: number }>()
       count += Number(row?.count ?? 0)
       revSum += Number(row?.rev_sum ?? 0)
       maxUpdatedAt = Math.max(maxUpdatedAt, Number(row?.updated_at ?? 0))
     }
     if (wantsShared) {
-      const row = await this.db.prepare(
-        `SELECT COUNT(*) AS count, COALESCE(SUM(rev), 0) AS rev_sum,
-                COALESCE(MAX(updated_at), 0) AS updated_at
-           FROM (
-             SELECT e.user_id, e.id, e.rev, e.updated_at
-               FROM calendar_events e
-               JOIN calendar_event_calendars m
-                 ON m.user_id = e.user_id AND m.event_id = e.id
-               JOIN calendar_members mem
-                 ON mem.owner_user_id = e.user_id AND mem.calendar_id = m.calendar_id
-              WHERE mem.member_user_id = ? AND mem.status = 'accepted'
-                AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
-              GROUP BY e.user_id, e.id
-           )`,
-      ).bind(this.userId, toMs, fromMs)
-        .first<{ count: number; rev_sum: number; updated_at: number }>()
-      count += Number(row?.count ?? 0)
-      revSum += Number(row?.rev_sum ?? 0)
-      maxUpdatedAt = Math.max(maxUpdatedAt, Number(row?.updated_at ?? 0))
+      const sharedPairs = requestedShared.flatMap((id) => {
+        const parsed = parseSharedCalendarId(id)
+        return parsed ? [[parsed.ownerId, parsed.calendarId] as const] : []
+      })
+      const pairChunks = sharedPairs.length > 0 ? chunks(sharedPairs, 40) : [[]]
+      const sharedRevisionRows = new Map<string, { rev: number; updatedAt: number }>()
+      for (const pairChunk of pairChunks) {
+        const sharedFilter = pairChunk.length > 0
+          ? `AND (${pairChunk.map(() => '(m.user_id = ? AND m.calendar_id = ?)').join(' OR ')})`
+          : requested === null ? '' : 'AND 0'
+        const pairValues = pairChunk.flatMap(([ownerId, calendarId]) => [ownerId, calendarId])
+        const { results } = await this.db.prepare(
+          `SELECT e.user_id, e.id, e.rev, e.updated_at
+             FROM calendar_events e
+             JOIN calendar_event_calendars m
+               ON m.user_id = e.user_id AND m.event_id = e.id
+             JOIN calendar_members mem
+               ON mem.owner_user_id = m.user_id AND mem.calendar_id = m.calendar_id
+            WHERE mem.member_user_id = ? AND mem.status = 'accepted'
+              AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
+              ${sharedFilter}
+            GROUP BY e.user_id, e.id`,
+        ).bind(
+          this.userId, toMs, fromMs,
+          ...pairValues,
+        ).all<{ user_id: string; id: string; rev: number; updated_at: number }>()
+        for (const row of results ?? []) {
+          sharedRevisionRows.set(`${row.user_id}\u0000${row.id}`, {
+            rev: Number(row.rev), updatedAt: Number(row.updated_at),
+          })
+        }
+      }
+      for (const row of sharedRevisionRows.values()) {
+        count += 1
+        revSum += row.rev
+        maxUpdatedAt = Math.max(maxUpdatedAt, row.updatedAt)
+      }
     }
     return { count, revSum, maxUpdatedAt }
   }
@@ -1207,14 +1352,20 @@ export class CalendarStore {
 
   async listAllEvents(): Promise<CalendarEventDto[]> {
     const { results } = await this.db.prepare(
-      `SELECT e.* FROM calendar_events e
-        WHERE e.user_id = ? ORDER BY e.start_ms ASC, e.id ASC`,
-    ).bind(this.userId).all<EventRow>()
-    const rows = results ?? []
-    const memberships = await this.membershipsFor(rows.map((row) => row.id))
-    return rows
-      .filter((row) => (memberships.get(row.id)?.length ?? 0) > 0)
-      .map((row) => toEventDto(row, memberships.get(row.id) ?? []))
+      `SELECT e.*, m.calendar_id AS membership_calendar_id
+         FROM calendar_events e
+         JOIN calendar_event_calendars m
+           ON m.user_id = e.user_id AND m.event_id = e.id
+        WHERE e.user_id = ?
+        ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC`,
+    ).bind(this.userId).all<EventRow & { membership_calendar_id: string }>()
+    const groups = new Map<string, { row: EventRow; calendarIds: string[] }>()
+    for (const row of results ?? []) {
+      const group = groups.get(row.id)
+      if (group) group.calendarIds.push(row.membership_calendar_id)
+      else groups.set(row.id, { row, calendarIds: [row.membership_calendar_id] })
+    }
+    return [...groups.values()].map(group => toEventDto(group.row, group.calendarIds))
   }
 
   async getEvent(id: string): Promise<CalendarEventDto | null> {
@@ -1327,9 +1478,10 @@ export class CalendarStore {
   /** Whether this event can be written at all: every calendar it is in must be writable. */
   async assertEventWritable(eventId: string): Promise<void> {
     const ids = (await this.membershipsFor([eventId])).get(eventId) ?? []
-    if (ids.length === 0) return
+    if (ids.length === 0) throw ApiError.notFound('Event calendar membership is missing')
     const rows = await this.calendarAccess(ids)
-    if (rows.length === ids.length && rows.some((row) => row.read_only === 1)) {
+    if (rows.length !== ids.length) throw ApiError.notFound('Calendar not found')
+    if (rows.some((row) => row.read_only === 1)) {
       throw ApiError.forbidden('The event belongs to a read-only calendar')
     }
   }
@@ -1346,7 +1498,12 @@ export class CalendarStore {
       || (input.endMs === undefined && input.end.timeZone === undefined && input.start.timeZone === undefined))
     const zone = needsZone ? (await this.preferences()).timeZone : 'UTC'
     return inputs.map((input) => {
-      const meta = input.meta ?? {}
+      const meta = { ...(input.meta ?? {}) }
+      const hasLegacyAttendees = Object.prototype.hasOwnProperty.call(meta, 'attendees')
+      const attendees = input.attendees === undefined
+        ? (hasLegacyAttendees ? normalizeEventAttendees(meta.attendees) : undefined)
+        : normalizeEventAttendees(input.attendees)
+      delete meta.attendees
       const task = input.task === undefined || input.task === null
         ? null
         : {
@@ -1383,13 +1540,13 @@ export class CalendarStore {
         allDay,
         calendarIds,
         meta,
+        attendees,
         icon: input.icon ?? null,
         color: input.color ?? null,
         recurrenceRule: input.recurrenceRule ?? metaRule,
         recurrenceParentId: input.recurrenceParentId ?? null,
         recurrenceId: input.recurrenceId ?? null,
         recurrenceCancelled: input.recurrenceCancelled === true,
-        resourceId: typeof meta.resourceId === 'string' ? meta.resourceId : null,
         source: input.source ?? 'local',
         externalId: input.externalId ?? null,
       }
@@ -1410,6 +1567,7 @@ export class CalendarStore {
     const now = Date.now()
     const statements: D1PreparedStatement[] = [this.insertEventStatement(input, id, now, null)]
     statements.push(...this.membershipInsertStatements(id, input.calendarIds))
+    statements.push(...this.attendeeReplaceStatements(id, input.attendees ?? []))
     try {
       await this.db.batch(statements)
     } catch (error) {
@@ -1417,13 +1575,6 @@ export class CalendarStore {
     }
     const event = await this.getEvent(id)
     if (!event) throw new Error('Event create did not persist')
-    return event
-  }
-
-  async upsertEvent(input: CalendarEventWriteInput): Promise<CalendarEventDto> {
-    const events = await this.createEvents([input], 'upsert')
-    const event = events[0]
-    if (!event) throw new Error('Event upsert did not persist')
     return event
   }
 
@@ -1437,7 +1588,7 @@ export class CalendarStore {
   async createEvents(
     inputs: readonly CalendarEventWriteInput[],
     mode: 'create' | 'upsert',
-    options: { allowReadOnly?: boolean } = {},
+    options: { allowReadOnly?: boolean; requireRevision?: boolean; preserveAttendees?: boolean } = {},
   ): Promise<CalendarEventDto[]> {
     if (inputs.length === 0) throw ApiError.badRequest('A batch needs at least one event')
     if (inputs.length > MAX_EVENTS_PER_BATCH) {
@@ -1454,6 +1605,10 @@ export class CalendarStore {
     const readOnlySources = timelineInputs.length > 0
       && timelineInputs.every((input) => input.source !== 'local' && input.externalId !== null)
     await this.assertCalendarsForWrite(calendarIds, options.allowReadOnly === true || readOnlySources)
+    if (mode === 'upsert' && options.requireRevision === true
+      && timelineInputs.some((input) => input.rev === undefined)) {
+      throw ApiError.badRequest('Every upsert event must include the revision it replaces')
+    }
 
     const existingIds = new Set<string>()
     for (const chunk of chunks(timelineInputs.map((input) => input.id).filter((id): id is string => Boolean(id)), SQL_CHUNK)) {
@@ -1509,6 +1664,9 @@ export class CalendarStore {
       for (const entry of resolved) {
         const row = existingById.get(entry.id)
         if (!row) continue
+        if (entry.input.rev !== undefined && entry.input.rev !== row.rev) {
+          throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
+        }
         entry.input = {
           ...entry.input,
           source: entry.input.source === 'local' && row.calendar_source !== 'local'
@@ -1520,18 +1678,38 @@ export class CalendarStore {
     }
 
     const statements: D1PreparedStatement[][] = []
+    const guardedUpdates = new Set<D1PreparedStatement>()
     for (const { input, id } of resolved) {
       const group: D1PreparedStatement[] = []
       const exists = existingIds.has(id) || externalMatch.get(externalKey(input)) === id
       if (exists && mode === 'upsert') {
-        group.push(this.upsertEventStatement(input, id, now))
+        const update = this.upsertEventStatement(input, id, now)
+        group.push(update)
+        if (input.rev !== undefined) guardedUpdates.add(update)
+        const replacedRev = input.rev === undefined ? undefined : input.rev + 1
         group.push(this.db.prepare(
-          `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND event_id = ?2`,
-        ).bind(this.userId, id))
+          replacedRev === undefined
+            ? `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND event_id = ?2`
+            : `DELETE FROM calendar_event_calendars
+                WHERE user_id = ?1 AND event_id = ?2
+                  AND EXISTS (SELECT 1 FROM calendar_events
+                               WHERE user_id = ?1 AND id = ?2 AND rev = ?3 AND updated_at = ?4)`,
+        ).bind(this.userId, id, ...(replacedRev === undefined ? [] : [replacedRev, now])))
       } else {
         group.push(this.insertEventStatement(input, id, now, batchKey))
       }
-      group.push(...this.membershipInsertStatements(id, input.calendarIds))
+      group.push(...this.membershipInsertStatements(
+        id,
+        input.calendarIds,
+        exists && mode === 'upsert' && input.rev !== undefined ? input.rev + 1 : undefined,
+      ))
+      if (options.preserveAttendees !== true && (!exists || input.attendees !== undefined)) {
+        group.push(...this.attendeeReplaceStatements(
+          id,
+          input.attendees ?? [],
+          exists && mode === 'upsert' && input.rev !== undefined ? { id, rev: input.rev + 1 } : undefined,
+        ))
+      }
       statements.push(group)
     }
 
@@ -1548,7 +1726,12 @@ export class CalendarStore {
         current.push(...group)
       }
       if (current.length > 0) chunksOfStatements.push(current)
-      for (const chunk of chunksOfStatements) await this.db.batch(chunk)
+      for (const chunk of chunksOfStatements) {
+        const outcomes = await this.db.batch(chunk)
+        if (outcomes.some((outcome, index) => guardedUpdates.has(chunk[index]!) && Number(outcome.meta.changes) !== 1)) {
+          throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
+        }
+      }
     } catch (error) {
       // Best-effort cleanup: failing to remove the staging rows must not mask the write error that
       // sent us here, but it is worth a log line because a retry would collide with them.
@@ -1556,6 +1739,12 @@ export class CalendarStore {
         await this.db.batch([
           this.db.prepare(
             `DELETE FROM calendar_event_calendars
+              WHERE user_id = ?1 AND event_id IN (
+                SELECT id FROM calendar_events WHERE user_id = ?1 AND batch_key = ?2
+              )`,
+          ).bind(this.userId, batchKey),
+          this.db.prepare(
+            `DELETE FROM calendar_event_attendees
               WHERE user_id = ?1 AND event_id IN (
                 SELECT id FROM calendar_events WHERE user_id = ?1 AND batch_key = ?2
               )`,
@@ -1580,12 +1769,11 @@ export class CalendarStore {
     })
   }
 
-  async updateEvent(id: string, patch: CalendarEventPatchInput): Promise<CalendarEventDto> {
-    const row = await this.eventRow(id)
-    if (!row) throw ApiError.notFound('Event not found')
-    if (row.rev !== patch.rev) throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
-    await this.assertEventWritable(id)
-
+  private async mergeEventPatch(
+    id: string,
+    row: EventRow,
+    patch: CalendarEventPatchInput,
+  ): Promise<TimelineEventWrite> {
     const start = patch.start ?? temporalFromRow(row.start_value, row.start_type, row.time_zone)
     const end = patch.end ?? temporalFromRow(row.end_value, row.end_type, row.time_zone)
     const needsZone = (patch.start !== undefined && patch.startMs === undefined)
@@ -1606,7 +1794,12 @@ export class CalendarStore {
     }
     if (endMs < startMs) throw ApiError.badRequest('An event cannot end before it starts')
 
-    let meta = patch.meta ?? storedObject(row.meta_json)
+    let meta = { ...(patch.meta ?? storedObject(row.meta_json)) }
+    const hasLegacyAttendees = Object.prototype.hasOwnProperty.call(meta, 'attendees')
+    const attendees = patch.attendees === undefined
+      ? (hasLegacyAttendees ? normalizeEventAttendees(meta.attendees) : undefined)
+      : normalizeEventAttendees(patch.attendees)
+    delete meta.attendees
     let recurrenceRule = row.recurrence_rule
     if (patch.recurrenceRule !== undefined) {
       recurrenceRule = patch.recurrenceRule
@@ -1631,14 +1824,14 @@ export class CalendarStore {
     const conference = patch.conference !== undefined
       ? patch.conference
       : row.conference_json
-        ? this.readConference(row.conference_json)
+        ? readConferenceJson(row.conference_json)
         : null
     const icon = patch.icon !== undefined ? patch.icon : readIcon(row.icon_json)
     const color = patch.color !== undefined ? patch.color : row.color
     const calendarIds = patch.calendarIds ?? (await this.membershipsFor([id])).get(id) ?? []
     if (patch.calendarIds) await this.assertCalendarsForWrite(patch.calendarIds, false)
 
-    const merged: TimelineEventWrite = {
+    return {
       id,
       title: patch.title ?? row.title,
       description: patch.description ?? row.description,
@@ -1652,16 +1845,24 @@ export class CalendarStore {
       allDay,
       calendarIds,
       meta,
+      attendees,
       icon,
       color,
       recurrenceRule,
       recurrenceParentId: row.recurrence_parent_id,
       recurrenceId: row.recurrence_id,
       recurrenceCancelled: patch.recurrenceCancelled ?? row.recurrence_cancelled === 1,
-      resourceId: row.resource_id,
       source: isCalendarSource(row.calendar_source) ? row.calendar_source : 'local',
       externalId: row.external_id,
     }
+  }
+
+  async updateEvent(id: string, patch: CalendarEventPatchInput): Promise<CalendarEventDto> {
+    const row = await this.eventRow(id)
+    if (!row) throw ApiError.notFound('Event not found')
+    if (row.rev !== patch.rev) throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
+    await this.assertEventWritable(id)
+    const merged = await this.mergeEventPatch(id, row, patch)
     const now = Date.now()
     const nextRev = patch.rev + 1
     const statements: D1PreparedStatement[] = [this.updateEventStatement(merged, patch.rev, now)]
@@ -1672,6 +1873,9 @@ export class CalendarStore {
             AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
       ).bind(this.userId, id, nextRev))
       statements.push(...this.membershipInsertStatements(id, patch.calendarIds, nextRev))
+    }
+    if (merged.attendees !== undefined) {
+      statements.push(...this.attendeeReplaceStatements(id, merged.attendees, { id, rev: nextRev }))
     }
     const outcomes = await this.db.batch(statements)
     if (!outcomes[0]?.meta.changes) {
@@ -1687,31 +1891,73 @@ export class CalendarStore {
     if (!row) throw ApiError.notFound('Event not found')
     if (row.rev !== rev) throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
     await this.assertEventWritable(id)
-    const outcomes = await this.db.batch([
-      this.db.prepare(
-        `DELETE FROM calendar_event_calendars
-          WHERE user_id = ?1 AND event_id = ?2
-            AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
-      ).bind(this.userId, id, rev),
-      this.db.prepare(
-        `DELETE FROM calendar_event_reminders
-          WHERE user_id = ?1 AND event_id = ?2
-            AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
-      ).bind(this.userId, id, rev),
-      this.db.prepare(
-        `DELETE FROM calendar_event_attendees
-          WHERE user_id = ?1 AND event_id = ?2
-            AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
-      ).bind(this.userId, id, rev),
-      ...eventAttachmentDeleteStatements(this.db, this.userId, id, rev),
-      this.db.prepare(
-        `DELETE FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3`,
-      ).bind(this.userId, id, rev),
-    ])
+    const overrides = await this.recurrenceOverrides(id)
+    for (const override of overrides) {
+      const event = await this.getEvent(override.id)
+      if (event) await this.deleteEvent(event.id, event.rev)
+    }
+    const outcomes = await this.db.batch(this.eventDeleteStatements(id, rev))
     // The event row is deleted last, so its outcome is the one that says whether the rev still held.
     if (!outcomes[outcomes.length - 1]?.meta.changes) {
       throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
     }
+  }
+
+  async removeEventMembershipsAndDeleteOrphans(
+    calendarId: string,
+    eventIds: readonly string[],
+  ): Promise<number> {
+    if (eventIds.length === 0) return 0
+    let removed = 0
+    for (const ids of chunks(eventIds, SQL_CHUNK)) {
+      const eventParams = ids.map((_, index) => `?${index + 2}`).join(', ')
+      const membershipParams = ids.map((_, index) => `?${index + 3}`).join(', ')
+      const orphans = `SELECT e.id FROM calendar_events e
+                        WHERE e.user_id = ?1 AND e.id IN (${eventParams})
+                          AND NOT EXISTS (SELECT 1 FROM calendar_event_calendars m
+                                           WHERE m.user_id = e.user_id AND m.event_id = e.id)`
+      const nowParam = `?${ids.length + 2}`
+      const outcomes = await this.db.batch([
+        this.db.prepare(
+          `DELETE FROM calendar_event_calendars
+            WHERE user_id = ?1 AND calendar_id = ?2 AND event_id IN (${membershipParams})`,
+        ).bind(this.userId, calendarId, ...ids),
+        this.db.prepare(
+          `DELETE FROM calendar_reminder_snoozes
+            WHERE user_id = ?1 AND event_id IN (${orphans})`,
+        ).bind(this.userId, ...ids),
+        this.db.prepare(
+          `DELETE FROM calendar_event_reminders
+            WHERE user_id = ?1 AND event_id IN (${orphans})`,
+        ).bind(this.userId, ...ids),
+        this.db.prepare(
+          `DELETE FROM calendar_event_attendees
+            WHERE user_id = ?1 AND event_id IN (${orphans})`,
+        ).bind(this.userId, ...ids),
+        this.db.prepare(
+          `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
+           SELECT ${attachmentCleanupTargetSql('a.storage', 'a.object_key')}, ?1, ${nowParam}
+             FROM attachments a
+             JOIN calendar_event_attachments l ON l.user_id = a.user_id AND l.attachment_id = a.id
+            WHERE l.user_id = ?1 AND l.event_id IN (${orphans}) AND a.object_key IS NOT NULL`,
+        ).bind(this.userId, ...ids, Date.now()),
+        this.db.prepare(
+          `DELETE FROM attachments WHERE user_id = ?1 AND scope = 'calendar' AND id IN (
+             SELECT attachment_id FROM calendar_event_attachments
+              WHERE user_id = ?1 AND event_id IN (${orphans})
+           )`,
+        ).bind(this.userId, ...ids),
+        this.db.prepare(
+          `DELETE FROM calendar_event_attachments
+            WHERE user_id = ?1 AND event_id IN (${orphans})`,
+        ).bind(this.userId, ...ids),
+        this.db.prepare(
+          `DELETE FROM calendar_events WHERE user_id = ?1 AND id IN (${orphans})`,
+        ).bind(this.userId, ...ids),
+      ])
+      removed += Number(outcomes.at(-1)?.meta.changes ?? 0)
+    }
+    return removed
   }
 
   /**
@@ -1727,7 +1973,11 @@ export class CalendarStore {
     const master = await this.getEvent(masterId)
     if (!master) throw ApiError.notFound('Event not found')
     if (!master.recurrenceRule) throw ApiError.badRequest('The event does not repeat')
+    if (master.rev !== change.rev) throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
     await this.assertEventWritable(masterId)
+    const row = await this.eventRow(masterId)
+    if (!row) throw ApiError.notFound('Event not found')
+    const masterAttendees = await this.eventAttendees(masterId)
     const zone = (await this.preferences()).timeZone
     const occurrenceStartMs = temporalValueToEpochMs(
       change.occurrenceStart,
@@ -1739,85 +1989,110 @@ export class CalendarStore {
     )
     if (occurrenceEndMs < occurrenceStartMs) throw ApiError.badRequest('An event cannot end before it starts')
     const key = temporalKey(change.occurrenceStart)
-    const overrides = await this.recurrenceOverrides(masterId)
-    const removeOverrides = async (rows: ReadonlyArray<{ id: string }>): Promise<void> => {
-      for (const row of rows) {
-        const event = await this.getEvent(row.id)
-        if (event) await this.deleteEvent(row.id, event.rev)
+    const now = Date.now()
+    const masterStatement = async (patch: CalendarEventPatchInput): Promise<D1PreparedStatement> => {
+      const merged = await this.mergeEventPatch(masterId, row, { ...patch, rev: change.rev })
+      return this.updateEventStatement(merged, change.rev, now)
+    }
+    const deleteSeries = async (): Promise<{ masterId: null }> => {
+      const outcomes = await this.db.batch([
+        ...this.recurrenceOverrideDeleteStatements(masterId, change.rev, '', [], now),
+        ...this.eventDeleteStatements(masterId, change.rev),
+      ])
+      if (!outcomes.at(-1)?.meta.changes) {
+        throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
       }
+      return { masterId: null }
     }
 
     if (change.scope === 'all') {
-      if (change.action === 'cancel') {
-        await removeOverrides(overrides)
-        await this.deleteEvent(masterId, master.rev)
-        return { masterId: null }
-      }
-      const patch = { ...change.patch!, rev: master.rev }
+      if (change.action === 'cancel') return deleteSeries()
+      const patch = { ...change.patch!, rev: change.rev }
       if (change.patch?.start && change.patch.startMs !== undefined) {
-        const delta = change.patch.startMs - occurrenceStartMs
-        patch.start = shiftTemporal(master.start, delta, zone)
-        patch.startMs = temporalValueToEpochMs(master.start, zone) + delta
-        patch.end = shiftTemporal(master.end, delta, zone)
-        patch.endMs = temporalValueToEpochMs(master.end, zone) + delta
+        patch.start = shiftTemporal(master.start, change.occurrenceStart, change.patch.start, zone)
+        patch.startMs = temporalValueToEpochMs(patch.start, zone)
+        patch.end = shiftTemporal(master.end, change.occurrenceStart, change.patch.start, zone)
+        patch.endMs = temporalValueToEpochMs(patch.end, zone)
       }
       await this.updateEvent(masterId, patch)
       return { masterId }
     }
 
     if (change.scope === 'this') {
-      if (change.action === 'cancel') {
-        await this.addExdate(master, change.occurrenceStart)
-        await removeOverrides(overrides.filter(row => row.recurrenceId === key))
-        return { masterId }
+      const meta: Record<string, unknown> = { ...master.meta }
+      const exdates = readMetaDates(meta, 'exdates')
+      if (!exdates.some(value => temporalKey(value) === key)) exdates.push(change.occurrenceStart)
+      meta.exdates = exdates
+      const statements = this.recurrenceOverrideDeleteStatements(
+        masterId, change.rev, 'AND recurrence_id = ?4', [key], now,
+      )
+      if (change.action === 'update') {
+        const patch = change.patch!
+        const exceptionMeta: Record<string, unknown> = { ...master.meta, recurrenceId: change.occurrenceStart }
+        delete exceptionMeta.recurrenceRule
+        delete exceptionMeta.exdates
+        delete exceptionMeta.rdates
+        const exceptionId = newId()
+        const exception = (await this.fillTimeline([{
+          title: patch.title ?? master.title,
+          description: patch.description ?? master.description,
+          kind: patch.kind ?? master.kind,
+          task: master.task,
+          conference: patch.conference !== undefined ? patch.conference : master.conference,
+          start: patch.start ?? change.occurrenceStart,
+          end: patch.end ?? change.occurrenceEnd,
+          allDay: patch.allDay ?? change.occurrenceStart.type === 'date',
+          calendarIds: master.calendarIds,
+          meta: exceptionMeta,
+          icon: master.icon,
+          color: patch.color !== undefined ? patch.color : master.color,
+          recurrenceParentId: masterId,
+          recurrenceId: key,
+          recurrenceRule: null,
+          source: 'local',
+        }]))[0]!
+        statements.push(
+          this.insertEventStatement(exception, exceptionId, now, null, { id: masterId, rev: change.rev }),
+          ...this.membershipInsertStatements(exceptionId, exception.calendarIds, change.rev, masterId),
+          ...this.attendeeReplaceStatements(
+            exceptionId,
+            patch.attendees ?? masterAttendees,
+            { id: masterId, rev: change.rev },
+          ),
+        )
       }
-      const patch = change.patch!
-      const meta: Record<string, unknown> = { ...master.meta, recurrenceId: change.occurrenceStart }
-      delete meta.recurrenceRule
-      delete meta.exdates
-      delete meta.rdates
-      const exception = await this.createEvent({
-        title: patch.title ?? master.title,
-        description: patch.description ?? master.description,
-        kind: patch.kind ?? master.kind,
-        task: master.task,
-        conference: patch.conference !== undefined ? patch.conference : master.conference,
-        start: patch.start ?? change.occurrenceStart,
-        end: patch.end ?? change.occurrenceEnd,
-        allDay: patch.allDay ?? change.occurrenceStart.type === 'date',
-        calendarIds: master.calendarIds,
-        meta,
-        icon: master.icon,
-        color: patch.color !== undefined ? patch.color : master.color,
-        recurrenceParentId: masterId,
-        recurrenceId: key,
-        recurrenceRule: null,
-        source: 'local',
-      })
-      try {
-        await this.addExdate(master, change.occurrenceStart)
-      } catch (error) {
-        await this.deleteEvent(exception.id, exception.rev).catch(() => { /* The exception is the row the caller's failure already names. */ })
-        throw error
+      statements.push(await masterStatement({ rev: change.rev, meta, recurrenceRule: master.recurrenceRule }))
+      const outcomes = await this.db.batch(statements)
+      if (!outcomes.at(-1)?.meta.changes) {
+        throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
       }
-      await removeOverrides(overrides.filter(row => row.recurrenceId === key))
       return { masterId }
     }
 
     const rule = master.recurrenceRule.replace(/^RRULE:/i, '').trim()
-    const truncated = ruleBefore(rule, change.occurrenceStart, occurrenceStartMs)
-    const futureOverrides = overrides.filter(row => row.startMs >= occurrenceStartMs)
+    const split = splitRule(rule, master.start, change.occurrenceStart, zone)
+    const partitioned = partitionMetaDates(master.meta, occurrenceStartMs, zone)
     if (change.action === 'cancel') {
-      await this.updateEvent(masterId, { rev: master.rev, recurrenceRule: truncated })
-      await removeOverrides(futureOverrides)
+      if (split.pastCount === 0) return deleteSeries()
+      const outcomes = await this.db.batch([
+        ...this.recurrenceOverrideDeleteStatements(
+          masterId, change.rev, 'AND start_ms >= ?4', [occurrenceStartMs], now,
+        ),
+        await masterStatement({ rev: change.rev, recurrenceRule: split.past, meta: partitioned.past }),
+      ])
+      if (!outcomes.at(-1)?.meta.changes) {
+        throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
+      }
       return { masterId }
     }
+
     const patch = change.patch!
-    const meta = { ...master.meta }
-    delete meta.exdates
-    delete meta.rdates
-    delete meta.recurrenceId
-    const series = await this.createEvent({
+    if (split.pastCount === 0) {
+      await this.updateEvent(masterId, { ...patch, rev: change.rev })
+      return { masterId }
+    }
+    const seriesId = newId()
+    const series = (await this.fillTimeline([{
       title: patch.title ?? master.title,
       description: patch.description ?? master.description,
       kind: patch.kind ?? master.kind,
@@ -1827,38 +2102,108 @@ export class CalendarStore {
       end: patch.end ?? change.occurrenceEnd,
       allDay: patch.allDay ?? change.occurrenceStart.type === 'date',
       calendarIds: master.calendarIds,
-      meta,
+      meta: partitioned.future,
       icon: master.icon,
       color: patch.color !== undefined ? patch.color : master.color,
-      recurrenceRule: rule,
+      recurrenceRule: split.future,
       source: 'local',
-    })
-    try {
-      await this.updateEvent(masterId, { rev: master.rev, recurrenceRule: truncated })
-    } catch (error) {
-      await this.deleteEvent(series.id, series.rev).catch(() => { /* The original failure is what the caller sees. */ })
-      throw error
+    }]))[0]!
+    const outcomes = await this.db.batch([
+      this.db.prepare(
+        `UPDATE calendar_events
+            SET recurrence_parent_id = ?1, rev = rev + 1, updated_at = ?2
+          WHERE user_id = ?3 AND recurrence_parent_id = ?4 AND start_ms >= ?5
+            AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?3 AND id = ?4 AND rev = ?6)`,
+      ).bind(seriesId, now, this.userId, masterId, occurrenceStartMs, change.rev),
+      this.insertEventStatement(series, seriesId, now, null, { id: masterId, rev: change.rev }),
+      ...this.membershipInsertStatements(seriesId, series.calendarIds, change.rev, masterId),
+      ...this.attendeeReplaceStatements(
+        seriesId,
+        patch.attendees ?? masterAttendees,
+        { id: masterId, rev: change.rev },
+      ),
+      await masterStatement({ rev: change.rev, recurrenceRule: split.past, meta: partitioned.past }),
+    ])
+    if (!outcomes.at(-1)?.meta.changes) {
+      throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
     }
-    if (futureOverrides.length > 0) {
-      const ids = futureOverrides.map(row => row.id)
-      for (const chunk of chunks(ids, SQL_CHUNK)) {
-        await this.db.prepare(
-          `UPDATE calendar_events
-              SET recurrence_parent_id = ?1, rev = rev + 1, updated_at = ?2
-            WHERE user_id = ?3 AND id IN (${placeholders(chunk.length)})`,
-        ).bind(series.id, Date.now(), this.userId, ...chunk).run()
-      }
-    }
-    return { masterId: series.id }
+    return { masterId: seriesId }
   }
 
-  private async addExdate(master: CalendarEventDto, occurrenceStart: TemporalValue): Promise<void> {
-    const meta = { ...master.meta }
-    const exdates = readMetaDates(meta, 'exdates')
-    const key = temporalKey(occurrenceStart)
-    if (!exdates.some(value => temporalKey(value) === key)) exdates.push(occurrenceStart)
-    meta.exdates = exdates
-    await this.updateEvent(master.id, { rev: master.rev, meta })
+  private recurrenceOverrideDeleteStatements(
+    masterId: string,
+    masterRev: number,
+    predicate: string,
+    params: readonly (string | number)[],
+    now: number,
+  ): D1PreparedStatement[] {
+    const targets = `SELECT id FROM calendar_events
+                      WHERE user_id = ?1 AND recurrence_parent_id = ?2 ${predicate}`
+    const guard = 'EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)'
+    const nowParam = `?${4 + params.length}`
+    const values = [this.userId, masterId, masterRev, ...params]
+    return [
+      this.db.prepare(
+        `DELETE FROM calendar_event_calendars
+          WHERE user_id = ?1 AND event_id IN (${targets}) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `DELETE FROM calendar_reminder_snoozes
+          WHERE user_id = ?1 AND event_id IN (${targets}) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `DELETE FROM calendar_event_reminders
+          WHERE user_id = ?1 AND event_id IN (${targets}) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `DELETE FROM calendar_event_attendees
+          WHERE user_id = ?1 AND event_id IN (${targets}) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
+         SELECT ${attachmentCleanupTargetSql('a.storage', 'a.object_key')}, ?1, ${nowParam}
+           FROM attachments a
+           JOIN calendar_event_attachments l ON l.user_id = a.user_id AND l.attachment_id = a.id
+          WHERE l.user_id = ?1 AND l.event_id IN (${targets})
+            AND a.object_key IS NOT NULL AND ${guard}`,
+      ).bind(...values, now),
+      this.db.prepare(
+        `DELETE FROM attachments WHERE user_id = ?1 AND scope = 'calendar' AND id IN (
+           SELECT attachment_id FROM calendar_event_attachments
+            WHERE user_id = ?1 AND event_id IN (${targets})
+         ) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `DELETE FROM calendar_event_attachments
+          WHERE user_id = ?1 AND event_id IN (${targets}) AND ${guard}`,
+      ).bind(...values),
+      this.db.prepare(
+        `DELETE FROM calendar_events
+          WHERE user_id = ?1 AND recurrence_parent_id = ?2 ${predicate} AND ${guard}`,
+      ).bind(...values),
+    ]
+  }
+
+  private eventDeleteStatements(id: string, rev: number): D1PreparedStatement[] {
+    const guard = 'EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)'
+    return [
+      this.db.prepare(
+        `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND event_id = ?2 AND ${guard}`,
+      ).bind(this.userId, id, rev),
+      this.db.prepare(
+        `DELETE FROM calendar_reminder_snoozes WHERE user_id = ?1 AND event_id = ?2 AND ${guard}`,
+      ).bind(this.userId, id, rev),
+      this.db.prepare(
+        `DELETE FROM calendar_event_reminders WHERE user_id = ?1 AND event_id = ?2 AND ${guard}`,
+      ).bind(this.userId, id, rev),
+      this.db.prepare(
+        `DELETE FROM calendar_event_attendees WHERE user_id = ?1 AND event_id = ?2 AND ${guard}`,
+      ).bind(this.userId, id, rev),
+      ...eventAttachmentDeleteStatements(this.db, this.userId, id, rev),
+      this.db.prepare(
+        'DELETE FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3',
+      ).bind(this.userId, id, rev),
+    ]
   }
 
   private async recurrenceOverrides(
@@ -1876,9 +2221,12 @@ export class CalendarStore {
   }
 
   /** Park a one-off "remind me again" for an event. Replaces an earlier snooze on the same row. */
-  async snoozeEvent(id: string, minutes: number): Promise<{ notifyAt: number }> {
+  async snoozeEvent(id: string, minutes: number, occurrenceStartMs?: number): Promise<{ notifyAt: number }> {
     const event = await this.getEvent(id)
     if (!event) throw ApiError.notFound('Event not found')
+    if (occurrenceStartMs !== undefined && !event.recurrenceRule) {
+      throw ApiError.badRequest('Only a recurring event can snooze one occurrence')
+    }
     const now = Date.now()
     const notifyAt = now + minutes * 60_000
     await this.db.batch([
@@ -1886,9 +2234,10 @@ export class CalendarStore {
         'DELETE FROM calendar_reminder_snoozes WHERE user_id = ?1 AND event_id = ?2',
       ).bind(this.userId, id),
       this.db.prepare(
-        `INSERT INTO calendar_reminder_snoozes (user_id, id, event_id, notify_at, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)`,
-      ).bind(this.userId, newId(), id, notifyAt, now),
+        `INSERT INTO calendar_reminder_snoozes
+          (user_id, id, event_id, occurrence_start_ms, notify_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      ).bind(this.userId, newId(), id, occurrenceStartMs ?? null, notifyAt, now),
     ])
     return { notifyAt }
   }
@@ -2007,20 +2356,12 @@ export class CalendarStore {
     if (!row) throw ApiError.notFound('Event not found')
     await this.assertEventWritable(id)
     const now = Date.now()
-    const statements: D1PreparedStatement[] = [this.db.prepare(
-      `DELETE FROM calendar_event_attendees
-        WHERE user_id = ?1 AND event_id = ?2
-          AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
-    ).bind(this.userId, id, rev)]
-    attendees.forEach((attendee, index) => {
-      statements.push(this.db.prepare(
-        `INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6
-          WHERE EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?7)`,
-      ).bind(this.userId, id, attendee.email, attendee.name, attendee.status, now + index, rev))
-    })
+    const normalized = normalizeEventAttendees(attendees)
+    const statements = this.attendeeReplaceStatements(id, normalized, { id, rev })
     statements.push(this.db.prepare(
-      `UPDATE calendar_events SET rev = rev + 1, updated_at = ?3
+      `UPDATE calendar_events
+          SET rev = rev + 1, updated_at = ?3,
+              meta_json = CASE WHEN json_valid(meta_json) THEN json_remove(meta_json, '$.attendees') ELSE meta_json END
         WHERE user_id = ?1 AND id = ?2 AND rev = ?4`,
     ).bind(this.userId, id, now, rev))
     const outcomes = await this.db.batch(statements)
@@ -2029,21 +2370,14 @@ export class CalendarStore {
     }
     const event = await this.getEvent(id)
     if (!event) throw new Error('Event attendee update did not persist')
-    return { event, attendees: [...attendees] }
-  }
-
-  private readConference(raw: string): CalendarConferenceDto | null {
-    const value = parseStoredJson(raw)
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-    return value as CalendarConferenceDto
+    return { event, attendees: normalized }
   }
 
   /**
-   * Title and description search across every calendar, newest first.
+   * Title and description search across owned and accepted shared calendars.
    *
-   * The pattern is escaped (`\\`, `%`, `_`) before it becomes a LIKE, so a reader typing `%` asks for
-   * a percent sign rather than for everything. `truncated` is answered by fetching one row past the
-   * limit instead of counting the whole match set.
+   * Plain word queries use FTS5 prefix matching; punctuation keeps the escaped LIKE behavior so `%`
+   * and `_` remain literal. `truncated` is answered by fetching one row past the limit for each scope.
    */
   async searchEvents(
     q: string,
@@ -2060,78 +2394,174 @@ export class CalendarStore {
     } = {},
   ): Promise<{ results: CalendarSearchResultDto[]; truncated: boolean }> {
     const max = Math.min(Math.max(1, limit), 50)
-    const conditions = ['user_id = ?']
-    const binds: Array<string | number> = [this.userId]
-    if (q) {
+    const requested = filters.calendarIds
+    const ownedIds = requested?.filter(id => !isSharedCalendarId(id)) ?? []
+    const sharedPairs = (requested?.filter(isSharedCalendarId) ?? []).flatMap((id) => {
+      const parsed = parseSharedCalendarId(id)
+      return parsed ? [[parsed.ownerId, parsed.calendarId] as const] : []
+    })
+    const wantsOwned = requested === undefined || ownedIds.length > 0
+    const wantsShared = requested === undefined || sharedPairs.length > 0
+    const ftsQuery = q && /^[\p{L}\p{N}\s]+$/u.test(q)
+      ? q.split(/\s+/).filter(Boolean).map(token => `"${token.replaceAll('"', '""')}"*`).join(' AND ')
+      : null
+    const ftsJoin = ftsQuery ? 'JOIN calendar_events_fts ON calendar_events_fts.rowid = e.rowid' : ''
+    const conditions: string[] = []
+    const binds: Array<string | number> = []
+    if (ftsQuery) {
+      conditions.push('calendar_events_fts MATCH ?')
+      binds.push(ftsQuery)
+    } else if (q) {
       const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`
-      conditions.push("(title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')")
+      conditions.push("(e.title LIKE ? ESCAPE '\\' OR e.description LIKE ? ESCAPE '\\')")
       binds.push(pattern, pattern)
     }
     if (filters.kind) {
-      conditions.push('kind = ?')
+      conditions.push('e.kind = ?')
       binds.push(filters.kind)
     }
     if (filters.attendee) {
       const pattern = `%${filters.attendee.replace(/[\\%_]/g, '\\$&')}%`
       conditions.push(`EXISTS (
         SELECT 1 FROM calendar_event_attendees a
-         WHERE a.user_id = calendar_events.user_id AND a.event_id = calendar_events.id
+         WHERE a.user_id = e.user_id AND a.event_id = e.id
            AND (a.email LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\')
       )`)
       binds.push(pattern, pattern)
     }
     if (filters.location) {
       const pattern = `%${filters.location.replace(/[\\%_]/g, '\\$&')}%`
-      conditions.push("(description LIKE ? ESCAPE '\\' OR meta_json LIKE ? ESCAPE '\\')")
-      binds.push(pattern, pattern)
+      conditions.push(`CASE WHEN json_valid(e.meta_json) THEN json_extract(e.meta_json, '$.location') END LIKE ? ESCAPE '\\'`)
+      binds.push(pattern)
     }
-    if (filters.recurring === true) conditions.push('recurrence_rule IS NOT NULL')
-    if (filters.recurring === false) conditions.push('recurrence_rule IS NULL')
-    if (filters.taskStatus === 'done') conditions.push("(kind = 'task' AND task_completed = 1)")
-    if (filters.taskStatus === 'open') conditions.push("(kind = 'task' AND task_completed = 0)")
+    if (filters.recurring === true) conditions.push('e.recurrence_rule IS NOT NULL')
+    if (filters.recurring === false) conditions.push('e.recurrence_rule IS NULL')
+    if (filters.taskStatus === 'done') conditions.push("(e.kind = 'task' AND e.task_completed = 1)")
+    if (filters.taskStatus === 'open') conditions.push("(e.kind = 'task' AND e.task_completed = 0)")
     if (filters.fromMs !== undefined) {
-      conditions.push('start_ms >= ?')
+      conditions.push('e.start_ms >= ?')
       binds.push(filters.fromMs)
     }
     if (filters.toMs !== undefined) {
-      conditions.push('start_ms <= ?')
+      conditions.push('e.start_ms <= ?')
       binds.push(filters.toMs)
     }
-    if (filters.calendarIds && filters.calendarIds.length > 0) {
-      conditions.push(`EXISTS (
-        SELECT 1 FROM calendar_event_calendars m
-         WHERE m.user_id = calendar_events.user_id AND m.event_id = calendar_events.id
-           AND m.calendar_id IN (${placeholders(filters.calendarIds.length)})
-      )`)
-      binds.push(...filters.calendarIds)
-    }
     const now = Date.now()
-    binds.push(now, now, max + 1)
-    const { results } = await this.db.prepare(
-      `SELECT * FROM calendar_events
-        WHERE ${conditions.join(' AND ')}
-        ORDER BY CASE WHEN start_ms >= ? THEN 0 ELSE 1 END, ABS(start_ms - ?) ASC, start_ms ASC, id ASC
-        LIMIT ?`,
-    ).bind(...binds).all<EventRow>()
-    const rows = results ?? []
-    const truncated = rows.length > max
-    const page = rows.slice(0, max)
-    const memberships = await this.membershipsFor(page.map((row) => row.id))
-    const calendarIds = [...new Set([...memberships.values()].flatMap((ids) => ids.slice(0, 1)))]
+    const entries = new Map<string, { row: EventRow; ownerId: string; shared: boolean }>()
+    const collect = (rows: EventRow[] | null | undefined, shared: boolean): void => {
+      for (const row of rows ?? []) {
+        const ownerId = shared ? row.user_id : this.userId
+        const key = shared ? sharedCalendarId(ownerId, row.id) : row.id
+        if (!entries.has(key)) entries.set(key, { row, ownerId, shared })
+      }
+    }
+    if (wantsOwned) {
+      const calendarFilter = requested === undefined
+        ? '1=1'
+        : ownedIds.length > 0
+          ? `EXISTS (SELECT 1 FROM calendar_event_calendars m
+                          WHERE m.user_id = e.user_id AND m.event_id = e.id
+                            AND m.calendar_id IN (${placeholders(ownedIds.length)}))`
+          : '0=1'
+      const { results } = await this.db.prepare(
+        `SELECT DISTINCT e.* FROM calendar_events e ${ftsJoin}
+          WHERE ${[...conditions, 'e.user_id = ?', calendarFilter].join(' AND ')}
+          ORDER BY CASE WHEN e.start_ms >= ? THEN 0 ELSE 1 END, ABS(e.start_ms - ?) ASC, e.start_ms ASC, e.id ASC
+          LIMIT ?`,
+      ).bind(...binds, this.userId, ...ownedIds, now, now, max + 1).all<EventRow>()
+      collect(results, false)
+    }
+    if (wantsShared) {
+      const pairChunks = sharedPairs.length > 0 ? chunks(sharedPairs, 40) : [[]]
+      for (const pairChunk of pairChunks) {
+        const sharedFilter = pairChunk.length > 0
+          ? `(${pairChunk.map(() => '(c.user_id = ? AND m.calendar_id = ?)').join(' OR ')})`
+          : requested === undefined ? '1=1' : '0=1'
+        const pairValues = pairChunk.flatMap(([ownerId, calendarId]) => [ownerId, calendarId])
+        const { results } = await this.db.prepare(
+          `SELECT DISTINCT e.* FROM calendar_events e
+             JOIN calendar_event_calendars m ON m.user_id = e.user_id AND m.event_id = e.id
+             JOIN calendar_calendars c ON c.user_id = m.user_id AND c.id = m.calendar_id
+             JOIN calendar_members mem ON mem.owner_user_id = c.user_id AND mem.calendar_id = c.id
+             ${ftsJoin}
+            WHERE ${[...conditions, "mem.member_user_id = ?", "mem.status = 'accepted'", sharedFilter].join(' AND ')}
+            ORDER BY CASE WHEN e.start_ms >= ? THEN 0 ELSE 1 END, ABS(e.start_ms - ?) ASC, e.start_ms ASC, e.id ASC
+            LIMIT ?`,
+        ).bind(...binds, this.userId, ...pairValues, now, now, max + 1).all<EventRow>()
+        collect(results, true)
+      }
+    }
+    const ordered = [...entries.values()].sort((left, right) => {
+      const leftFuture = left.row.start_ms >= now ? 0 : 1
+      const rightFuture = right.row.start_ms >= now ? 0 : 1
+      return leftFuture - rightFuture
+        || Math.abs(left.row.start_ms - now) - Math.abs(right.row.start_ms - now)
+        || left.row.start_ms - right.row.start_ms
+        || left.row.id.localeCompare(right.row.id)
+    })
+    const truncated = ordered.length > max
+    const page = ordered.slice(0, max)
+    const ownedRows = page.filter(entry => !entry.shared)
+    const ownedMemberships = await this.membershipsFor(ownedRows.map(entry => entry.row.id))
+    const sharedIdsByOwner = new Map<string, string[]>()
+    for (const entry of page) {
+      if (!entry.shared) continue
+      const ids = sharedIdsByOwner.get(entry.ownerId) ?? []
+      ids.push(entry.row.id)
+      sharedIdsByOwner.set(entry.ownerId, ids)
+    }
+    const sharedMemberships = new Map<string, string[]>()
+    for (const [ownerId, ids] of sharedIdsByOwner) {
+      for (const chunk of chunks(ids, SQL_CHUNK)) {
+        const { results } = await this.db.prepare(
+          `SELECT m.event_id, m.calendar_id FROM calendar_event_calendars m
+             JOIN calendar_members mem ON mem.owner_user_id = m.user_id AND mem.calendar_id = m.calendar_id
+            WHERE m.user_id = ? AND mem.member_user_id = ? AND mem.status = 'accepted'
+              AND m.event_id IN (${placeholders(chunk.length)})
+            ORDER BY m.position ASC, m.calendar_id ASC`,
+        ).bind(ownerId, this.userId, ...chunk).all<{ event_id: string; calendar_id: string }>()
+        for (const row of results ?? []) {
+          if (requested !== undefined && !sharedPairs.some(([owner, calendarId]) => owner === ownerId && calendarId === row.calendar_id)) continue
+          const key = sharedCalendarId(ownerId, row.event_id)
+          const calendarIds = sharedMemberships.get(key) ?? []
+          if (!calendarIds.includes(row.calendar_id)) calendarIds.push(row.calendar_id)
+          sharedMemberships.set(key, calendarIds)
+        }
+      }
+    }
+    const calendarRefs = new Map<string, Set<string>>()
+    for (const entry of page) {
+      const rawIds = entry.shared
+        ? sharedMemberships.get(sharedCalendarId(entry.ownerId, entry.row.id)) ?? []
+        : ownedMemberships.get(entry.row.id) ?? []
+      const refs = calendarRefs.get(entry.ownerId) ?? new Set<string>()
+      for (const id of rawIds) refs.add(id)
+      calendarRefs.set(entry.ownerId, refs)
+    }
     const calendars = new Map<string, { name: string; color: string }>()
-    for (const chunk of chunks(calendarIds, SQL_CHUNK)) {
-      const { results: found } = await this.db.prepare(
-        `SELECT id, name, color FROM calendar_calendars
-          WHERE user_id = ? AND id IN (${placeholders(chunk.length)})`,
-      ).bind(this.userId, ...chunk).all<{ id: string; name: string; color: string }>()
-      for (const row of found ?? []) calendars.set(row.id, { name: row.name, color: row.color })
+    for (const [ownerId, ids] of calendarRefs) {
+      for (const chunk of chunks([...ids], SQL_CHUNK)) {
+        const { results: found } = await this.db.prepare(
+          `SELECT id, name, color FROM calendar_calendars
+            WHERE user_id = ? AND id IN (${placeholders(chunk.length)})`,
+        ).bind(ownerId, ...chunk).all<{ id: string; name: string; color: string }>()
+        for (const row of found ?? []) calendars.set(`${ownerId}\u0000${row.id}`, { name: row.name, color: row.color })
+      }
     }
     const answers: CalendarSearchResultDto[] = []
-    for (const row of page) {
-      const ids = memberships.get(row.id) ?? []
-      const calendar = ids.length > 0 ? calendars.get(ids[0]!) : undefined
+    for (const entry of page) {
+      const rawIds = entry.shared
+        ? sharedMemberships.get(sharedCalendarId(entry.ownerId, entry.row.id)) ?? []
+        : ownedMemberships.get(entry.row.id) ?? []
+      const calendar = rawIds.length > 0 ? calendars.get(`${entry.ownerId}\u0000${rawIds[0]}`) : undefined
       if (!calendar) continue
-      answers.push({ event: toEventDto(row, ids), calendarName: calendar.name, calendarColor: calendar.color })
+      const ids = entry.shared ? rawIds.map(id => sharedCalendarId(entry.ownerId, id)) : rawIds
+      const event = toEventDto(entry.row, ids)
+      answers.push({
+        event: entry.shared ? { ...event, id: sharedCalendarId(entry.ownerId, entry.row.id), calendarId: ids[0] ?? '' } : event,
+        calendarName: calendar.name,
+        calendarColor: calendar.color,
+      })
     }
     return { results: answers, truncated }
   }
@@ -2177,28 +2607,6 @@ export class CalendarStore {
     }))
   }
 
-  /** Connections as the meta read exposes them: identifiers and state, never credentials. */
-  private async listConnections(): Promise<CalendarConnectionDto[]> {
-    const { results } = await this.db.prepare(
-      `SELECT id, kind, label, base_url, calendar_home_url, username, scope, writable, status,
-              last_synced_at, last_error_code
-         FROM calendar_connections WHERE user_id = ?1 ORDER BY created_at ASC, id ASC`,
-    ).bind(this.userId).all<ConnectionRow>()
-    return (results ?? []).map((row) => ({
-      id: row.id,
-      kind: row.kind === 'caldav' || row.kind === 'google' || row.kind === 'outlook' ? row.kind : 'caldav',
-      label: row.label,
-      calendarHomeUrl: row.calendar_home_url,
-      scope: row.scope === 'write' ? 'write' : 'read',
-      writable: row.writable === 1,
-      status: row.status === 'error' || row.status === 'expired' || row.status === 'disconnected'
-        ? row.status
-        : 'connected',
-      lastSyncedAt: row.last_synced_at,
-      lastErrorCode: row.last_error_code,
-    }))
-  }
-
   // ------------------------------------------------------------- statements
 
   private eventWriteValues(input: TimelineEventWrite): unknown[] {
@@ -2226,7 +2634,6 @@ export class CalendarStore {
       input.recurrenceParentId,
       input.recurrenceId,
       input.recurrenceCancelled ? 1 : 0,
-      input.resourceId,
       input.source,
       input.calendarIds[0] ?? '',
       input.externalId,
@@ -2238,23 +2645,34 @@ export class CalendarStore {
     id: string,
     now: number,
     batchKey: string | null,
+    guard?: { id: string; rev: number },
   ): D1PreparedStatement {
+    const values = placeholders(EVENT_WRITE_COLUMNS.length)
+    const target = guard
+      ? `SELECT ?, ?, ${values}, ?, ?, ?, 1
+           WHERE EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ? AND id = ? AND rev = ?)`
+      : `VALUES (?, ?, ${values}, ?, ?, ?, 1)`
     return this.db.prepare(
       `INSERT INTO calendar_events (
          user_id, id, ${EVENT_WRITE_COLUMNS.join(', ')}, batch_key, created_at, updated_at, rev
-       ) VALUES (?, ?, ${placeholders(EVENT_WRITE_COLUMNS.length)}, ?, ?, ?, 1)`,
-    ).bind(this.userId, id, ...this.eventWriteValues(input), batchKey, now, now)
+       ) ${target}`,
+    ).bind(
+      this.userId, id, ...this.eventWriteValues(input), batchKey, now, now,
+      ...(guard ? [this.userId, guard.id, guard.rev] : []),
+    )
   }
 
   private upsertEventStatement(input: TimelineEventWrite, id: string, now: number): D1PreparedStatement {
     const updates = EVENT_WRITE_COLUMNS.map((column) => `${column} = excluded.${column}`).join(', ')
+    const revGuard = input.rev === undefined ? '' : 'WHERE calendar_events.rev = ?'
     return this.db.prepare(
       `INSERT INTO calendar_events (
          user_id, id, ${EVENT_WRITE_COLUMNS.join(', ')}, batch_key, created_at, updated_at, rev
        ) VALUES (?, ?, ${placeholders(EVENT_WRITE_COLUMNS.length)}, NULL, ?, ?, 1)
        ON CONFLICT(user_id, id) DO UPDATE SET
-         ${updates}, updated_at = excluded.updated_at, rev = calendar_events.rev + 1`,
-    ).bind(this.userId, id, ...this.eventWriteValues(input), now, now)
+         ${updates}, updated_at = excluded.updated_at, rev = calendar_events.rev + 1
+         ${revGuard}`,
+    ).bind(this.userId, id, ...this.eventWriteValues(input), now, now, ...(input.rev === undefined ? [] : [input.rev]))
   }
 
   private updateEventStatement(input: TimelineEventWrite, rev: number, now: number): D1PreparedStatement {
@@ -2265,10 +2683,40 @@ export class CalendarStore {
     ).bind(...this.eventWriteValues(input), now, this.userId, input.id!, rev)
   }
 
+  private attendeeReplaceStatements(
+    eventId: string,
+    attendees: readonly CalendarAttendeeDto[],
+    guard?: { id: string; rev: number },
+  ): D1PreparedStatement[] {
+    const now = Date.now()
+    const guardedDelete = guard
+      ? `AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?4 AND rev = ?3)`
+      : ''
+    const deleteStatement = this.db.prepare(
+      `DELETE FROM calendar_event_attendees WHERE user_id = ?1 AND event_id = ?2 ${guardedDelete}`,
+    ).bind(this.userId, eventId, ...(guard ? [guard.rev, guard.id] : []))
+    const insertStatement = guard
+      ? this.db.prepare(
+        `INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
+         SELECT ?1, ?2, json_extract(guest.value, '$.email'), json_extract(guest.value, '$.name'),
+                json_extract(guest.value, '$.status'), ?3 + guest.key
+           FROM json_each(?4) AS guest
+          WHERE EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?6 AND rev = ?5)`,
+      ).bind(this.userId, eventId, now, JSON.stringify(attendees), guard.rev, guard.id)
+      : this.db.prepare(
+        `INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
+         SELECT ?1, ?2, json_extract(guest.value, '$.email'), json_extract(guest.value, '$.name'),
+                json_extract(guest.value, '$.status'), ?3 + guest.key
+           FROM json_each(?4) AS guest`,
+      ).bind(this.userId, eventId, now, JSON.stringify(attendees))
+    return [deleteStatement, insertStatement]
+  }
+
   private membershipInsertStatements(
     eventId: string,
     calendarIds: readonly string[],
     rev?: number,
+    guardEventId = eventId,
   ): D1PreparedStatement[] {
     return calendarIds.map((calendarId, position) => rev === undefined
       ? this.db.prepare(
@@ -2279,6 +2727,6 @@ export class CalendarStore {
         `INSERT INTO calendar_event_calendars (user_id, event_id, calendar_id, position)
          SELECT ?, ?, ?, ?
           WHERE EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ? AND id = ? AND rev = ?)`,
-      ).bind(this.userId, eventId, calendarId, position, this.userId, eventId, rev))
+      ).bind(this.userId, eventId, calendarId, position, this.userId, guardEventId, rev))
   }
 }

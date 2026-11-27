@@ -13,6 +13,7 @@ import type {
 } from '../src/shared/calendar/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
+import { calendarCsvRoutes } from '../src/worker/routes/calendar-csv'
 import { calendarRoutes } from '../src/worker/routes/calendar'
 import type { AppBindings } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -96,30 +97,42 @@ describe('the calendar routes', () => {
 })
 
 describe('calendar routes', () => {
-  it('refuses local batch writes to a read-only calendar but accepts provider sync writes', async () => {
+  it('refuses client source identities on read-only calendars', async () => {
     const readOnly = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {
       name: 'Read only',
       color: '#123456',
       readOnly: true,
     }))
+    const forged = { source: 'caldav', externalId: 'remote-sync-1' }
 
     expect((await call('POST', '/events', eventBody(readOnly.calendar.id))).status).toBe(403)
+    expect((await call('POST', '/events', eventBody(readOnly.calendar.id, forged))).status).toBe(403)
     expect((await call('POST', '/events/batch', {
       mode: 'create',
       events: [eventBody(readOnly.calendar.id)],
     })).status).toBe(403)
-
-    const synced = await call('POST', '/events/batch', {
+    expect((await call('POST', '/events/batch', {
       mode: 'create',
-      events: [eventBody(readOnly.calendar.id, { source: 'caldav', externalId: 'remote-sync-1' })],
-    })
-    expect(synced.status).toBe(200)
-    expect((await json<{ events: CalendarEventDto[] }>(synced)).events[0]?.calendarIds).toEqual([readOnly.calendar.id])
+      events: [eventBody(readOnly.calendar.id, forged)],
+    })).status).toBe(403)
+    expect((await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [eventBody(readOnly.calendar.id, forged)],
+    })).status).toBe(403)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events').get()).toEqual({ count: 0 })
 
     const writable = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {
       name: 'Writable',
       color: '#654321',
     }))
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(writable.calendar.id, forged)))
+    expect(created.event).toMatchObject({ source: 'local', externalId: null })
+    const batch = await json<{ events: CalendarEventDto[] }>(await call('POST', '/events/batch', {
+      mode: 'create',
+      events: [eventBody(writable.calendar.id, { ...forged, id: 'client-identity' })],
+    }))
+    expect(batch.events[0]).toMatchObject({ source: 'local', externalId: null })
+
     const mixed = await call('POST', '/events', eventBody(writable.calendar.id, {
       calendarIds: [writable.calendar.id, readOnly.calendar.id],
     }))
@@ -151,14 +164,15 @@ describe('calendar routes', () => {
     expect(ordered.status).toBe(204)
     expect((await meta()).calendars.map((entry) => entry.id)).toEqual([patched.calendar.id, home.id])
 
-    const deleted = await call('DELETE', `/calendars/${patched.calendar.id}?mode=delete`)
+    const current = (await meta()).calendars.find(entry => entry.id === patched.calendar.id)!
+    const deleted = await call('DELETE', `/calendars/${patched.calendar.id}?mode=delete&rev=${current.rev}`)
     expect(deleted.status).toBe(204)
     expect((await meta()).calendars.map((entry) => entry.id)).toEqual([home.id])
   })
 
   it('refuses to delete the last calendar and a malformed id', async () => {
     const home = (await meta()).calendars[0]!
-    expect((await call('DELETE', `/calendars/${home.id}?mode=delete`)).status).toBe(409)
+    expect((await call('DELETE', `/calendars/${home.id}?mode=delete&rev=${home.rev}`)).status).toBe(409)
     expect((await call('PATCH', '/calendars/bad!id', { rev: 1, name: 'X' })).status).toBe(400)
     expect((await call('PATCH', '/calendars/does-not-exist', { rev: 1, name: 'X' })).status).toBe(404)
   })
@@ -186,6 +200,33 @@ describe('group routes', () => {
 })
 
 describe('event routes', () => {
+  it('does not apply the CSV import budget to ordinary calendar writes', async () => {
+    const home = (await meta()).calendars[0]!
+    const mounted = new Hono<AppBindings>()
+    mounted.onError((err, c) => errorResponse(c, err))
+    mounted.use('*', async (c, next) => {
+      c.set('userId', ALICE)
+      await next()
+    })
+    mounted.route(TREE, calendarCsvRoutes)
+    mounted.route(TREE, calendarRoutes)
+    for (let index = 0; index < 11; index += 1) {
+      const response = await mounted.fetch(new Request(`http://localhost${TREE}/events`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(eventBody(home.id, { id: `budget-${index}` })),
+      }), env(), ctx)
+      expect(response.status, `write ${index + 1}`).toBe(200)
+    }
+  })
+  it('requires a revision when deleting a countdown', async () => {
+    const created = await json<{ countdown: { id: string; rev: number } }>(await call('POST', '/countdowns', {
+      title: 'Launch', date: '2026-12-01', repeat: 'none', note: '', color: '#e5484d', pinned: false,
+    }))
+    expect((await call('DELETE', `/countdowns/${created.countdown.id}`)).status).toBe(400)
+    expect((await call('DELETE', `/countdowns/${created.countdown.id}?rev=${created.countdown.rev}`)).status).toBe(204)
+  })
+
   it('creates, lists, patches and deletes an event', async () => {
     const home = (await meta()).calendars[0]!
     const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id)))
@@ -229,10 +270,167 @@ describe('event routes', () => {
     expect(found.truncated).toBe(false)
   })
 
+  it('requires and enforces revisions on public batch upserts', async () => {
+    const home = (await meta()).calendars[0]!
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, {
+      id: 'guarded-event', title: 'Original',
+    })))
+    const missing = await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [eventBody(home.id, { id: created.event.id, title: 'Missing revision' })],
+    })
+    expect(missing.status).toBe(400)
+
+    const updated = await json<{ events: CalendarEventDto[] }>(await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [eventBody(home.id, { id: created.event.id, title: 'Current', rev: created.event.rev })],
+    }))
+    expect(updated.events[0]).toMatchObject({ title: 'Current', rev: created.event.rev + 1 })
+
+    const stale = await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [eventBody(home.id, { id: created.event.id, title: 'Stale', rev: created.event.rev })],
+    })
+    expect(stale.status).toBe(409)
+
+    const reread = await json<{ event: CalendarEventDto }>(await call('GET', `/events/${created.event.id}`))
+    expect(reread.event).toMatchObject({ title: 'Current', rev: created.event.rev + 1 })
+  })
+
+  it('rejects the unsupported resource id instead of persisting a fake reservation', async () => {
+    const home = (await meta()).calendars[0]!
+    expect((await call('POST', '/events', eventBody(home.id, { meta: { resourceId: 'room-1' } }))).status).toBe(400)
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, { id: 'normal-event' })))
+    expect((await call('PATCH', `/events/${created.event.id}`, { rev: created.event.rev, meta: { resourceId: 'room-1' } })).status).toBe(400)
+    expect(sqlite.prepare('SELECT resource_id FROM calendar_events WHERE user_id = ? AND id = ?').get(ALICE, created.event.id))
+      .toEqual({ resource_id: null })
+  })
+
+  it('rejects recurrence rules with more than twenty-four times per day', async () => {
+    const home = (await meta()).calendars[0]!
+    const minutes = Array.from({ length: 25 }, (_, index) => index).join(',')
+    const response = await call('POST', '/events', eventBody(home.id, {
+      recurrenceRule: `FREQ=DAILY;BYMINUTE=${minutes}`,
+    }))
+    expect(response.status).toBe(400)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events').get()).toEqual({ count: 0 })
+  })
+
+  it('accepts an occurrence id for snooze and rejects it on a one-off event', async () => {
+    const home = (await meta()).calendars[0]!
+    const recurring = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, {
+      id: 'snooze-series', recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    })))
+    const occurrence = Date.parse('2026-10-27T09:00:00Z')
+    const occurrenceId = `${recurring.event.id}::repeat-${occurrence}`
+    expect((await call('POST', `/events/${encodeURIComponent(occurrenceId)}/snooze`, { minutes: 5 })).status).toBe(200)
+    expect(sqlite.prepare('SELECT occurrence_start_ms FROM calendar_reminder_snoozes WHERE user_id = ? AND event_id = ?')
+      .get(ALICE, recurring.event.id)).toEqual({ occurrence_start_ms: occurrence })
+
+    const oneOff = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, { id: 'snooze-one-off' })))
+    expect((await call('POST', `/events/${encodeURIComponent(`${oneOff.event.id}::repeat-${occurrence}`)}/snooze`, { minutes: 5 })).status).toBe(400)
+  })
+
+  it('requires the current master revision for recurrence changes', async () => {
+    const home = (await meta()).calendars[0]!
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id, {
+      id: 'recurrence-revision', recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    })))
+    const body = {
+      occurrenceStart: created.event.start,
+      occurrenceEnd: created.event.end,
+      scope: 'all',
+      action: 'cancel',
+    }
+    expect((await call('POST', `/events/${created.event.id}/recurrence`, body)).status).toBe(400)
+    await json(await call('PATCH', `/events/${created.event.id}`, { rev: created.event.rev, title: 'Changed elsewhere' }))
+    expect((await call('POST', `/events/${created.event.id}/recurrence`, { ...body, rev: created.event.rev })).status).toBe(409)
+    const reread = await json<{ event: CalendarEventDto }>(await call('GET', `/events/${created.event.id}`))
+    expect(reread.event).toMatchObject({ title: 'Changed elsewhere', rev: created.event.rev + 1 })
+  })
+
+  it('refuses a shared batch upsert that would remove a private membership', async () => {
+    const sharedCalendar = (await meta()).calendars[0]!
+    const privateCalendar = await json<{ calendar: CalendarDto }>(await call('POST', '/calendars', {
+      name: 'Private',
+      color: '#654321',
+    }))
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(privateCalendar.calendar.id, {
+      id: 'owner-event',
+      title: 'Owner event',
+      calendarIds: [privateCalendar.calendar.id, sharedCalendar.id],
+    })))
+    sqlite.prepare(
+      `INSERT INTO calendar_members
+         (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+       VALUES (?, ?, ?, 'writer', 'accepted', 1, 1)`,
+    ).run(ALICE, sharedCalendar.id, BOB)
+    const beforeRow = sqlite.prepare('SELECT * FROM calendar_events WHERE user_id = ? AND id = ?')
+      .get(ALICE, created.event.id)
+    const beforeMemberships = sqlite.prepare(
+      `SELECT calendar_id, position FROM calendar_event_calendars
+        WHERE user_id = ? AND event_id = ? ORDER BY position ASC, calendar_id ASC`,
+    ).all(ALICE, created.event.id)
+
+    user = BOB
+    const sharedId = `shared:${ALICE}:${sharedCalendar.id}`
+    const refused = await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [
+        eventBody(sharedId, { id: 'batch-first', title: 'Must not land' }),
+        eventBody(sharedId, { id: created.event.id, title: 'Stolen', calendarIds: [sharedId] }),
+      ],
+    })
+    expect(refused.status).toBe(403)
+
+    user = ALICE
+    expect(sqlite.prepare('SELECT * FROM calendar_events WHERE user_id = ? AND id = ?')
+      .get(ALICE, created.event.id)).toEqual(beforeRow)
+    expect(sqlite.prepare(
+      `SELECT calendar_id, position FROM calendar_event_calendars
+        WHERE user_id = ? AND event_id = ? ORDER BY position ASC, calendar_id ASC`,
+    ).all(ALICE, created.event.id)).toEqual(beforeMemberships)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events').get()).toEqual({ count: 1 })
+    expect((await json<{ event: CalendarEventDto }>(await call('GET', `/events/${created.event.id}`))).event).toEqual(created.event)
+  })
+
+  it('still lets a shared writer upsert an event whose memberships are all writable', async () => {
+    const sharedCalendar = (await meta()).calendars[0]!
+    sqlite.prepare(
+      `INSERT INTO calendar_members
+         (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+       VALUES (?, ?, ?, 'writer', 'accepted', 1, 1)`,
+    ).run(ALICE, sharedCalendar.id, BOB)
+
+    user = BOB
+    const sharedId = `shared:${ALICE}:${sharedCalendar.id}`
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(sharedId, {
+      id: 'shared-event',
+      title: 'Shared event',
+    })))
+    const updated = await json<{ events: CalendarEventDto[] }>(await call('POST', '/events/batch', {
+      mode: 'upsert',
+      events: [eventBody(sharedId, { id: created.event.id.split(':').at(-1), title: 'Shared update', rev: created.event.rev })],
+    }))
+    expect(updated.events[0]).toMatchObject({
+      id: created.event.id,
+      title: 'Shared update',
+      rev: created.event.rev + 1,
+      calendarIds: [sharedId],
+    })
+  })
+
+  it('rejects a range naming more calendars than one D1 statement can bind', async () => {
+    const ids = Array.from({ length: 91 }, (_, index) => `calendar-${index}`).join(',')
+    const response = await call('GET', `/events?from=2026-11-01T00:00:00Z&to=2026-11-02T00:00:00Z&calendarIds=${ids}`)
+    expect(response.status).toBe(400)
+  })
+
   it('rejects a malformed event id and a bad range', async () => {
     const home = (await meta()).calendars[0]!
     expect((await call('GET', '/events?from=nope&to=also-nope')).status).toBe(400)
     expect((await call('POST', '/events', eventBody(home.id, { id: 'master::repeat-1' }))).status).toBe(400)
+    expect((await call('POST', '/events', eventBody(home.id, { id: 'shared:owner:calendar' }))).status).toBe(400)
     expect((await call('PATCH', '/events/bad!id', { rev: 1, title: 'X' })).status).toBe(400)
     expect((await call('DELETE', `/events/${home.id}`)).status).toBe(400)
   })
@@ -297,31 +495,35 @@ describe('event routes', () => {
 describe('preference routes', () => {
   it('saves the supplied shape and answers it back', async () => {
     const saved = await json<{ preferences: CalendarPreferences }>(await call('PUT', '/preferences', {
-      weekStart: 0,
-      timeZone: 'UTC',
-      defaultView: 'month',
+      preferences: {
+        weekStart: 0,
+        timeZone: 'UTC',
+        defaultView: 'month',
+      },
     }))
     expect(saved.preferences.weekStart).toBe(0)
     expect(saved.preferences.defaultView).toBe('month')
 
     const read = await json<{ preferences: CalendarPreferences }>(await call('GET', '/preferences'))
     expect(read.preferences).toEqual(saved.preferences)
-    expect((await call('PUT', '/preferences', { notASetting: true })).status).toBe(400)
+    expect((await call('PUT', '/preferences', { preferences: { notASetting: true } })).status).toBe(400)
   })
 
   it('accepts a working-hours window and refuses an impossible one', async () => {
     const answer = await json<{ preferences: CalendarPreferences }>(await call('PUT', '/preferences', {
-      workingHours: { enabled: true, startHour: 8, endHour: 17 },
+      preferences: {
+        workingHours: { enabled: true, startHour: 8, endHour: 17 },
+      },
     }))
     expect(answer.preferences.workingHours).toEqual({ enabled: true, startHour: 8, endHour: 17 })
 
     expect((await call('PUT', '/preferences', {
-      workingHours: { enabled: true, startHour: 17, endHour: 8 },
+      preferences: { workingHours: { enabled: true, startHour: 17, endHour: 8 } },
     })).status).toBe(400)
     expect((await call('PUT', '/preferences', {
-      workingHours: { enabled: true, startHour: 8, endHour: 17, days: [1] },
+      preferences: { workingHours: { enabled: true, startHour: 8, endHour: 17, days: [1] } },
     })).status).toBe(400)
-    expect((await call('PUT', '/preferences', { workingHours: '9-17' })).status).toBe(400)
+    expect((await call('PUT', '/preferences', { preferences: { workingHours: '9-17' } })).status).toBe(400)
   })
 
   it('refuses a body over the small limit', async () => {

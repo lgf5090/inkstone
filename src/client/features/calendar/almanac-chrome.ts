@@ -35,17 +35,6 @@ const WEEK_SHELL_CLASS = 'cal-week-shell'
 const WEEK_NUMBER_CLASS = 'cal-week-number'
 const WEEK_HEAD_CLASS = 'cal-week-head-pad'
 
-/** One month grid is redrawn many times per view; rebuilding its lunar map each pass is wasted work. */
-let cachedWindow: { key: string; map: ReadonlyMap<string, CalendarDayAlmanac> } | null = null
-
-function windowAlmanac(firstKey: string, weekStart: number, span: number): ReadonlyMap<string, CalendarDayAlmanac> {
-  const key = `${firstKey}:${weekStart}:${span}`
-  if (cachedWindow?.key === key) return cachedWindow.map
-  const map = gridAlmanac(Temporal.PlainDate.from(firstKey), weekStart, span)
-  cachedWindow = { key, map }
-  return map
-}
-
 export interface AlmanacChromeOptions {
   root: HTMLElement
   weekStart: number
@@ -151,7 +140,7 @@ export function attachAlmanacChrome(options: AlmanacChromeOptions): () => void {
     // the month instead left the trailing week of a six-week grid unresolved, and continuous
     // scrolling draws ten rows, so the length comes from the cells rather than a constant.
     const span = Math.round((Date.parse(`${lastKey}T00:00:00Z`) - Date.parse(`${firstKey}T00:00:00Z`)) / 86_400_000) + 1
-    const map = windowAlmanac(firstKey, options.weekStart, Math.max(42, span))
+    const map = gridAlmanac(Temporal.PlainDate.from(firstKey), options.weekStart, Math.max(42, span))
     const epoch = String(layoutEpoch)
 
     for (const cell of cells) {

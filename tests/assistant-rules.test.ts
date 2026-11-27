@@ -42,12 +42,12 @@ import {
   INTERVAL_MAX_MINUTES,
   INTERVAL_MIN_MINUTES,
   computeNextRun,
-  isValidTimeZone,
   parseScheduleSpec,
   scheduleSummary,
   zonedTimeToUtc,
 } from '../src/shared/assistant-schedule'
 import { localDayBounds, parseLocalTime, toLocalMinute } from '../src/shared/assistant-time'
+import { isValidTimeZone } from '../src/shared/time-zone'
 import { buildPromptParts, fill, offlineAnswer, promptCatalog, type SystemPromptContext } from '../src/shared/assistant-prompt'
 import { EN_US_ASSISTANT_PROMPT } from '../src/shared/locales/en-US-assistant-prompt'
 import { ZH_CN_ASSISTANT_PROMPT } from '../src/shared/locales/zh-CN-assistant-prompt'
@@ -635,11 +635,18 @@ describe('message keys and tools', () => {
     }
   })
 
-  it('marks exactly the destructive tools as needing approval', () => {
+  it('marks destructive tools and calendar writes that ask by default', () => {
     const destructive = ASSISTANT_TOOL_SPECS.filter((spec) => spec.permission === 'destructive')
     expect(destructive.length).toBeGreaterThan(0)
     for (const spec of destructive) expect(spec.approvalKey).toBeTruthy()
-    for (const spec of ASSISTANT_TOOL_SPECS.filter((entry) => entry.permission !== 'destructive')) {
+    const guardedWrites = ASSISTANT_TOOL_SPECS.filter((spec) => spec.permission === 'write' && spec.approvalByDefault)
+    expect(guardedWrites.map((spec) => spec.name)).toEqual([
+      'calendar_create_event',
+      'calendar_update_event',
+      'calendar_move_event',
+    ])
+    for (const spec of guardedWrites) expect(spec.approvalKey).toBeTruthy()
+    for (const spec of ASSISTANT_TOOL_SPECS.filter((entry) => entry.permission !== 'destructive' && !entry.approvalByDefault)) {
       expect(spec.approvalKey, spec.name).toBeUndefined()
     }
   })

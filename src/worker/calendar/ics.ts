@@ -7,6 +7,7 @@ import {
   MAX_ICS_BYTES,
   MAX_ICS_EVENTS,
   MAX_RECURRENCE_RULE,
+  isCalendarAttendeeStatus,
   isCalendarEntityId,
   isTemporalKind,
   temporalValueToEpochMs,
@@ -29,9 +30,12 @@ const MAX_ICS_PROPERTY_CHARS = 64 * 1024
 const MAX_ICS_COMPONENT_DEPTH = 4
 const MAX_CATEGORIES = 100
 const MAX_META_DATES = 500
-const MAX_FLATTEN_ITERATIONS = 100_000
 const MAX_ZONE_CACHE_ENTRIES = 500
-const FLATTEN_WINDOW_YEARS = 2
+export const MAX_ICS_CATEGORY_CHARS = 200
+export const MAX_ICS_ATTENDEES = 50
+export const MAX_ICS_ATTENDEE_NAME_CHARS = 120
+const VTIMEZONE_TRANSITION_PRECISION_MS = 60_000
+const ICS_CONTROL_CHARS = /[\u0000-\u001F\u007F]/
 
 /** A stable per-calendar external id; flattened occurrences need their recurrence id in the key. */
 export async function icsExternalId(
@@ -126,6 +130,7 @@ function isIanaZone(zone: string): boolean {
     new Intl.DateTimeFormat('en-US', { timeZone: zone }).format(0)
     return true
   } catch {
+    // An unknown TZID is an expected parse outcome; callers warn or try a recognized suffix.
     return false
   }
 }
@@ -280,7 +285,7 @@ function readCategories(
     try {
       for (const value of property.getValues()) {
         if (typeof value !== 'string') continue
-        const category = value.trim().slice(0, 200)
+        const category = value.trim().slice(0, MAX_ICS_CATEGORY_CHARS)
         if (category && !categories.includes(category) && categories.length < MAX_CATEGORIES) {
           categories.push(category)
         }
@@ -322,10 +327,10 @@ function readAttendees(
       const name = property.getParameter('cn')
       guests.push({
         email,
-        name: typeof name === 'string' ? name.trim().slice(0, 120) : '',
+        name: typeof name === 'string' ? name.trim().slice(0, MAX_ICS_ATTENDEE_NAME_CHARS) : '',
         status: attendeeStatus(property.getParameter('partstat')),
       })
-      if (guests.length >= 50) break
+      if (guests.length >= MAX_ICS_ATTENDEES) break
     } catch {
       addWarning(context, 'invalid_property', 'ATTENDEE could not be read.')
     }
@@ -336,9 +341,15 @@ function readAttendees(
 function readOrganizer(
   component: IcalComponent,
   fallback: IcalComponent | undefined,
+  context: WarningContext,
 ): string | null {
-  const property = sourceFor(component, fallback, 'organizer').getFirstProperty('organizer')
-  return property ? mailAddress(property.getFirstValue()) : null
+  try {
+    const property = sourceFor(component, fallback, 'organizer').getFirstProperty('organizer')
+    return property ? mailAddress(property.getFirstValue()) : null
+  } catch {
+    addWarning(context, 'invalid_property', 'ORGANIZER could not be read.')
+    return null
+  }
 }
 
 function readDatesProperty(
@@ -377,6 +388,8 @@ function isCancelled(component: IcalComponent, context: WarningContext): boolean
 
 function safeHttpUrl(value: unknown, httpsOnly: boolean): string | null {
   if (typeof value !== 'string' || !value || value.length > MAX_CONFERENCE_URL) return null
+  // URL parsing removes raw line breaks; returning the original value would write them back into ICS.
+  if (ICS_CONTROL_CHARS.test(value)) return null
   try {
     const url = new URL(value)
     if (httpsOnly ? url.protocol !== 'https:' : (url.protocol !== 'https:' && url.protocol !== 'http:')) {
@@ -479,7 +492,7 @@ function mapEvent(options: MapEventOptions): CalendarEventInput {
   if (recurrenceRule) meta.recurrenceRule = recurrenceRule
   const attendees = readAttendees(component, fallback, warningContext)
   if (attendees.length > 0) meta.attendees = attendees
-  const organizerEmail = readOrganizer(component, fallback)
+  const organizerEmail = readOrganizer(component, fallback, warningContext)
   if (organizerEmail) meta.organizerEmail = organizerEmail
   if (options.recurrenceId) {
     meta.recurrenceId = temporalValueFor(
@@ -559,110 +572,37 @@ interface EventGroup {
   duplicateMasters: IcalComponent[]
 }
 
-function flattenSeries(
+function importSeries(
   group: EventGroup,
   defaultTimeZone: string,
   limit: number,
   events: CalendarEventInput[],
   warnings: IcsWarning[],
 ): void {
-  const master = group.master
-  if (!master) return
-  const uid = group.uid
-  const warningContext: WarningContext = { warnings, ...(uid ? { uid } : {}), line: group.line }
-  const masterStart = readTimeProperty(master, 'dtstart', warningContext)
-  if (!masterStart) {
-    addWarning(warningContext, 'invalid_event', 'The recurring event has no usable DTSTART and was skipped.')
-    return
-  }
-  let icalEvent: InstanceType<typeof ICAL.Event>
-  try {
-    icalEvent = new ICAL.Event(master)
-  } catch {
-    addWarning(warningContext, 'invalid_event', 'The recurring event could not be read and was skipped.')
-    return
-  }
-  for (const exception of group.exceptions) {
-    try {
-      icalEvent.relateException(exception)
-    } catch {
-      addWarning(warningContext, 'invalid_event', 'A recurrence exception could not be related to its series.')
+  const warningContext: WarningContext = { warnings, ...(group.uid ? { uid: group.uid } : {}), line: group.line }
+  const master = group.master ? mapSingleEvent(group.master, group.uid, group.line, defaultTimeZone, warnings) : null
+  const exceptions = group.exceptions
+    .map(exception => mapSingleEvent(exception, group.uid, group.line, defaultTimeZone, warnings))
+    .filter((event): event is CalendarEventInput => Boolean(event))
+  if (master) {
+    const exdates = Array.isArray(master.meta?.exdates) ? [...master.meta.exdates] : []
+    for (const exception of exceptions) {
+      const recurrenceId = exception.meta?.recurrenceId
+      if (!recurrenceId || typeof recurrenceId !== 'object' || Array.isArray(recurrenceId)) continue
+      const value = (recurrenceId as TemporalValue).value
+      if (!exdates.some(entry => entry && typeof entry === 'object' && (entry as TemporalValue).value === value)) {
+        exdates.push(recurrenceId)
+      }
     }
+    if (exdates.length > 0) master.meta = { ...master.meta, exdates }
+    if (events.length >= limit) throw new IcsParseError('too_many_events', `The calendar has more than ${limit} events.`)
+    events.push(master)
   }
-
-  const masterContext = resolveTimeContext(
-    masterStart.property,
-    masterStart.time,
-    defaultTimeZone,
-    warningContext,
-  )
-  const windowEnd = masterStart.time.clone()
-  windowEnd.year = masterStart.time.year + FLATTEN_WINDOW_YEARS
-  const exceptionContexts = new Map<IcalComponent, TimeContext>()
-  const iterator = icalEvent.iterator()
-  let emitted = 0
-  let iterations = 0
-
-  try {
-    for (;;) {
-      const next = iterator.next() as IcalTime | null
-      if (!next) break
-      iterations += 1
-      if (iterations > MAX_FLATTEN_ITERATIONS) {
-        throw new IcsParseError('too_many_events', 'The recurring event expands beyond the supported occurrence limit.')
-      }
-      if (next.compare(windowEnd) > 0) break
-      const details = icalEvent.getOccurrenceDetails(next)
-      const item = details.item
-      if (isCancelled(item.component, warningContext)) {
-        addWarning(warningContext, 'cancelled_event', 'A cancelled occurrence was skipped.')
-        continue
-      }
-      let timeContext: TimeContext
-      if (item === icalEvent) {
-        timeContext = masterContext
-      } else {
-        const cached = exceptionContexts.get(item.component)
-        if (cached) {
-          timeContext = cached
-        } else {
-          const dtstart = readTimeProperty(item.component, 'dtstart', warningContext)
-          timeContext = dtstart
-            ? resolveTimeContext(dtstart.property, dtstart.time, defaultTimeZone, warningContext)
-            : masterContext
-          exceptionContexts.set(item.component, timeContext)
-        }
-      }
-      if (events.length >= limit) {
-        throw new IcsParseError('too_many_events', `The calendar has more than ${limit} events.`)
-      }
-      events.push(mapEvent({
-        component: item.component,
-        fallback: master,
-        uid: uid ?? '',
-        uidLine: group.line,
-        startTime: details.startDate,
-        endTime: details.endDate,
-        timeContext,
-        recurrenceId: details.recurrenceId,
-        recurrenceIdContext: masterContext,
-        keepRecurrenceRule: false,
-        flattened: true,
-        warnings,
-      }))
-      emitted += 1
-    }
-  } catch (error) {
-    if (error instanceof IcsParseError) throw error
-    addWarning(warningContext, 'invalid_recurrence', 'The recurrence rule could not be expanded and the series was skipped.')
-    return
+  for (const event of exceptions) {
+    if (events.length >= limit) throw new IcsParseError('too_many_events', `The calendar has more than ${limit} events.`)
+    events.push(event)
   }
-
-  addWarning(
-    warningContext,
-    'flattened',
-    `The recurring event was flattened to ${emitted} independent occurrences within a ${FLATTEN_WINDOW_YEARS}-year window.`,
-  )
+  addWarning(warningContext, 'flattened', 'The recurring series and its exceptions were preserved without flattening.')
 }
 
 function assertComponentDepth(node: unknown, depth: number): void {
@@ -829,7 +769,7 @@ export function parseIcsCalendar(input: IcsParseInput): IcsParseResult {
         || group.master.hasProperty('exdate')
         || group.master.hasProperty('rdate')
       if (hasExceptions) {
-        flattenSeries(group, defaultTimeZone, limit, events, warnings)
+        importSeries(group, defaultTimeZone, limit, events, warnings)
         continue
       }
       const event = mapSingleEvent(group.master, group.uid, group.line, defaultTimeZone, warnings)
@@ -857,6 +797,16 @@ function metaOf(event: CalendarEventInput): Record<string, unknown> {
   return meta && typeof meta === 'object' && !Array.isArray(meta)
     ? meta as Record<string, unknown>
     : {}
+}
+
+function attendeesFor(event: IcsSerializableEvent): unknown[] {
+  return Array.isArray(event.attendees) ? event.attendees.slice(0, MAX_ICS_ATTENDEES) : []
+}
+
+function attendeeName(value: unknown): string {
+  return typeof value === 'string'
+    ? value.replace(/[\r\n]+/g, ' ').trim().slice(0, MAX_ICS_ATTENDEE_NAME_CHARS)
+    : ''
 }
 
 function temporalValueFrom(value: unknown): TemporalValue | null {
@@ -932,10 +882,15 @@ function uidFor(event: CalendarEventInput, index: number): string {
   return `inkstone-${index + 1}@calendar.local`
 }
 
+function diagnosticDetail(error: unknown): string {
+  return (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).slice(0, 200)
+}
+
 function sortKey(event: CalendarEventInput, fallbackTimeZone: string, index: number): number {
   try {
     return temporalValueToEpochMs(event.start, fallbackTimeZone)
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] calendar ICS event sort failed:', event.id, diagnosticDetail(error))
     return index
   }
 }
@@ -947,6 +902,7 @@ function compareText(left: string, right: string): number {
 
 export const MAX_RECURRENCE_OCCURRENCES = 2000
 const MAX_RECURRENCE_ITERATIONS = 50_000
+const MAX_RECURRENCE_ITERATIONS_TOTAL = 50_000
 
 export interface RecurrenceExpansion {
   occurrences: CalendarEventDto[]
@@ -974,7 +930,12 @@ export function expandRecurringEvents(
 ): RecurrenceExpansion {
   const occurrences: CalendarEventDto[] = []
   let truncated = false
+  let iterationsRemaining = MAX_RECURRENCE_ITERATIONS_TOTAL
   for (const event of events) {
+    if (iterationsRemaining <= 0) {
+      truncated = true
+      break
+    }
     const rule = (event.recurrenceRule
       ?? (typeof event.meta?.recurrenceRule === 'string' ? event.meta.recurrenceRule : null))
       ?.replace(/^RRULE:/i, '').trim()
@@ -992,31 +953,39 @@ export function expandRecurringEvents(
       vevent.addPropertyWithValue('rrule', ICAL.Recur.fromString(rule))
       for (const exdate of metaDates(event.meta, 'exdates')) addTimeProperty(vevent, 'exdate', exdate)
       for (const rdate of metaDates(event.meta, 'rdates')) addTimeProperty(vevent, 'rdate', rdate)
-    } catch {
+    } catch (error) {
+      console.warn('[inkstone] calendar recurrence expansion failed:', event.id, 'setup', diagnosticDetail(error))
       continue
     }
     let icalEvent: InstanceType<typeof ICAL.Event>
     try {
       icalEvent = new ICAL.Event(vevent)
-    } catch {
+    } catch (error) {
+      console.warn('[inkstone] calendar recurrence expansion failed:', event.id, 'event', diagnosticDetail(error))
       continue
     }
     const iterator = icalEvent.iterator()
-    for (let iterations = 0; iterations < MAX_RECURRENCE_ITERATIONS; iterations += 1) {
+    const eventIterationLimit = Math.min(MAX_RECURRENCE_ITERATIONS, iterationsRemaining)
+    let iterations = 0
+    for (; iterations < eventIterationLimit; iterations += 1) {
+      iterationsRemaining -= 1
       const next = iterator.next() as IcalTime | null
       if (!next) break
       let start: TemporalValue
       let end: TemporalValue
       let startMs: number
+      let endMs: number
       try {
         const details = icalEvent.getOccurrenceDetails(next)
         start = temporalValueFor(details.startDate, context)
         end = temporalValueFor(details.endDate, context)
         startMs = temporalValueToEpochMs(start, fallbackTimeZone)
-      } catch {
+        endMs = temporalValueToEpochMs(end, fallbackTimeZone)
+      } catch (error) {
+        console.warn('[inkstone] calendar recurrence expansion failed:', event.id, 'occurrence', diagnosticDetail(error))
         continue
       }
-      if (startMs < fromMs) continue
+      if (endMs > startMs ? endMs <= fromMs : startMs < fromMs) continue
       if (startMs > toMs) break
       if (startMs === masterStartMs) continue
       if (occurrences.length >= MAX_RECURRENCE_OCCURRENCES) {
@@ -1039,9 +1008,83 @@ export function expandRecurringEvents(
         rev: 0,
       })
     }
+    if (iterations >= eventIterationLimit || iterationsRemaining <= 0) truncated = true
     if (truncated) break
   }
   return { occurrences, truncated }
+}
+
+const VTIMEZONE_START_MS = Date.parse('1970-01-01T00:00:00Z')
+const VTIMEZONE_END_MS = Date.parse('2101-01-01T00:00:00Z')
+const VTIMEZONE_STEP_MS = 7 * 24 * 60 * 60 * 1000
+const vtimezoneCache = new Map<string, string>()
+
+function offsetMinutes(zone: string, at: number): number {
+  const offset = Temporal.Instant.fromEpochMilliseconds(at).toZonedDateTimeISO(zone).offset
+  const match = /^([+-])(\d{2}):(\d{2})$/.exec(offset)
+  if (!match) throw new Error(`Unsupported timezone offset: ${offset}`)
+  return (match[1] === '-' ? -1 : 1) * (Number(match[2]) * 60 + Number(match[3]))
+}
+
+function offsetProperty(component: IcalComponent, name: string, minutes: number): void {
+  const sign = minutes < 0 ? '-' : '+'
+  const absolute = Math.abs(minutes)
+  const value = `${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`
+  const property = new ICAL.Property(name)
+  property.setValue(ICAL.UtcOffset.fromString(value))
+  component.addProperty(property)
+}
+
+function addObservance(
+  component: IcalComponent,
+  kind: 'standard' | 'daylight',
+  localStart: Temporal.PlainDateTime,
+  fromMinutes: number,
+  toMinutes: number,
+): void {
+  const observance = new ICAL.Component(kind)
+  observance.updatePropertyWithValue('dtstart', ICAL.Time.fromDateTimeString(localStart.toString({ smallestUnit: 'second' })))
+  offsetProperty(observance, 'tzoffsetfrom', fromMinutes)
+  offsetProperty(observance, 'tzoffsetto', toMinutes)
+  component.addSubcomponent(observance)
+}
+
+function vtimezoneFor(zone: string): string {
+  const cached = vtimezoneCache.get(zone)
+  if (cached) return cached
+  const component = new ICAL.Component('vtimezone')
+  component.updatePropertyWithValue('tzid', zone)
+  component.updatePropertyWithValue('x-lic-location', zone)
+  let previousAt = VTIMEZONE_START_MS
+  let previousOffset = offsetMinutes(zone, previousAt)
+  const initialLocal = Temporal.Instant.fromEpochMilliseconds(previousAt)
+    .toZonedDateTimeISO('UTC').toPlainDateTime().add({ minutes: previousOffset })
+  addObservance(component, 'standard', initialLocal, previousOffset, previousOffset)
+  for (let at = previousAt + VTIMEZONE_STEP_MS; at <= VTIMEZONE_END_MS; at += VTIMEZONE_STEP_MS) {
+    const currentOffset = offsetMinutes(zone, at)
+    if (currentOffset === previousOffset) continue
+    let low = previousAt
+    let high = at
+    while (high - low > VTIMEZONE_TRANSITION_PRECISION_MS) {
+      const middle = low + Math.max(
+        VTIMEZONE_TRANSITION_PRECISION_MS,
+        Math.floor((high - low) / (VTIMEZONE_TRANSITION_PRECISION_MS * 2)) * VTIMEZONE_TRANSITION_PRECISION_MS,
+      )
+      if (offsetMinutes(zone, middle) === previousOffset) low = middle
+      else high = middle
+    }
+    const transition = high
+    const nextOffset = offsetMinutes(zone, transition)
+    const localStart = Temporal.Instant.fromEpochMilliseconds(transition)
+      .toZonedDateTimeISO('UTC').toPlainDateTime().add({ minutes: previousOffset })
+    addObservance(component, nextOffset > previousOffset ? 'daylight' : 'standard', localStart, previousOffset, nextOffset)
+    previousAt = transition
+    previousOffset = nextOffset
+  }
+  const text = ICAL.stringify(component.jCal)
+  vtimezoneCache.set(zone, text)
+  if (vtimezoneCache.size > MAX_ZONE_CACHE_ENTRIES) vtimezoneCache.clear()
+  return text
 }
 
 const ICS_FOOTER = 'END:VCALENDAR\r\n'
@@ -1074,16 +1117,16 @@ export function* icsCalendarChunks(input: IcsSerializeInput): Generator<string> 
 
   const header = ICAL.stringify(calendar.jCal)
   yield header.slice(0, header.length - ICS_FOOTER.length)
+  const timeZones = new Set<string>()
+  for (const event of input.events) {
+    if (event.start.type === 'zoned' && event.start.timeZone) timeZones.add(event.start.timeZone)
+    if (event.end.type === 'zoned' && event.end.timeZone) timeZones.add(event.end.timeZone)
+  }
+  for (const zone of timeZones) {
+    if (zone !== 'UTC') yield vtimezoneFor(zone)
+  }
 
-  const usedUids = new Set<string>()
-  for (const { event, uid: baseUid } of ordered) {
-    let uid = baseUid
-    let suffix = 1
-    while (usedUids.has(uid)) {
-      suffix += 1
-      uid = `${baseUid}-${suffix}`
-    }
-    usedUids.add(uid)
+  for (const { event, uid } of ordered) {
     yield ICAL.stringify(veventFor(event, uid, input.organizerEmail).jCal)
   }
 
@@ -1149,7 +1192,7 @@ function veventFor(event: IcsSerializableEvent, uid: string, organizerEmail?: st
     let added = 0
     for (const category of categories) {
       if (typeof category !== 'string' || !category.trim()) continue
-      vevent.addPropertyWithValue('categories', category.trim().slice(0, 200))
+      vevent.addPropertyWithValue('categories', category.trim().slice(0, MAX_ICS_CATEGORY_CHARS))
       added += 1
       if (added >= MAX_CATEGORIES) break
     }
@@ -1168,14 +1211,18 @@ function veventFor(event: IcsSerializableEvent, uid: string, organizerEmail?: st
     vevent.addProperty(property)
   }
 
-  const guests = event.attendees ?? (Array.isArray(meta.attendees) ? meta.attendees as CalendarAttendeeDto[] : [])
-  for (const guest of guests.slice(0, 50)) {
+  for (const candidate of attendeesFor(event)) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
+    const guest = candidate as Record<string, unknown>
     const email = mailAddress(guest.email)
     if (!email) continue
     const property = new ICAL.Property('attendee')
     property.setValue(`mailto:${email}`)
-    if (guest.name) property.setParameter('cn', guest.name.slice(0, 120))
-    property.setParameter('partstat', guest.status.toUpperCase())
+    const name = attendeeName(guest.name)
+    if (name) property.setParameter('cn', name)
+    property.setParameter('partstat', isCalendarAttendeeStatus(guest.status)
+      ? guest.status.toUpperCase()
+      : 'NEEDS-ACTION')
     vevent.addProperty(property)
   }
 

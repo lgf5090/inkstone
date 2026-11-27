@@ -146,6 +146,22 @@ describe('the to-do address grammar', () => {
     expect(parseTodoAddress('/todo', 'list=work&completedFrom=2025-01-01').completedFrom).toBeNull()
   })
 
+  it('carries a timeline day window and scale only on the timeline', () => {
+    expect(parseTodoAddress('/todo', 'view=timeline&from=2026-10-19&to=2026-10-26&timelineScale=week'))
+      .toMatchObject({ view: 'timeline', timelineFrom: '2026-10-19', timelineTo: '2026-10-26', timelineScale: 'week' })
+    expect(writeTodoSearch({
+      view: 'timeline', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
+      timelineFrom: '2026-10-19', timelineTo: '2026-10-26', timelineScale: 'week',
+    })).toBe('view=timeline&from=2026-10-19&to=2026-10-26&timelineScale=week')
+    // A half window or an unknown scale is not a range the screen can restore.
+    expect(parseTodoAddress('/todo', 'view=timeline&from=2026-10-19&timelineScale=month'))
+      .toMatchObject({ timelineFrom: null, timelineTo: null, timelineScale: 'month' })
+    expect(parseTodoAddress('/todo', 'view=timeline&from=2026-10-19&to=2026-10-26&timelineScale=nonsense').timelineScale)
+      .toBeNull()
+    expect(parseTodoAddress('/todo', 'view=plan&from=2026-10-19&to=2026-10-26&timelineScale=week'))
+      .toMatchObject({ timelineFrom: null, timelineTo: null, timelineScale: null })
+  })
+
   it('round-trips: a shape written and read again is the shape it started as', () => {
     const shapes = [
       { view: 'board' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null },
@@ -164,6 +180,10 @@ describe('the to-do address grammar', () => {
       {
         view: 'completed' as const, listId: null, tagId: null, query: '', sort: 'priority' as const,
         dueFrom: null, dueTo: null, completedFrom: '2025-01-01', completedTo: '2026-01-01',
+      },
+      {
+        view: 'timeline' as const, listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
+        timelineFrom: '2026-10-19', timelineTo: '2026-10-26', timelineScale: 'week' as const,
       },
     ]
     for (const shape of shapes) {
@@ -191,6 +211,7 @@ describe('the view state and the address bar', () => {
   function reset(): void {
     useTodos.setState({
       view: 'board', listId: null, tagId: null, query: '', sort: null, dueFrom: null, dueTo: null,
+      timelineFrom: null, timelineTo: null, timelineScale: null,
       selectedId: null, editorOpen: false, draft: null,
     })
     window.history.replaceState(null, '', '/todo')
@@ -210,6 +231,15 @@ describe('the view state and the address bar', () => {
     const fresh = (await import('./store')).useTodos
     expect(fresh.getState().view).toBe('list')
     expect(fresh.getState().listId).toBe('work')
+  })
+
+  it('restores a timeline window from a shared address', async () => {
+    window.history.replaceState(null, '', '/todo?view=timeline&from=2026-10-19&to=2026-10-26&timelineScale=week')
+    vi.resetModules()
+    const fresh = (await import('./store')).useTodos
+    expect(fresh.getState()).toMatchObject({
+      view: 'timeline', timelineFrom: '2026-10-19', timelineTo: '2026-10-26', timelineScale: 'week',
+    })
   })
 
   it('writes the view into the address when a view is opened', () => {
@@ -309,5 +339,18 @@ describe('the view state and the address bar', () => {
     expect(useTodos.getState().view).toBe('completed')
     expect(useTodos.getState().completedFrom).toBe('2025-01-01')
     expect(useTodos.getState().completedTo).toBe('2026-01-01')
+  })
+
+  it('writes a timeline range and follows one the address bar brings back', () => {
+    reset()
+    useTodos.getState().setView('timeline')
+    useTodos.getState().setTimelineRange({ from: '2026-10-19', to: '2026-10-26', scale: 'week' })
+    expect(window.location.search).toBe('?view=timeline&from=2026-10-19&to=2026-10-26&timelineScale=week')
+
+    window.history.replaceState(null, '', '/todo?view=timeline&from=2026-11-01&to=2026-12-01&timelineScale=month')
+    useTodos.getState().syncFromAddress()
+    expect(useTodos.getState()).toMatchObject({
+      view: 'timeline', timelineFrom: '2026-11-01', timelineTo: '2026-12-01', timelineScale: 'month',
+    })
   })
 })

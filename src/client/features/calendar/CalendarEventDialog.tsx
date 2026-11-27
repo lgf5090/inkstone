@@ -13,9 +13,12 @@ import { MAX_EVENT_DESCRIPTION, MAX_EVENT_TITLE } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
-import { Checkbox, Field, Input, Segmented, Select, Textarea } from '../../components/form'
+import { Checkbox, Field, Input, Select, Textarea } from '../../components/form'
 import { DatePicker } from '../../components/date-picker'
 import { addWallMinutes, wallClockInZone } from './timezone'
+
+const DEFAULT_START_TIME = '09:00'
+const DEFAULT_END_TIME = '10:00'
 
 export interface NewCalendarEvent {
   title: string
@@ -71,35 +74,34 @@ export function CalendarEventDialog({
 }: CalendarEventDialogProps) {
   const writable = calendars.filter(calendar => !calendar.readOnly)
   const [title, setTitle] = useState('')
-  const [block, setBlock] = useState<'event' | 'focus' | 'ooo'>('event')
   const [allDay, setAllDay] = useState(false)
   const [date, setDate] = useState('')
-  const [startTime, setStartTime] = useState('09:00')
+  const [startTime, setStartTime] = useState(DEFAULT_START_TIME)
   const [endDate, setEndDate] = useState('')
-  const [endTime, setEndTime] = useState('10:00')
+  const [endTime, setEndTime] = useState(DEFAULT_END_TIME)
   const [calendarId, setCalendarId] = useState('')
   const [resourceId, setResourceId] = useState('')
   const [color, setColor] = useState<string | null>(null)
   const [description, setDescription] = useState('')
   const [location, setLocation] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const calendarSignature = calendars.map(calendar => `${calendar.id}:${calendar.name}:${calendar.readOnly ? 1 : 0}`).join('\u0000')
 
   useEffect(() => {
     if (!open) return
     const available = calendars.filter(calendar => !calendar.readOnly)
     const parts = wallClockInZone(initialStart, timeZone)
-    const startClock = template ? '09:00' : parts.time === '00:00' ? '09:00' : parts.time
+    const startClock = template ? DEFAULT_START_TIME : parts.time === '00:00' ? DEFAULT_START_TIME : parts.time
     const end = template?.allDay
-      ? `${parts.date}T09:00`
+      ? `${parts.date}T${DEFAULT_START_TIME}`
       : addWallMinutes(parts.date, startClock, Math.max(5, template?.durationMinutes ?? 60), timeZone)
     const [endDay, endClock] = end.split('T')
     setTitle(template?.title ?? '')
-    setBlock('event')
     setAllDay(template?.allDay ?? false)
     setDate(parts.date)
     setStartTime(startClock)
     setEndDate(endDay ?? parts.date)
-    setEndTime(endClock ?? '10:00')
+    setEndTime(endClock ?? DEFAULT_END_TIME)
     setColor(template?.color ?? null)
     setResourceId('')
     setCalendarId(
@@ -111,9 +113,13 @@ export function CalendarEventDialog({
     setDescription(template?.description ?? '')
     setLocation('')
     setError(null)
-  }, [open, initialStart, defaultCalendarId, timeZone, calendars, template])
+  }, [open, initialStart, defaultCalendarId, timeZone, calendarSignature, template])
 
   const submit = (): void => {
+    if (!title.trim()) {
+      setError(t('calendar.event.title_required'))
+      return
+    }
     if (!calendarId) {
       setError(t('calendar.event.no_writable_calendar'))
       return
@@ -131,7 +137,7 @@ export function CalendarEventDialog({
           return
         }
         onCreate({
-          title: title.trim() || t('calendar.event.untitled'),
+          title: title.trim(),
           start: wallDate(date, '00:00', timeZone),
           end: wallDate(endDate || date, '00:00', timeZone),
           allDay: true,
@@ -164,10 +170,22 @@ export function CalendarEventDialog({
         location: location.trim(),
         color,
       })
-    } catch {
+    } catch (cause) {
+      // Keep the form copy stable while retaining the parsing or persistence cause in diagnostics.
+      console.debug('[inkstone] Calendar event creation failed.', cause)
       setError(t('calendar.event.create_failed'))
     }
   }
+
+  const errorField = error === t('calendar.event.title_required')
+    ? 'title'
+    : error === t('calendar.event.no_writable_calendar')
+      ? 'calendar'
+      : error === t('calendar.event.invalid_time') || error === t('calendar.event.end_before_start')
+        ? 'time'
+        : null
+  const errorId = 'calendar-event-form-error'
+  const describedBy = (field: string): string | undefined => errorField === field ? errorId : undefined
 
   return (
     <Modal
@@ -185,25 +203,12 @@ export function CalendarEventDialog({
       )}
     >
       <div className="space-y-3 pt-1">
-        <Field label={t('calendar.block.type')}>
-          <Segmented
-            value={block}
-            label={t('calendar.block.type')}
-            options={[
-              { value: 'event', label: t('calendar.block.event') },
-              { value: 'focus', label: t('calendar.block.focus') },
-              { value: 'ooo', label: t('calendar.block.ooo') },
-            ]}
-            onChange={(next) => {
-              setBlock(next)
-              const presetTitle = next === 'focus' ? t('calendar.block.focus') : next === 'ooo' ? t('calendar.block.ooo') : ''
-              setTitle(current => current === '' || current === t('calendar.block.focus') || current === t('calendar.block.ooo') ? presetTitle : current)
-              setColor(next === 'focus' ? '#8b5cf6' : next === 'ooo' ? '#f59e0b' : null)
-            }}
-          />
-        </Field>
         <Field label={t('calendar.event.title_field')} required>
           <Input
+            id="calendar-event-title"
+            required
+            aria-invalid={errorField === 'title' || undefined}
+            aria-describedby={describedBy('title')}
             data-autofocus
             value={title}
             maxLength={MAX_EVENT_TITLE}
@@ -218,7 +223,7 @@ export function CalendarEventDialog({
           </Field>
           {!allDay && (
             <Field label={t('calendar.event.start_time')}>
-              <Input placeholder={t('calendar.event.time_placeholder')} value={startTime} onChange={(event) => setStartTime(event.target.value)} />
+              <Input id="calendar-event-start-time" aria-invalid={errorField === 'time' || undefined} aria-describedby={describedBy('time')} placeholder={t('calendar.event.time_placeholder')} value={startTime} onChange={(event) => setStartTime(event.target.value)} />
             </Field>
           )}
           <Field label={t('calendar.event.end')}>
@@ -226,12 +231,12 @@ export function CalendarEventDialog({
           </Field>
           {!allDay && (
             <Field label={t('calendar.event.end_time')}>
-              <Input placeholder={t('calendar.event.time_placeholder')} value={endTime} onChange={(event) => setEndTime(event.target.value)} />
+              <Input id="calendar-event-end-time" aria-invalid={errorField === 'time' || undefined} aria-describedby={describedBy('time')} placeholder={t('calendar.event.time_placeholder')} value={endTime} onChange={(event) => setEndTime(event.target.value)} />
             </Field>
           )}
         </div>
         <Field label={t('calendar.event.calendar')}>
-          <Select value={calendarId} onChange={(event) => { setCalendarId(event.target.value); setResourceId('') }} disabled={writable.length === 0}>
+          <Select id="calendar-event-calendar" aria-invalid={errorField === 'calendar' || undefined} aria-describedby={describedBy('calendar')} value={calendarId} onChange={(event) => { setCalendarId(event.target.value); setResourceId('') }} disabled={writable.length === 0}>
             {writable.map(calendar => (
               <option key={calendar.id} value={calendar.id}>{calendar.name}</option>
             ))}
@@ -277,7 +282,7 @@ export function CalendarEventDialog({
             placeholder={t('calendar.event.description_placeholder')}
           />
         </Field>
-        {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
+        {error && <p id={errorId} role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
       </div>
     </Modal>
   )

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { FilePreviewTarget } from '../../file-preview/types'
+import type { FilePreviewTarget } from '../../file-preview'
 import { Download, ExternalLink, RefreshCw, Trash2 } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { useUi } from '../../../store/ui'
+import { useSession } from '../../../store/session'
 import { getOffline, listOffline, removeOffline, type OfflineMeta } from './store'
 import { useCloudDriveStore } from '../store'
 
@@ -25,24 +26,32 @@ export function OfflinePage({ onOpen }: {
   onOpen: (target: FilePreviewTarget) => void
 }) {
   const toast = useUi((state) => state.toast)
+  const userId = useSession((state) => state.user?.id ?? '')
   const [items, setItems] = useState<OfflineMeta[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [busyId, setBusyId] = useState<string | null>(null)
   const refreshKey = useCloudDriveStore((state) => state.refreshKey)
 
   const load = useCallback(async () => {
+    if (!userId) {
+      setItems([])
+      setStatus('ready')
+      return
+    }
     setStatus('loading')
     try {
-      setItems(await listOffline())
+      setItems(await listOffline(userId))
       setStatus('ready')
     } catch {
+      setItems([])
       setStatus('error')
     }
-  }, [])
+  }, [userId])
   useEffect(() => { void load() }, [load, refreshKey])
 
   const open = async (item: OfflineMeta) => {
-    const record = await getOffline(item.id)
+    if (!userId) return
+    const record = await getOffline(userId, item.id)
     if (!record) {
       toast({ title: t('clouddrive.offline.open_failed'), tone: 'danger' })
       return
@@ -51,14 +60,16 @@ export function OfflinePage({ onOpen }: {
   }
 
   const download = async (item: OfflineMeta) => {
-    const record = await getOffline(item.id)
+    if (!userId) return
+    const record = await getOffline(userId, item.id)
     if (record) saveBlob(record.blob, record.name)
   }
 
   const remove = async (item: OfflineMeta) => {
+    if (!userId) return
     setBusyId(item.id)
     try {
-      await removeOffline(item.id)
+      await removeOffline(userId, item.id)
       await load()
     } catch (caught) {
       toast({ title: t('clouddrive.offline.remove_failed'), description: caught instanceof Error ? caught.message : '', tone: 'danger' })

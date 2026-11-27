@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import { initializeDatabase, SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import type { Env } from '../src/worker/env'
+import { makeD1 } from './doubles/d1-sqlite'
 import {
   CALENDAR_REQUIRED_COLUMNS,
   CALENDAR_REQUIRED_INDEXES,
@@ -59,6 +61,73 @@ beforeEach(() => {
 })
 
 describe('the calendar tables', () => {
+  it('ships the snooze occurrence column as an idempotent migration', () => {
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 436)).toEqual({
+      version: 436,
+      skipIfColumnExists: { table: 'calendar_reminder_snoozes', column: 'occurrence_start_ms' },
+      statements: ['ALTER TABLE calendar_reminder_snoozes ADD COLUMN occurrence_start_ms INTEGER'],
+    })
+  })
+  it('ships the provider sync token column as an idempotent migration', () => {
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 438)).toEqual({
+      version: 438,
+      skipIfColumnExists: { table: 'calendar_provider_calendars', column: 'sync_token' },
+      statements: ['ALTER TABLE calendar_provider_calendars ADD COLUMN sync_token TEXT'],
+    })
+  })
+  it('migrates legacy attendees once while preferring existing table rows', () => {
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 439)!
+    insertEvent('user-alice', 'legacy-empty')
+    insertEvent('user-alice', 'table-wins')
+    insertEvent('user-alice', 'already-empty')
+    sqlite.prepare('UPDATE calendar_events SET meta_json = ? WHERE user_id = ? AND id = ?')
+      .run(JSON.stringify({ attendees: [
+        { email: ' Guest@Example.com ', name: ' Guest ', status: 'accepted' },
+        { email: 'guest@example.com', name: 'Duplicate', status: 'declined' },
+        { email: 'invalid', name: 'Invalid', status: 'accepted' },
+      ] }), 'user-alice', 'legacy-empty')
+    sqlite.prepare('UPDATE calendar_events SET meta_json = ? WHERE user_id = ? AND id = ?')
+      .run(JSON.stringify({ attendees: [{ email: 'meta@example.com', name: 'Meta', status: 'accepted' }] }), 'user-alice', 'table-wins')
+    sqlite.prepare('UPDATE calendar_events SET meta_json = ? WHERE user_id = ? AND id = ?')
+      .run(JSON.stringify({ attendees: [] }), 'user-alice', 'already-empty')
+    sqlite.prepare(`INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
+      VALUES ('user-alice', 'table-wins', 'table@example.com', 'Table', 'tentative', 1)`).run()
+
+    for (const statement of migration.statements) sqlite.exec(statement)
+    expect(sqlite.prepare(`SELECT email, name, status FROM calendar_event_attendees
+      WHERE user_id = 'user-alice' AND event_id = 'legacy-empty'`).all()).toEqual([
+      { email: 'guest@example.com', name: 'Guest', status: 'accepted' },
+    ])
+    expect(sqlite.prepare(`SELECT email FROM calendar_event_attendees
+      WHERE user_id = 'user-alice' AND event_id = 'table-wins'`).all()).toEqual([{ email: 'table@example.com' }])
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM calendar_event_attendees
+      WHERE user_id = 'user-alice' AND event_id = 'already-empty'`).get()).toEqual({ count: 0 })
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM calendar_events
+      WHERE json_valid(meta_json) AND json_type(meta_json, '$.attendees') IS NOT NULL`).get()).toEqual({ count: 0 })
+
+    insertEvent('user-alice', 'cleared-after-marker')
+    sqlite.prepare('UPDATE calendar_events SET meta_json = ? WHERE user_id = ? AND id = ?')
+      .run(JSON.stringify({ attendees: [{ email: 'must-not-return@example.com' }] }), 'user-alice', 'cleared-after-marker')
+    for (const statement of migration.statements) sqlite.exec(statement)
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM calendar_event_attendees
+      WHERE user_id = 'user-alice' AND event_id = 'cleared-after-marker'`).get()).toEqual({ count: 0 })
+  })
+
+  it('creates and rebuilds calendar FTS before applying its migration on an existing database', async () => {
+    await initializeDatabase({ DB: makeD1(sqlite) } as Env)
+    insertEvent('user-alice', 'existing-event')
+    sqlite.exec('DROP TRIGGER calendar_events_fts_update; DROP TRIGGER calendar_events_fts_delete; DROP TRIGGER calendar_events_fts_insert; DROP TABLE calendar_events_fts')
+    sqlite.prepare('DELETE FROM schema_migrations WHERE version = 437').run()
+    sqlite.prepare("DELETE FROM app_meta WHERE key = 'database-state-v1'").run()
+    await initializeDatabase({ DB: makeD1(sqlite) } as Env)
+    expect(tables().has('calendar_events_fts')).toBe(true)
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM calendar_events_fts WHERE calendar_events_fts MATCH 'Event'").get())
+      .toEqual({ count: 1 })
+    insertEvent('user-alice', 'after-upgrade')
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM calendar_events_fts WHERE calendar_events_fts MATCH 'Event'").get())
+      .toEqual({ count: 2 })
+  })
+
   it('are wired into the schema every boot runs', () => {
     for (const statement of CALENDAR_SCHEMA_STATEMENTS) {
       expect(SCHEMA_STATEMENTS.some((candidate) => candidate.includes(statement.slice(0, 60)))).toBe(true)
@@ -68,7 +137,7 @@ describe('the calendar tables', () => {
   it('create every declared table', () => {
     const present = tables()
     for (const table of CALENDAR_REQUIRED_TABLES) expect(present.has(table)).toBe(true)
-    expect(CALENDAR_REQUIRED_TABLES).toHaveLength(21)
+    expect(CALENDAR_REQUIRED_TABLES).toHaveLength(22)
   })
 
   it('create every declared index', () => {

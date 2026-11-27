@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Temporal } from 'temporal-polyfill'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { defaultCalendarPreferences } from '../src/shared/calendar/model'
+import { AssistantStore } from '../src/worker/assistant/store'
 import { CalendarStore } from '../src/worker/calendar/store'
 import { sweepCalendarReminders } from '../src/worker/calendar/reminders'
 import { EN_US_CALENDAR_NOTIFY } from '../src/shared/locales/en-US-calendar-notify'
@@ -12,6 +13,7 @@ import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'user-alice'
+const OTHER_USER = 'user-bob'
 let sqlite: DatabaseSync
 let db: D1Database
 let env: Env
@@ -31,10 +33,16 @@ beforeEach(async () => {
   })
 })
 
-async function createEvent(startMs: number, recurrenceRule?: string): Promise<string> {
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+async function createEvent(startMs: number, recurrenceRule?: string, userId = USER): Promise<string> {
   const start = Temporal.Instant.fromEpochMilliseconds(startMs).toZonedDateTimeISO('UTC').toString()
   const end = Temporal.Instant.fromEpochMilliseconds(startMs + 60 * 60 * 1000).toZonedDateTimeISO('UTC').toString()
-  const event = await new CalendarStore(db, USER).createEvent({
+  const store = new CalendarStore(db, userId)
+  const ownCalendarId = userId === USER ? calendarId : (await store.ensureDefaultCalendar())[0]!.id
+  const event = await store.createEvent({
     title: 'Design review',
     description: '',
     kind: 'event',
@@ -45,7 +53,7 @@ async function createEvent(startMs: number, recurrenceRule?: string): Promise<st
     startMs,
     endMs: startMs + 60 * 60 * 1000,
     allDay: false,
-    calendarIds: [calendarId],
+    calendarIds: [ownCalendarId],
     meta: recurrenceRule ? { recurrenceRule } : {},
     icon: null,
     recurrenceRule: recurrenceRule ?? null,
@@ -66,6 +74,12 @@ describe('calendar reminder copy', () => {
 })
 
 describe('calendar reminders', () => {
+  it('loads every account lead budget in one aggregate query', async () => {
+    const prepare = vi.spyOn(db, 'prepare')
+    await sweepCalendarReminders(env, Date.parse('2026-10-26T08:00:00Z'))
+    expect(prepare.mock.calls.filter(([sql]) => sql.includes('MAX(CASE WHEN r.minutes'))).toHaveLength(1)
+  })
+
   it('delivers once, links to the day, and ignores an already-fired occurrence', async () => {
     const now = Date.parse('2026-10-26T08:00:00Z')
     await createEvent(now + 10 * 60_000)
@@ -85,6 +99,40 @@ describe('calendar reminders', () => {
     const second = await sweepCalendarReminders(env, now)
     expect(second).toMatchObject({ sent: 0, claimed: 1 })
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 1 })
+  })
+
+  it('fires all-day reminders in the morning and uses the calendar time zone for copy', async () => {
+    const store = new CalendarStore(db, USER)
+    await store.savePreferences({
+      ...defaultCalendarPreferences(),
+      timeZone: 'America/Los_Angeles',
+      eventReminderMinutes: 10,
+    })
+    const assistant = new AssistantStore(db, USER, env)
+    await assistant.saveSettings({ ...(await assistant.getSettings()), timezone: 'Asia/Tokyo', language: 'en-US' })
+    await store.createEvent({
+      title: 'All day review',
+      description: '',
+      kind: 'event',
+      task: null,
+      conference: null,
+      start: { value: '2026-10-27', type: 'date' },
+      end: { value: '2026-10-28', type: 'date' },
+      allDay: true,
+      calendarIds: [calendarId],
+      meta: {},
+      icon: null,
+      recurrenceRule: null,
+      source: 'local',
+      externalId: null,
+    })
+
+    expect((await sweepCalendarReminders(env, Date.parse('2026-10-27T06:50:00Z'))).sent).toBe(0)
+    expect((await sweepCalendarReminders(env, Date.parse('2026-10-27T15:50:00Z'))).sent).toBe(1)
+    const notification = sqlite.prepare('SELECT body, link FROM chat_notifications WHERE user_id = ?').get(USER) as { body: string; link: string }
+    expect(notification.body).toContain('2026-10-27')
+    expect(notification.body).toContain('09:00')
+    expect(notification.link).toBe('calendar:2026-10-27')
   })
 
   it('expands a recurring series and respects an opted-out account', async () => {
@@ -184,5 +232,165 @@ describe('per-event reminders', () => {
 
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_reminders').get())
       .toEqual({ count: 0 })
+  })
+})
+
+describe('calendar reminder reliability', () => {
+  it('delivers a per-event reminder for an account that never saved preferences', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    const store = new CalendarStore(db, USER)
+    const id = await createEvent(now)
+    await store.setEventReminders(id, [0], (await store.getEvent(id))!.rev)
+    sqlite.prepare('DELETE FROM calendar_preferences WHERE user_id = ?').run(USER)
+
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 1, sent: 1, claimed: 0, failed: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications WHERE user_id = ?').get(USER))
+      .toEqual({ count: 1 })
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ sent: 0, claimed: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications WHERE user_id = ?').get(USER))
+      .toEqual({ count: 1 })
+  })
+
+  it('retries after a notification write fails without leaving a claim', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    await createEvent(now + 10 * 60_000)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.spyOn(AssistantStore.prototype, 'createNotification')
+      .mockRejectedValueOnce(new Error('notification store unavailable'))
+
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 1, sent: 0, claimed: 0, failed: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_reminder_fires').get()).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 0 })
+
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 1, sent: 1, claimed: 0, failed: 0 })
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ sent: 0, claimed: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 1 })
+  })
+
+  it('does not let already-claimed reminders consume the delivery budget', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    const store = new CalendarStore(db, USER)
+    const leads = [0, 1, 2, 3, 4, 5]
+    for (let index = 0; index < 9; index += 1) {
+      const id = await createEvent(now)
+      await store.setEventReminders(id, leads, (await store.getEvent(id))!.rev)
+      for (const lead of leads) {
+        sqlite.prepare(
+          `INSERT INTO calendar_reminder_fires
+             (user_id, event_id, occurrence_start_ms, minutes, fired_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).run(USER, id, now, lead, now)
+      }
+    }
+    const otherStore = new CalendarStore(db, OTHER_USER)
+    const otherId = await createEvent(now + 10 * 60_000, undefined, OTHER_USER)
+    await otherStore.setEventReminders(otherId, [10], (await otherStore.getEvent(otherId))!.rev)
+
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 55, sent: 1, claimed: 54, failed: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications WHERE user_id = ?').get(OTHER_USER))
+      .toEqual({ count: 1 })
+  })
+
+  it('keeps overlapping sweeps idempotent when both pass the pre-check', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    await createEvent(now + 10 * 60_000)
+
+    const results = await Promise.all([sweepCalendarReminders(env, now), sweepCalendarReminders(env, now)])
+
+    expect(results.reduce((total, result) => total + result.sent, 0)).toBe(1)
+    expect(results.reduce((total, result) => total + result.claimed, 0)).toBe(1)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_reminder_fires').get()).toEqual({ count: 1 })
+  })
+
+  it('uses the snoozed occurrence start in reminder copy and links', async () => {
+    const store = new CalendarStore(db, USER)
+    const masterStart = Date.parse('2026-10-26T09:00:00Z')
+    const occurrenceStart = Date.parse('2026-10-27T09:00:00Z')
+    const id = await createEvent(masterStart, 'FREQ=DAILY;COUNT=3')
+    vi.spyOn(Date, 'now').mockReturnValue(occurrenceStart)
+    await store.snoozeEvent(id, 5, occurrenceStart)
+
+    expect((await sweepCalendarReminders(env, occurrenceStart + 5 * 60_000)).sent).toBe(1)
+    const notification = sqlite.prepare('SELECT body, link FROM chat_notifications WHERE user_id = ?').get(USER) as { body: string; link: string }
+    expect(notification.body).toContain('2026-10-27')
+    expect(notification.body).toContain('09:00')
+    expect(notification.link).toBe('calendar:2026-10-27')
+  })
+
+  it('logs corrupt preferences and recurrence rules but still delivers the master reminder', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    const store = new CalendarStore(db, USER)
+    const id = await createEvent(now + 10 * 60_000, 'not a recurrence rule')
+    await store.setEventReminders(id, [10], (await store.getEvent(id))!.rev)
+    sqlite.prepare('UPDATE calendar_preferences SET preferences_json = ? WHERE user_id = ?').run('{broken', USER)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 1, sent: 1, failed: 0 })
+    expect(error.mock.calls.some(([message, userId]) =>
+      message === '[inkstone] calendar reminder preferences failed:' && userId === USER)).toBe(true)
+    expect(error.mock.calls.some(([message, eventId]) =>
+      message === '[inkstone] calendar reminder recurrence rule failed:' && eventId === id)).toBe(true)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 1 })
+  })
+
+  it('keeps delivering another account when one account has corrupted preferences', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    const userId = await createEvent(now + 10 * 60_000)
+    const userStore = new CalendarStore(db, USER)
+    await userStore.setEventReminders(userId, [10], (await userStore.getEvent(userId))!.rev)
+    const other = await createEvent(now + 10 * 60_000, undefined, OTHER_USER)
+    const otherStore = new CalendarStore(db, OTHER_USER)
+    await otherStore.setEventReminders(other, [10], (await otherStore.getEvent(other))!.rev)
+    sqlite.prepare('UPDATE calendar_preferences SET preferences_json = ? WHERE user_id = ?').run('{broken', USER)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 2, sent: 2, failed: 0 })
+    expect(error.mock.calls.some(([message, userId]) =>
+      message === '[inkstone] calendar reminder preferences failed:' && userId === USER)).toBe(true)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 2 })
+  })
+
+  it('isolates a corrupt per-event lead instead of skipping the whole account', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    const store = new CalendarStore(db, USER)
+    const validId = await createEvent(now + 10 * 60_000)
+    const corruptId = await createEvent(now + 10 * 60_000)
+    await store.setEventReminders(validId, [10], (await store.getEvent(validId))!.rev)
+    sqlite.prepare(
+      'INSERT INTO calendar_event_reminders (user_id, event_id, minutes, created_at) VALUES (?, ?, ?, ?)',
+    ).run(USER, corruptId, -1, now)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 1, sent: 1, failed: 0 })
+    expect(error.mock.calls.some(([message, userId, eventId]) =>
+      message === '[inkstone] calendar reminder rule failed:' && userId === USER && eventId === corruptId)).toBe(true)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 1 })
+  })
+
+  it('logs an account whose only per-event rule is corrupt', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    const id = await createEvent(now)
+    sqlite.prepare(
+      'INSERT INTO calendar_event_reminders (user_id, event_id, minutes, created_at) VALUES (?, ?, ?, ?)',
+    ).run(USER, id, -1, now)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 0, sent: 0, failed: 0 })
+    expect(error.mock.calls.some(([message, userId, eventId]) =>
+      message === '[inkstone] calendar reminder rule failed:' && userId === USER && eventId === id)).toBe(true)
+  })
+
+  it('logs email deployment read failures with context and continues in-app delivery', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    await createEvent(now + 10 * 60_000)
+    sqlite.exec('DROP TABLE email_deployment_settings')
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 1, sent: 1, failed: 0 })
+    expect(error.mock.calls.some(([message, detail]) =>
+      message === '[inkstone] calendar reminder email deployment read failed:'
+      && typeof detail === 'string' && detail.includes('email_deployment_settings'))).toBe(true)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 1 })
   })
 })

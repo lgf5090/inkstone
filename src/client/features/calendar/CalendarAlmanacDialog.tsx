@@ -14,7 +14,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowUpRight, CalendarClock, ListChecks, Loader2, RefreshCw } from 'lucide-react'
 import { Temporal } from 'temporal-polyfill'
 import { countdownFallsOn, countdownOccurrence, sortCountdowns, type CalendarCountdownDto } from '@shared/calendar/countdown'
-import { t } from '../../lib/i18n'
+import { holidayNoticeOf } from '@shared/calendar/holidays'
+import { t, useLocale } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
@@ -68,10 +69,12 @@ function Chips({ values, tone }: { values: readonly string[], tone: 'good' | 'ba
 }
 
 export function CalendarAlmanacDialog({ open, dateKey, countdowns, onClose, onJump }: CalendarAlmanacDialogProps) {
+  const locale = useLocale()
   const date = useMemo(() => (dateKey ? parseKey(dateKey) : null), [dateKey])
   const info = useMemo(() => (date ? dayAlmanac(date) : null), [date])
   const [detail, setDetail] = useState<AlmanacDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState(false)
   const [todos, setTodos] = useState<LinkedTodo[] | null>(null)
   const [renewals, setRenewals] = useState<LinkedRenewal[] | null>(null)
   const [linkedError, setLinkedError] = useState(false)
@@ -81,12 +84,20 @@ export function CalendarAlmanacDialog({ open, dateKey, countdowns, onClose, onJu
     let cancelled = false
     setDetail(null)
     setDetailLoading(true)
+    setDetailError(false)
     setTodos(null)
     setRenewals(null)
     setLinkedError(false)
     void loadAlmanacDetail(date).then((value) => {
       if (cancelled) return
       setDetail(value)
+      setDetailLoading(false)
+    }).catch((cause: unknown) => {
+      if (cancelled) return
+      // The shared lunar date remains available; only the optional inferred rule section failed.
+      console.debug('[inkstone] Almanac detail is unavailable for the selected day.', cause)
+      setDetail(null)
+      setDetailError(true)
       setDetailLoading(false)
     })
     const controller = new AbortController()
@@ -116,12 +127,13 @@ export function CalendarAlmanacDialog({ open, dateKey, countdowns, onClose, onJu
       ? t('calendar.almanac.holiday_off')
       : null
   const holidayName = info.holiday.name ? t(info.holiday.name) : null
+  const holidayNotice = holidayNoticeOf(date.getFullYear())
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={t('calendar.almanac.title', { date: dateKey })}
+      title={t('calendar.almanac.title', { date: today.toLocaleString(locale, { dateStyle: 'full' }) })}
       description={info.long || t('calendar.almanac.empty')}
       width={560}
       footer={<Button variant="ghost" onClick={onClose}>{t('common.close')}</Button>}
@@ -145,8 +157,11 @@ export function CalendarAlmanacDialog({ open, dateKey, countdowns, onClose, onJu
         {info.holiday.source && (
           <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('calendar.almanac.source', { source: t(info.holiday.source) })}</p>
         )}
-        {!info.holiday.source && (
-          <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('calendar.almanac.source_none')}</p>
+        {holidayNotice && !info.holiday.source && (
+          <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('calendar.almanac.source_ordinary', { year: date.getFullYear() })}</p>
+        )}
+        {!holidayNotice && (
+          <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('calendar.almanac.source_none', { year: date.getFullYear() })}</p>
         )}
 
         {detailLoading && (
@@ -154,6 +169,10 @@ export function CalendarAlmanacDialog({ open, dateKey, countdowns, onClose, onJu
             <Loader2 size={12} className="animate-spin" aria-hidden="true" />
             {t('calendar.almanac.loading')}
           </p>
+        )}
+
+        {detailError && (
+          <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{t('calendar.almanac.detail_failed')}</p>
         )}
 
         {detail && (

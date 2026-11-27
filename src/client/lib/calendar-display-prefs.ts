@@ -1,5 +1,6 @@
-import { useSyncExternalStore } from 'react'
 import { weekStartFor, type WeekStartDay } from './time'
+import { calendarStorageKey } from './calendar-storage'
+import { createPersistedStore, readPersistedState } from './persisted-store'
 
 /** The stored form of each switch; 'auto' defers to the reader's language at render time. */
 export type CalendarToggle = 'auto' | 'on' | 'off'
@@ -31,7 +32,8 @@ export interface CalendarDisplayPrefs {
   weekStart: WeekStartPref
 }
 
-export const STORAGE_KEY = 'inkstone.calendar-display-prefs.v1'
+export const STORAGE_KEY = calendarStorageKey('display-prefs.v1')
+const LEGACY_KEYS = ['inkstone.calendar-display-prefs.v1'] as const
 
 export const DEFAULT_DISPLAY_PREFS: CalendarDisplayPrefs = {
   lunarLabels: 'auto',
@@ -60,62 +62,39 @@ function weekStartPref(value: unknown): WeekStartPref {
     : DEFAULT_DISPLAY_PREFS.weekStart
 }
 
+function normalizeDisplayPrefs(value: unknown): CalendarDisplayPrefs {
+  const parsed = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Partial<CalendarDisplayPrefs>
+    : null
+  if (!parsed) return { ...DEFAULT_DISPLAY_PREFS }
+  return {
+    lunarLabels: toggle(parsed.lunarLabels, DEFAULT_DISPLAY_PREFS.lunarLabels),
+    festivals: toggle(parsed.festivals, DEFAULT_DISPLAY_PREFS.festivals),
+    weekNumbers: flag(parsed.weekNumbers, DEFAULT_DISPLAY_PREFS.weekNumbers),
+    weekendTint: flag(parsed.weekendTint, DEFAULT_DISPLAY_PREFS.weekendTint),
+    todayCard: flag(parsed.todayCard, DEFAULT_DISPLAY_PREFS.todayCard),
+    streakStats: flag(parsed.streakStats, DEFAULT_DISPLAY_PREFS.streakStats),
+    showAdjacentDays: flag(parsed.showAdjacentDays, DEFAULT_DISPLAY_PREFS.showAdjacentDays),
+    weekStart: weekStartPref(parsed.weekStart),
+  }
+}
+
 function readStorage(): Storage | null {
   return typeof localStorage === 'undefined' ? null : localStorage
 }
 
 export function loadCalendarDisplayPrefs(storage: Storage | null = readStorage()): CalendarDisplayPrefs {
-  const fallback = DEFAULT_DISPLAY_PREFS
-  if (!storage)
-    return { ...fallback }
-  try {
-    const raw = storage.getItem(STORAGE_KEY)
-    if (!raw)
-      return { ...fallback }
-    const parsed = JSON.parse(raw) as Partial<CalendarDisplayPrefs> | null
-    if (parsed === null || typeof parsed !== 'object')
-      return { ...fallback }
-    return {
-      lunarLabels: toggle(parsed.lunarLabels, fallback.lunarLabels),
-      festivals: toggle(parsed.festivals, fallback.festivals),
-      weekNumbers: flag(parsed.weekNumbers, fallback.weekNumbers),
-      weekendTint: flag(parsed.weekendTint, fallback.weekendTint),
-      todayCard: flag(parsed.todayCard, fallback.todayCard),
-      streakStats: flag(parsed.streakStats, fallback.streakStats),
-      showAdjacentDays: flag(parsed.showAdjacentDays, fallback.showAdjacentDays),
-      weekStart: weekStartPref(parsed.weekStart),
-    }
-  }
-  catch {
-    return { ...fallback }
-  }
+  return readPersistedState(STORAGE_KEY, DEFAULT_DISPLAY_PREFS, normalizeDisplayPrefs, storage, LEGACY_KEYS)
 }
 
-let current = loadCalendarDisplayPrefs()
-const listeners = new Set<() => void>()
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
+const preferences = createPersistedStore(STORAGE_KEY, DEFAULT_DISPLAY_PREFS, normalizeDisplayPrefs, LEGACY_KEYS)
 
 export function useCalendarDisplayPrefs(): CalendarDisplayPrefs {
-  return useSyncExternalStore(subscribe, () => current, () => current)
+  return preferences.useStore(state => state)
 }
 
 export function setCalendarDisplayPrefs(patch: Partial<CalendarDisplayPrefs>): void {
-  current = { ...current, ...patch }
-  const storage = readStorage()
-  // The same split as the tree preferences: `current` is what `useCalendarDisplayPrefs` subscribes to and
-  // the listeners below re-render from, so the display change is applied here; this write only carries it
-  // to the next load.
-  try {
-    storage?.setItem(STORAGE_KEY, JSON.stringify(current))
-  }
-  catch {
-  }
-  for (const listener of listeners)
-    listener()
+  preferences.setState(patch)
 }
 
 /** 'auto' resolves to the reader's language: a Han interface asks for an almanac, others do not. */

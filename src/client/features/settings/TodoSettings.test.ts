@@ -34,6 +34,7 @@ const {
   updateMock,
   feedListMock,
   importCsvMock,
+  importJsonMock,
   updateSettingsMock,
 } = vi.hoisted(() => ({
   settingsMock: vi.fn(),
@@ -43,6 +44,7 @@ const {
   updateMock: vi.fn(),
   feedListMock: vi.fn(),
   importCsvMock: vi.fn(),
+  importJsonMock: vi.fn(),
   updateSettingsMock: vi.fn(),
 }))
 
@@ -59,7 +61,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
         updateAutomation: updateMock,
       },
       // The calendar block loads with the page; a case about the plan row must not trip over it.
-      todos: { feed: { list: feedListMock, create: vi.fn(), remove: vi.fn() }, importCsv: importCsvMock },
+      todos: { feed: { list: feedListMock, create: vi.fn(), remove: vi.fn() }, importCsv: importCsvMock, importJson: importJsonMock },
     },
   }
 })
@@ -166,6 +168,7 @@ afterEach(() => {
   view?.unmount()
   view = null
   useSession.setState(initialSession)
+  vi.unstubAllGlobals()
 })
 
 describe('the daily-plan row', () => {
@@ -266,8 +269,46 @@ describe('the daily-plan row', () => {
     await act(async () => { button!.click() })
     await settle()
 
-    expect(importCsvMock).toHaveBeenCalledWith(file, 'skip')
+    expect(importCsvMock).toHaveBeenCalledWith(file, 'skip', expect.any(Function))
     expect(view?.container.textContent).toContain(t('settings.todo_import_result', { created: 2, updated: 1, skipped: 3 }))
+  })
+
+  it('imports a picked JSON document with a stable retry key and prints row problems', async () => {
+    importJsonMock.mockResolvedValue({
+      total: 2,
+      created: 1,
+      skipped: 0,
+      failed: 1,
+      partial: true,
+      imported: [{ row: 1, sourceId: 'source-1', taskId: 'task-1' }],
+      errors: [{ row: 2, sourceId: 'source-2', reason: 'task.status is invalid' }],
+      warnings: [],
+    })
+    await render()
+    const row = rowByTitle(t('settings.todo_import_json'))!
+    const input = row.querySelector<HTMLInputElement>('input[type="file"]')!
+    const file = new File(['{"format":"inkstone-todos"}'], 'tasks.json', { type: 'application/json' })
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+    const select = row.querySelector<HTMLSelectElement>('select')!
+    await act(async () => {
+      select.value = 'duplicate'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const button = [...row.querySelectorAll<HTMLButtonElement>('button')]
+      .find((node) => node.textContent?.trim() === t('settings.todo_import_action'))!
+    await act(async () => { button.click() })
+    await settle()
+
+    expect(importJsonMock).toHaveBeenCalledWith(file, 'duplicate', expect.stringMatching(/^todo-json-/))
+    expect(row.textContent).toContain(t('settings.todo_import_json_result', { created: 1, skipped: 0, failed: 1 }))
+    expect(row.textContent).toContain(t('settings.todo_import_json_row', { row: 2, reason: 'task.status is invalid' }))
+  })
+
+  it('shows the share-target address that opens a task editor', async () => {
+    await render()
+    const row = rowByTitle(t('settings.todo_share_target'))!
+    expect(row.querySelector<HTMLInputElement>('input')?.value).toContain('/share-target?target=todo')
   })
 })
 
@@ -588,3 +629,72 @@ async function chooseStrategy(value: string): Promise<void> {
   })
   await settle()
 }
+
+/**
+ * The import is a walk, not one request.
+ *
+ * These cases drive the real client loop (`api.todos.importCsv`), not the component's mock, because the
+ * offsets and the progress line are the loop's own contract: the route writes one slice at a time and
+ * the screen may only claim "x / y" while that is true.
+ */
+describe('the CSV import loop', () => {
+  function slice(nextOffset: number | null, created: number): Response {
+    return new Response(JSON.stringify({
+      created,
+      updated: 0,
+      skipped: 0,
+      invalid: 0,
+      missingLists: 0,
+      total: 120,
+      errors: [],
+      nextOffset,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  it('calls the endpoint at offsets 0, 50 and 100 and reports how far it has read', async () => {
+    const actual = await vi.importActual<typeof import('../../lib/api')>('../../lib/api')
+    const offsets: number[] = []
+    const progress: Array<{ processed: number, total: number }> = []
+    vi.stubGlobal('fetch', vi.fn(async (_path: string, init?: RequestInit) => {
+      const offset = Number((init?.body as FormData).get('offset'))
+      offsets.push(offset)
+      if (offset === 0) return slice(50, 50)
+      if (offset === 50) return slice(100, 50)
+      return slice(null, 20)
+    }))
+
+    const file = new File(['title\nTask'], 'tasks.csv', { type: 'text/csv' })
+    const result = await actual.api.todos.importCsv(file, 'skip', (processed, total) => progress.push({ processed, total }))
+
+    expect(offsets).toEqual([0, 50, 100])
+    expect(progress).toEqual([
+      { processed: 50, total: 120 },
+      { processed: 100, total: 120 },
+      { processed: 120, total: 120 },
+    ])
+    expect(result.created).toBe(120)
+    expect(result.total).toBe(120)
+    expect(result.errors).toEqual([])
+  })
+
+  it('stops at a failed slice and names the offset to resume from', async () => {
+    const actual = await vi.importActual<typeof import('../../lib/api')>('../../lib/api')
+    const offsets: number[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_path: string, init?: RequestInit) => {
+      const offset = Number((init?.body as FormData).get('offset'))
+      offsets.push(offset)
+      if (offset === 50) {
+        return new Response(JSON.stringify({ error: { code: 'internal', message: 'boom' } }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return slice(50, 50)
+    }))
+
+    const file = new File(['title\nTask'], 'tasks.csv', { type: 'text/csv' })
+
+    await expect(actual.api.todos.importCsv(file, 'skip')).rejects.toThrow(/offset 50/)
+    expect(offsets).toEqual([0, 50])
+  })
+})

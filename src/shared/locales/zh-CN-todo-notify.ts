@@ -6,6 +6,7 @@ export const ZH_CN_TODO_NOTIFY = {
   title: '待办提醒',
   due: '{when} 到期',
   noDue: '这条待办有一条提醒',
+  late: '（补发）',
   digestSummary: '今天 {today} 条，逾期 {overdue} 条',
   digestOverdue: '逾期',
   digestToday: '今天',

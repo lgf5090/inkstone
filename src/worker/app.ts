@@ -66,6 +66,7 @@ import { todoRoutes } from './routes/todos'
 import { todoMailRoutes } from './routes/todo-mail'
 import { todoAttachmentRoutes } from './routes/todo-attachments'
 import { todoImportRoutes } from './routes/todo-import'
+import { todoImportJsonRoutes } from './routes/todo-import-json'
 import { todoFeedRoutes } from './routes/todo-feeds'
 import { emailRoutes } from './routes/email'
 import { musicRoutes } from './routes/music'
@@ -308,6 +309,8 @@ export function createApp() {
   // Before `/api/todos`: Hono matches in registration order and that router owns `/:id`, so the
   // import path has to be claimed first or it would read as the id of a task called "import".
   app.route('/api/todos/import', todoImportRoutes)
+  // The JSON restore is another named path under the task namespace and must be claimed before `/:id`.
+  app.route('/api/todos/import-json', todoImportJsonRoutes)
   // The mail address is the same shape of collision: "mail-token" must be a route, not a task id.
   app.route('/api/todos/mail-token', todoMailRoutes)
   // The attachment surface names a task too, so it is claimed before the task router as well; its

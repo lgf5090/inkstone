@@ -82,6 +82,11 @@ describe('the worker talks downward, never sideways into the HTTP layer', () => 
     expect(wiring, 'app.ts no longer wires the routes, so the exemption is stale').toContain('./routes/search')
   })
 
+  it('keeps SQL out of the MCP to-do adapter', () => {
+    const source = fs.readFileSync('src/worker/mcp/todos.ts', 'utf8')
+    expect(source, 'MCP to-do tools must call the store public methods, not write SQL').not.toMatch(/\.(?:prepare|batch)\s*\(/)
+  })
+
   it('fires on a route that writes SQL and on a store that imports a route', () => {
     // Positive control: both halves of this rule were violated for months, so a scan that could not
     // see either would be reporting the world it wishes for rather than the one it is in.

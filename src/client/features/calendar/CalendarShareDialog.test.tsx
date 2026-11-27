@@ -103,6 +103,12 @@ describe('the calendar share dialog', () => {
     expect(getMock).toHaveBeenCalledTimes(1)
     expect(getMock).toHaveBeenCalledWith('cal-1')
     expect(address()?.value).toBe(`${window.location.origin}/feeds/calendar/${SLUG}.ics`)
+    expect(address()?.readOnly).toBe(true)
+    expect(address()?.getAttribute('aria-label')).toBe(t('calendar.share.url'))
+    expect(address()?.className).toContain('bg-[var(--bg-inset)]')
+    await act(async () => { address()!.focus() })
+    expect(address()?.selectionStart).toBe(0)
+    expect(address()?.selectionEnd).toBe(address()?.value.length)
     expect(panel().textContent).toContain(t('calendar.share.views', { count: 3 }))
   })
 

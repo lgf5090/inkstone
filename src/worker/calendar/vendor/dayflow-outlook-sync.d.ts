@@ -4,8 +4,14 @@ export interface OutlookSync {
   syncEvents(
     calendarId: string,
     range?: { start: string; end: string },
+    deltaToken?: string,
   ): Promise<{ events: unknown[]; deleted: string[]; deltaToken?: string }>
 }
 
-export function createOutlookSyncAdapter(options?: { fetch?: typeof fetch }): unknown
-export function createOutlookSync(adapter: unknown): OutlookSync
+export interface OutlookSyncStorage {
+  getDeltaToken(calendarId: string): Promise<string | null>
+  setDeltaToken(calendarId: string, token: string | null): Promise<void>
+}
+
+export function createOutlookSyncAdapter(options?: { baseUrl?: string; fetch?: typeof fetch }): unknown
+export function createOutlookSync(adapter: unknown, options?: { storage?: OutlookSyncStorage }): OutlookSync

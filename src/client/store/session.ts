@@ -69,6 +69,12 @@ function prepareLocalAccountClear(notifyOtherTabs: boolean): void {
 async function clearLocalAccountData(): Promise<void> {
   prepareLocalAccountClear(false)
   await localDb.clear()
+  try {
+    const { clearCalendarSessionCaches } = await import('../features/calendar/session-cache')
+    clearCalendarSessionCaches()
+  } catch (error) {
+    console.warn('[inkstone] Calendar cache cleanup failed:', error instanceof Error ? error.message : error)
+  }
   useSession.setState({ status: 'anonymous', user: null, site: null, settings: DEFAULT_SETTINGS })
 }
 

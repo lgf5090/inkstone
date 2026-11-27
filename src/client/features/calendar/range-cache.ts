@@ -15,6 +15,7 @@
  *    entry costs one fetch, never a wrong calendar.
  */
 import type { CalendarEventDto, CalendarRangeRevisionDto } from '@shared/calendar/model'
+import { calendarStorageKey } from '../../lib/calendar-storage'
 
 export interface CachedCalendarRange {
   from: number
@@ -31,7 +32,8 @@ interface CacheFile {
   entries: CachedCalendarRange[]
 }
 
-const STORAGE_PREFIX = 'inkstone.calendar.range.v1'
+const STORAGE_SCOPE = 'range.v1'
+const parsedCache = new WeakMap<Storage, Map<string, { raw: string; ranges: CachedCalendarRange[] }>>()
 /** Four ranges is a month of weeks, or a week of days: more than that is history nobody returns to. */
 export const MAX_CACHED_RANGES = 4
 /** One range of a very large calendar is a few hundred kilobytes; the whole file stays under this. */
@@ -42,7 +44,7 @@ function readStorage(): Storage | null {
 }
 
 function keyFor(userId: string): string {
-  return `${STORAGE_PREFIX}:${userId}`
+  return calendarStorageKey(STORAGE_SCOPE, userId)
 }
 
 function isRevision(value: unknown): value is CalendarRangeRevisionDto {
@@ -75,10 +77,17 @@ export function readRanges(userId: string, storage: Storage | null = readStorage
     return []
   }
   if (!raw) return []
+  const key = keyFor(userId)
+  const cached = parsedCache.get(storage)?.get(key)
+  if (cached?.raw === raw) return cached.ranges
   try {
     const parsed = JSON.parse(raw) as Partial<CacheFile>
     if (parsed.version !== 1 || !Array.isArray(parsed.entries)) return []
-    return parsed.entries.filter(isEntry).sort((left, right) => right.savedAt - left.savedAt)
+    const ranges = parsed.entries.filter(isEntry).sort((left, right) => right.savedAt - left.savedAt)
+    const cache = parsedCache.get(storage) ?? new Map()
+    cache.set(key, { raw, ranges })
+    parsedCache.set(storage, cache)
+    return ranges
   } catch {
     // A truncated or hand-edited value is discarded rather than repaired; the fetch will refill it.
     clearRanges(userId, storage)
@@ -162,12 +171,15 @@ export function saveRange(
   const kept = readRanges(userId, storage).filter(existing => !(existing.from === entry.from && existing.to === entry.to))
   const entries = [entry, ...kept].slice(0, MAX_CACHED_RANGES)
   const serialized = JSON.stringify({ version: 1, entries } satisfies CacheFile)
-  if (serialized.length > MAX_CACHE_BYTES) {
+  if (new TextEncoder().encode(serialized).byteLength > MAX_CACHE_BYTES) {
     // This one range is larger than the whole allowance: keep what was already there instead.
     return
   }
   try {
     storage.setItem(keyFor(userId), serialized)
+    const cache = parsedCache.get(storage) ?? new Map()
+    cache.set(keyFor(userId), { raw: serialized, ranges: entries })
+    parsedCache.set(storage, cache)
   } catch {
     // Quota or a disabled store: the cache is an optimisation, and the next load refetches.
     clearRanges(userId, storage)
@@ -176,6 +188,7 @@ export function saveRange(
 
 export function clearRanges(userId: string, storage: Storage | null = readStorage()): void {
   if (!storage) return
+  parsedCache.get(storage)?.delete(keyFor(userId))
   try {
     storage.removeItem(keyFor(userId))
   } catch {

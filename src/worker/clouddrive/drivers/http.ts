@@ -7,6 +7,7 @@
  * login/refresh hooks and the actual endpoints.
  */
 import { normalizeCloudDrivePath } from '@shared/clouddrive/model'
+import { checkTarget } from '../../lib/outbound'
 import { DriverError, type DriverContext } from './contract'
 
 const DEFAULT_TIMEOUT_MS = 20_000
@@ -114,6 +115,8 @@ export abstract class HttpDriverBase {
   }
 
   protected async request(url: string, options: HttpOptions = {}): Promise<Response> {
+    const target = checkTarget(url)
+    if (!target.url) throw DriverError.upstream(`The upstream address is not reachable: ${target.error}`)
     const retries = options.retries ?? DEFAULT_RETRIES
     let lastError: DriverError | null = null
     for (let attempt = 0; attempt <= retries; attempt++) {
@@ -129,8 +132,8 @@ export abstract class HttpDriverBase {
         // A driver can ask for a Request when its caller inspects the fetch argument; the init
         // object stays on the second argument so headers and bodies remain readable.
         response = options.asRequest
-          ? await fetch(new Request(url, init), init)
-          : await fetch(url, init)
+          ? await fetch(new Request(target.url.toString(), init), init)
+          : await fetch(target.url.toString(), init)
       } catch (error) {
         lastError = DriverError.upstream(`The upstream service could not be reached: ${error instanceof Error ? error.message : String(error)}`)
         if (attempt === retries) throw lastError

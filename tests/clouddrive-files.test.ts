@@ -174,6 +174,24 @@ describe('clouddrive file API', () => {
     expect(byName.body.files.map((entry) => entry.name)).toEqual(['alpha.txt', 'beta.txt', 'gamma.txt'])
   })
 
+  it('counts only visible files when row and metadata hide patterns both apply', async () => {
+    const folder = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Docs',
+    })
+    const folderId = folder.body.entry.id
+    await call(USER, 'PATCH', `/api/clouddrive/files/${folderId}`, { hidePatterns: ['row-hidden-*'] })
+    await call(USER, 'PUT', '/api/clouddrive/meta', { mountId: 'primary', path: '/Docs', hidePatterns: ['meta-hidden-*'] })
+    await insertEntry({ path: '/Docs/row-hidden-a.txt', name: 'row-hidden-a.txt', parentId: folderId })
+    await insertEntry({ path: '/Docs/meta-hidden-a.txt', name: 'meta-hidden-a.txt', parentId: folderId })
+    await insertEntry({ path: '/Docs/visible-a.txt', name: 'visible-a.txt', parentId: folderId })
+    await insertEntry({ path: '/Docs/visible-b.txt', name: 'visible-b.txt', parentId: folderId })
+
+    const listing = await call<{ files: { name: string }[]; total: number | null }>(USER, 'GET', '/api/clouddrive/files?path=%2FDocs')
+    expect(listing.status).toBe(200)
+    expect(listing.body.files.map((file) => file.name)).toEqual(['visible-a.txt', 'visible-b.txt'])
+    expect(listing.body.total).toBe(2)
+  })
+
   it('returns 409 with a suggested name when a folder already exists', async () => {
     const first = await call(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'Docs' })
     expect(first.status).toBe(201)
@@ -298,6 +316,83 @@ describe('clouddrive file API', () => {
     const child = await call<{ files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/files?path=/Notes')
     expect(child.status).toBe(200)
     expect(child.body.files.map((entry) => entry.path)).toEqual(['/Notes/a.txt'])
+  })
+
+  it('merges a selected parent and child into one move root', async () => {
+    const parent = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Parent',
+    })
+    const child = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/Parent', name: 'Child',
+    })
+    const file = await insertEntry({ path: '/Parent/Child/note.txt', name: 'note.txt', parentId: child.body.entry.id })
+    const target = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Target',
+    })
+
+    const moved = await call<{ results: { id: string; ok: boolean; toPath?: string }[] }>(
+      USER, 'POST', '/api/clouddrive/files/move',
+      { ids: [child.body.entry.id, parent.body.entry.id], toPath: '/Target' },
+    )
+    expect(moved.status).toBe(200)
+    expect(moved.body.results).toEqual([{ id: parent.body.entry.id, ok: true, toPath: '/Target/Parent' }])
+    expect(await rowByPath(USER, '/Target/Parent/Child')).toMatchObject({ id: child.body.entry.id })
+    expect(await rowByPath(USER, '/Target/Parent/Child/note.txt')).toMatchObject({ id: file })
+    expect((await db.prepare(`SELECT id FROM CloudDrive_files WHERE user_id = ? AND path = '/Target/Child'`).bind(USER).first())).toBeNull()
+  })
+
+  it('migrates path-bound state in the same batch as rename and move', async () => {
+    const docs = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Docs',
+    })
+    const id = docs.body.entry.id
+    await insertEntry({ path: '/Docs/sub/file.txt', name: 'file.txt', parentId: id })
+    const now = Date.now()
+    await db.prepare(
+      `INSERT INTO CloudDrive_meta (user_id,mount_id,path,header_md,created_at,updated_at)
+       VALUES (?, 'primary', '/Docs', 'root', ?, ?), (?, 'primary', '/Docs/sub', 'child', ?, ?), (?, 'primary', '/Docs2', 'other', ?, ?)`,
+    ).bind(USER, now, now, USER, now, now, USER, now, now).run()
+    await db.prepare(
+      `INSERT INTO CloudDrive_meta_unlocks (token_hash,user_id,mount_id,path,expires_at,created_at)
+       VALUES ('root-token', ?, 'primary', '/Docs', ?, ?), ('child-token', ?, 'primary', '/Docs/sub', ?, ?)`,
+    ).bind(USER, now + 60_000, now, USER, now + 60_000, now).run()
+    await db.prepare(
+      `INSERT INTO CloudDrive_file_requests (slug,user_id,target_path,name,created_at)
+       VALUES ('request', ?, '/Docs', 'Request', ?)`,
+    ).bind(USER, now).run()
+    await db.prepare(
+      `INSERT INTO CloudDrive_sync_targets (user_id,id,name,remote_path,created_at,updated_at)
+       VALUES (?, 'sync', 'Sync', '/Docs', ?, ?)`,
+    ).bind(USER, now, now).run()
+    await db.prepare(
+      `INSERT INTO CloudDrive_api_keys (id,user_id,name,token_hash,token_prefix,path_prefix,created_at)
+       VALUES ('key', ?, 'Key', 'hash', 'prefix', '/Docs', ?)`,
+    ).bind(USER, now).run()
+
+    // A failing dependent update must roll the file rename back too: all path state is one D1 batch.
+    sqlite.exec(`CREATE TRIGGER fail_meta BEFORE UPDATE ON CloudDrive_meta BEGIN SELECT RAISE(ABORT, 'blocked'); END`)
+    expect((await call(USER, 'PATCH', `/api/clouddrive/files/${id}`, { name: 'Notes' })).status).toBe(500)
+    expect((await rowByPath(USER, '/Docs')).id).toBe(id)
+    sqlite.exec('DROP TRIGGER fail_meta')
+
+    expect((await call(USER, 'PATCH', `/api/clouddrive/files/${id}`, { name: 'Notes' })).status).toBe(200)
+    const state = async (table: string, column: string, where: string, ...values: string[]) =>
+      (await db.prepare(`SELECT ${column} AS value FROM ${table} WHERE ${where}`).bind(...values).first<{ value: string }>())?.value
+    expect(await state('CloudDrive_meta', 'path', 'user_id = ? AND header_md = ?', USER, 'root')).toBe('/Notes')
+    expect(await state('CloudDrive_meta', 'path', 'user_id = ? AND header_md = ?', USER, 'child')).toBe('/Notes/sub')
+    expect(await state('CloudDrive_meta', 'path', 'user_id = ? AND header_md = ?', USER, 'other')).toBe('/Docs2')
+    expect(await state('CloudDrive_meta_unlocks', 'path', 'token_hash = ?', 'child-token')).toBe('/Notes/sub')
+    expect(await state('CloudDrive_file_requests', 'target_path', 'slug = ?', 'request')).toBe('/Notes')
+    expect(await state('CloudDrive_sync_targets', 'remote_path', 'id = ?', 'sync')).toBe('/Notes')
+    expect(await state('CloudDrive_api_keys', 'path_prefix', 'id = ?', 'key')).toBe('/Docs')
+
+    await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'Target' })
+    expect((await call(USER, 'POST', '/api/clouddrive/files/move', { ids: [id], toPath: '/Target' })).status).toBe(200)
+    expect(await state('CloudDrive_meta', 'path', 'user_id = ? AND header_md = ?', USER, 'root')).toBe('/Target/Notes')
+    expect(await state('CloudDrive_meta_unlocks', 'path', 'token_hash = ?', 'child-token')).toBe('/Target/Notes/sub')
+    expect(await state('CloudDrive_file_requests', 'target_path', 'slug = ?', 'request')).toBe('/Target/Notes')
+    expect(await state('CloudDrive_sync_targets', 'remote_path', 'id = ?', 'sync')).toBe('/Target/Notes')
+    expect(await state('CloudDrive_api_keys', 'path_prefix', 'id = ?', 'key')).toBe('/Docs')
   })
 
   it('refuses tags, versions and the tag panel inside a locked folder', async () => {
@@ -480,6 +575,25 @@ describe('clouddrive file API', () => {
     expect(removed.body.entry.tags).toEqual([])
     const empty = await call<{ tags: unknown[] }>(USER, 'GET', '/api/clouddrive/tags')
     expect(empty.body.tags).toEqual([])
+  })
+
+  it('pages the recent list and binds its cursor to the selected kind', async () => {
+    const now = Date.now()
+    for (let index = 0; index < 101; index++) {
+      await insertEntry({ path: `/recent-${String(index).padStart(3, '0')}.txt`, name: `recent-${String(index).padStart(3, '0')}.txt`, uploadedAt: now + index })
+    }
+    const first = await call<{ files: { id: string }[]; cursor: string | null }>(
+      USER, 'GET', '/api/clouddrive/recent?kind=uploaded&limit=100',
+    )
+    expect(first.body.files).toHaveLength(100)
+    expect(first.body.cursor).toBeTypeOf('string')
+    const second = await call<{ files: { id: string }[]; cursor: string | null }>(
+      USER, 'GET', `/api/clouddrive/recent?kind=uploaded&limit=100&cursor=${encodeURIComponent(first.body.cursor!)}`,
+    )
+    expect(second.body.files).toHaveLength(1)
+    expect(second.body.cursor).toBeNull()
+    expect(new Set([...first.body.files, ...second.body.files].map((file) => file.id)).size).toBe(101)
+    expect((await call(USER, 'GET', `/api/clouddrive/recent?kind=viewed&cursor=${encodeURIComponent(first.body.cursor!)}`)).status).toBe(400)
   })
 
   it('stars a file for the starred page and records a view for the recent page', async () => {

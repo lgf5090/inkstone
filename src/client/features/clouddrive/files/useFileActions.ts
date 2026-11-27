@@ -3,6 +3,7 @@ import { childPath, parentPathOf, type CloudDriveEntry } from '@shared/clouddriv
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
+import { useSession } from '../../../store/session'
 import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
 import { useTransferStore } from '../transfers/useTransferStore'
 import { useCloudDriveStore } from '../store'
@@ -26,6 +27,7 @@ export interface ShareOptions {
   maxViews?: number
   maxDownloads?: number
   allowDownload?: boolean
+  allowList?: boolean
 }
 
 export interface FileActions {
@@ -40,8 +42,8 @@ export interface FileActions {
   setFolderMeta: (entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => Promise<boolean>
   addTag: (entry: CloudDriveEntry, tag: string, color: string) => Promise<boolean>
   removeTag: (entry: CloudDriveEntry, tag: string) => Promise<boolean>
-  move: (ids: string[], toPath: string, entries?: CloudDriveEntry[]) => Promise<boolean>
-  copy: (ids: string[], toPath: string) => Promise<boolean>
+  move: (ids: string[], toPath: string, entries?: CloudDriveEntry[], toMountId?: string) => Promise<boolean>
+  copy: (ids: string[], toPath: string, toMountId?: string) => Promise<boolean>
   trash: (ids: string[], entries?: CloudDriveEntry[]) => Promise<boolean>
   restore: (ids: string[]) => Promise<boolean>
   purge: (ids?: string[], all?: boolean) => Promise<boolean>
@@ -59,11 +61,12 @@ function showSuccess(message: string): void {
   useUi.getState().toast({ title: message, tone: 'success' })
 }
 
-function failedResults(results: unknown[]): number {
-  return results.filter((result) => {
-    if (!result || typeof result !== 'object') return false
-    return (result as { ok?: unknown }).ok === false
-  }).length
+function successfulIds(results: { id: string; ok: boolean }[]): string[] {
+  return results.filter((result) => result.ok).map((result) => result.id)
+}
+
+function failedResults(results: { ok: boolean }[]): number {
+  return results.filter((result) => !result.ok).length
 }
 
 export function useFileActions({ mountId, refresh, external = false, onLocalChange }: FileActionsOptions): FileActions {
@@ -95,10 +98,10 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
   }), [execute, external, mountId])
 
   const createFile = useCallback((parentPathValue: string, name: string) => execute(async () => {
-    if (external) await clouddriveApi.externalUpload(mountId, childPath(parentPathValue, name), new File([], name))
+    if (external) await clouddriveApi.externalUpload(mountId, childPath(parentPathValue, name), new File([], name), uploadConflict)
     else await clouddriveApi.createFile({ mountId, parentPath: parentPathValue, name })
     showSuccess(t('clouddrive.toast.created'))
-  }), [execute, external, mountId])
+  }), [execute, external, mountId, uploadConflict])
 
   const rename = useCallback((entry: CloudDriveEntry, name: string) => execute(async () => {
     if (external) {
@@ -163,30 +166,36 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
     showSuccess(t('clouddrive.toast.tags_saved'))
   }), [execute, onLocalChange])
 
-  const move = useCallback((ids: string[], toPath: string, entries?: CloudDriveEntry[]) => execute(async () => {
+  const move = useCallback((ids: string[], toPath: string, entries?: CloudDriveEntry[], toMountId?: string) => execute(async () => {
     if (external) {
       if (!entries || entries.length === 0) throw new CloudDriveApiError('internal', 'missing entries', 0)
+      const moved: string[] = []
+      let skipped = 0
       for (const entry of entries) {
-        await clouddriveApi.externalMove(mountId, entry.path, childPath(toPath, entry.name))
+        const result = await clouddriveApi.externalMove(mountId, entry.path, childPath(toPath, entry.name), 'rename')
+        if (result.skipped) skipped++
+        else moved.push(entry.id)
       }
-      onLocalChange?.({ type: 'remove', ids })
-    } else {
-      const result = await clouddriveApi.move({ ids, toPath, conflict: 'rename' })
-      onLocalChange?.({ type: 'remove', ids })
-      const failed = failedResults(result.results)
-      if (failed > 0) showError(new CloudDriveApiError('internal', 'partial move', 0))
-      else showSuccess(t('clouddrive.toast.moved', { count: ids.length }))
+      if (moved.length > 0) onLocalChange?.({ type: 'remove', ids: moved })
+      if (skipped > 0) showError(new CloudDriveApiError('internal', 'partial move', 0))
+      else showSuccess(t('clouddrive.toast.moved', { count: moved.length }))
       return
     }
-    showSuccess(t('clouddrive.toast.moved', { count: entries.length }))
+    const result = await clouddriveApi.move({ ids, mountId, toMountId, toPath, conflict: 'rename' })
+    const moved = successfulIds(result.results.filter((item) => !item.sourceRetained))
+    if (moved.length > 0) onLocalChange?.({ type: 'remove', ids: moved })
+    const failed = result.results.filter((item) => !item.ok || item.sourceRetained).length
+    if (failed > 0) showError(new CloudDriveApiError('internal', 'partial move', 0))
+    else showSuccess(t('clouddrive.toast.moved', { count: moved.length }))
   }), [execute, external, mountId, onLocalChange])
 
-  const copy = useCallback((ids: string[], toPath: string) => execute(async () => {
-    const result = await clouddriveApi.copy({ ids, toPath, conflict: 'rename' })
-    const failed = failedResults(result.results)
+  const copy = useCallback((ids: string[], toPath: string, toMountId?: string) => execute(async () => {
+    const result = await clouddriveApi.copy({ ids, mountId, toMountId, toPath, conflict: 'rename' })
+    const copied = successfulIds(result.results).length
+    const failed = result.results.filter((item) => !item.ok || item.sourceRetained).length
     if (failed > 0) showError(new CloudDriveApiError('internal', 'partial copy', 0))
-    else showSuccess(t('clouddrive.toast.copied', { count: ids.length }))
-  }), [execute])
+    else showSuccess(t('clouddrive.toast.copied', { count: copied }))
+  }), [execute, mountId])
 
   const trash = useCallback((ids: string[], entries?: CloudDriveEntry[]) => execute(async () => {
     if (external) {
@@ -203,8 +212,11 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
   }), [execute, external, mountId, onLocalChange])
 
   const restore = useCallback((ids: string[]) => execute(async () => {
-    await clouddriveApi.restore(ids, mountId)
-    showSuccess(t('clouddrive.toast.restored', { count: ids.length }))
+    const result = await clouddriveApi.restore(ids, mountId)
+    const restored = successfulIds(result.results).length
+    const failed = failedResults(result.results)
+    if (failed > 0) showError(new CloudDriveApiError('internal', 'partial restore', 0))
+    else showSuccess(t('clouddrive.toast.restored', { count: restored }))
   }), [execute, mountId])
 
   const purge = useCallback((ids?: string[], all = false) => execute(async () => {
@@ -219,7 +231,7 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
       setPending((count) => count + 1)
       try {
         for (const file of files) {
-          await clouddriveApi.externalUpload(mountId, childPath(parentPathValue, file.name), file)
+          await clouddriveApi.externalUpload(mountId, childPath(parentPathValue, file.name), file, uploadConflict)
         }
         showSuccess(t('clouddrive.toast.uploaded_external', { count: files.length }))
         await refresh()
@@ -242,7 +254,9 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
   const offline = useCallback(async (entry: CloudDriveEntry): Promise<boolean> => {
     setPending((count) => count + 1)
     try {
-      await fetchAndSaveOffline(entry)
+      const userId = useSession.getState().user?.id
+      if (!userId) throw new Error('offline_user_required')
+      await fetchAndSaveOffline(userId, entry)
       showSuccess(t('clouddrive.offline.saved', { name: entry.name }))
       return true
     } catch (error) {
@@ -260,7 +274,7 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
     for (const entry of entries) {
       const href = entry.kind === 'folder'
         ? clouddriveApi.zipUrl({ mountId, path: entry.path })
-        : clouddriveApi.contentUrl(entry.id, true)
+        : clouddriveApi.contentUrl(entry.id, true, entry.modifiedAt)
       const anchor = document.createElement('a')
       anchor.href = href
       anchor.rel = 'noopener'
@@ -289,7 +303,7 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
           maxViews: options.maxViews && options.maxViews > 0 ? options.maxViews : undefined,
           maxDownloads: options.maxDownloads && options.maxDownloads > 0 ? options.maxDownloads : undefined,
           allowDownload: options.allowDownload !== false,
-          allowList: entry.kind === 'folder',
+          allowList: entry.kind === 'folder' && options.allowList !== false,
         })
         const url = result.share.url.startsWith('http')
           ? result.share.url

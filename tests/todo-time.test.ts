@@ -344,6 +344,27 @@ describe('a manual entry', () => {
 
 // ------------------------------------------------------------- clock guards
 
+describe('the task ledger read', () => {
+  it('returns every entry for one task, including the running row', async () => {
+    const task = await store.createTask({ title: 'Ledger reader' })
+    const now = Date.now()
+    insertEntry({ id: 'entry-closed', taskId: task.id, start: now - 2 * HOUR, end: now - HOUR, day: today() })
+    insertEntry({ id: 'entry-open', taskId: task.id, start: now - HOUR, end: null, day: today() })
+
+    const response = await send('GET', `/${task.id}/time`)
+    expect(response.status).toBe(200)
+    const body = await jsonOf(response)
+    expect((body.entries as TodoTimeEntry[]).map((entry) => entry.id).sort())
+      .toEqual(['entry-closed', 'entry-open'])
+    expect((body.entries as TodoTimeEntry[]).find((entry) => entry.id === 'entry-open')?.endAt).toBeNull()
+  })
+
+  it('does not confirm another account’s task through an empty ledger', async () => {
+    const foreign = await new AssistantStore(env.DB, OTHER, env).createTask({ title: 'Foreign ledger' })
+    expect((await send('GET', `/${foreign.id}/time`)).status).toBe(404)
+  })
+})
+
 describe('the server clock is the boundary', () => {
   it('refuses a start past the tolerance into the future', async () => {
     const a = await store.createTask({ title: 'From tomorrow' })

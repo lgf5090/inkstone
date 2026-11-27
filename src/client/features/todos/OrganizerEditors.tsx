@@ -12,7 +12,7 @@
  * The task editor borrows `ColorPicker` for a task's own colour: it is the same palette, and a second
  * way to pick one would drift the moment the ramp gained a colour.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Ban, ListChecks, Palette, X } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -60,6 +60,8 @@ export function ColorPicker({ value, onChange, allowNone }: {
   const panelRef = useRef<HTMLDivElement>(null)
   const [draft, setDraft] = useState('')
   const [refused, setRefused] = useState(false)
+  /** The line under the field that says why a hex was turned down; the field names it while it is red. */
+  const hintId = useId()
   const surface = (): string => paintedSurface(panelRef.current, isResolvedOrganizerColor)
 
   const offer = (hex: string): void => {
@@ -121,8 +123,11 @@ export function ColorPicker({ value, onChange, allowNone }: {
           onChange={(next) => setDraft(next)}
           onCommit={offer}
         />
-        <input
-          type="text"
+        {/* The shared field, so a refused hex is stated three ways rather than one: the border turns
+            red, `aria-invalid` carries the same fact to assistive tech, and `aria-describedby` points
+            at the line that says what to do about it. The border alone was a message only sighted
+            readers received, and only if they knew the palette's rule. */}
+        <Input
           value={draft || custom || ''}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={(event) => offer(event.target.value)}
@@ -134,10 +139,10 @@ export function ColorPicker({ value, onChange, allowNone }: {
           spellCheck={false}
           autoComplete="off"
           aria-label={t('todo.list.color_custom')}
-          className={cn(
-            'h-9 min-w-0 flex-1 rounded-[var(--r-sm)] border bg-[var(--bg-inset)] px-2 font-mono text-[length:var(--text-11-5)] uppercase text-[var(--text-primary)] outline-none placeholder:text-[var(--text-quaternary)] md:h-7',
-            refused ? 'border-[var(--danger)]' : 'border-[var(--border-subtle)] focus:border-[var(--accent)]',
-          )}
+          aria-invalid={refused || undefined}
+          aria-describedby={hintId}
+          invalid={refused}
+          className="h-9 min-w-0 flex-1 font-mono text-[length:var(--text-11-5)] uppercase md:h-7"
         />
         {custom && (
           <IconButton label={t('todo.list.color_clear')} size="sm" onClick={() => { setDraft(''); setRefused(false); onChange(null) }}>
@@ -145,7 +150,7 @@ export function ColorPicker({ value, onChange, allowNone }: {
           </IconButton>
         )}
       </div>
-      <p className={cn('text-[length:var(--text-11)] leading-snug', refused ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>
+      <p id={hintId} className={cn('text-[length:var(--text-11)] leading-snug', refused ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>
         {refused
           ? t('color.contrast_too_low')
           : ratio !== null
@@ -192,6 +197,9 @@ export function ListEditor() {
   const [name, setName] = useState('')
   const [icon, setIcon] = useState<string | null>(null)
   const [color, setColor] = useState<string | null>(null)
+  /** One write at a time: Enter and a press would otherwise both create the list. */
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
 
   useEffect(() => {
     if (!open) return
@@ -201,11 +209,23 @@ export function ListEditor() {
   }, [open, list])
 
   const save = async (): Promise<void> => {
+    if (busyRef.current) return
     const trimmed = name.trim()
     if (!trimmed) return
-    if (list) await updateList(list.id, { name: trimmed, icon, color })
-    else await createList({ name: trimmed, icon, color })
-    onClose()
+    busyRef.current = true
+    setBusy(true)
+    try {
+      const saved = list
+        ? await updateList(list.id, { name: trimmed, icon, color })
+        : await createList({ name: trimmed, icon, color })
+      // A refused write has already said so through the store's toast; the dialog keeps the name the
+      // reader typed rather than closing on a list that was never saved.
+      if (!saved) return
+      onClose()
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
   }
 
   const remove = async (): Promise<void> => {
@@ -232,7 +252,7 @@ export function ListEditor() {
           {list && <Button variant="danger" size="sm" onClick={() => { void remove() }}>{t('todo.action.delete')}</Button>}
           <span className="ml-auto" />
           <Button variant="ghost" size="sm" onClick={onClose}>{t('todo.action.cancel')}</Button>
-          <Button size="sm" disabled={!name.trim()} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
+          <Button size="sm" disabled={!name.trim() || busy} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
         </div>
       )}
     >
@@ -278,6 +298,9 @@ export function TagEditor({ open, tag, onClose }: { open: boolean; tag: TaskTag 
   const removeTag = useTodos((state) => state.removeTag)
   const [name, setName] = useState('')
   const [color, setColor] = useState<string | null>(null)
+  /** The tag editor's own guard, for the same reason the list editor keeps one. */
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
 
   useEffect(() => {
     if (!open) return
@@ -286,11 +309,21 @@ export function TagEditor({ open, tag, onClose }: { open: boolean; tag: TaskTag 
   }, [open, tag])
 
   const save = async (): Promise<void> => {
+    if (busyRef.current) return
     const trimmed = name.trim()
     if (!trimmed) return
-    if (tag) await updateTag(tag.id, { name: trimmed, color })
-    else await createTag({ name: trimmed, color })
-    onClose()
+    busyRef.current = true
+    setBusy(true)
+    try {
+      const saved = tag
+        ? await updateTag(tag.id, { name: trimmed, color })
+        : await createTag({ name: trimmed, color })
+      if (!saved) return
+      onClose()
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
   }
 
   const remove = async (): Promise<void> => {
@@ -317,7 +350,7 @@ export function TagEditor({ open, tag, onClose }: { open: boolean; tag: TaskTag 
           {tag && <Button variant="danger" size="sm" onClick={() => { void remove() }}>{t('todo.action.delete')}</Button>}
           <span className="ml-auto" />
           <Button variant="ghost" size="sm" onClick={onClose}>{t('todo.action.cancel')}</Button>
-          <Button size="sm" disabled={!name.trim()} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
+          <Button size="sm" disabled={!name.trim() || busy} onClick={() => { void save() }}>{t('todo.action.save')}</Button>
         </div>
       )}
     >

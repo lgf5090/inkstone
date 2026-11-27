@@ -63,7 +63,7 @@ function latestEditKeyOf(latestUpdatedAt: number): string | null {
 }
 
 // Only the counted tier feeds the gap banner: an archived note is invisible to the
-// list, so pointing the reader at a day the list cannot show would repeat C-14.
+// list, so the banner must not point at a day the list cannot show.
 function rescanLatestUpdatedAt(byId: Map<string, ActivityEntry>): number {
   let latest = 0
   for (const entry of byId.values()) {

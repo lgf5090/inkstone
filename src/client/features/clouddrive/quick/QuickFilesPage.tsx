@@ -3,27 +3,70 @@ import { Download, Star } from 'lucide-react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
-import { Spinner } from '../../../components/primitives'
-import { clouddriveApi } from '../api'
+import type { MessageKey } from '@shared/locales/en-US'
+import { Button, Spinner } from '../../../components/primitives'
+import { clouddriveApi, cloudDriveErrorKey } from '../api'
 import { useCloudDriveStore } from '../store'
+import { useUi } from '../../../store/ui'
 
 export function QuickFilesPage({ mode }: { mode: 'recent' | 'starred' }) {
+  const toast = useUi((state) => state.toast)
   const [files, setFiles] = useState<CloudDriveEntry[]>([])
-  const [loading, setLoading] = useState(true)
+  const [cursor, setCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [error, setError] = useState<MessageKey | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
   const refreshKey = useCloudDriveStore((state) => state.refreshKey)
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
+    setStatus('loading')
+    setError(null)
+    setCursor(null)
     const work = mode === 'recent'
-      ? clouddriveApi.recent('viewed').then((result) => result.files)
-      : clouddriveApi.recent('starred').then((result) => result.files)
-    void work.then((result) => { if (!cancelled) setFiles(result) }).finally(() => { if (!cancelled) setLoading(false) })
+      ? clouddriveApi.recent('viewed')
+      : clouddriveApi.recent('starred')
+    void work
+      .then((result) => {
+        if (cancelled) return
+        setFiles(result.files)
+        setCursor(result.cursor)
+        setStatus('ready')
+      })
+      .catch((caught) => {
+        if (cancelled) return
+        setFiles([])
+        setError(cloudDriveErrorKey(caught) as MessageKey)
+        setStatus('error')
+      })
     return () => { cancelled = true }
-  }, [mode, refreshKey])
+  }, [mode, refreshKey, retryKey])
+
+  const loadMore = async () => {
+    if (!cursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const result = await clouddriveApi.recent(mode === 'recent' ? 'viewed' : 'starred', cursor)
+      setFiles((current) => [...current, ...result.files])
+      setCursor(result.cursor)
+    } catch (caught) {
+      toast({ title: t('clouddrive.search.load_more_failed'), description: caught instanceof Error ? caught.message : '', tone: 'danger' })
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col p-4">
       <h1 className="mb-3 flex items-center gap-2 text-[length:var(--text-15)] font-semibold text-[var(--text-primary)]">{mode === 'recent' ? t('clouddrive.nav.recent') : t('clouddrive.nav.starred')}{mode === 'starred' && <Star size={14} className="text-[var(--accent)]" />}</h1>
-      {loading ? <div className="flex h-32 items-center justify-center"><Spinner /></div> : files.length === 0 ? <p className="py-10 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{mode === 'recent' ? t('clouddrive.empty.recent') : t('clouddrive.empty.starred')}</p> : (
+      {status === 'loading' ? (
+        <div role="status" aria-live="polite" className="flex h-32 items-center justify-center gap-2 text-[var(--text-tertiary)]"><Spinner />{t('clouddrive.loading')}</div>
+      ) : status === 'error' ? (
+        <div role="alert" className="flex flex-col items-center gap-3 py-10 text-center">
+          <p className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{error && t(error)}</p>
+          <Button variant="secondary" onClick={() => setRetryKey((key) => key + 1)}>{t('clouddrive.retry')}</Button>
+        </div>
+      ) : files.length === 0 ? <p className="py-10 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{mode === 'recent' ? t('clouddrive.empty.recent') : t('clouddrive.empty.starred')}</p> : (
         <ul className="flex flex-col gap-1.5">
           {files.map((file) => (
             <li key={file.id} className="flex min-w-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
@@ -34,6 +77,13 @@ export function QuickFilesPage({ mode }: { mode: 'recent' | 'starred' }) {
             </li>
           ))}
         </ul>
+      )}
+      {status === 'ready' && cursor && (
+        <div className="mt-3 flex justify-center">
+          <Button size="sm" variant="secondary" loading={loadingMore} onClick={() => void loadMore()}>
+            {t('clouddrive.search.load_more')}
+          </Button>
+        </div>
       )}
     </div>
   )

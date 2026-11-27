@@ -57,58 +57,66 @@ export function BatchBar() {
       role="toolbar"
       aria-label={t('todo.a11y.batch_bar')}
       data-todo-batch-bar=""
-      className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2 py-1.5 md:px-3"
+      className="flex shrink-0 items-center gap-1.5 border-t border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2 py-1.5 md:px-3"
     >
-      <span aria-live="polite" className="px-1 text-[length:var(--text-12)] tabular-nums text-[var(--text-secondary)]">
+      {/* The count and the exit stay put; the actions between them are what scrolls.
+          Wrapping the whole bar put seven controls on three or four rows at 360px and left the listing
+          a slit above the tab bar; scrolling all of it would have carried the way *out* of selection
+          off the right edge, which is the one control that must not move. */}
+      <span aria-live="polite" className="shrink-0 px-1 text-[length:var(--text-12)] tabular-nums text-[var(--text-secondary)]">
         {t('todo.batch.selected', { count })}
       </span>
-      <Button size="sm" variant="ghost" onClick={() => run('complete')}>
-        <Check size={13} />{t('todo.batch.complete')}
-      </Button>
-      <Button
-        ref={moveRef}
-        size="sm"
-        variant="ghost"
-        aria-haspopup="menu"
-        aria-expanded={openMenu === 'move'}
-        onClick={() => setOpenMenu(openMenu === 'move' ? null : 'move')}
-      >
-        <FolderInput size={13} />{t('todo.batch.move')}
-      </Button>
-      <Button
-        ref={priorityRef}
-        size="sm"
-        variant="ghost"
-        aria-haspopup="menu"
-        aria-expanded={openMenu === 'priority'}
-        onClick={() => setOpenMenu(openMenu === 'priority' ? null : 'priority')}
-      >
-        <Flag size={13} />{t('todo.batch.priority')}
-      </Button>
-      <Button
-        ref={tagRef}
-        size="sm"
-        variant="ghost"
-        aria-haspopup="menu"
-        aria-expanded={openMenu === 'tag'}
-        onClick={() => setOpenMenu(openMenu === 'tag' ? null : 'tag')}
-      >
-        <Tag size={13} />{t('todo.batch.tag')}
-      </Button>
-      {/* The bar's star goes on and stays on: it names the value rather than leaning on the route's
-          default, and taking a star back off is the row's own button — a bar that toggled over a mixed
-          selection would answer ninety rows with one guess. */}
-      <Button size="sm" variant="ghost" onClick={() => run('star', 'true')}>
-        <Star size={13} />{t('todo.task.star')}
-      </Button>
-      <Button size="sm" variant="ghost" onClick={() => run('archive', 'true')}>
-        <Archive size={13} />{t('todo.batch.archive')}
-      </Button>
-      <Button size="sm" variant="ghost" className="text-[var(--danger)]" onClick={() => { void remove() }}>
-        <Trash2 size={13} />{t('todo.batch.delete')}
-      </Button>
-      <span className="flex-1" />
-      <IconButton size="sm" label={t('todo.batch.exit')} onClick={clearSelection}>
+      <div data-todo-batch-actions="" className="no-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto md:flex-wrap md:overflow-visible">
+        <Button size="sm" variant="ghost" className="shrink-0" onClick={() => run('complete')}>
+          <Check size={13} />{t('todo.batch.complete')}
+        </Button>
+        <Button
+          ref={moveRef}
+          size="sm"
+          variant="ghost"
+          className="shrink-0"
+          aria-haspopup="menu"
+          aria-expanded={openMenu === 'move'}
+          onClick={() => setOpenMenu(openMenu === 'move' ? null : 'move')}
+        >
+          <FolderInput size={13} />{t('todo.batch.move')}
+        </Button>
+        <Button
+          ref={priorityRef}
+          size="sm"
+          variant="ghost"
+          className="shrink-0"
+          aria-haspopup="menu"
+          aria-expanded={openMenu === 'priority'}
+          onClick={() => setOpenMenu(openMenu === 'priority' ? null : 'priority')}
+        >
+          <Flag size={13} />{t('todo.batch.priority')}
+        </Button>
+        <Button
+          ref={tagRef}
+          size="sm"
+          variant="ghost"
+          className="shrink-0"
+          aria-haspopup="menu"
+          aria-expanded={openMenu === 'tag'}
+          onClick={() => setOpenMenu(openMenu === 'tag' ? null : 'tag')}
+        >
+          <Tag size={13} />{t('todo.batch.tag')}
+        </Button>
+        {/* The bar's star goes on and stays on: it names the value rather than leaning on the route's
+            default, and taking a star back off is the row's own button — a bar that toggled over a mixed
+            selection would answer ninety rows with one guess. */}
+        <Button size="sm" variant="ghost" className="shrink-0" onClick={() => run('star', 'true')}>
+          <Star size={13} />{t('todo.task.star')}
+        </Button>
+        <Button size="sm" variant="ghost" className="shrink-0" onClick={() => run('archive', 'true')}>
+          <Archive size={13} />{t('todo.batch.archive')}
+        </Button>
+        <Button size="sm" variant="ghost" className="shrink-0 text-[var(--danger)]" onClick={() => { void remove() }}>
+          <Trash2 size={13} />{t('todo.batch.delete')}
+        </Button>
+      </div>
+      <IconButton size="sm" className="shrink-0" label={t('todo.batch.exit')} onClick={clearSelection}>
         <X size={14} />
       </IconButton>
 

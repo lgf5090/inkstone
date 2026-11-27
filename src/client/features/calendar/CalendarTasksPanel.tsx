@@ -6,6 +6,7 @@
  */
 import { useState } from 'react'
 import type { CalendarDto } from '@shared/calendar/model'
+import { temporalToEpochMs } from '@shared/calendar/model'
 import type { Event, ICalendarApp } from '@dayflow/react'
 import { t } from '../../lib/i18n'
 import { Checkbox } from '../../components/form'
@@ -16,17 +17,24 @@ import { isRecurrenceOccurrence } from './model'
 interface CalendarTasksPanelProps {
   app: ICalendarApp
   calendars: readonly CalendarDto[]
+  from: number
+  to: number
+  timeZone: string
   onChanged: () => void
 }
 
-export function CalendarTasksPanel({ app, calendars, onChanged }: CalendarTasksPanelProps) {
+export function CalendarTasksPanel({ app, calendars, from, to, timeZone, onChanged }: CalendarTasksPanelProps) {
   const [busy, setBusy] = useState<string | null>(null)
   const visible = new Set(calendars.filter(calendar => calendar.isVisible).map(calendar => calendar.id))
-  const tasks = app.getEvents()
+  const matching = app.getEvents()
     .filter(event => event.kind === 'task' && !isRecurrenceOccurrence(event))
     .filter(event => (event.calendarIds ?? (event.calendarId ? [event.calendarId] : [])).some(id => visible.has(id)))
-    .sort((left, right) => String(left.start).localeCompare(String(right.start)))
-    .slice(0, 12)
+    .filter(event => {
+      const start = temporalToEpochMs(event.start, timeZone)
+      return start >= from && start < to
+    })
+    .sort((left, right) => temporalToEpochMs(left.start, timeZone) - temporalToEpochMs(right.start, timeZone))
+  const tasks = matching.slice(0, 12)
 
   const toggle = async (event: Event): Promise<void> => {
     if (busy) return
@@ -57,11 +65,16 @@ export function CalendarTasksPanel({ app, calendars, onChanged }: CalendarTasksP
 
   return (
     <section aria-label={t('calendar.tasks.title')} className="px-2 pb-2">
-      <p className="py-1 text-[length:var(--text-11)] font-semibold uppercase tracking-[0.07em] text-[var(--text-quaternary)]">
+      <p className="py-1 text-[length:var(--text-11)] font-semibold uppercase tracking-[var(--tracking-section)] text-[var(--text-quaternary)]">
         {t('calendar.tasks.title')}
       </p>
       {tasks.length === 0 && (
         <p className="px-1 py-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('calendar.tasks.empty')}</p>
+      )}
+      {matching.length > tasks.length && (
+        <p className="px-1 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          {t('calendar.tasks.more', { count: matching.length - tasks.length })}
+        </p>
       )}
       <ul className="space-y-0.5">
         {tasks.map(task => (

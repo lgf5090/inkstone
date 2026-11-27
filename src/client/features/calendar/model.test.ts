@@ -6,12 +6,15 @@ import {
   deriveDarkColor,
   eventCalendarIds,
   eventDateInZone,
-  hourWindow,
+  FULL_DAY_HOURS,
   isRecurrenceOccurrence,
   missingRangeEventIds,
+  planEventSnapshot,
   toCalendarType,
   toDayFlowEvent,
   toEventInput,
+  toEventUpdates,
+  toPersistedCalendarEvent,
   toSearchEvent,
 } from './model'
 
@@ -101,6 +104,14 @@ describe('calendar DTO mapping', () => {
     expect(event.calendarIds).toContain('cal_work')
   })
 
+  it('maps a date-only task completion to midnight in the calendar zone', () => {
+    const event = toDayFlowEvent(eventDto({
+      kind: 'task',
+      task: { completed: true, completedAt: { value: '2026-10-25', type: 'date' } },
+    }), 'America/New_York')
+    expect(event.task?.completedAt?.toString()).toBe('2026-10-25T00:00:00-04:00[America/New_York]')
+  })
+
   it('drops a conference URL the client cannot safely render', () => {
     const event = toDayFlowEvent(eventDto({
       conference: { provider: 'custom', joinUrl: 'javascript:alert(1)' },
@@ -135,6 +146,43 @@ describe('calendar DTO mapping', () => {
     const input = toEventInput(event, { fallbackTitle: 'Untitled', timeZone: 'Asia/Shanghai' })
     expect(input.recurrenceRule).toBe('FREQ=DAILY')
     expect(input.meta).toEqual({ exdates: [exdate] })
+  })
+
+  it('keeps a hidden series rule in in-memory updates without sending it as metadata', () => {
+    const exdate = { value: '2026-10-27T09:00:00+08:00[Asia/Shanghai]', type: 'zoned' as const, timeZone: 'Asia/Shanghai' }
+    const event = toDayFlowEvent(eventDto({
+      recurrenceRule: 'FREQ=DAILY;COUNT=8',
+      meta: { exdates: [exdate], location: 'Room 4' },
+    }))
+    const updates = toEventUpdates(event)
+
+    expect(updates.meta).toEqual({ exdates: [exdate], location: 'Room 4', seriesRule: 'FREQ=DAILY;COUNT=8' })
+    expect(toEventInput({ ...event, ...updates }, { fallbackTitle: 'Untitled', timeZone: 'Asia/Shanghai' })).toMatchObject({
+      recurrenceRule: 'FREQ=DAILY;COUNT=8',
+      meta: { exdates: [exdate], location: 'Room 4' },
+    })
+  })
+
+  it('removes conference host controls, passwords and opaque metadata before persistence', () => {
+    const dto = eventDto({
+      conference: {
+        provider: 'zoom',
+        joinUrl: 'https://meet.example.com/join/123',
+        meetingId: '123',
+        hostUrl: 'https://meet.example.com/host/secret',
+        password: 'secret-passcode',
+        meta: { accessToken: 'secret-token' },
+      },
+    })
+    const persisted = toPersistedCalendarEvent(dto)
+
+    expect(persisted.conference).toEqual({
+      provider: 'zoom',
+      joinUrl: 'https://meet.example.com/join/123',
+      meetingId: '123',
+    })
+    expect(JSON.stringify(persisted)).not.toContain('secret')
+    expect(dto.conference?.password).toBe('secret-passcode')
   })
 
   it('falls back to an untitled title and clears incomplete task dates', () => {
@@ -224,22 +272,34 @@ describe('calendar DTO mapping', () => {
   })
 })
 
-describe('hourWindow', () => {
-  const working = {
-    workingHours: { enabled: true, startHour: 9, endHour: 18 },
-    dayHourHeight: 48,
-  }
-
-  it('uses the whole day when working hours cannot fill the viewport', () => {
-    expect(hourWindow(working, 900)).toBeNull()
+describe('event snapshot planning', () => {
+  it('treats cached rows as paint without rewriting revisions or proving absence', () => {
+    const cached = eventDto({ id: 'evt_work', rev: 2 })
+    const current = { ...toDayFlowEvent(eventDto({ id: 'evt_work', rev: 9 }), 'UTC'), title: 'Newer local title' }
+    const localOnly = toDayFlowEvent(eventDto({ id: 'evt_local' }), 'UTC')
+    const plan = planEventSnapshot({
+      dtos: [cached], existing: [current, localOnly], range: { from: 0, to: 100 },
+      timeZone: 'UTC', truncated: false, mirror: false, updateRevisions: false,
+      hasPending: () => false,
+    })
+    expect(plan.revisions).toEqual([])
+    expect(plan.stale).toEqual([])
+    expect(plan.update).toHaveLength(1)
   })
 
-  it('crops to working hours when they fill the viewport', () => {
-    expect(hourWindow({ ...working, dayHourHeight: 96 }, 900)).toEqual({ firstHour: 9, lastHour: 18 })
+  it('uses a complete server answer as a revision and absence mirror', () => {
+    const localOnly = toDayFlowEvent(eventDto({ id: 'evt_local' }), 'UTC')
+    const plan = planEventSnapshot({
+      dtos: [eventDto({ id: 'evt_work', rev: 9 })], existing: [localOnly], range: { from: Date.parse('2026-10-01T00:00:00Z'), to: Date.parse('2026-11-01T00:00:00Z') },
+      timeZone: 'UTC', truncated: false, hasPending: () => false,
+    })
+    expect(plan.revisions).toEqual([['evt_work', 9]])
+    expect(plan.stale).toContain('evt_local')
   })
+})
 
-  it('never crops a disabled or inverted window', () => {
-    expect(hourWindow({ ...working, workingHours: { enabled: false, startHour: 9, endHour: 18 } }, 400)).toBeNull()
-    expect(hourWindow({ ...working, workingHours: { enabled: true, startHour: 18, endHour: 9 } }, 400)).toBeNull()
+describe('timed view hours', () => {
+  it('always keeps the complete day visible', () => {
+    expect(FULL_DAY_HOURS).toEqual({ firstHour: 0, lastHour: 24 })
   })
 })

@@ -4,6 +4,7 @@
  * The session routes and the background URL fetch both end here, so the conflict rules, version
  * history, share refresh and part cleanup stay one implementation rather than two that drift.
  */
+import { sha256 } from '@noble/hashes/sha2.js'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
@@ -19,6 +20,7 @@ import { exifTakenAt } from './exif'
 import { initialsOf } from './lib'
 import { deleteFileParts, deleteUploadPartObjects } from './distributed'
 import { storageKeyReferenced } from './store-files'
+import { readCloudDriveUsageCounts } from './store'
 
 export const SESSION_TTL_MS = 24 * 60 * 60 * 1000
 export const MAX_RENAME_ATTEMPTS = 1000
@@ -54,6 +56,7 @@ export interface UploadSessionRow {
   created_at: number
   updated_at: number
   expires_at: number
+  sha256?: string | null
 }
 
 export interface FileRow {
@@ -137,6 +140,35 @@ export async function findLiveSibling(
   ).bind(userId, mountId, parentId, folded).first<FileRow>()
 }
 
+export async function findChecksumFile(
+  db: D1Database,
+  userId: string,
+  checksum: string,
+  size: number,
+): Promise<FileRow | null> {
+  return await db.prepare(
+    `SELECT id, name, path, kind, category, mime, size, etag, checksum, storage_key, storage_kind, color, starred_at,
+            uploaded_at, modified_at
+       FROM CloudDrive_files
+      WHERE user_id = ?1 AND kind = 'file' AND checksum = ?2 AND size = ?3
+        AND storage_kind = 'r2' AND storage_key IS NOT NULL AND deleted_at IS NULL
+      ORDER BY uploaded_at, id LIMIT 1`,
+  ).bind(userId, checksum, size).first<FileRow>()
+}
+
+export function hashUploadStream(stream: ReadableStream<Uint8Array>): { stream: ReadableStream<Uint8Array>; digest: () => string } {
+  const hash = sha256.create()
+  return {
+    stream: stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        hash.update(chunk)
+        controller.enqueue(chunk)
+      },
+    })),
+    digest: () => [...hash.digest()].map((value) => value.toString(16).padStart(2, '0')).join(''),
+  }
+}
+
 export async function uniqueName(
   db: D1Database,
   userId: string,
@@ -153,26 +185,7 @@ export async function uniqueName(
 
 /** The quota is the deduplicated object bytes of the user's primary-mount rows, trash included. */
 export async function usedPrimaryBytes(db: D1Database, userId: string): Promise<number> {
-  // Version objects are real bytes in the bucket: leaving them out let a file with ten stored versions
-  // quietly occupy ten times the quota it was charged for.
-  const row = await db.prepare(
-    `SELECT COALESCE(SUM(size), 0) AS bytes FROM (
-       SELECT storage_key, MAX(size) AS size FROM (
-         SELECT storage_key, size FROM CloudDrive_files
-          WHERE user_id = ?1 AND storage_key IS NOT NULL
-         UNION ALL
-         SELECT storage_key, size FROM CloudDrive_file_versions
-          WHERE user_id = ?1 AND storage_key IS NOT NULL
-       )
-       GROUP BY storage_key
-     )`,
-  ).bind(userId).first<{ bytes: number }>()
-  const parts = await db.prepare(
-    `SELECT COALESCE(SUM(p.size), 0) AS bytes FROM CloudDrive_file_parts p
-       JOIN CloudDrive_files f ON f.user_id = p.user_id AND f.id = p.file_id
-      WHERE p.user_id = ?1 AND p.mount_id = 'primary' AND f.deleted_at IS NULL`,
-  ).bind(userId).first<{ bytes: number }>()
-  return Number(row?.bytes ?? 0) + Number(parts?.bytes ?? 0)
+  return (await readCloudDriveUsageCounts(db, userId)).usedBytes
 }
 
 export async function mountNameFor(db: D1Database, userId: string, mountId: string): Promise<string> {
@@ -341,12 +354,12 @@ export async function completeUploadSession(
     }
     const totalBytes = parts.reduce((sum, part) => sum + part.size, 0)
     if (totalBytes !== session.size) throw ApiError.badRequest('The distributed parts do not add up to the declared size')
-  } else if (session.strategy === 'direct') {
+  } else if (session.strategy === 'direct' || session.strategy === 'dedupe') {
     if (!key) throw new ApiError(500, 'internal', 'The upload session has no storage key')
     const object = await bucket.head(key)
     if (!object) throw ApiError.badRequest('The uploaded content is missing')
     if (object.size !== session.size) {
-      await bucket.delete(key)
+      if (session.strategy === 'direct') await bucket.delete(key)
       throw ApiError.badRequest('The uploaded content does not match the declared size')
     }
     etag = object.etag
@@ -386,12 +399,13 @@ export async function completeUploadSession(
   }
   const finalPath = childPath(parentPath, finalName)
   const storageKind = session.strategy === 'distributed' ? 'distributed' : 'r2'
+  const checksum = session.strategy === 'distributed' ? null : session.sha256 ?? null
   // An overwrite keeps the row. Its id is what tags, stars, folder colour, ACL grants and share links
   // point at, so replacing the row silently unshared and untagged the file the reader meant to update.
   const overwrites = existing !== null && conflict === 'overwrite'
   const fileId = overwrites && existing
     ? existing.id
-    : session.strategy === 'distributed'
+    : session.strategy === 'distributed' || session.strategy === 'dedupe'
       ? newId()
       : key?.slice(key.lastIndexOf('/') + 1) ?? ''
   if (!fileId) throw new ApiError(500, 'internal', 'The upload storage key has no object id')
@@ -426,12 +440,12 @@ export async function completeUploadSession(
       env.DB.prepare(
         `UPDATE CloudDrive_files
             SET name = ?3, name_folded = ?4, name_initials = ?5, path = ?6, category = ?7, mime = ?8,
-                size = ?9, etag = ?10, checksum = NULL, storage_kind = ?11, storage_key = ?12,
+                size = ?9, etag = ?10, checksum = ?15, storage_kind = ?11, storage_key = ?12,
                 metadata = ?14, updated_at = ?13, modified_at = ?13
           WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
       ).bind(
         userId, existing.id, finalName, foldedName(finalName), initialsOf(finalName), finalPath,
-        session.category, session.mime, session.size, etag, storageKind, key, now, metadata,
+        session.category, session.mime, session.size, etag, storageKind, key, now, metadata, checksum,
       ),
     )
     // The link still resolves to this row, so its cached name, size and type follow the new bytes.
@@ -448,12 +462,12 @@ export async function completeUploadSession(
            (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path, category,
             mime, size, etag, checksum, storage_kind, storage_key, metadata, color, starred_at,
             last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
-         VALUES (?1, ?2, ?3, ?4, 'file', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?15, ?13, ?16, '',
+         VALUES (?1, ?2, ?3, ?4, 'file', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?17, ?15, ?13, ?16, '',
                  NULL, NULL, NULL, NULL, ?14, ?14, ?14, ?14)`,
       ).bind(
         fileId, userId, session.mount_id, session.parent_id, finalName, foldedName(finalName),
         initialsOf(finalName), finalPath, session.category, session.mime, session.size, etag, key, now,
-        storageKind, metadata,
+        storageKind, metadata, checksum,
       ),
     )
   }
@@ -513,7 +527,7 @@ export async function completeUploadSession(
   }
 }
 
-async function pruneVersions(
+export async function pruneVersions(
   db: D1Database,
   bucket: Env['FILES'],
   userId: string,

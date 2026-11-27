@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, Check, Copy, Link2, UserPlus, Trash2 } from 'lucide-react'
 import type { CalendarDto, CalendarGroupDto, CalendarMemberDto, CalendarShareDto } from '@shared/calendar/model'
-import { MAX_CALENDAR_NAME, MAX_GROUP_NAME, MAX_ICS_BYTES } from '@shared/calendar/model'
+import { MAX_CALENDAR_NAME, MAX_GROUP_NAME, MAX_ICS_BYTES, isSharedCalendarId } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { isImeComposing, isEnterKey } from '../../lib/ime'
 import { copyText } from '../../lib/clipboard'
@@ -19,7 +19,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Modal, confirm } from '../../components/overlay'
 import { Checkbox, Field, Input, Segmented, Select } from '../../components/form'
 import { ColorWellField } from '../../components/color-field'
-import { CALENDAR_COLOR_PRESETS, deriveDarkColor } from './model'
+import { CALENDAR_COLOR_LABEL_KEYS, CALENDAR_COLOR_PRESETS, deriveDarkColor } from './model'
 import { CalendarFilePicker } from './CalendarFilePicker'
 import * as api from './api'
 
@@ -40,7 +40,7 @@ function errorMessage(
 function DialogError({ children }: { children: ReactNode }) {
   return (
     <p role="alert" className="mt-2 flex items-start gap-1.5 text-[length:var(--text-12)] leading-relaxed text-[var(--danger)]">
-      <AlertTriangle size={13} className="mt-[2px] shrink-0" aria-hidden="true" />
+      <AlertTriangle size={13} className="mt-[var(--sp-0-5)] shrink-0" aria-hidden="true" />
       <span>{children}</span>
     </p>
   )
@@ -87,22 +87,9 @@ async function closeAfterRefresh(onSaved: () => void | Promise<void>, onClose: (
   onClose()
 }
 
-const COLOR_KEYS = {
-  '#e5484d': 'calendar.color.red',
-  '#f76b15': 'calendar.color.orange',
-  '#f5b800': 'calendar.color.yellow',
-  '#46a758': 'calendar.color.green',
-  '#12a594': 'calendar.color.teal',
-  '#0091ff': 'calendar.color.blue',
-  '#3e63dd': 'calendar.color.indigo',
-  '#8e4ec6': 'calendar.color.purple',
-  '#d6409f': 'calendar.color.pink',
-  '#8d8d8d': 'calendar.color.gray',
-} as const
-
 function colorLabel(color: string): string {
-  const key = COLOR_KEYS[color as keyof typeof COLOR_KEYS]
-  return t(key ?? 'calendar.calendar.custom_color')
+  const index = CALENDAR_COLOR_PRESETS.findIndex(preset => preset === color)
+  return t(index < 0 ? 'calendar.calendar.custom_color' : CALENDAR_COLOR_LABEL_KEYS[index]!)
 }
 
 function ColorPresets({ value, onChange }: { value: string; onChange: (color: string) => void }) {
@@ -343,7 +330,8 @@ interface DeleteCalendarDialogProps extends DialogBaseProps {
 }
 
 export function DeleteCalendarDialog({ open, calendar, calendars, onClose, onSaved }: DeleteCalendarDialogProps) {
-  const targets = calendars.filter(item => item.id !== calendar.id)
+  const targets = calendars.filter(item => item.id !== calendar.id && !item.readOnly && !isSharedCalendarId(item.id))
+  const targetSignature = targets.map(item => item.id).join('\u0000')
   const [mode, setMode] = useState<'delete' | 'merge'>('delete')
   const [targetId, setTargetId] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -351,11 +339,11 @@ export function DeleteCalendarDialog({ open, calendar, calendars, onClose, onSav
 
   useEffect(() => {
     if (!open) return
-    setMode(targets.length > 0 ? 'merge' : 'delete')
+    setMode('delete')
     setTargetId(targets[0]?.id ?? '')
     setError(null)
     setSaving(false)
-  }, [open, calendar.id, calendars])
+  }, [open, calendar.id, targetSignature])
 
   const submit = async (): Promise<void> => {
     if (mode === 'merge' && !targetId) {
@@ -365,7 +353,7 @@ export function DeleteCalendarDialog({ open, calendar, calendars, onClose, onSav
     setSaving(true)
     setError(null)
     try {
-      if (mode === 'merge') await api.deleteCalendar(calendar.id, { kind: 'merge', targetId })
+      if (mode === 'merge') await api.deleteCalendar(calendar.id, { kind: 'merge', targetId, rev: calendar.rev })
       else await api.deleteCalendar(calendar.id, { kind: 'delete', rev: calendar.rev })
       useUi.getState().toast({
         title: mode === 'merge' ? t('calendar.calendar.merged') : t('calendar.calendar.deleted'),
@@ -741,6 +729,7 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
   const [memberName, setMemberName] = useState('')
   const [memberRole, setMemberRole] = useState<'reader' | 'writer'>('reader')
   const [memberBusy, setMemberBusy] = useState(false)
+  const [membersLoading, setMembersLoading] = useState(false)
   const [memberError, setMemberError] = useState<string | null>(null)
   const copiedTimer = useRef(0)
 
@@ -751,13 +740,21 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
     setError(null)
     setBusy(false)
     setCopied(false)
+    setMembers([])
+    setMembersLoading(true)
+    setMemberError(null)
+    let remaining = 1
+    const done = (): void => {
+      remaining -= 1
+      if (remaining === 0 && !settled) setMembersLoading(false)
+    }
     void api.getCalendarShare(calendar.id).then(
       (answer) => { if (!settled) setShare(answer) },
       (cause: unknown) => { if (!settled) setError(errorMessage(cause, 'calendar.share.load_failed')) },
     )
     void api.getCalendarMembers(calendar.id).then(
-      (answer) => { if (!settled) setMembers(answer) },
-      (cause: unknown) => { if (!settled) setMemberError(errorMessage(cause, 'calendar.share.load_failed')) },
+      (answer) => { if (!settled) setMembers(answer); done() },
+      (cause: unknown) => { if (!settled) setMemberError(errorMessage(cause, 'calendar.share.load_failed')); done() },
     )
     return () => {
       settled = true
@@ -813,6 +810,12 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
   }
 
   const removeMember = async (member: CalendarMemberDto): Promise<void> => {
+    if (!await confirm({
+      title: t('calendar.share.member_remove', { name: member.name || member.username }),
+      description: t('calendar.share.member_remove_confirm', { name: member.name || member.username }),
+      confirmLabel: t('calendar.share.member_remove', { name: member.name || member.username }),
+      tone: 'danger',
+    })) return
     setMemberBusy(true)
     setMemberError(null)
     try {
@@ -875,12 +878,12 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
           <>
             <div className="flex items-center gap-1.5">
               <Link2 size={13} className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
-              <input
+              <Input
                 readOnly
                 value={shareUrl(share.slug)}
                 aria-label={t('calendar.share.url')}
                 onFocus={(event) => event.currentTarget.select()}
-                className="min-w-0 flex-1 truncate rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)] transition-[box-shadow] duration-[var(--dur-fast)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none"
+                className="h-8 min-w-0 flex-1 truncate rounded-[var(--r-sm)] px-2 text-[length:var(--text-11)] text-[var(--text-secondary)]"
               />
               <Button
                 size="sm"
@@ -956,7 +959,8 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
             </Button>
           </form>
           {memberError && <DialogError>{memberError}</DialogError>}
-          {members.length === 0
+          {membersLoading && <p role="status" className="mt-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('common.loading')}</p>}
+          {!membersLoading && !memberError && members.length === 0
             ? (
                 <p className="mt-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                   {t('calendar.share.member_empty')}
@@ -1004,7 +1008,7 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
               )}
         </div>
         <p className="flex items-start gap-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
-          <AlertTriangle size={13} className="mt-[2px] shrink-0 text-[var(--warning)]" aria-hidden="true" />
+          <AlertTriangle size={13} className="mt-[var(--sp-0-5)] shrink-0 text-[var(--warning)]" aria-hidden="true" />
           <span>{t('calendar.share.warning')}</span>
         </p>
         {error && <DialogError>{error}</DialogError>}

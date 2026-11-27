@@ -21,8 +21,8 @@ import { Empty } from '../../components/feedback'
 import { taskIdFromNotificationLink } from '../todos/todo-address'
 import { openTaskInTodo } from '../todos/open-task'
 import { projectCardFromNotificationLink } from '../project/notification-link'
-import { snoozeLabel, useTodos } from '../todos/store'
-import { SNOOZE_MINUTES } from '@shared/todos/model'
+import { useTodos } from '../todos/store'
+import { buildSnoozeMenuItems } from '../todos/task-menu'
 import { useAssistant } from './assistant-store'
 
 /**
@@ -162,17 +162,14 @@ function NotificationRow({
   const emailFollowUps = /^email-followups:([^:]+)$/.exec(notification.link ?? '')
   const html = useMemo(() => ({ __html: renderMarkdown(notification.body).html }), [notification.body])
   // Only a notice that points at a task can be snoozed: the others have nothing to remind about. The
-  // four durations append a reminder and leave the task's own list alone, exactly like the card menu.
+  // rows come from the card menu's own builder, so the durations and the custom length are the same
+  // five choices wherever a reader answers a reminder.
   const snoozeItems: MenuItem[] = taskId
-    ? SNOOZE_MINUTES.map((minutes) => ({
-      id: `snooze-${minutes}`,
-      label: snoozeLabel(minutes),
-      onSelect: () => {
-        setSnoozeOpen(false)
-        onRead()
-        void snooze(taskId, minutes)
-      },
-    }))
+    ? buildSnoozeMenuItems((minutes) => {
+      setSnoozeOpen(false)
+      onRead()
+      void snooze(taskId, minutes)
+    })
     : []
   // A collapsed row shows one line; expanding it must not re-parse the body on every keystroke.
   return (

@@ -133,7 +133,7 @@ export function GroupedTaskList({ groups, label, empty, onUnplan, canUnplan, mov
 
   return (
     <>
-      <div className={cn('flex flex-col gap-4 px-3 pb-6 pt-2 md:px-5', READING_COLUMN)} role="list" aria-label={t('todo.a11y.task_list')}>
+      <div className={cn('flex flex-col gap-4 px-3 pb-6 pt-2 md:px-5', READING_COLUMN)} role="group" aria-label={t('todo.a11y.task_list')}>
         {groups.map((group) => (
           <section key={group.key} aria-label={label(group.key)}>
             <div className="mb-1.5 flex items-baseline justify-between px-1">

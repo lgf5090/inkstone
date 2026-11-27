@@ -9,6 +9,7 @@
 import { Temporal } from 'temporal-polyfill'
 import type { CalendarDto, CalendarEventDto, TimeFormat } from '@shared/calendar/model'
 import { temporalValueToEpochMs } from '@shared/calendar/model'
+import { calendarDayBounds } from '@shared/calendar/day-bounds'
 
 export interface PrintItem {
   key: string
@@ -56,10 +57,7 @@ function dayKey(millis: number, timeZone: string): string {
 }
 
 function dayStartMillis(date: string, timeZone: string): number {
-  return Temporal.PlainDate.from(date).toZonedDateTime({
-    timeZone,
-    plainTime: Temporal.PlainTime.from('00:00'),
-  }).epochMilliseconds
+  return calendarDayBounds(date, timeZone).start
 }
 
 function timeLabel(
@@ -81,25 +79,38 @@ export function buildPrintSheet(input: PrintSheetInput): PrintSheet {
   const days = new Map<string, Array<PrintItem & { sortMs: number }>>()
   const fromDay = dayKey(input.fromMs, input.timeZone)
   const toDay = dayKey(input.toMs, input.timeZone)
+  const rangeEnd = input.toMs + 1
 
   for (const event of input.events) {
     const startMs = temporalValueToEpochMs(event.start, input.timeZone)
-    const key = dayKey(startMs, input.timeZone)
-    if (key < fromDay || key > toDay) continue
+    const endMs = temporalValueToEpochMs(event.end, input.timeZone)
+    const point = endMs <= startMs
+    const clippedStart = Math.max(startMs, input.fromMs)
+    const clippedEnd = point ? startMs + 1 : Math.min(endMs, rangeEnd)
+    if (point ? startMs < input.fromMs || startMs > input.toMs : clippedStart >= clippedEnd) continue
+    const firstDay = dayKey(clippedStart, input.timeZone)
+    const lastDay = dayKey(clippedEnd - 1, input.timeZone)
+    if (firstDay < fromDay || lastDay > toDay) continue
     const calendar = calendars.get(event.calendarIds[0] ?? event.calendarId)
     const location = event.meta?.location
-    days.set(key, [
-      ...(days.get(key) ?? []),
-      {
-        key: event.id,
-        sortMs: startMs,
-        time: event.allDay ? '' : timeLabel(startMs, input.timeZone, input.locale, input.timeFormat),
-        title: event.title,
-        calendarName: calendar?.name ?? '',
-        color: calendar?.darkColor ?? calendar?.color ?? '#888888',
-        location: typeof location === 'string' ? location : '',
-      },
-    ])
+    for (let key = firstDay; key <= lastDay; key = Temporal.PlainDate.from(key).add({ days: 1 }).toString()) {
+      const bounds = calendarDayBounds(key, input.timeZone)
+      const itemStart = Math.max(clippedStart, bounds.start)
+      const itemEnd = Math.min(clippedEnd, bounds.end)
+      if (itemStart >= itemEnd) continue
+      days.set(key, [
+        ...(days.get(key) ?? []),
+        {
+          key: `${key}:${event.id}`,
+          sortMs: itemStart,
+          time: event.allDay ? '' : timeLabel(itemStart, input.timeZone, input.locale, input.timeFormat),
+          title: event.title,
+          calendarName: calendar?.name ?? '',
+          color: calendar?.darkColor ?? calendar?.color ?? 'var(--text-quaternary)',
+          location: typeof location === 'string' ? location : '',
+        },
+      ])
+    }
   }
 
   const ordered = [...days.entries()].map(([key, items]) => ({
@@ -157,7 +168,7 @@ export function printPeriod(
           : first
   return {
     fromMs: dayStartMillis(first.toString(), timeZone),
-    toMs: dayStartMillis(last.toString(), timeZone) + 86_400_000 - 1,
+    toMs: dayStartMillis(last.add({ days: 1 }).toString(), timeZone) - 1,
   }
 }
 

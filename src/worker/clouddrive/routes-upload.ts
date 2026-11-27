@@ -24,7 +24,9 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { readJson } from '../lib/request'
+import { knownLengthByteStream, readBoundedBytes } from '../lib/body-stream'
 import { assertMetaAccess } from './routes-meta'
+import { recordActivity } from './activity'
 import { PRIMARY_MOUNT_ID, ensurePrimaryMount, readCloudDriveSettings } from './store'
 import { assignParts, deletePartObject, deleteUploadPartObjects, partMounts, writePartObject } from './distributed'
 import {
@@ -35,7 +37,9 @@ import {
   discardDirectObject,
   entryOf,
   findLiveSibling,
+  findChecksumFile,
   findParent,
+  hashUploadStream,
   mountNameFor,
   parseUploadConflict,
   sessionConflictValue,
@@ -57,6 +61,7 @@ interface UploadInitBody {
   size?: unknown
   mime?: unknown
   conflict?: unknown
+  sha256?: unknown
 }
 
 function requireUserId(c: Context<AppBindings>): string {
@@ -97,7 +102,7 @@ async function sessionById(
   return await db.prepare(
     `SELECT id, user_id, mount_id, parent_id, path, name, name_folded, mime, category, size,
             strategy, part_size, total_parts, provider_upload_id, storage_key, parts_uploaded,
-            bytes_uploaded, status, error, created_at, updated_at, expires_at
+            bytes_uploaded, status, error, sha256, created_at, updated_at, expires_at
        FROM CloudDrive_upload_sessions
       WHERE user_id = ?1 AND id = ?2`,
   ).bind(userId, id).first<UploadSessionRow>()
@@ -183,11 +188,20 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
     throw ApiError.conflict('A folder with that name already exists')
   }
 
+  const checksum = body.sha256 === undefined ? null : body.sha256
+  if (checksum !== null && (typeof checksum !== 'string' || !/^[0-9a-f]{64}$/.test(checksum))) {
+    throw ApiError.badRequest('sha256 must be a lowercase hexadecimal SHA-256 digest')
+  }
+  const duplicate = checksum ? await findChecksumFile(c.env.DB, userId, checksum, size) : null
+  if (duplicate && existing?.id === duplicate.id && conflict === 'overwrite') {
+    return c.json({ skipped: true, deduped: true, existing: entryOf(duplicate, mountId, mountName, hasThumbnail), entryPath: duplicate.path })
+  }
+
   const settings = await readCloudDriveSettings(c.env.DB, userId)
   if (size > settings.uploadMaxFileBytes) {
     throw ApiError.tooLarge(`The file is larger than the ${settings.uploadMaxFileBytes}-byte limit`)
   }
-  if (settings.quotaDefaultBytes !== null) {
+  if (!duplicate && settings.quotaDefaultBytes !== null) {
     const used = await usedPrimaryBytes(c.env.DB, userId)
     // An overwrite replaces those bytes and the predecessor is kept only as a version, which the quota
     // does not count; charging both would refuse a same-size update on a nearly full drive.
@@ -205,15 +219,15 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
     : name
   const category = categoryFor(finalName, mime)
   const fileId = newId()
-  const storageKey: string | null = `CloudDrive/${category}/${fileId}`
+  const storageKey: string | null = duplicate?.storage_key ?? `CloudDrive/${category}/${fileId}`
   const entryPath = childPath(parentPath, finalName)
 
-  let strategy: 'direct' | 'multipart' | 'distributed' = 'direct'
+  let strategy: 'direct' | 'multipart' | 'distributed' | 'dedupe' = duplicate ? 'dedupe' : 'direct'
   let partSize = 0
   let totalParts = 0
   let distributedMounts: Awaited<ReturnType<typeof partMounts>> = []
   const distributedPartSize = Math.min(Math.max(32 * 1024 * 1024, settings.uploadPartSizeBytes), CLOUDDRIVE_LIMITS.partSizeMaxBytes)
-  if (size >= settings.uploadDistributedMinBytes) {
+  if (!duplicate && size >= settings.uploadDistributedMinBytes) {
     distributedMounts = await partMounts(c.env.DB, userId, distributedPartSize)
   }
   if (distributedMounts.length >= 2) {
@@ -224,7 +238,7 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
     if (totalParts > CLOUDDRIVE_LIMITS.partsMax) {
       throw ApiError.tooLarge('The file needs more parts than the multipart limit allows')
     }
-  } else if (size > CLOUDDRIVE_LIMITS.directUploadMaxBytes) {
+  } else if (!duplicate && size > CLOUDDRIVE_LIMITS.directUploadMaxBytes) {
     strategy = 'multipart'
     partSize = Math.max(settings.uploadPartSizeBytes, Math.ceil(size / CLOUDDRIVE_LIMITS.partsMax))
     partSize = Math.min(partSize, CLOUDDRIVE_LIMITS.partSizeMaxBytes)
@@ -250,14 +264,14 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
         `INSERT INTO CloudDrive_upload_sessions
            (id, user_id, mount_id, parent_id, path, name, name_folded, mime, category, size, strategy,
             part_size, total_parts, provider_upload_id, storage_key, parts_uploaded, bytes_uploaded,
-            status, error, created_at, updated_at, expires_at)
+            status, error, sha256, created_at, updated_at, expires_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 0, 0,
-                 'active', ?16, ?17, ?17, ?18)`,
+                 'active', ?16, ?17, ?18, ?18, ?19)`,
       ).bind(
         sessionId, userId, mountId, parentId, entryPath, finalName, foldedName(finalName), mime,
         category, size, strategy, partSize, totalParts, multipart?.uploadId ?? null, sessionKey,
         conflict === 'overwrite' ? sessionConflictValue(conflict) : null,
-        now, now + SESSION_TTL_MS,
+        checksum, now, now + SESSION_TTL_MS,
       ),
       ...assignments.map((part) => c.env.DB.prepare(
         `INSERT INTO CloudDrive_upload_part_objects
@@ -293,23 +307,31 @@ clouddriveUploadRoutes.put('/uploads/:id/content', async (c) => {
     const length = Number(declared)
     if (!Number.isSafeInteger(length) || length < 0) throw ApiError.badRequest('Content-Length is not a byte count')
     if (length > session.size) throw ApiError.tooLarge('The request body is larger than the declared file size')
+    if (length !== session.size) throw ApiError.badRequest('Content-Length does not match the declared file size')
   }
 
-  const bytes = new Uint8Array(await c.req.arrayBuffer())
-  const received = bytes.byteLength
-  if (received > session.size) {
-    throw ApiError.tooLarge('The request body is larger than the declared file size')
+  const { stream, completed } = knownLengthByteStream(c.req.raw.body, {
+    maxBytes: session.size,
+    expectedBytes: session.size,
+    tooLarge: (received) => ApiError.tooLarge(`The request body was ${received} bytes but the session declared ${session.size}`),
+    mismatched: (received) => ApiError.badRequest(`The request body was ${received} bytes but the session declared ${session.size}`),
+  }, session.size)
+  const hashed = session.sha256 ? hashUploadStream(stream) : { stream, digest: () => null }
+  const [object] = await Promise.all([
+    bucket.put(key, hashed.stream, { httpMetadata: { contentType: session.mime } }),
+    completed,
+  ])
+  const actual = hashed.digest()
+  if (session.sha256 && actual !== session.sha256) {
+    await bucket.delete(key)
+    throw ApiError.badRequest('The uploaded bytes do not match the declared SHA-256 digest')
   }
-  if (received !== session.size) {
-    throw ApiError.badRequest(`The request body was ${received} bytes but the session declared ${session.size}`)
-  }
-  const object = await bucket.put(key, bytes, { httpMetadata: { contentType: session.mime } })
 
   const now = Date.now()
   await c.env.DB.prepare(
     `UPDATE CloudDrive_upload_sessions SET bytes_uploaded = ?3, updated_at = ?4
       WHERE user_id = ?1 AND id = ?2 AND status = 'active'`,
-  ).bind(userId, session.id, received, now).run()
+  ).bind(userId, session.id, session.size, now).run()
 
   return c.json({ etag: object.etag })
 })
@@ -322,17 +344,22 @@ clouddriveUploadRoutes.put('/uploads/:id/parts/:n', async (c) => {
     if (!Number.isSafeInteger(partNumber) || partNumber < 1 || partNumber > session.total_parts) {
       throw ApiError.badRequest('The part number is out of range')
     }
+    const expected = partNumber === session.total_parts
+      ? session.size - session.part_size * (session.total_parts - 1)
+      : session.part_size
+    if (expected <= 0 || expected > session.part_size) throw ApiError.badRequest('The declared part size is invalid')
     const declared = c.req.header('content-length')
     if (declared !== undefined) {
       const length = Number(declared)
       if (!Number.isSafeInteger(length) || length < 0) throw ApiError.badRequest('Content-Length is not a byte count')
       if (length > session.part_size) throw ApiError.tooLarge('A part cannot be larger than the declared part size')
+      if (length !== expected) throw ApiError.badRequest('Content-Length does not match the declared part size')
     }
-    const bytes = new Uint8Array(await c.req.arrayBuffer())
-    const isLast = partNumber === session.total_parts
-    if (bytes.byteLength > session.part_size) throw ApiError.tooLarge('A part cannot be larger than the declared part size')
-    if ((!isLast && bytes.byteLength !== session.part_size) || (isLast && bytes.byteLength === 0)) {
-      throw ApiError.badRequest('The part body does not match the declared part size')
+    const limits = {
+      maxBytes: expected,
+      expectedBytes: expected,
+      tooLarge: (received: number) => ApiError.tooLarge(`The part body was ${received} bytes but ${expected} were declared`),
+      mismatched: (received: number) => ApiError.badRequest(`The part body was ${received} bytes but ${expected} were declared`),
     }
     const plan = await c.env.DB.prepare(
       `SELECT mount_id, storage_key FROM CloudDrive_upload_part_objects
@@ -341,18 +368,24 @@ clouddriveUploadRoutes.put('/uploads/:id/parts/:n', async (c) => {
     if (!plan) throw ApiError.badRequest('The part has no storage assignment')
     let mountId = plan.mount_id
     let etag: string | null
-    try {
-      etag = await writePartObject(c.env, c.env.DB, userId, mountId, plan.storage_key, bytes, session.mime)
-    } catch (error) {
-      if (mountId === 'primary') throw error
-      console.warn('[inkstone] CloudDrive distributed part write failed; retrying on the primary mount:', error)
+    if (mountId === 'primary') {
+      etag = await writePartObject(c.env, c.env.DB, userId, mountId, plan.storage_key, c.req.raw.body ?? new Uint8Array(0), session.mime, expected)
+    } else {
+      // External S3 signing and non-S3 drivers still need the complete part. Bound that necessary
+      // buffer to the exact declared part size, and reuse it if the primary fallback is needed.
+      const bytes = await readBoundedBytes(c.req.raw.body, limits)
       try {
-        await deletePartObject(c.env, c.env.DB, userId, mountId, plan.storage_key)
-      } catch (cleanupError) {
-        console.warn('[inkstone] removing a failed distributed part failed:', cleanupError)
+        etag = await writePartObject(c.env, c.env.DB, userId, mountId, plan.storage_key, bytes, session.mime, expected)
+      } catch (error) {
+        console.warn('[inkstone] CloudDrive distributed part write failed; retrying on the primary mount:', error)
+        try {
+          await deletePartObject(c.env, c.env.DB, userId, mountId, plan.storage_key)
+        } catch (cleanupError) {
+          console.warn('[inkstone] removing a failed distributed part failed:', cleanupError)
+        }
+        mountId = 'primary'
+        etag = await writePartObject(c.env, c.env.DB, userId, mountId, plan.storage_key, bytes, session.mime, expected)
       }
-      mountId = 'primary'
-      etag = await writePartObject(c.env, c.env.DB, userId, mountId, plan.storage_key, bytes, session.mime)
     }
     const now = Date.now()
     await c.env.DB.batch([
@@ -360,7 +393,7 @@ clouddriveUploadRoutes.put('/uploads/:id/parts/:n', async (c) => {
         `UPDATE CloudDrive_upload_part_objects
             SET mount_id = ?6, size = ?3, etag = ?4, uploaded_at = ?5
           WHERE session_id = ?1 AND part_number = ?2`,
-      ).bind(session.id, partNumber, bytes.byteLength, etag, now, mountId),
+      ).bind(session.id, partNumber, expected, etag, now, mountId),
       c.env.DB.prepare(
         `UPDATE CloudDrive_upload_sessions
             SET parts_uploaded = (SELECT COUNT(*) FROM CloudDrive_upload_part_objects
@@ -385,23 +418,30 @@ clouddriveUploadRoutes.put('/uploads/:id/parts/:n', async (c) => {
   if (!Number.isSafeInteger(partNumber) || partNumber < 1 || partNumber > session.total_parts) {
     throw ApiError.badRequest('The part number is out of range')
   }
+  const expected = partNumber === session.total_parts
+    ? session.size - session.part_size * (session.total_parts - 1)
+    : session.part_size
+  if (expected <= 0 || expected > session.part_size) throw ApiError.badRequest('The declared part size is invalid')
   const declared = c.req.header('content-length')
   if (declared !== undefined) {
     const length = Number(declared)
     if (!Number.isSafeInteger(length) || length < 0) throw ApiError.badRequest('Content-Length is not a byte count')
     if (length > session.part_size) throw ApiError.tooLarge('A part cannot be larger than the declared part size')
+    if (length !== expected) throw ApiError.badRequest('Content-Length does not match the declared part size')
   }
-  const bytes = new Uint8Array(await c.req.arrayBuffer())
-  const received = bytes.byteLength
-  if (received > session.part_size) throw ApiError.tooLarge('A part cannot be larger than the declared part size')
-  const uploaded = await bucket
-    .resumeMultipartUpload(key, session.provider_upload_id)
-    .uploadPart(partNumber, bytes)
+  const { stream, completed } = knownLengthByteStream(c.req.raw.body, {
+    maxBytes: expected,
+    expectedBytes: expected,
+    tooLarge: (received) => ApiError.tooLarge(`The part body was ${received} bytes but ${expected} were declared`),
+    mismatched: (received) => ApiError.badRequest(`The part body was ${received} bytes but ${expected} were declared`),
+  }, expected)
+  const [uploaded] = await Promise.all([
+    bucket
+      .resumeMultipartUpload(key, session.provider_upload_id)
+      .uploadPart(partNumber, stream),
+    completed,
+  ])
 
-  const isLast = partNumber === session.total_parts
-  if ((!isLast && received !== session.part_size) || (isLast && received === 0)) {
-    throw ApiError.badRequest('The part body does not match the declared part size')
-  }
   if (!uploaded.etag) throw new ApiError(500, 'internal', 'R2 did not return a part etag')
 
   const now = Date.now()
@@ -411,7 +451,7 @@ clouddriveUploadRoutes.put('/uploads/:id/parts/:n', async (c) => {
        VALUES (?1, ?2, ?3, ?4, ?5)
        ON CONFLICT(session_id, part_number) DO UPDATE SET
          etag = excluded.etag, size = excluded.size, uploaded_at = excluded.uploaded_at`,
-    ).bind(session.id, partNumber, uploaded.etag, received, now),
+    ).bind(session.id, partNumber, uploaded.etag, expected, now),
     c.env.DB.prepare(
       `UPDATE CloudDrive_upload_sessions
           SET parts_uploaded = (SELECT COUNT(*) FROM CloudDrive_upload_parts WHERE session_id = ?2),
@@ -431,7 +471,12 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
   const conflict = body.conflict === undefined
     ? decodeSessionConflict(session.error)
     : parseUploadConflict(body.conflict)
-  return c.json(await completeUploadSession(c.env, userId, session, conflict))
+  const result = await completeUploadSession(c.env, userId, session, conflict)
+  await recordActivity(c.env.DB, userId, {
+    action: 'skipped' in result ? 'upload_skip' : session.strategy === 'dedupe' ? 'upload_dedupe' : 'upload',
+    targetPath: 'skipped' in result ? result.entryPath : result.entry.path,
+  })
+  return c.json(result)
 })
 
 clouddriveUploadRoutes.post('/uploads/:id/abort', async (c) => {
@@ -466,8 +511,11 @@ clouddriveUploadRoutes.get('/uploads/:id', async (c) => {
   // A reader coming back to an unfinished upload needs the part list, not a prefix count: parts may
   // have been written out of order, and re-sending one the bucket already holds costs the whole part.
   const session = await activeSession(c, userId, c.req.param('id'))
+  const table = session.strategy === 'distributed' ? 'CloudDrive_upload_part_objects' : 'CloudDrive_upload_parts'
   const { results } = await c.env.DB.prepare(
-    `SELECT part_number FROM CloudDrive_upload_parts WHERE session_id = ?1 ORDER BY part_number`,
+    `SELECT part_number FROM ${table}
+      WHERE session_id = ?1 ${session.strategy === 'distributed' ? 'AND uploaded_at IS NOT NULL' : ''}
+      ORDER BY part_number`,
   ).bind(session.id).all<{ part_number: number }>()
   return c.json({
     session: {

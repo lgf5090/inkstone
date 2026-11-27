@@ -607,13 +607,12 @@ const LIST_FILTER_BASELINE = new Map<string, { sites: number; reason: string }>(
   ['src/client/features/quickadd/prompts.tsx', { sites: 4, reason: 'The QuickAdd prompt family (text, number and date prompts) each write a labelled field. Prompts, not list filters.' }],
   ['src/client/features/share/SharePanel.tsx', { sites: 1, reason: 'Read-only share link field that selects on focus (221). Not a filter at all.' }],
   ['src/client/features/settings/FeedSettings.tsx', { sites: 1, reason: 'The read-only subscription address that selects on focus (236); a copy field, not a list filter.' }],
-  ['src/client/features/calendar/CalendarDialogs.tsx', { sites: 1, reason: 'The read-only public calendar link that selects on focus (745), the same shape as SharePanel and FeedSettings; a copy field, not a list filter.' }],
   ['src/client/features/share/ConversationSharePanel.tsx', { sites: 1, reason: 'The same read-only share link field as SharePanel (178), for a published conversation. Not a filter at all.' }],
   ['src/client/features/tags/tag-row-parts.tsx', { sites: 1, reason: 'Tag rename row (`tags.rename` at 42) with autoFocus and a default value; an inline editor, not a list filter.' }],
   ['src/client/features/workspace/Workspace.tsx', { sites: 1, reason: 'Inline text field in the workspace surface (557). Not verified as a list filter; baseline so the rule can block new ones.' }],
   ['src/client/features/inkpad/InkNoteEditor.tsx', { sites: 1, reason: 'The note title field in the editor header: it renames the open drawing, not a list filter, and has no result list to narrow.' }],
   ['src/client/features/inknote/InknoteApp.tsx', { sites: 1, reason: 'The open note title field in the editor header (`inknote.rename`): it renames the current note on blur or Enter, not a list filter, the same shape as the inkpad editor title.' }],
-  ['src/client/features/todos/OrganizerEditors.tsx', { sites: 1, reason: 'The custom-colour draft (`#rrggbb`, 124) beside the colour wheel: an inline editor for one value, the same shape as the editor colour menu\'s name draft, not a list filter.' }],
+  ['src/client/features/todos/task-time-section.test.tsx', { sites: 1, reason: 'The DatePicker test double renders one deterministic form field; it is not a list filter.' }],
 ])
 
 function isFilterishInput(node: ts.JsxOpeningElement | ts.JsxSelfClosingElement): boolean {
@@ -869,8 +868,6 @@ const PLAIN_Z_INDEX_BASELINE = new Map<string, { values: Record<string, number>;
   ['src/client/features/subscriptions/SubscriptionList.tsx', { values: { '10': 2 }, reason: LOCAL_STICKY_REASON }],
   ['src/client/features/templates/community-panel.tsx', { values: { '10': 1 }, reason: LOCAL_STACK_REASON }],
   ['src/client/features/templates/template-card.tsx', { values: { '0': 1, '10': 4, '20': 1 }, reason: 'Stretched link, card content and format badge form one local template-card stacking context.' }],
-  ['src/client/features/todos/BoardView.tsx', { values: { '10': 1 }, reason: 'Quick-add field lifted above its board column’s local layers.' }],
-  ['src/client/features/todos/CalendarView.tsx', { values: { '10': 4 }, reason: 'Event markers, labels, current-time line and event chips are ordered within the calendar grid.' }],
   ['src/client/features/tools/color/components/ColorSlider.tsx', { values: { '10': 1 }, reason: 'Slider input lifted over its track inside the color-control surface.' }],
   ['src/client/features/tools/color/components/GradientBarController.tsx', { values: { '10': 1, '20': 1 }, reason: 'Gradient control and selected stop are layered inside the controller.' }],
   ['src/client/features/tools/compare/lib/VirtualDiffView.tsx', { values: { '10': 1 }, reason: LOCAL_STICKY_REASON }],
@@ -1091,6 +1088,7 @@ describe('worker swallows state their reason beside the catch', () => {
  */
 const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>([
   ['src/client/editor/paste.ts', { sites: 1, reason: 'settleUploads: a refused upload falls into the in-document upload_failed marker a few lines below, which is the report the reader sees; the catch keeps one bad file from cancelling every sibling of the same paste.' }],
+  ['src/client/features/calendar/CalendarEventExtras.tsx', { sites: 1, reason: 'The address book only suggests attendee addresses; a failed suggestion load leaves the manual invite form usable and is logged for diagnostics.' }],
   ['src/client/features/chat/assistant-store.ts', { sites: 2, reason: 'dropAttachment releases an object the draft no longer references, and stop sends a cancel after the request was already aborted and the turn marked done locally; both are notices about work the reader can see finished.' }],
   ['src/client/features/chat/multi-model-store.ts', { sites: 1, reason: 'closePane deletes a pane\'s ephemeral conversation after the pane has already left the screen; the hourly sweep removes a thread a failed delete leaves behind, so there is nothing to report to a reader who asked to close it.' }],
   ['src/client/features/chat/pdf-text.ts', { sites: 1, reason: 'The finally that destroys the opened PDF: the words have already been read, and a document that refuses to be closed has nowhere to be reported from — the upload keeps the file either way.' }],
@@ -1119,8 +1117,6 @@ const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/client/features/tags/tagMutations.ts', { sites: 3, reason: 'Two are the re-read that follows an optimistic rollback whose own failure the caller is told with the server reason, and one is a write queue tail kept un-rejecting so a failed link cannot become an unhandled rejection.' }],
   ['src/client/features/templates/gallery-actions.ts', { sites: 1, reason: 'communityTemplates.use bumps an author usage counter; the import itself was created and reported on the line above, and nothing on screen reads the count this answers with.' }],
   ['src/client/lib/ai/stream-client.ts', { sites: 3, reason: 'Two read an error response body for a nicer message and fall back to the HTTP status text they return to the caller, and one skips one malformed SSE frame of a stream that keeps going.' }],
-  ['src/client/lib/calendar-display-prefs.ts', { sites: 1, reason: 'setCalendarDisplayPrefs has already replaced the in-memory value and notified every listener; the localStorage write only carries it to the next load.' }],
-  ['src/client/lib/calendar-prefs.ts', { sites: 1, reason: 'Same shape as the display prefs: state applied and listeners notified first, the storage write is the persistence of a change already in effect.' }],
   ['src/client/lib/db.ts', { sites: 13, reason: 'Every IndexedDB cache write and eviction in the layer (session, shell, note bodies, search bodies, RSS articles, omnisearch cache), plus the outbox replay lease heartbeat and release whose lease expires on its own after 90 s, and a BroadcastChannel post to tabs that may already be gone.' }],
   ['src/client/lib/emoji-prefs.ts', { sites: 1, reason: 'writeStorage persists preferences already applied in memory; no storage means the next load re-reads defaults.' }],
   ['src/client/lib/export-note.ts', { sites: 1, reason: 'Inlining one image into an exported note: a fetch or conversion that fails leaves that img src pointing at the original URL, which is what the same loop does for a non-OK response above.' }],

@@ -4,6 +4,7 @@
  */
 import { ApiError, request } from '../../lib/api'
 import type { CalendarCountdownDto, CalendarCountdownInput } from '@shared/calendar/countdown'
+import type { HeatmapResponse } from '@shared/activity/heatmap'
 import type {
   CalendarAttachmentDto,
   CalendarAttendeeDto,
@@ -27,6 +28,10 @@ import type {
   CalendarTemplateDto,
   TemporalValue,
 } from '@shared/calendar/model'
+
+export function getActivityHeatmap(params: { from: string; to: string; kinds: string }, signal?: AbortSignal): Promise<HeatmapResponse> {
+  return request(`/api/activity/heatmap?${new URLSearchParams(params).toString()}`, { signal })
+}
 
 export interface EventRangeQuery {
   from: number
@@ -269,6 +274,7 @@ export async function updateEventPatch(
 }
 
 export interface RecurrenceChangeBody {
+  rev: number
   occurrenceStart: TemporalValue
   occurrenceEnd: TemporalValue
   scope: 'this' | 'following' | 'all'
@@ -324,11 +330,11 @@ export async function updateCalendar(id: string, patch: CalendarPatchInput, rev:
 
 export function deleteCalendar(
   id: string,
-  mode: { kind: 'delete'; rev: number } | { kind: 'merge'; targetId: string },
+  mode: { kind: 'delete'; rev: number } | { kind: 'merge'; targetId: string; rev: number },
 ): Promise<void> {
   const params = mode.kind === 'delete'
     ? `mode=delete&rev=${encodeURIComponent(String(mode.rev))}`
-    : `mode=merge&targetId=${encodeURIComponent(mode.targetId)}`
+    : `mode=merge&targetId=${encodeURIComponent(mode.targetId)}&rev=${encodeURIComponent(String(mode.rev))}`
   return request<void>(`/api/calendar/calendars/${entity(id)}?${params}`, { method: 'DELETE' })
 }
 

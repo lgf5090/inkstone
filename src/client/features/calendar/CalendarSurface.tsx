@@ -25,8 +25,6 @@ import {
   type CalendarPlugin,
   type CalendarType,
   type CalendarView,
-  type Event,
-  type ICalendarApp,
 } from '@dayflow/react'
 import { createDragPlugin } from '@dayflow/plugin-drag'
 import { createKeyboardShortcutsPlugin } from '@dayflow/plugin-keyboard-shortcuts'
@@ -34,17 +32,16 @@ import { createLocalizationPlugin, zh } from '@dayflow/plugin-localization'
 import { createSidebarPlugin } from '@dayflow/plugin-sidebar'
 import { AlertTriangle, Menu as MenuIcon } from 'lucide-react'
 import type {
-  CalendarDto,
   CalendarEventDto,
   CalendarMetaDto,
   CalendarPreferences,
   CalendarRangeRevisionDto,
   CalendarTemplateDto,
 } from '@shared/calendar/model'
-import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, MAX_EVENTS_PER_QUERY, isSharedCalendarId, temporalToEpochMs, type CalendarViewName } from '@shared/calendar/model'
 import type { AppLocale } from '@shared/types'
 import type { AssistantPageContext } from '@shared/assistant'
 import type { MessageKey } from '@shared/locales/en-US'
+import { holidayNoticeOf } from '@shared/calendar/holidays'
 import { localDate } from '@shared/assistant-time'
 import { t, useLocale, useLocaleRepaint } from '../../lib/i18n'
 import { useBreakpoint, useThemeDark } from '../../lib/hooks'
@@ -74,41 +71,39 @@ import { cellLabel } from './almanac'
 import type { CalendarCountdownDto } from '@shared/calendar/countdown'
 import { navigateToPath } from '../../lib/app-history'
 import { holidayPresets } from './holidays'
-import { enqueueOutbox, flushOutbox } from './offline-outbox'
 import { CalendarQuickAdd } from './CalendarQuickAdd'
 import { attachCalendarChrome } from './calendar-chrome'
 import { CalendarPrintSheet } from './CalendarPrintSheet'
+import { CalendarBatchDialog } from './CalendarBatchDialog'
+import { batchColorUpdates, batchMoveUpdates } from './batch'
+import { nextEventSelection, type EventSelectionModifiers } from './event-selection'
 import { buildPrintSheet, printCalendarSheet, printPeriod } from './print'
-import { paintableRange, rangeCovers, rangeFor, sameRevision, saveRange } from './range-cache'
 import { observeViewSwitcher } from './view-switcher-a11y'
 import type { PrintSheet } from './print'
 import { CalendarFilteredSearch, calendarSearchResultDate } from './CalendarFilteredSearch'
 import { CalendarConnections } from './CalendarConnections'
 import { CalendarEditHistory } from './history'
-import { EventPersistence } from './persistence'
-import type { ConflictRequest, ConflictResolution, RecurrenceOccurrenceRequest } from './persistence'
+import type { ConflictRequest, ConflictResolution, EventPersistence, RecurrenceOccurrenceRequest } from './persistence'
 import type { ConflictView } from './conflict'
 import { attachCalendarProviders } from './providers'
-import { calendarRouteHref, readCalendarRouteState } from './view-state'
+import { readCalendarRouteState } from './view-state'
+import { calendarViewType, useCalendarNavigation } from './useCalendarNavigation'
 import * as api from './api'
-import type { CalendarPatchInput } from './api'
 import {
-  calendarSourceOf,
   MONTH_EVENT_HEIGHT,
-  RANGE_PADDING_DAYS,
   eventCalendarIds,
-  hourWindow,
+  FULL_DAY_HOURS,
   isRecurrenceOccurrence,
-  missingRangeEventIds,
   toCalendarType,
   toDayFlowEvent,
-  toEventUpdates,
   toSearchEvent,
 } from './model'
+import { toastFailure } from './calendar-notifications'
+import { useCalendarPersistence } from './useCalendarPersistence'
+import { useCalendarRangeSync } from './useCalendarRangeSync'
+import { useCalendarRegistry } from './useCalendarRegistry'
 
 const COLLAPSED_STORAGE_KEY = 'inkstone:calendar:sidebar-collapsed'
-const HIDDEN_SHARED_KEY = 'inkstone:calendar:hidden-shared'
-const DAY_MS = 24 * 60 * 60 * 1000
 
 /** The calendar's own view names, so the assistant reads the same word the toolbar shows. */
 const ASSISTANT_VIEW_KEYS: Record<string, MessageKey> = {
@@ -119,23 +114,6 @@ const ASSISTANT_VIEW_KEYS: Record<string, MessageKey> = {
   agenda: 'calendar.view.agenda',
 }
 
-function readHiddenShared(): Set<string> {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(HIDDEN_SHARED_KEY) ?? '[]')
-    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [])
-  } catch {
-    return new Set()
-  }
-}
-
-function writeHiddenShared(ids: Set<string>): void {
-  try {
-    localStorage.setItem(HIDDEN_SHARED_KEY, JSON.stringify([...ids]))
-  } catch {
-    // Visibility of a shared calendar is a local convenience; a full quota must not break the view.
-  }
-}
-
 interface CalendarSurfaceProps {
   meta: CalendarMetaDto
   initialEvents: CalendarEventDto[]
@@ -144,6 +122,7 @@ interface CalendarSurfaceProps {
   initialRecurrenceTruncated?: boolean
   /** The fingerprint the app shell's first read carried; null when that answer had none. */
   initialRevision?: CalendarRangeRevisionDto | null
+  initialCached?: boolean
   initialRange: { from: number; to: number }
   onRefreshMeta: () => Promise<CalendarMetaDto>
   onSavePreferences: (next: CalendarPreferences) => Promise<void>
@@ -156,10 +135,7 @@ interface SurfaceActions {
   onCalendarReorder?: (fromIndex: number, toIndex: number) => void
   /** A double-click on an empty grid cell; the date is the cell the reader pointed at. */
   onGridDoubleClick?: (date: Date) => void
-}
-
-function viewType(name: CalendarPreferences['defaultView']): ViewType {
-  return ViewType[name.toUpperCase() as keyof typeof ViewType]
+  onPrint?: () => void
 }
 
 function toViews(
@@ -168,9 +144,6 @@ function toViews(
 ): CalendarView[] {
   const secondary = preferences.secondaryTimeZone ?? undefined
   const weekStart = preferences.weekStart
-  // Working hours are the ruler the timed views open with; off means the whole day stays on show.
-  // A crop that cannot fill the viewport is dropped for the whole day instead of leaving empty bands.
-  const hours = hourWindow(preferences, typeof window === 'undefined' ? 0 : window.innerHeight) ?? {}
   return [
     createDayView({
       hourHeight: preferences.dayHourHeight,
@@ -182,7 +155,7 @@ function toViews(
       showEventDots: preferences.showEventDots,
       // The runtime day view reads this callback even though its declaration omits it.
       gridDateDoubleClick: onGridDoubleClick,
-      ...hours,
+      ...FULL_DAY_HOURS,
     } as Parameters<typeof createDayView>[0] & { gridDateDoubleClick: (date: Date) => void }),
     createWeekView({
       hourHeight: preferences.dayHourHeight,
@@ -194,7 +167,7 @@ function toViews(
       secondaryTimeZone: secondary,
       showEventDots: preferences.showEventDots,
       gridDateDoubleClick: onGridDoubleClick,
-      ...hours,
+      ...FULL_DAY_HOURS,
     }),
     createMonthView({
       startOfWeek: weekStart,
@@ -226,55 +199,6 @@ function toViews(
 
 function defaultCalendarId(meta: CalendarMetaDto): string | undefined {
   return meta.calendars.find(calendar => calendar.isDefault)?.id ?? meta.calendars[0]?.id
-}
-
-function calendarNeedsUpdate(current: CalendarType, desired: CalendarType): boolean {
-  return JSON.stringify([
-    current.name,
-    current.colors,
-    current.darkColors,
-    current.icon,
-    current.isDefault,
-    current.isVisible,
-    current.readOnly,
-    current.source,
-  ]) !== JSON.stringify([
-    desired.name,
-    desired.colors,
-    desired.darkColors,
-    desired.icon,
-    desired.isDefault,
-    desired.isVisible,
-    desired.readOnly,
-    desired.source,
-  ])
-}
-
-function applyCalendarOrder(app: ICalendarApp, ids: string[]): void {
-  const current = app.getCalendars().map(calendar => calendar.id)
-  if (current.join('\u0000') === ids.join('\u0000')) return
-  for (let index = 0; index < ids.length; index += 1) {
-    const id = ids[index]
-    if (!id) continue
-    const from = current.indexOf(id)
-    if (from < 0 || from === index) continue
-    const [moved] = current.splice(from, 1)
-    if (!moved) continue
-    current.splice(index, 0, moved)
-    app.reorderCalendars(from, index)
-  }
-}
-
-function toastFailure(title: string, error: unknown): void {
-  useUi.getState().toast({
-    title,
-    description: error instanceof Error && error.message ? error.message : undefined,
-    tone: 'danger',
-  })
-}
-
-function isCovered(intervals: Array<[number, number]>, from: number, to: number): boolean {
-  return intervals.some(([start, end]) => start <= from && end >= to)
 }
 
 function readCollapsed(): boolean {
@@ -345,11 +269,6 @@ function buildConfig(input: {
     onCalendarUpdate: calendar => actions.current.onCalendarUpdate?.(calendar),
     onCalendarDelete: calendarId => actions.current.onCalendarDelete?.(calendarId),
     onCalendarReorder: (from, to) => actions.current.onCalendarReorder?.(from, to),
-    onEventDoubleClick: event => {
-      if (!isRecurrenceOccurrence(event)) return undefined
-      useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' })
-      return false
-    },
   }
   return {
     views: toViews(preferences, date => actions.current.onGridDoubleClick?.(date)),
@@ -372,10 +291,6 @@ function buildConfig(input: {
           },
           delete: async (app, event) => {
             if (!event) return
-            if (isRecurrenceOccurrence(event)) {
-              useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' })
-              return
-            }
             const calendarIds = eventCalendarIds(event)
             if (calendarIds.length > 0 && !calendarIds.some(id => app.canMutateFromUI(id))) {
               useUi.getState().toast({ title: t('calendar.event.delete_read_only'), tone: 'warning' })
@@ -387,6 +302,7 @@ function buildConfig(input: {
               toastFailure(t('calendar.event.delete_failed'), error)
             }
           },
+          print: () => actions.current.onPrint?.(),
         },
       }),
       createLocalizationPlugin({ locales: [zh] }),
@@ -395,7 +311,7 @@ function buildConfig(input: {
       createSidebarPlugin({ width: '0px', miniWidth: '0px', initialCollapsed: true, componentsOrder: [] }),
     ],
     events: initialEvents.map(event => toDayFlowEvent(event, timeZone)),
-    defaultView: viewType(initialView ?? preferences.defaultView),
+    defaultView: calendarViewType(initialView ?? preferences.defaultView),
     initialDate: initialDate ?? new Date(),
     switcherMode: 'buttons',
     calendars: meta.calendars.map(toCalendarType),
@@ -413,23 +329,7 @@ function buildConfig(input: {
   }
 }
 
-/**
- * Only a complete, fingerprinted answer is worth remembering: a truncated one cannot prove what is
- * absent, so replaying it later would hide an event rather than show a stale one.
- */
-function rememberRange(userId: string, from: number, to: number, page: api.EventRangeResponse): void {
-  if (!page.revision || page.truncated || page.recurrenceTruncated) return
-  saveRange(userId, {
-    from,
-    to,
-    savedAt: Date.now(),
-    revision: page.revision,
-    events: page.events,
-    occurrences: page.occurrences,
-  })
-}
-
-export function CalendarSurface({ meta, initialEvents, initialOccurrences, initialTruncated = false, initialRecurrenceTruncated = false, initialRevision = null, initialRange, onRefreshMeta, onSavePreferences }: CalendarSurfaceProps) {
+export function CalendarSurface({ meta, initialEvents, initialOccurrences, initialTruncated = false, initialRecurrenceTruncated = false, initialRevision = null, initialCached = false, initialRange, onRefreshMeta, onSavePreferences }: CalendarSurfaceProps) {
   useLocaleRepaint()
   const appLocale = useLocale()
   const dark = useThemeDark()
@@ -449,6 +349,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     initialDate: route.date,
   }))
   const { app } = useCalendarApp(config)
+  useCalendarNavigation(app, meta.preferences.defaultView)
 
   const assistantDockOpen = useUi(state => state.assistantDockOpen)
   const isMobile = useBreakpoint() === 'mobile'
@@ -474,16 +375,17 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [template, setTemplate] = useState<CalendarTemplateDto | null>(null)
   const [collapsed, setCollapsed] = useState(readCollapsed)
-  const [rangeError, setRangeError] = useState<string | null>(null)
-  const [rangeLoading, setRangeLoading] = useState(false)
-  const [rangeTruncated, setRangeTruncated] = useState(initialTruncated || initialRecurrenceTruncated)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<ConflictTarget | null>(null)
   const [extrasEventId, setExtrasEventId] = useState<string | null>(null)
   const [extrasReadOnly, setExtrasReadOnly] = useState(false)
+  const [selectedEventIds, setSelectedEventIds] = useState<Set<string>>(new Set())
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false)
+  const selectionAnchorRef = useRef<string | null>(null)
   const [recurrenceRequest, setRecurrenceRequest] = useState<RecurrenceOccurrenceRequest | null>(null)
   const [freeBusyOpen, setFreeBusyOpen] = useState(false)
   const [historyVersion, setHistoryVersion] = useState(0)
+  useEffect(() => history.subscribe(() => setHistoryVersion(version => version + 1)), [history])
   const historyView = useMemo(() => ({ canUndo: history.canUndo, canRedo: history.canRedo }), [history, historyVersion])
   const [resourcesOpen, setResourcesOpen] = useState(false)
   const [schedulingOpen, setSchedulingOpen] = useState(false)
@@ -493,6 +395,34 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const [printSheet, setPrintSheet] = useState<PrintSheet | null>(null)
   const shownRef = useRef<string | null>(null)
   const dismissedRef = useRef<string | null>(null)
+  const selectedEvents = app.getEvents().filter(event => selectedEventIds.has(event.id) && !isRecurrenceOccurrence(event))
+  const isEventSelected = useCallback((id: string) => selectedEventIds.has(id), [selectedEventIds])
+  const clearEventSelection = useCallback(() => {
+    setSelectedEventIds(new Set())
+    selectionAnchorRef.current = null
+  }, [])
+  const selectCalendarEvent = useCallback((id: string, modifiers?: EventSelectionModifiers) => {
+    const root = document.querySelector<HTMLElement>('.inkstone-calendar')
+    const ordered = root
+      ? [...root.querySelectorAll<HTMLElement>('.df-event[data-event-id]')]
+        .map(element => element.dataset.eventId ?? '')
+        .filter(Boolean)
+      : []
+    const next = nextEventSelection(selectedEventIds, ordered, id, modifiers ?? { shift: false, meta: false }, selectionAnchorRef.current)
+    selectionAnchorRef.current = next.anchor
+    setSelectedEventIds(next.selected)
+    if (modifiers) return
+    const event = app.getEvents().find(item => item.id === id)
+    setExtrasReadOnly(event ? eventCalendarIds(event).some(calendarId => !app.canMutateFromUI(calendarId)) : false)
+    dismissedRef.current = null
+    shownRef.current = id
+    setExtrasEventId(id)
+    if (!wide) setDrawerOpen(true)
+    else if (collapsed) {
+      setCollapsed(false)
+      writeCollapsed(false)
+    }
+  }, [app, collapsed, selectedEventIds, wide])
 
   /**
    * Countdown rows: their own table, their own read, and never part of the event range.
@@ -522,11 +452,6 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     if (id) void persistenceRef.current?.resolveConflict(id, resolution)
   }, [])
 
-  /**
-   * DayFlow's event panel and mobile drawer still hold the revision the refused write was sent
-   * against, and their portals stack above this app's dialogs — a stale editor behind a merge prompt
-   * is both a competing writer and an unreachable one.
-   */
   /** The printed page is built from a range read, so it does not depend on which view is showing. */
   const printCurrentPeriod = useCallback(async (): Promise<void> => {
     const preferences = preferencesRef.current
@@ -573,6 +498,52 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     app.onMobileEventDetailToggle(null)
   }, [app])
 
+  const moveSelectedEvents = useCallback((date: string, time: string) => {
+    try {
+      const updates = batchMoveUpdates(selectedEvents, date, time, preferencesRef.current.timeZone)
+      app.applyEventsChanges({ update: updates }, false, 'local')
+      clearEventSelection()
+      setBatchDialogOpen(false)
+    } catch (error) {
+      console.debug('[inkstone] Calendar batch move failed.', error)
+      useUi.getState().toast({ title: t('calendar.batch.move_failed'), tone: 'danger' })
+    }
+  }, [app, clearEventSelection, selectedEvents])
+
+  const colorSelectedEvents = useCallback((color: string) => {
+    try {
+      app.applyEventsChanges({ update: batchColorUpdates(selectedEvents, color) }, false, 'local')
+      clearEventSelection()
+      setBatchDialogOpen(false)
+    } catch (error) {
+      console.debug('[inkstone] Calendar batch color update failed.', error)
+      useUi.getState().toast({ title: t('calendar.batch.color_failed'), tone: 'danger' })
+    }
+  }, [app, clearEventSelection, selectedEvents])
+
+  const deleteSelectedEvents = useCallback(async () => {
+    const count = selectedEvents.length
+    if (count === 0) return
+    if (!await confirm({
+      title: t('calendar.batch.delete_confirm', { count }),
+      confirmLabel: t('calendar.batch.delete'),
+      tone: 'danger',
+    })) return
+    try {
+      app.applyEventsChanges({ delete: selectedEvents.map(event => event.id) }, false, 'local')
+      clearEventSelection()
+      useUi.getState().toast({ title: t('calendar.batch.deleted', { count }), tone: 'success' })
+    } catch (error) {
+      console.debug('[inkstone] Calendar batch delete failed.', error)
+      useUi.getState().toast({ title: t('calendar.event.delete_failed'), tone: 'danger' })
+    }
+  }, [app, clearEventSelection, selectedEvents])
+
+  /**
+   * DayFlow's event panel and mobile drawer still hold the revision the refused write was sent
+   * against, and their portals stack above this app's dialogs — a stale editor behind a merge prompt
+   * is both a competing writer and an unreachable one.
+   */
   /** A parked 409 needs the server's copy before there is anything to compare against. */
   const openConflict = useCallback(async (request: ConflictRequest): Promise<void> => {
     let theirs: CalendarEventDto | null
@@ -580,11 +551,11 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       theirs = await api.getEvent(request.id)
     } catch (error) {
       toastFailure(t('calendar.error.refresh'), error)
-      await reloadRef.current(request.id)
+      await persistenceRef.current?.resolveConflict(request.id, { action: 'server' })
       return
     }
     if (!theirs) {
-      await reloadRef.current(request.id)
+      await persistenceRef.current?.resolveConflict(request.id, { action: 'server' })
       return
     }
     if (request.intent === 'delete' || !request.mine) {
@@ -613,239 +584,63 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
 
   const [revs] = useState(() => new Map(initialEvents.map(event => [event.id, event.rev])))
   const persistenceRef = useRef<EventPersistence | null>(null)
-  // A truncated first page cannot prove that a smaller visible range is covered; let the surface
-  // fetch that range on its own instead of trusting a page that already hit its row ceiling.
-  const covered = useRef<Array<[number, number]>>(
-    initialTruncated || initialRecurrenceTruncated ? [] : [[initialRange.from, initialRange.to]],
-  )
-  const inFlight = useRef<Array<[number, number]>>([])
-  const lastRange = useRef(initialRange)
-  const failedRange = useRef<{ from: number; to: number } | null>(null)
-  /** Silent refreshes answered by the fingerprint alone; the fifth one re-reads the rows anyway. */
-  const probedRefreshes = useRef(0)
-  /**
-   * The last complete answer, kept so it can be remembered once the account is known. The first one
-   * arrives from the app shell rather than from a read this component made, so it is seeded here.
-   */
-  const lastPage = useRef<{ from: number; to: number; page: api.EventRangeResponse } | null>(
-    initialRevision && !initialTruncated && !initialRecurrenceTruncated
-      ? {
-          from: initialRange.from,
-          to: initialRange.to,
-          page: {
-            events: initialEvents,
-            occurrences: initialOccurrences,
-            truncated: initialTruncated,
-            recurrenceTruncated: initialRecurrenceTruncated,
-            revision: initialRevision,
-          },
-        }
-      : null,
-  )
-  /**
-   * The account, readable at answer time.
-   *
-   * The session usually resolves while the first range read is still in flight, so the read started
-   * with no account in hand and the callback that started it can never learn one. This ref is what the
-   * answer reads when it lands, which is the moment the snapshot can actually be filed.
-   */
-  const accountRef = useRef<string | null>(null)
-  accountRef.current = userId ?? null
+  const preferences = useCallback(() => preferencesRef.current, [])
+  const handleVisibleRange = useCallback((from: number, to: number): void => {
+    setAssistantChrome(current => (current.from === from && current.to === to ? current : { ...current, from, to }))
+  }, [])
+  const {
+    rangeError,
+    rangeLoading,
+    rangeTruncated,
+    retryRange,
+    loadRange,
+    reloadRef,
+    lastRange,
+    dropOccurrencesForMaster,
+    scheduleOccurrenceRefresh,
+    markExceptionMaster,
+  } = useCalendarRangeSync({
+    app,
+    userId,
+    initialEvents,
+    initialOccurrences,
+    initialTruncated,
+    initialRecurrenceTruncated,
+    initialRevision,
+    initialCached,
+    initialRange,
+    preferences,
+    revs,
+    persistenceRef,
+    onVisibleRange: handleVisibleRange,
+  })
 
-  const occurrenceRef = useRef<Map<string, Event> | null>(null)
-  if (!occurrenceRef.current) {
-    occurrenceRef.current = new Map(initialOccurrences.map(dto => [dto.id, toDayFlowEvent(dto, meta.preferences.timeZone)]))
-  }
-  const occurrenceRefreshTimer = useRef<number | undefined>(undefined)
-  /** Masters whose rule was just hidden by an exception; the next month read must expand them. */
-  const freshExceptionMasters = useRef(new Set<string>())
-
-  const syncOccurrences = useCallback(() => {
-    const occurrences = occurrenceRef.current
-    if (!occurrences) return
-    const current = new Set(app.getEvents().filter(event => isRecurrenceOccurrence(event)).map(event => event.id))
-    const exceptionMasters = new Set(app.getEvents()
-      .filter(event => Array.isArray(event.meta?.exdates) && event.meta.exdates.length > 0)
-      .map(event => event.id))
-    const desired = app.getCurrentView().type === 'month'
-      ? [...occurrences.values()].filter(event => exceptionMasters.has(event.id.split('::repeat-')[0] ?? ''))
-      : [...occurrences.values()]
-    const desiredIds = new Set(desired.map(event => event.id))
-    const add = desired.filter(event => !current.has(event.id))
-    const remove = [...current].filter(id => !desiredIds.has(id))
-    if (add.length === 0 && remove.length === 0) return
-    app.applyEventsChanges({
-      ...(add.length > 0 ? { add } : {}),
-      ...(remove.length > 0 ? { delete: remove } : {}),
-    }, false, 'remote')
-  }, [app])
-
-  const dropOccurrencesForMaster = useCallback((masterId: string): void => {
-    const occurrences = occurrenceRef.current
-    if (!occurrences) return
-    let changed = false
-    for (const [id, event] of occurrences) {
-      if (event.id.startsWith(`${masterId}::repeat-`)) {
-        occurrences.delete(id)
-        changed = true
-      }
-    }
-    if (changed) syncOccurrences()
-  }, [syncOccurrences])
-
-  const updateOccurrences = useCallback((dtos: CalendarEventDto[], range: { from: number; to: number }): void => {
-    const occurrences = occurrenceRef.current
-    if (!occurrences) return
-    const timeZone = preferencesRef.current.timeZone
-    const incoming = new Map(dtos.map(dto => [dto.id, toDayFlowEvent(dto, timeZone)]))
-    for (const [id, event] of occurrences) {
-      const start = temporalToEpochMs(event.start, timeZone)
-      if (start >= range.from && start <= range.to && !incoming.has(id)) occurrences.delete(id)
-    }
-    for (const [id, event] of incoming) occurrences.set(id, event)
-    syncOccurrences()
-  }, [syncOccurrences])
-
-  useEffect(() => () => window.clearTimeout(occurrenceRefreshTimer.current), [])
-
-  const suppressUpdate = useRef(new Set<string>())
-  const suppressCreate = useRef(new Set<string>())
-  const suppressDelete = useRef(new Set<string>())
-  const suppressReorder = useRef(false)
+  const reloadServerState = useCallback((eventId?: string, status?: number) => reloadRef.current(eventId, status), [])
+  const {
+    refreshCalendars,
+    persistCalendarChange,
+    persistOrder,
+    persistCalendarCreate,
+    persistCalendarDelete,
+  } = useCalendarRegistry({
+    app,
+    userId,
+    calendars: meta.calendars,
+    onRefreshMeta,
+    onReloadEvents: reloadServerState,
+  })
 
   const searchAbort = useRef<AbortController | null>(null)
   useEffect(() => () => searchAbort.current?.abort(), [])
 
-  const applySnapshot = useCallback((dtos: CalendarEventDto[], range: { from: number; to: number }, truncated: boolean, mirror = true): Set<string> => {
-    const timeZone = preferencesRef.current.timeZone
-    const revById = new Map(dtos.map(dto => [dto.id, dto.rev]))
-    const mapped = dtos.map(dto => toDayFlowEvent(dto, timeZone))
-    const existing = new Map(
-      app.getEvents()
-        .filter(event => !isRecurrenceOccurrence(event))
-        .map(event => [event.id, event]),
-    )
-    const add: Event[] = []
-    const update: Array<{ id: string; updates: Partial<Event> }> = []
-    for (const event of mapped) {
-      revs.set(event.id, revById.get(event.id) ?? 0)
-      if (existing.has(event.id)) update.push({ id: event.id, updates: toEventUpdates(event) })
-      else add.push(event)
-    }
-    const fetched = new Set(mapped.map(event => event.id))
-    if (add.length > 0 || update.length > 0) {
-      persistenceRef.current?.skip(fetched)
-      app.applyEventsChanges({ add, update }, false, 'remote')
-    }
-    // A complete range is a mirror: anything local that overlaps it and did not come back was deleted
-    // elsewhere. A partial cached overlap is only a paint, not proof of absence. Recurring masters and
-    // generated occurrences are views, never rows of their own; a truncated page cannot prove absence,
-    // and a queued write must be allowed to reach the server.
-    const stale = !mirror || truncated || dtos.length >= MAX_EVENTS_PER_QUERY
-      ? []
-      : missingRangeEventIds({
-          events: [...existing.values()],
-          fetched,
-          from: range.from,
-          to: range.to,
-          timeZone,
-          hasPending: id => persistenceRef.current?.hasPending(id) === true,
-        })
-    if (stale.length > 0) {
-      persistenceRef.current?.skip(stale)
-      app.applyEventsChanges({ delete: stale }, false, 'remote')
-      for (const id of stale) revs.delete(id)
-    }
-    return fetched
-  }, [app, revs])
-
-  const fetchRange = useCallback(async (from: number, to: number): Promise<Set<string>> => {
-    const month = app.getCurrentView().type === 'month'
-    const exceptionMasters = month
-      ? [...new Set([
-          ...app.getEvents()
-            .filter(event => Array.isArray(event.meta?.exdates) && event.meta.exdates.length > 0)
-            .map(event => event.id),
-          ...freshExceptionMasters.current,
-        ])]
-      : []
-    const page = await api.getEvents({
-      from,
-      to,
-      includeOccurrences: !month || exceptionMasters.length > 0,
-      ...(month && exceptionMasters.length > 0 ? { occurrenceMasters: exceptionMasters } : {}),
-    })
-    const fetched = applySnapshot(page.events, { from, to }, page.truncated)
-    updateOccurrences(page.occurrences, { from, to })
-    setRangeTruncated(page.truncated || page.recurrenceTruncated)
-    lastRange.current = { from, to }
-    lastPage.current = { from, to, page }
-    if (accountRef.current) rememberRange(accountRef.current, from, to, page)
-    return fetched
-  }, [applySnapshot, updateOccurrences, userId, app])
-
-  /**
-   * Ask the fingerprint before pulling the rows.
-   *
-   * Every fifth refresh reads them anyway: the triple is exact for anything that happened while the
-   * client was watching, and the periodic full read is the backstop for the one case it cannot see —
-   * a delete and a create whose totals cancel out in the same millisecond.
-   */
-  const rangeIsUnchanged = useCallback(async (from: number, to: number): Promise<boolean> => {
-    const cached = userId ? rangeFor(userId, from, to) : null
-    if (!cached) return false
-    if (probedRefreshes.current >= 4) {
-      probedRefreshes.current = 0
-      return false
-    }
-    try {
-      const revision = await api.getEventsRevision({ from, to })
-      if (!sameRevision(revision, cached.revision)) return false
-      probedRefreshes.current += 1
-      return true
-    } catch {
-      // The probe is an optimisation; a refused or failed one means the rows are read as before.
-      return false
-    }
-  }, [userId])
-
-  const reloadLastRange = useCallback(async (eventId?: string, status?: number): Promise<void> => {
-    const range = lastRange.current
-    try {
-      // A refresh with no write behind it is the one worth probing; a call naming an event is handling
-      // that write's outcome and always re-reads.
-      if (eventId === undefined && status === undefined && await rangeIsUnchanged(range.from, range.to)) {
-        return
-      }
-      const fetched = await fetchRange(range.from, range.to)
-      if (eventId && status && (status === 400 || status === 404) && !fetched.has(eventId)) {
-        revs.delete(eventId)
-        persistenceRef.current?.skip([eventId])
-        app.applyEventsChanges({ delete: [eventId] }, false, 'remote')
-        lastRange.current = range
-      }
-    } catch (error) {
-      toastFailure(t('calendar.error.refresh'), error)
-    }
-  }, [app, fetchRange, rangeIsUnchanged, revs])
-
-  const reloadRef = useRef(reloadLastRange)
-  reloadRef.current = reloadLastRange
-
-  /**
-   * Coming back to the tab asks whether anything changed.
-   *
-   * This is what the fingerprint is for: the reader who left a tab open overnight gets the current
-   * week back for the price of one aggregate, and pays for the rows only when they really changed.
-   */
   // The library draws the current view; this makes it announce which one that is.
   useEffect(() => observeViewSwitcher(document), [])
 
   /**
-   * DayFlow owns the grid, but not the interaction contract around it: on a desktop a click must
-   * select the event for our extras instead of opening its full-screen mobile sheet, every event
-   * needs a keyboard stop, and the compact header/add button must speak the reader's language.
-   * The bridge observes the library's re-renders so all three stay true after a view switch.
+   * DayFlow owns the grid, but not the interaction contract around it: a click must select the event
+   * for our extras — inline on a wide screen or in the narrow drawer — instead of opening the
+   * library's full-screen sheet, every event needs a keyboard stop, and the compact header/add button
+   * must speak the reader's language. The bridge observes re-renders so these stay true after a switch.
    */
   useEffect(() => {
     const root = document.querySelector<HTMLElement>('.inkstone-calendar')
@@ -856,22 +651,26 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       locale: appLocale,
       weekStart: meta.preferences.weekStart,
       detailTrigger: meta.preferences.eventDetailTrigger,
+      timeFormat: meta.preferences.timeFormat,
+      workingHours: meta.preferences.workingHours,
       addLabel: t('calendar.event.new'),
       untitledLabel: t('calendar.event.untitled'),
       allDayLabel: t('calendar.event.all_day'),
-      interceptEvents: wide,
+      interceptEvents: true,
+      isSelected: isEventSelected,
       onAdd: () => setQuickAddOpen(true),
-      onRecurring: () => useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' }),
-      onSelect: id => {
+      onRecurring: id => {
         const event = app.getEvents().find(item => item.id === id)
-        setExtrasReadOnly(event ? eventCalendarIds(event).some(calendarId => !app.canMutateFromUI(calendarId)) : false)
-        dismissedRef.current = null
-        shownRef.current = id
-        setExtrasEventId(id)
+        if (!event) return
+        const masterId = event._recurrenceMasterId ?? id.split('::repeat-')[0]
+        const masterRev = revs.get(masterId)
+        if (!masterId || masterRev === undefined) return
+        setRecurrenceRequest({ masterId, masterRev, intent: 'save', before: event, after: event })
       },
+      onSelect: selectCalendarEvent,
       onOpenDetail: id => app.onEventDetailToggle(id),
     })
-  }, [app, appLocale, meta.preferences.weekStart, meta.preferences.eventDetailTrigger, wide])
+  }, [app, appLocale, isEventSelected, meta.preferences.weekStart, meta.preferences.eventDetailTrigger, meta.preferences.timeFormat, meta.preferences.workingHours, revs, selectCalendarEvent])
 
   /**
    * The almanac line inside the month cells.
@@ -907,293 +706,21 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     })
   }, [appLocale, meta.preferences.almanac, meta.preferences.holidayMarks, meta.preferences.showWeekNumbers, meta.preferences.weekStart])
 
-  useEffect(() => {
-    const onVisibility = (): void => {
-      if (document.visibilityState !== 'visible') return
-      void reloadRef.current()
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => { document.removeEventListener('visibilitychange', onVisibility) }
-  }, [])
-
-  /**
-   * Once the account is known, remember what the first answer was and paint what the last visit left.
-   *
-   * The session resolves after the surface has already asked for its first range, so both halves have
-   * to happen here rather than where the answer arrived: the cache is keyed by account, and neither
-   * writing nor reading it may guess which account this is.
-   */
-  /** The fingerprint whose rows the grid already holds; the shell can replace its page after a cached paint. */
-  const appliedRevision = useRef<CalendarRangeRevisionDto | null>(initialRevision ?? null)
-
-  /**
-   * Apply a page that arrives after the first paint.
-   *
-   * The shell renders from the cache and revalidates; when the answer differs, the grid has to take it
-   * the same way it takes any snapshot — as a complete mirror of that range, deletions included.
-   */
-  useEffect(() => {
-    if (!initialRevision) return
-    const page = {
-      events: initialEvents,
-      occurrences: initialOccurrences,
-      truncated: initialTruncated,
-      recurrenceTruncated: initialRecurrenceTruncated,
-      revision: initialRevision,
-    }
-    if (accountRef.current) rememberRange(accountRef.current, initialRange.from, initialRange.to, page)
-    if (appliedRevision.current && sameRevision(appliedRevision.current, initialRevision)) return
-    appliedRevision.current = initialRevision
-    applySnapshot(initialEvents, { from: initialRange.from, to: initialRange.to }, initialTruncated)
-    updateOccurrences(initialOccurrences, { from: initialRange.from, to: initialRange.to })
-    lastRange.current = { from: initialRange.from, to: initialRange.to }
-    lastPage.current = { from: initialRange.from, to: initialRange.to, page }
-  }, [
-    applySnapshot,
-    initialEvents,
-    initialOccurrences,
-    initialRange.from,
-    initialRange.to,
-    initialRecurrenceTruncated,
-    initialRevision,
-    initialTruncated,
-    updateOccurrences,
-  ])
-
-  useEffect(() => {
-    if (!userId) return
-    const page = lastPage.current
-    if (page) rememberRange(userId, page.from, page.to, page.page)
-    const range = lastRange.current
-    const cached = paintableRange(userId, range.from, range.to)
-    if (!cached) return
-    applySnapshot(cached.events, { from: range.from, to: range.to }, false, rangeCovers(cached, range.from, range.to))
-    updateOccurrences(cached.occurrences, { from: range.from, to: range.to })
-  }, [applySnapshot, updateOccurrences, userId])
-
-  const runRangeFetch = useCallback(async (from: number, to: number): Promise<void> => {
-    setRangeLoading(true)
-    try {
-      await fetchRange(from, to)
-      covered.current.push([from, to])
-      failedRange.current = null
-      setRangeError(null)
-    } catch (error) {
-      failedRange.current = { from, to }
-      setRangeError(error instanceof Error && error.message ? error.message : t('calendar.error.range'))
-    } finally {
-      setRangeLoading(false)
-    }
-  }, [fetchRange])
-
-  const paddedRange = useCallback((start: number, end: number): { from: number; to: number } => {
-    let from = start - RANGE_PADDING_DAYS * DAY_MS
-    let to = end + RANGE_PADDING_DAYS * DAY_MS
-    if (to - from > CALENDAR_RANGE_MAX_MS) {
-      const center = (start + end) / 2
-      from = center - CALENDAR_RANGE_MAX_MS / 2
-      to = center + CALENDAR_RANGE_MAX_MS / 2
-    }
-    return { from, to }
-  }, [])
-
-  const loadRange = useCallback((start: number, end: number): void => {
-    // A visible day/week already inside the shell's first page needs no padded refetch, even though
-    // the padded range would extend past it. This keeps the first week at one request.
-    if (isCovered(covered.current, start, end) || isCovered(inFlight.current, start, end)) return
-    const { from, to } = paddedRange(start, end)
-    if (isCovered(covered.current, from, to) || isCovered(inFlight.current, from, to)) return
-    // The last complete answer for this range goes up before the request leaves, so a reload paints the
-    // reader's week instead of an empty grid. The fetch below replaces it with the server's answer.
-    const cached = userId ? paintableRange(userId, from, to) : null
-    if (cached) {
-      applySnapshot(cached.events, { from, to }, false, rangeCovers(cached, from, to))
-      updateOccurrences(cached.occurrences, { from, to })
-    }
-    inFlight.current.push([from, to])
-    void runRangeFetch(from, to).finally(() => {
-      inFlight.current = inFlight.current.filter(([rangeFrom, rangeTo]) => rangeFrom !== from || rangeTo !== to)
-    })
-  }, [applySnapshot, paddedRange, runRangeFetch, updateOccurrences, userId])
-
-  const requestMiniRange = useCallback((from: number, to: number): void => loadRange(from, to), [loadRange])
-
-  // The shell fetches only a two-week first page. A month or year view still needs its own
-  // (padded) range, and waiting for the first scroll to ask for it would leave the grid empty.
-  const initialVisibleRangeLoaded = useRef(false)
-  useEffect(() => {
-    if (initialVisibleRangeLoaded.current) return
-    initialVisibleRangeLoaded.current = true
-    const period = printPeriod(
-      String(app.getCurrentView().type).toLowerCase(),
-      app.getCurrentDate(),
-      preferencesRef.current.timeZone,
-      preferencesRef.current.weekStart,
-      preferencesRef.current.agendaDays,
-    )
-    loadRange(period.fromMs, period.toMs)
-  }, [app, loadRange])
-
-  const retryRange = (): void => {
-    const range = failedRange.current
-    if (!range) return
-    inFlight.current.push([range.from, range.to])
-    void runRangeFetch(range.from, range.to).finally(() => {
-      inFlight.current = inFlight.current.filter(([from, to]) => from !== range.from || to !== range.to)
-    })
-  }
-
-  const syncRegistry = useCallback(async (calendars: CalendarDto[]): Promise<void> => {
-    const hiddenShared = readHiddenShared()
-    const desired = calendars.map((dto) => {
-      const calendar = toCalendarType(dto)
-      if (isSharedCalendarId(dto.id) && hiddenShared.has(dto.id)) calendar.isVisible = false
-      return calendar
-    })
-    const desiredById = new Map(desired.map(calendar => [calendar.id, calendar]))
-    for (const current of app.getCalendars()) {
-      if (desiredById.has(current.id)) continue
-      suppressDelete.current.add(current.id)
-      await app.deleteCalendar(current.id)
-    }
-    for (const calendar of desired) {
-      const current = app.getCalendars().find(item => item.id === calendar.id)
-      if (!current) {
-        suppressCreate.current.add(calendar.id)
-        await app.createCalendar(calendar)
-      } else if (calendarNeedsUpdate(current, calendar)) {
-        suppressUpdate.current.add(calendar.id)
-        app.updateCalendar(calendar.id, calendar)
-      }
-    }
-    suppressReorder.current = true
-    try {
-      applyCalendarOrder(app, desired.map(calendar => calendar.id))
-    } finally {
-      suppressReorder.current = false
-    }
-    const defaultId = desired.find(calendar => calendar.isDefault)?.id ?? desired[0]?.id
-    if (defaultId) app.getCalendarRegistry().setDefaultCalendar(defaultId)
-  }, [app])
-
-  const refreshCalendars = useCallback(async (reloadEvents: boolean): Promise<void> => {
-    const next = await onRefreshMeta()
-    await syncRegistry(next.calendars)
-    if (reloadEvents) await reloadLastRange()
-  }, [onRefreshMeta, reloadLastRange, syncRegistry])
-
   const addHolidays = useCallback(async (): Promise<void> => {
     const year = new Date().getFullYear()
+    if (!holidayNoticeOf(year)) {
+      useUi.getState().toast({ title: t('calendar.holidays.unpublished', { year }), tone: 'warning' })
+      return
+    }
     try {
       await api.addHolidays({
         calendarName: t('calendar.holidays.calendar_name', { year }),
-        holidays: holidayPresets(appLocale, year),
+        holidays: holidayPresets(year),
       })
       useUi.getState().toast({ title: t('calendar.holidays.added'), tone: 'success' })
       await refreshRef.current()
     } catch (error) {
       toastFailure(t('calendar.holidays.failed'), error)
-    }
-  }, [appLocale])
-
-  const persistCalendarChange = useCallback(async (calendar: CalendarType): Promise<void> => {
-    if (suppressUpdate.current.delete(calendar.id)) return
-    if (isSharedCalendarId(calendar.id)) {
-      const hidden = readHiddenShared()
-      if (calendar.isVisible === false) hidden.add(calendar.id)
-      else hidden.delete(calendar.id)
-      writeHiddenShared(hidden)
-      return
-    }
-    const dto = metaRef.current.calendars.find(item => item.id === calendar.id)
-    if (!dto) return
-    const patch: Omit<CalendarPatchInput, 'rev'> = {}
-    if (calendar.name !== dto.name) patch.name = calendar.name
-    if (calendar.colors.lineColor !== dto.color) {
-      patch.color = calendar.colors.lineColor
-      patch.darkColor = calendar.darkColors?.lineColor
-    }
-    if ((calendar.readOnly === true) !== dto.readOnly) patch.readOnly = calendar.readOnly === true
-    if ((calendar.isVisible !== false) !== dto.isVisible) patch.isVisible = calendar.isVisible !== false
-    if ((calendar.isDefault === true) !== dto.isDefault) patch.isDefault = calendar.isDefault === true
-    if (Object.keys(patch).length === 0) return
-    try {
-      await api.updateCalendar(calendar.id, patch, dto.rev)
-    } catch (error) {
-      toastFailure(t('calendar.sidebar.visibility_failed'), error)
-      try {
-        await refreshRef.current()
-      } catch (refreshError) {
-        toastFailure(t('calendar.error.refresh'), refreshError)
-      }
-      return
-    }
-    try {
-      await refreshRef.current()
-    } catch (error) {
-      toastFailure(t('calendar.error.refresh'), error)
-    }
-  }, [app])
-
-  const persistOrder = useCallback((): void => {
-    if (suppressReorder.current) return
-    const ids = app.getCalendars().filter(calendar => !isSharedCalendarId(calendar.id)).map(calendar => calendar.id)
-    void api.reorderCalendars(ids).catch(async (error) => {
-      toastFailure(t('calendar.sidebar.order_failed'), error)
-      try {
-        await refreshRef.current()
-      } catch (refreshError) {
-        toastFailure(t('calendar.error.refresh'), refreshError)
-      }
-    })
-  }, [app])
-
-  const persistCalendarCreate = useCallback(async (calendar: CalendarType): Promise<void> => {
-    if (suppressCreate.current.delete(calendar.id)) return
-    try {
-      await api.createCalendar({
-        id: calendar.id,
-        name: calendar.name,
-        color: calendar.colors.lineColor,
-        darkColor: calendar.darkColors?.lineColor,
-        isDefault: calendar.isDefault,
-        isVisible: calendar.isVisible !== false,
-        readOnly: calendar.readOnly === true,
-        source: calendarSourceOf(calendar.source),
-      })
-    } catch (error) {
-      suppressDelete.current.add(calendar.id)
-      await app.deleteCalendar(calendar.id)
-      toastFailure(t('calendar.calendar.action_failed'), error)
-      return
-    }
-    try {
-      await refreshRef.current()
-    } catch (error) {
-      toastFailure(t('calendar.error.refresh'), error)
-    }
-  }, [app])
-
-  const persistCalendarDelete = useCallback(async (calendarId: string): Promise<void> => {
-    if (suppressDelete.current.delete(calendarId)) return
-    if (isSharedCalendarId(calendarId)) return
-    const dto = metaRef.current.calendars.find(item => item.id === calendarId)
-    if (!dto) return
-    try {
-      await api.deleteCalendar(calendarId, { kind: 'delete', rev: dto.rev })
-    } catch (error) {
-      toastFailure(t('calendar.calendar.action_failed'), error)
-      try {
-        await refreshRef.current()
-      } catch (refreshError) {
-        toastFailure(t('calendar.error.refresh'), refreshError)
-      }
-      return
-    }
-    try {
-      await refreshRef.current()
-    } catch (error) {
-      toastFailure(t('calendar.error.refresh'), error)
     }
   }, [])
 
@@ -1203,53 +730,44 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     onCalendarDelete: calendarId => persistCalendarDelete(calendarId),
     onCalendarReorder: () => persistOrder(),
     onGridDoubleClick: date => setCreateStart(date),
+    onPrint: () => { void printCurrentPeriod() },
   }
 
-  useEffect(() => {
-    const persistence = new EventPersistence({
-      app,
-      revs,
-      history,
-      timeZone: () => preferencesRef.current.timeZone,
-      fallbackTitle: () => t('calendar.event.untitled'),
-      onServerState: (eventId, status) => reloadRef.current(eventId, status),
-      onError: error => toastFailure(t('calendar.error.save_failed'), error),
-      onConflict: request => { void openConflict(request) },
-      onRecurringEdit: () => useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' }),
-      onRecurrenceOccurrence: request => setRecurrenceRequest(request),
-      onOffline: (entry) => {
-        const account = accountRef.current
-        if (!account) return
-        enqueueOutbox(account, { ...entry, at: Date.now() })
-        useUi.getState().toast({ title: t('calendar.offline.queued'), tone: 'warning' })
-      },
-      onReadOnlyEdit: () => useUi.getState().toast({ title: t('calendar.event.delete_read_only'), tone: 'warning' }),
-      onCommitted: (id, recurring) => {
-        setHistoryVersion(version => version + 1)
-        if (!recurring) return
-        dropOccurrencesForMaster(id)
-        window.clearTimeout(occurrenceRefreshTimer.current)
-        occurrenceRefreshTimer.current = window.setTimeout(() => { void reloadRef.current() }, 300)
-      },
-      onDeleted: (id, title) => {
-        setHistoryVersion(version => version + 1)
-        toastWithUndo(title ? t('calendar.event.deleted_named', { title }) : t('calendar.event.deleted'), () => {
-          if (!history.undo(app, id)) useUi.getState().toast({ title: t('calendar.history.empty') })
-        })
-      },
+  const persistenceTimeZone = useCallback(() => preferencesRef.current.timeZone, [])
+  const persistenceFallbackTitle = useCallback(() => t('calendar.event.untitled'), [])
+  const notifyRecurringEdit = useCallback(() => {
+    useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' })
+  }, [])
+  const notifyReadOnlyEdit = useCallback(() => {
+    useUi.getState().toast({ title: t('calendar.event.delete_read_only'), tone: 'warning' })
+  }, [])
+  const handleCommitted = useCallback((id: string, recurring: boolean): void => {
+    if (recurring) scheduleOccurrenceRefresh(id)
+  }, [scheduleOccurrenceRefresh])
+  const handleDeleted = useCallback((id: string, title: string | undefined): void => {
+    toastWithUndo(title ? t('calendar.event.deleted_named', { title }) : t('calendar.event.deleted'), () => {
+      if (!history.undo(app, id)) useUi.getState().toast({ title: t('calendar.history.empty') })
     })
-    persistenceRef.current = persistence
-    const dispose = persistence.start()
-    return () => {
-      dispose()
-      persistenceRef.current = null
-    }
-  }, [app, history, revs, dropOccurrencesForMaster])
+  }, [app, history])
+  const handleHistoryChange = useCallback(() => setHistoryVersion(version => version + 1), [])
 
-  useEffect(() => {
-    syncOccurrences()
-    return app.subscribe(() => syncOccurrences())
-  }, [app, syncOccurrences])
+  useCalendarPersistence({
+    app,
+    userId,
+    revs,
+    history,
+    persistenceRef,
+    timeZone: persistenceTimeZone,
+    fallbackTitle: persistenceFallbackTitle,
+    onServerState: reloadServerState,
+    onConflict: openConflict,
+    onRecurringEdit: notifyRecurringEdit,
+    onRecurrenceOccurrence: setRecurrenceRequest,
+    onReadOnlyEdit: notifyReadOnlyEdit,
+    onCommitted: handleCommitted,
+    onDeleted: handleDeleted,
+    onHistoryChange: handleHistoryChange,
+  })
 
   // The extras section follows DayFlow's selection rather than a click callback, because providing one
   // changes what a click does to the event surfaces. A click anywhere outside the calendar — including
@@ -1267,14 +785,12 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     const event = app.getEvents().find(item => item.id === selected)
     setExtrasReadOnly(event ? eventCalendarIds(event).some(id => !app.canMutateFromUI(id)) : false)
     setExtrasEventId(selected)
-  }), [app])
-
-  useEffect(() => app.subscribeVisibleRangeChange(payload => {
-    const from = payload.start.getTime()
-    const to = payload.end.getTime()
-    setAssistantChrome(current => (current.from === from && current.to === to ? current : { ...current, from, to }))
-    loadRange(from, to)
-  }), [app, loadRange])
+    if (!wide) setDrawerOpen(true)
+    else if (collapsed) {
+      setCollapsed(false)
+      writeCollapsed(false)
+    }
+  }), [app, wide, collapsed])
 
   // The assistant's page chip follows the same state the toolbar draws: the view, the day in focus and
   // the range DayFlow has loaded. Reading it on each app change keeps it current when the reader
@@ -1288,27 +804,6 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     sync()
     return app.subscribe(sync)
   }, [app])
-
-  useEffect(() => {
-    if (!userId) return
-    let cancelled = false
-    const flush = async (): Promise<void> => {
-      const result = await flushOutbox(userId)
-      if (cancelled || result.flushed === 0) return
-      await reloadRef.current()
-    }
-    void flush()
-    const online = (): void => { void flush() }
-    window.addEventListener('online', online)
-    return () => {
-      cancelled = true
-      window.removeEventListener('online', online)
-    }
-  }, [userId])
-
-  useEffect(() => {
-    void syncRegistry(meta.calendars).catch(error => toastFailure(t('calendar.error.refresh'), error))
-  }, [meta.calendars, syncRegistry])
 
   useEffect(() => {
     if (!userId || metaRef.current.connections.length === 0) return
@@ -1360,37 +855,6 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       eventDetailTrigger: meta.preferences.eventDetailTrigger,
     })
   }, [app, meta.preferences, preferencesSignature])
-
-  /**
-   * Crossing a viewport height can change whether working hours fill the grid, and the view list
-   * carries that decision. Only a meaningful height change rebuilds it, debounced so a window drag
-   * does not reinstall five views on every pixel.
-   */
-  useEffect(() => {
-    let timer: number | undefined
-    let lastHeight = window.innerHeight
-    const onResize = (): void => {
-      if (Math.abs(window.innerHeight - lastHeight) < 80) return
-      lastHeight = window.innerHeight
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        app.updateConfig({ views: toViews(preferencesRef.current, date => actions.current.onGridDoubleClick?.(date)) })
-      }, 180)
-    }
-    window.addEventListener('resize', onResize)
-    return () => {
-      window.clearTimeout(timer)
-      window.removeEventListener('resize', onResize)
-    }
-  }, [app])
-
-  useEffect(() => app.subscribe(() => {
-    const view = app.getCurrentView().type
-    if (!(CALENDAR_VIEWS as readonly string[]).includes(view)) return
-    const next = calendarRouteHref(window.location.href, view as CalendarViewName, app.getCurrentDate())
-    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
-    if (next !== current) window.history.replaceState(window.history.state, '', next)
-  }), [app])
 
   const search = useMemo<CalendarSearchProps>(() => ({
     debounceDelay: 300,
@@ -1469,18 +933,19 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       onAddHolidays={() => { void addHolidays() }}
       onRefresh={refreshCalendars}
       onSelectDate={date => app.setCurrentDate(date)}
-      onRequestRange={requestMiniRange}
+      onRequestRange={loadRange}
       onPrint={() => { void printCurrentPeriod() }}
       canUndo={historyView.canUndo}
       canRedo={historyView.canRedo}
       onUndo={() => { if (history.undo(app)) setHistoryVersion(version => version + 1) }}
       onRedo={() => { if (history.redo(app)) setHistoryVersion(version => version + 1) }}
       tasks={meta.preferences.enableTasks ? (
-        <CalendarTasksPanel app={app} calendars={meta.calendars} onChanged={() => { void reloadRef.current() }} />
+        <CalendarTasksPanel app={app} calendars={meta.calendars} from={lastRange.current.from} to={lastRange.current.to} timeZone={meta.preferences.timeZone} onChanged={() => { void reloadRef.current() }} />
       ) : undefined}
       countdowns={(
         <CountdownsCard
           items={countdowns.items}
+          timeZone={meta.preferences.timeZone}
           loading={countdowns.loading}
           error={countdowns.error}
           onAdd={() => setCountdownEditing(null)}
@@ -1585,11 +1050,23 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
         {assistantChrome.view === 'month' && (
           <CountdownStrip
             items={countdowns.items}
+            timeZone={meta.preferences.timeZone}
             onOpen={(id) => {
               const item = countdowns.items.find(row => row.id === id) ?? null
               if (item) setCountdownEditing(item)
             }}
           />
+        )}
+
+        {selectedEvents.length > 1 && (
+          <div role="toolbar" aria-label={t('calendar.batch.title', { count: selectedEvents.length })} className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2">
+            <span role="status" className="mr-auto text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
+              {t('calendar.batch.title', { count: selectedEvents.length })}
+            </span>
+            <Button size="sm" variant="ghost" onClick={clearEventSelection}>{t('calendar.batch.clear')}</Button>
+            <Button size="sm" variant="secondary" onClick={() => setBatchDialogOpen(true)}>{t('calendar.batch.edit')}</Button>
+            <Button size="sm" variant="danger" onClick={() => { void deleteSelectedEvents() }}>{t('calendar.batch.delete')}</Button>
+          </div>
         )}
 
         <div className="inkstone-calendar min-h-0 flex-1">
@@ -1611,6 +1088,17 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
             <MenuIcon size={18} />
           </IconButton>
         </div>
+      )}
+
+      {batchDialogOpen && selectedEvents.length > 1 && (
+        <CalendarBatchDialog
+          open
+          events={selectedEvents}
+          timeZone={meta.preferences.timeZone}
+          onClose={() => setBatchDialogOpen(false)}
+          onMove={moveSelectedEvents}
+          onColor={colorSelectedEvents}
+        />
       )}
 
       {settingsOpen && (
@@ -1697,6 +1185,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           key={countdownEditing?.id ?? 'new'}
           open
           item={countdownEditing}
+          timeZone={meta.preferences.timeZone}
           onClose={() => setCountdownEditing(undefined)}
           onSaved={() => { void countdowns.reload() }}
         />
@@ -1705,9 +1194,10 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       <CalendarFilteredSearch
         open={filteredSearchOpen}
         calendars={meta.calendars}
+        timeZone={meta.preferences.timeZone}
         onClose={() => setFilteredSearchOpen(false)}
         onPick={(result) => {
-          const date = calendarSearchResultDate(result)
+          const date = calendarSearchResultDate(result, meta.preferences.timeZone)
           if (date) app.setCurrentDate(date)
           app.highlightEvent(result.event.id)
           app.selectEvent(result.event.id)
@@ -1743,6 +1233,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
         open={freeBusyOpen}
         calendars={meta.calendars}
         timeZone={meta.preferences.timeZone}
+        workingHours={meta.preferences.workingHours}
         initialDate={app.getCurrentDate()}
         onClose={() => setFreeBusyOpen(false)}
         onPick={(start) => { setCreateStart(start) }}
@@ -1754,7 +1245,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           timeZone={meta.preferences.timeZone}
           onClose={() => setRecurrenceRequest(null)}
           onApplied={async () => {
-            freshExceptionMasters.current.add(recurrenceRequest.masterId)
+            markExceptionMaster(recurrenceRequest.masterId)
             dropOccurrencesForMaster(recurrenceRequest.masterId)
             await reloadRef.current()
           }}

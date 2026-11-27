@@ -10,17 +10,19 @@ import { safeFilename } from '../calendar/filename'
 import { parseCalendarInput, parseEventInput } from '../calendar/validation'
 import { CSV_HEADER_ALIASES } from '@shared/locales/zh-CN-calendar-csv'
 import { utf8ByteLength } from '@shared/text-utils'
-import { isCalendarEntityId, type TemporalValue } from '@shared/calendar/model'
+import { isCalendarEntityId, type CalendarEventDto, type TemporalValue } from '@shared/calendar/model'
+import { Temporal } from 'temporal-polyfill'
 
 const MAX_CSV_BYTES = 5 * 1024 * 1024
 const BODY_LIMIT = MAX_CSV_BYTES + 64 * 1024
 const IMPORT_CHUNK = 200
+const MAX_CSV_ROWS = 50_000
 const importBudget = createMinuteBudget(10, 'Too many calendar imports. Try again in a minute.')
 const exportBudget = createMinuteBudget(30, 'Too many calendar exports. Try again in a minute.')
 
 export const calendarCsvRoutes = new Hono<AppBindings>()
 calendarCsvRoutes.use('*', requireAuth)
-calendarCsvRoutes.use('*', async (c, next) => {
+calendarCsvRoutes.use('/csv/*', async (c, next) => {
   if (c.req.method !== 'GET' && c.req.method !== 'HEAD') importBudget(c.get('userId'))
   await next()
 })
@@ -66,9 +68,24 @@ function temporal(value: string, defaultTimeZone: string): TemporalValue | null 
     return { value: normalized, type: 'datetime', timeZone: defaultTimeZone }
   }
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:\d{2})$/.test(normalized)) {
-    return { value: normalized, type: 'zoned', timeZone: 'UTC' }
+    try {
+      return { value: Temporal.Instant.from(normalized).toZonedDateTimeISO('UTC').toString(), type: 'zoned', timeZone: 'UTC' }
+    } catch {
+      return null
+    }
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?\[[^\]]+\]$/.test(normalized)) {
+    return { value: normalized, type: 'zoned', timeZone: defaultTimeZone }
   }
   return null
+}
+
+function addDefaultDuration(start: TemporalValue, timeZone: string): TemporalValue {
+  if (start.type === 'date') return start
+  const end = start.type === 'datetime'
+    ? Temporal.PlainDateTime.from(start.value).toZonedDateTime(timeZone).add({ minutes: 60 })
+    : Temporal.ZonedDateTime.from(start.value).add({ minutes: 60 })
+  return { value: end.toString({ smallestUnit: 'second' }), type: 'zoned', timeZone: end.timeZoneId }
 }
 
 calendarCsvRoutes.post('/csv/import', async (c) => {
@@ -76,8 +93,9 @@ calendarCsvRoutes.post('/csv/import', async (c) => {
   if (typeof body.content !== 'string' || !body.content.trim()) {
     throw ApiError.badRequest('content is required')
   }
-  if (body.content.length > MAX_CSV_BYTES) throw ApiError.tooLarge('The CSV is too large')
+  if (utf8ByteLength(body.content) > MAX_CSV_BYTES) throw ApiError.tooLarge('The CSV is too large')
   const rows = parseCsv(body.content.replace(/^\uFEFF/, ''))
+  if (rows.length - 1 > MAX_CSV_ROWS) throw ApiError.tooLarge(`The CSV may hold at most ${MAX_CSV_ROWS} events`)
   if (rows.length < 2) throw ApiError.badRequest('The CSV needs a header and at least one row')
   const header = rows[0]!.map(value => value.trim().toLowerCase())
   const column = (...names: string[]): number => names.reduce((found, name) => found >= 0 ? found : header.indexOf(name), -1)
@@ -119,9 +137,7 @@ calendarCsvRoutes.post('/csv/import', async (c) => {
     }
     let end = endColumn >= 0 ? temporal(row[endColumn] ?? '', preferences.timeZone) : null
     if (!end) {
-      end = start.type === 'date'
-        ? start
-        : { ...start, value: new Date(new Date(start.value).getTime() + 60 * 60 * 1000).toISOString().slice(0, 19) }
+      end = addDefaultDuration(start, preferences.timeZone)
     }
     const allDay = allDayColumn >= 0
       ? ['1', 'true', 'yes', CSV_HEADER_ALIASES.yes].includes((row[allDayColumn] ?? '').trim().toLowerCase())
@@ -140,24 +156,41 @@ calendarCsvRoutes.post('/csv/import', async (c) => {
     }
   }
   let imported = 0
+  const written: CalendarEventDto[] = []
   try {
     for (let index = 0; index < inputs.length; index += IMPORT_CHUNK) {
-      imported += (await store.createEvents(inputs.slice(index, index + IMPORT_CHUNK), 'create')).length
+      const events = await store.createEvents(inputs.slice(index, index + IMPORT_CHUNK), 'create')
+      written.push(...events)
+      imported += events.length
     }
-  } catch (error) {
-    if (created) await store.deleteCalendar(calendar.id, { mode: 'delete' }).catch(() => { /* The import error is the one that explains the request. */ })
-    throw error
+  } catch {
+    const rollbackErrors: string[] = []
+    for (const event of written) {
+      try {
+        await store.deleteEvent(event.id, event.rev)
+      } catch (rollbackError) {
+        rollbackErrors.push(`${event.id}: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`)
+      }
+    }
+    if (created) {
+      try {
+        await store.deleteCalendar(calendar.id, { mode: 'delete', allowLast: true })
+      } catch (cleanupError) {
+        rollbackErrors.push(`calendar: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`)
+      }
+    }
+    throw new ApiError(500, 'internal', `The CSV import failed after ${imported} events${rollbackErrors.length > 0 ? `; rollback incomplete: ${rollbackErrors.join('; ')}` : ''}`)
   }
   return c.json({ calendarId: calendar.id, imported, warnings })
 })
 
 function csvCell(value: string): string {
-  return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
+  const safe = /^\s*[=+\-@]/.test(value) ? `'${value}` : value
+  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
 }
 
-/** A round-trippable cell: the importer reads an offset but not a bracketed zone name. */
 function csvValue(value: TemporalValue): string {
-  return value.value.replace(/\[[^\]]*\]$/, '')
+  return value.value
 }
 
 calendarCsvRoutes.get('/csv/export', async (c) => {
@@ -173,8 +206,8 @@ calendarCsvRoutes.get('/csv/export', async (c) => {
   for (const event of range.events) {
     lines.push([
       csvCell(event.title),
-      csvValue(event.start),
-      csvValue(event.end),
+      csvCell(csvValue(event.start)),
+      csvCell(csvValue(event.end)),
       event.allDay ? '1' : '0',
       csvCell(event.description),
     ].join(','))

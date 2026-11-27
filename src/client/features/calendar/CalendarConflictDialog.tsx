@@ -45,7 +45,8 @@ export function CalendarConflictDialog({ request, view, onDecide }: CalendarConf
   return (
     <Modal
       open
-      onClose={() => { onDecide({ action: 'server' }) }}
+      onClose={() => undefined}
+      dismissible={false}
       title={t('calendar.conflict.heading', { title: request.theirs.title || t('calendar.event.untitled') })}
       description={t('calendar.conflict.hint')}
       width={680}
@@ -86,7 +87,7 @@ export function CalendarConflictDialog({ request, view, onDecide }: CalendarConf
 
         <ul className="flex flex-col gap-2.5">
           {fields.map((field) => {
-            const selected = picks[field.key] === 'mine' ? 'mine' : 'theirs'
+            const selected = picks[field.key] === 'theirs' ? 'theirs' : 'mine'
             if (!field.differs) {
               return (
                 <li key={field.key} className="flex flex-wrap items-baseline gap-2 text-[length:var(--text-12-5)]">

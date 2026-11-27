@@ -8,6 +8,9 @@ describe('calendar session cache cleanup', () => {
   it('removes only calendar snapshots and leaves other account data alone', () => {
     localStorage.setItem('inkstone.calendar.first-paint.v1:alice', '{}')
     localStorage.setItem('inkstone.calendar.range.v1:alice', '{}')
+    localStorage.setItem('inkstone.calendar.outbox.v1:alice', '[{"private":true}]')
+    localStorage.setItem('inkstone:calendar:outbox:alice', '[{"private":true}]')
+    localStorage.setItem('inkstone:calendar:hidden-shared', '["shared:owner:calendar"]')
     localStorage.setItem('inkstone.ui', '{}')
     localStorage.setItem('inkstone.music.floating', '1')
 
@@ -15,6 +18,9 @@ describe('calendar session cache cleanup', () => {
 
     expect(localStorage.getItem('inkstone.calendar.first-paint.v1:alice')).toBeNull()
     expect(localStorage.getItem('inkstone.calendar.range.v1:alice')).toBeNull()
+    expect(localStorage.getItem('inkstone.calendar.outbox.v1:alice')).toBeNull()
+    expect(localStorage.getItem('inkstone:calendar:outbox:alice')).toBeNull()
+    expect(localStorage.getItem('inkstone:calendar:hidden-shared')).toBeNull()
     expect(localStorage.getItem('inkstone.ui')).toBe('{}')
     expect(localStorage.getItem('inkstone.music.floating')).toBe('1')
   })

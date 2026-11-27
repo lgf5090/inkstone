@@ -21,6 +21,7 @@ import { Empty, LoadingBlock } from '../../components/feedback'
 import { Segmented } from '../../components/form'
 import { Tooltip } from '../../components/overlay'
 import { localeTag, t, type MessageKey } from '../../lib/i18n'
+import { cn } from '../../lib/cn'
 import { useSession } from '../../store/session'
 import { shiftDay } from './due-range'
 import {
@@ -127,7 +128,9 @@ function Card({ title, hint, action, children, className }: {
   className?: string
 }) {
   return (
-    <section className={`rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 md:p-4 ${className ?? ''}`}>
+    // `cn` rather than a template literal: a caller's `className` used to be appended after the card's
+    // own padding, so `p-0` handed in from outside lost to `p-3` and failed silently.
+    <section className={cn('rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 md:p-4', className)}>
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
         <h2 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">{title}</h2>
         {action}

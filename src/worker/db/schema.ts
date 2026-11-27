@@ -1,5 +1,5 @@
 /** Defines the idempotent final D1 schema initialized by every Worker isolate. */
-import { isValidTimeZone } from '@shared/assistant-schedule'
+import { isValidTimeZone } from '@shared/time-zone'
 import { localDate } from '@shared/assistant-time'
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
@@ -96,6 +96,7 @@ import {
   YOUTUBE_SCHEMA_STATEMENTS,
 } from '../youtube/schema'
 import {
+  CLOUDDRIVE_FTS_SCHEMA_STATEMENTS,
   CLOUDDRIVE_REQUIRED_COLUMNS,
   CLOUDDRIVE_REQUIRED_INDEXES,
   CLOUDDRIVE_REQUIRED_TABLES,
@@ -4848,11 +4849,117 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // Before roles existed every grant could comment; preserve that capability for old rows.
     version: 428,
-    statements: [...PROJECT_REMINDER_SCHEMA_STATEMENTS, PROJECT_REMINDER_BACKFILL_STATEMENT],
+    skipIfColumnExists: { table: 'CloudDrive_acl', column: 'role' },
+    statements: [`ALTER TABLE CloudDrive_acl ADD COLUMN role TEXT NOT NULL DEFAULT 'commenter'`],
   },
   {
     version: 429,
+    skipIfColumnExists: { table: 'CloudDrive_acl', column: 'expires_at' },
+    statements: [`ALTER TABLE CloudDrive_acl ADD COLUMN expires_at INTEGER`],
+  },
+  {
+    version: 430,
+    statements: [`CREATE INDEX IF NOT EXISTS idx_clouddrive_acl_expiry ON CloudDrive_acl(owner_id, expires_at)`],
+  },
+  {
+    // Backfill once; later isolate boots create the table and triggers without rebuilding the index.
+    version: 431,
+    statements: [
+      ...CLOUDDRIVE_FTS_SCHEMA_STATEMENTS,
+      `INSERT INTO CloudDrive_files_fts(CloudDrive_files_fts) VALUES('rebuild')`,
+    ],
+  },
+  {
+    version: 432,
+    skipIfColumnExists: { table: 'CloudDrive_upload_sessions', column: 'sha256' },
+    statements: [`ALTER TABLE CloudDrive_upload_sessions ADD COLUMN sha256 TEXT`],
+  },
+  {
+    version: 433,
+    skipIfColumnExists: { table: 'CloudDrive_meta', column: 'vault' },
+    statements: [`ALTER TABLE CloudDrive_meta ADD COLUMN vault INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 434,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'due_all_day' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN due_all_day INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 435,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'due_on' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN due_on TEXT`,
+    ],
+  },
+  {
+    version: 436,
+    skipIfColumnExists: { table: 'calendar_reminder_snoozes', column: 'occurrence_start_ms' },
+    statements: [
+      `ALTER TABLE calendar_reminder_snoozes ADD COLUMN occurrence_start_ms INTEGER`,
+    ],
+  },
+  {
+    version: 437,
+    statements: [
+      `INSERT INTO calendar_events_fts(calendar_events_fts) VALUES ('rebuild')`,
+    ],
+  },
+  {
+    // Provider delta cursors belong to the mapped calendar, not event metadata. Existing rows start
+    // with a full sync; fresh databases already carry the column and skip the ALTER.
+    version: 438,
+    skipIfColumnExists: { table: 'calendar_provider_calendars', column: 'sync_token' },
+    statements: [`ALTER TABLE calendar_provider_calendars ADD COLUMN sync_token TEXT`],
+  },
+  {
+    // The attendee table is authoritative. Backfill only rows that never had table guests, then
+    // remove the legacy JSON copy. The marker makes an intentionally empty guest list permanent if a
+    // database is restored without this migration's ledger entry.
+    version: 439,
+    statements: [
+      `INSERT OR IGNORE INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
+       SELECT user_id, event_id, email, name, status, created_at FROM (
+         SELECT e.user_id, e.id AS event_id,
+                lower(trim(json_extract(guest.value, '$.email'))) AS email,
+                substr(trim(COALESCE(json_extract(guest.value, '$.name'), '')), 1, 120) AS name,
+                CASE WHEN lower(trim(json_extract(guest.value, '$.status')))
+                       IN ('needs-action', 'accepted', 'tentative', 'declined')
+                     THEN lower(trim(json_extract(guest.value, '$.status')))
+                     ELSE 'needs-action' END AS status,
+                e.created_at + guest.key AS created_at,
+                ROW_NUMBER() OVER (
+                  PARTITION BY e.user_id, e.id, lower(trim(json_extract(guest.value, '$.email')))
+                  ORDER BY guest.key
+                ) AS duplicate_rank
+           FROM calendar_events e
+           JOIN json_each(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{}' END, '$.attendees') guest
+          WHERE json_type(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{}' END, '$.attendees') = 'array'
+            AND NOT EXISTS (SELECT 1 FROM app_meta WHERE key = 'calendar-attendees-v1')
+            AND NOT EXISTS (
+              SELECT 1 FROM calendar_event_attendees a WHERE a.user_id = e.user_id AND a.event_id = e.id
+            )
+       ) normalized
+        WHERE duplicate_rank = 1 AND length(email) BETWEEN 3 AND 254
+          AND length(email) - length(replace(email, '@', '')) = 1
+          AND instr(email, '@') > 1
+          AND instr(substr(email, instr(email, '@') + 1), '.') > 1
+          AND instr(email, ' ') = 0 AND instr(email, ',') = 0 AND instr(email, ';') = 0`,
+      `UPDATE calendar_events
+          SET meta_json = json_remove(meta_json, '$.attendees')
+        WHERE json_valid(meta_json) AND json_type(meta_json, '$.attendees') IS NOT NULL`,
+      `INSERT OR IGNORE INTO app_meta (key, value) VALUES ('calendar-attendees-v1', '1')`,
+    ],
+  },
+  {
+    version: 440,
+    statements: [...PROJECT_REMINDER_SCHEMA_STATEMENTS, PROJECT_REMINDER_BACKFILL_STATEMENT],
+  },
+  {
+    version: 441,
     skipIfColumnExists: { table: 'project_cards', column: 'recurrence_source_id' },
     statements: [
       'ALTER TABLE project_cards ADD COLUMN recurrence_source_id TEXT',
@@ -4861,7 +4968,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    version: 430,
+    version: 442,
     statements: [
       `UPDATE project_time_entries SET ended_at = started_at
        WHERE ended_at IS NULL AND id NOT IN (
@@ -4875,64 +4982,64 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    version: 431,
+    version: 443,
     skipIfColumnExists: { table: 'project_cards', column: 'content_order_revision' },
     statements: ['ALTER TABLE project_cards ADD COLUMN content_order_revision INTEGER NOT NULL DEFAULT 0'],
   },
   {
-    version: 432,
+    version: 444,
     skipIfColumnExists: { table: 'project_webhook_deliveries', column: 'message_id' },
     statements: ['ALTER TABLE project_webhook_deliveries ADD COLUMN message_id TEXT NOT NULL DEFAULT \'\''],
   },
   {
-    version: 433,
+    version: 445,
     skipIfColumnExists: { table: 'project_webhook_deliveries', column: 'claim_token' },
     statements: ['ALTER TABLE project_webhook_deliveries ADD COLUMN claim_token TEXT NOT NULL DEFAULT \'\''],
   },
   {
-    version: 434,
+    version: 446,
     skipIfColumnExists: { table: 'project_webhook_deliveries', column: 'lease_until' },
     statements: ['ALTER TABLE project_webhook_deliveries ADD COLUMN lease_until INTEGER NOT NULL DEFAULT 0'],
   },
   {
-    version: 435,
+    version: 447,
     statements: [PROJECT_REMINDER_PENDING_INDEX_STATEMENT],
   },
   {
-    version: 436,
+    version: 448,
     statements: [...PROJECT_SEARCH_SCHEMA_STATEMENTS, ...PROJECT_SEARCH_BACKFILL_STATEMENTS],
   },
   {
-    version: 437,
+    version: 449,
     statements: [...PROJECT_PRESENCE_SCHEMA_STATEMENTS],
   },
   {
-    version: 438,
+    version: 450,
     statements: [...PROJECT_AUDIT_SCHEMA_STATEMENTS],
   },
   {
-    version: 439,
+    version: 451,
     statements: [...PROJECT_VERSION_SCHEMA_STATEMENTS],
   },
   {
-    version: 440,
+    version: 452,
     skipIfColumnExists: { table: 'project_shares', column: 'intake_config' },
     statements: [`ALTER TABLE project_shares ADD COLUMN intake_config TEXT NOT NULL DEFAULT '{"enabled":false,"title":"","propertyIds":[],"requiredPropertyIds":[]}'`],
   },
   {
-    version: 441,
+    version: 453,
     statements: [...PROJECT_GUEST_SCHEMA_STATEMENTS],
   },
   {
-    version: 442,
+    version: 454,
     statements: [...PROJECT_NOTE_LINK_SCHEMA_STATEMENTS],
   },
   {
-    version: 443,
+    version: 455,
     statements: [...PROJECT_CALENDAR_LINK_SCHEMA_STATEMENTS],
   },
   {
-    version: 444,
+    version: 456,
     statements: [...PROJECT_NATIVE_INTEGRATION_SCHEMA_STATEMENTS],
   },
 ]
@@ -4949,6 +5056,9 @@ const DATABASE_STATE_KEY = 'database-state-v1'
 
 const TABLE_SCHEMA_STATEMENTS = SCHEMA_STATEMENTS.filter((statement) =>
   /^\s*CREATE TABLE IF NOT EXISTS/.test(statement),
+)
+const CALENDAR_SEARCH_SCHEMA_STATEMENTS = CALENDAR_SCHEMA_STATEMENTS.filter((statement) =>
+  /CREATE VIRTUAL TABLE IF NOT EXISTS calendar_events_fts|CREATE TRIGGER IF NOT EXISTS calendar_events_fts/.test(statement),
 )
 const INDEX_SCHEMA_STATEMENTS = SCHEMA_STATEMENTS.filter((statement) =>
   /^\s*CREATE (?:UNIQUE )?INDEX IF NOT EXISTS/.test(statement),
@@ -5273,6 +5383,7 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
     // never rewrites user data; running table creation before indexes also
     // lets a partially initialized database recover missing feature tables.
     await runStatements(db, TABLE_SCHEMA_STATEMENTS)
+    await runStatements(db, CALENDAR_SEARCH_SCHEMA_STATEMENTS)
   }
   // Ahead of the migrations, and that order is load-bearing: migration 155 drops the two columns this
   // reads, so a boot that ran the migrations first would delete a pending reminder out of the only place

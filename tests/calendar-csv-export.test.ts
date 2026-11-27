@@ -113,4 +113,36 @@ describe('GET /api/calendar/csv/export', () => {
     const response = await call('GET', '/csv/export?calendarId=calendar-missing')
     expect(response.status).toBe(404)
   })
+
+  it('neutralizes spreadsheet formulas in exported text', async () => {
+    const calendar = await createCalendar('Work')
+    await createEvent(calendar.id, { title: '=SUM(A1:A2)', description: '@danger' })
+    const text = await (await call('GET', `/csv/export?calendarId=${calendar.id}`)).text()
+    expect(text).toContain("'=SUM(A1:A2)")
+    expect(text).toContain("'@danger")
+  })
+})
+
+describe('POST /api/calendar/csv/import', () => {
+  it('honors explicit offsets and UTC timestamps', async () => {
+    const calendar = await createCalendar('Work')
+    const response = await call('POST', '/csv/import', {
+      calendarId: calendar.id,
+      content: 'title,start,end\r\nOffset,2026-11-26T09:00:00+08:00,2026-11-26T10:00:00+08:00\r\nUTC,2026-11-26T11:00:00Z,2026-11-26T12:00:00Z\r\n',
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ imported: 2, warnings: [] })
+    const rows = sqlite.prepare('SELECT title, start_ms FROM calendar_events ORDER BY title').all() as Array<{ title: string; start_ms: number }>
+    expect(rows).toEqual([
+      { title: 'Offset', start_ms: Date.parse('2026-11-26T01:00:00Z') },
+      { title: 'UTC', start_ms: Date.parse('2026-11-26T11:00:00Z') },
+    ])
+  })
+
+  it('rejects more than fifty thousand rows before creating a calendar', async () => {
+    const content = ['title,start', ...Array.from({ length: 50_001 }, (_, index) => `Event ${index},2026-11-26`)].join('\n')
+    const response = await call('POST', '/csv/import', { content })
+    expect(response.status).toBe(413)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_calendars').get()).toEqual({ count: 0 })
+  })
 })

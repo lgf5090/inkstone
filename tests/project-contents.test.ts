@@ -80,11 +80,11 @@ async function createContent(account: Account, cardId: string, body: Record<stri
 }
 
 describe('content blocks', () => {
-  it('migration 431 gives existing cards a zero order revision', () => {
+  it('migration 443 gives existing cards a zero order revision', () => {
     const legacy = new DatabaseSync(':memory:')
     legacy.exec("CREATE TABLE project_cards (id TEXT PRIMARY KEY, content_order TEXT NOT NULL DEFAULT '[]')")
     legacy.prepare('INSERT INTO project_cards (id) VALUES (?)').run('card')
-    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 431)
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 443)
     expect(migration).toBeDefined()
     for (const statement of migration!.statements) legacy.exec(statement)
     expect(legacy.prepare('SELECT content_order_revision FROM project_cards WHERE id = ?').get('card')).toEqual({ content_order_revision: 0 })

@@ -18,12 +18,12 @@ import { Temporal } from 'temporal-polyfill'
 import {
   defaultTimeZone,
   isCalendarEntityId,
+  MAX_EVENTS_PER_QUERY,
   parseTemporalValue,
   temporalToEpochMs,
   toTemporalValue,
   type CalendarEventDto,
   type CalendarEventInput,
-  type CalendarPreferences,
   type CalendarSearchResultDto,
   type CalendarTaskDto,
   type CalendarDto,
@@ -35,28 +35,19 @@ import {
 export const INITIAL_RANGE_DAYS = 14
 /** Extra days fetched on either side of a visible range, so a small scroll does not refetch. */
 export const RANGE_PADDING_DAYS = 30
-/** Events drawn per row in the month grid; the rest live behind DayFlow's "more" popup. */
+/** Pixel height of one event row in the month grid; the rest live behind DayFlow's "more" popup. */
 export const MONTH_EVENT_HEIGHT = 18
 /** The three density choices the settings panel offers. */
 export const DAY_HOUR_HEIGHTS = [48, 72, 96] as const
 
-/**
- * The hour window the timed views should crop to, or null for the whole day.
- *
- * Cropping is a convenience rather than a rule: when the account's working hours cannot fill the
- * viewport at the chosen density, honouring them would leave wide bands of empty grid above and
- * below (and leave scroll-to-now with nothing to scroll to). The whole day wins in that case.
- */
-export function hourWindow(
-  preferences: Pick<CalendarPreferences, 'workingHours' | 'dayHourHeight'>,
-  viewportHeight: number,
-): { firstHour: number; lastHour: number } | null {
-  const { enabled, startHour, endHour } = preferences.workingHours
-  if (!enabled || endHour <= startHour) return null
-  const span = endHour - startHour
-  if (span * preferences.dayHourHeight < Math.max(0, viewportHeight - 140)) return null
-  return { firstHour: startHour, lastHour: endHour }
-}
+/** Timed views always keep the complete day; working hours never hide an event. */
+export const FULL_DAY_HOURS = { firstHour: 0, lastHour: 24 } as const
+
+export const CALENDAR_COLOR_LABEL_KEYS = [
+  'calendar.color.red', 'calendar.color.orange', 'calendar.color.yellow', 'calendar.color.green',
+  'calendar.color.teal', 'calendar.color.blue', 'calendar.color.indigo', 'calendar.color.purple',
+  'calendar.color.pink', 'calendar.color.gray',
+] as const
 
 /** Preset calendar colours. These are calendar data, not design tokens; the API stores the hex. */
 export const CALENDAR_COLOR_PRESETS = [
@@ -135,15 +126,7 @@ function zonedAt(value: TemporalValue, timeZone: string): Temporal.ZonedDateTime
     const parsed = parseTemporalValue(value)
     if (parsed instanceof Temporal.ZonedDateTime) return parsed
     if (parsed instanceof Temporal.PlainDateTime) return parsed.toZonedDateTime(timeZone)
-    return Temporal.ZonedDateTime.from({
-      timeZone,
-      year: parsed.year,
-      month: parsed.month,
-      day: parsed.day,
-      hour: 0,
-      minute: 0,
-      second: 0,
-    })
+    return parsed.toZonedDateTime(timeZone)
   } catch {
     // A timestamp the API could not validate is not worth failing the whole event load over; the
     // server is the final validator, and losing only "completed at" keeps the task readable.
@@ -202,6 +185,45 @@ export function missingRangeEventIds(input: {
     .map(event => event.id)
 }
 
+export interface EventSnapshotPlan {
+  add: Event[]
+  update: Array<{ id: string; updates: Partial<Event> }>
+  stale: string[]
+  fetched: Set<string>
+  revisions: Array<[string, number]>
+}
+
+export function planEventSnapshot(input: {
+  dtos: readonly CalendarEventDto[]
+  existing: readonly Event[]
+  range: { from: number; to: number }
+  timeZone: string
+  truncated: boolean
+  mirror?: boolean
+  updateRevisions?: boolean
+  hasPending: (id: string) => boolean
+}): EventSnapshotPlan {
+  const mapped = input.dtos.map(dto => toDayFlowEvent(dto, input.timeZone))
+  const existing = new Map(input.existing.map(event => [event.id, event]))
+  const add: Event[] = []
+  const update: Array<{ id: string; updates: Partial<Event> }> = []
+  for (const event of mapped) {
+    if (existing.has(event.id)) update.push({ id: event.id, updates: toEventUpdates(event) })
+    else add.push(event)
+  }
+  const fetched = new Set(mapped.map(event => event.id))
+  const stale = input.mirror === false || input.truncated || input.dtos.length >= MAX_EVENTS_PER_QUERY
+    ? []
+    : missingRangeEventIds({
+        events: [...existing.values()], fetched, from: input.range.from, to: input.range.to,
+        timeZone: input.timeZone, hasPending: input.hasPending,
+      })
+  const revisions = input.updateRevisions === false
+    ? []
+    : input.dtos.map(dto => [dto.id, dto.rev] as [string, number])
+  return { add, update, stale, fetched, revisions }
+}
+
 /** Calendar IDs in DayFlow's order: the primary first, duplicates removed. */
 export function eventCalendarIds(event: Pick<Event, 'calendarId' | 'calendarIds'>): string[] {
   const ids = [...(event.calendarId ? [event.calendarId] : []), ...(event.calendarIds ?? [])]
@@ -217,7 +239,7 @@ export function toDayFlowEvent(dto: CalendarEventDto, timeZone: string = default
   if (recurrenceRule) meta.recurrenceRule = recurrenceRule
   else delete meta.recurrenceRule
   if (dto.color) meta.color = dto.color
-  const calendarIds = [dto.calendarId, ...dto.calendarIds].filter((id, index, all) => id.length > 0 && all.indexOf(id) === index)
+  const calendarIds = eventCalendarIds(dto)
   return {
     id: dto.id,
     title: dto.title,
@@ -336,6 +358,7 @@ export function toEventInput(event: Event, options: EventSerializationOptions): 
  * crosses the API.
  */
 export function toEventUpdates(event: Event): Partial<Event> {
+  const seriesRule = typeof event.meta?.seriesRule === 'string' ? event.meta.seriesRule : undefined
   return {
     title: event.title,
     description: event.description,
@@ -347,8 +370,24 @@ export function toEventUpdates(event: Event): Partial<Event> {
     allDay: event.allDay,
     calendarId: event.calendarId,
     calendarIds: event.calendarIds,
-    meta: stripRenderOnlyMeta(event.meta),
+    // Unlike DayFlow's other render-only fields, this is the stored rule temporarily hidden while
+    // exceptions exist. In-memory refreshes, rollbacks and history replays must all carry it forward.
+    meta: { ...stripRenderOnlyMeta(event.meta), ...(seriesRule !== undefined ? { seriesRule } : {}) },
     icon: typeof event.icon === 'boolean' ? event.icon : undefined,
+  }
+}
+
+/** Conference host controls and passwords must never enter localStorage snapshots or write queues. */
+export function toPersistedCalendarEvent<T extends CalendarEventInput | CalendarEventDto>(event: T): T {
+  if (!event.conference) return event
+  const conference = event.conference
+  return {
+    ...event,
+    conference: {
+      ...(conference.provider ? { provider: conference.provider } : {}),
+      joinUrl: conference.joinUrl,
+      ...(conference.meetingId ? { meetingId: conference.meetingId } : {}),
+    },
   }
 }
 

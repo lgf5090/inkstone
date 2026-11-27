@@ -6,6 +6,7 @@
  * and the birthday sweep has a date to turn into a yearly event.
  */
 import type { CalendarContactDto } from '@shared/calendar/model'
+import { Temporal } from 'temporal-polyfill'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 
@@ -18,7 +19,7 @@ interface ContactRow {
 }
 
 const CONTACT_COLUMNS = 'id, name, email, birthday, rev'
-const MAX_CONTACTS = 5000
+export const MAX_CONTACTS = 5000
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const BIRTHDAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -58,9 +59,10 @@ function parseBirthday(value: unknown): string | null {
   if (typeof value !== 'string' || !BIRTHDAY_RE.test(value)) {
     throw ApiError.badRequest('birthday must be a YYYY-MM-DD date')
   }
-  const [year, month, day] = value.split('-').map(Number)
-  const check = new Date(year!, month! - 1, day!)
-  if (check.getFullYear() !== year || check.getMonth() !== month! - 1 || check.getDate() !== day) {
+  try {
+    const date = Temporal.PlainDate.from(value)
+    if (date.toString() !== value) throw new Error('invalid')
+  } catch {
     throw ApiError.badRequest('birthday must be a real date')
   }
   return value
@@ -97,10 +99,12 @@ export async function createContact(
   const now = Date.now()
   const email = parseEmail(input.email)
   try {
-    await db.prepare(
+    const result = await db.prepare(
       `INSERT INTO calendar_contacts (user_id, id, name, email, birthday, created_at, updated_at, rev)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-    ).bind(userId, id, parseName(input.name), email, parseBirthday(input.birthday), now, now).run()
+       SELECT ?, ?, ?, ?, ?, ?, ?, 1
+        WHERE (SELECT COUNT(*) FROM calendar_contacts WHERE user_id = ?) < ?`,
+    ).bind(userId, id, parseName(input.name), email, parseBirthday(input.birthday), now, now, userId, MAX_CONTACTS).run()
+    if ((result.meta.changes ?? 0) === 0) throw ApiError.conflict('The contact limit has been reached')
   } catch (error) {
     if (error instanceof Error && /unique/i.test(error.message)) {
       throw ApiError.conflict('A contact with that email already exists')
@@ -120,7 +124,10 @@ export async function updateContact(
 ): Promise<CalendarContactDto> {
   const current = await contactRow(db, userId, id)
   if (!current) throw ApiError.notFound('Contact not found')
-  const rev = typeof input.rev === 'number' && Number.isSafeInteger(input.rev) ? input.rev : current.rev
+  const rev = typeof input.rev === 'number' && Number.isSafeInteger(input.rev) && input.rev > 0
+    ? input.rev
+    : null
+  if (rev === null) throw ApiError.badRequest('rev is required')
   if (rev !== current.rev) throw ApiError.conflict('The contact changed elsewhere. Refresh and try again')
   const name = input.name === undefined ? current.name : parseName(input.name)
   const email = input.email === undefined ? current.email : parseEmail(input.email)

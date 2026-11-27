@@ -18,11 +18,18 @@
  */
 
 import { create } from 'zustand'
-import { ApiError, CLIENT_ID, api, type TaskListEntry } from '../../lib/api'
+import { CLIENT_ID, api, type TaskListEntry } from '../../lib/api'
 import { localDb, type OutboxItem } from '../../lib/db'
+import {
+  replayTodoOutboxItem as replayTodoOutboxItemWithRuntime,
+  todoQueuedRev,
+  type TodoOutboxOutcome,
+  type TodoOutboxPayload,
+} from './todo-outbox'
 import { t } from '../../lib/i18n'
 import { subscribeToAddress } from '../../lib/app-history'
-import { parseLocalTime } from '@shared/assistant-time'
+import { localDate, localDayBounds, parseLocalTime } from '@shared/assistant-time'
+import { getZonedParts, zonedTimeToUtc } from '@shared/assistant-schedule'
 import { useUi } from '../../store/ui'
 import { parseQuickAdd } from '@shared/todos/quick-parse'
 import { parseTodoFilter, type TodoFilterQuery } from '@shared/todos/filter-query'
@@ -30,7 +37,6 @@ import type { SavedTodoFilter } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import {
   MAX_SINGLE_TIME_ENTRY_MS,
-  isSnoozeMinutes,
   remindOffsetForDelta,
   toggledStatus,
   type RemindOffset,
@@ -46,6 +52,7 @@ import {
   type TaskTag,
   type TodoStats,
   type TodoTask,
+  UPCOMING_DAYS,
 } from '@shared/todos/model'
 import { isTaskDone, isTaskOpen } from '@shared/todos/status'
 import {
@@ -58,7 +65,10 @@ import {
 } from './todo-address'
 import { daysToRange } from './due-range'
 
-export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats' | 'finish-day' | 'counters' | 'matrix'
+export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'timeline' | 'starred' | 'completed' | 'list' | 'tag' | 'stats' | 'finish-day' | 'counters' | 'matrix'
+
+/** The two windows the timeline can draw; both are carried by the address. */
+export type TodoTimelineScale = 'week' | 'month'
 
 /** The list shape this feature reads, re-exported so its screens do not reach the API module. */
 export type { TaskListEntry } from '../../lib/api'
@@ -81,6 +91,10 @@ export interface TaskDraft {
   color?: string | null
   /** An instant, or a local `YYYY-MM-DD[THH:MM]` the server reads in the reader's timezone. */
   dueAt?: number | string | null
+  /** Whether the due date is a whole calendar day. */
+  dueAllDay?: boolean
+  /** The account-zone day for an all-day due date. */
+  dueOn?: string | null
   /** When the work starts, in either of the two shapes `dueAt` takes. */
   startAt?: number | string | null
   priority?: TodoTask['priority']
@@ -200,6 +214,11 @@ interface TodosState {
   statsTo: string | null
   statsBucket: TaskStatsBucket | null
 
+  /** The timeline's half-open day window and scale; null asks for the current week. */
+  timelineFrom: string | null
+  timelineTo: string | null
+  timelineScale: TodoTimelineScale | null
+
   selectedId: string | null
   /**
    * The rows picked for a batch write.
@@ -246,6 +265,8 @@ interface TodosState {
   loadStats: () => Promise<void>
   /** Move the statistics to another range, writing the move into the address and asking again. */
   setStatsRange: (range: { from: string; to: string; bucket: TaskStatsBucket }) => void
+  /** Move the timeline to another half-open day window, keeping the move in the address. */
+  setTimelineRange: (range: { from: string; to: string; scale: TodoTimelineScale }) => void
   /** Put the store where the address bar says the screen is — what a back button asks of it. */
   syncFromAddress: () => void
   select: (id: string | null) => void
@@ -294,7 +315,8 @@ interface TodosState {
   /** Pick a task into an account-zone day, or clear the pick with `null`; re-reads the listing after. */
   planTask: (id: string, date: string | null) => Promise<TodoTask | null>
   /** Append one reminder `minutes` from now; the task's existing reminders stay. */
-  snoozeTask: (id: string, minutes: SnoozeMinutes) => Promise<TodoTask | null>
+  /** Any whole number of minutes the route accepts; the four presets are a menu, not the range. */
+  snoozeTask: (id: string, minutes: number) => Promise<TodoTask | null>
   /**
    * Start the account's one running interval on this task, and move the row to `in_progress` with it.
    *
@@ -514,7 +536,8 @@ export function quickAddDraft(
 /** The view part of the state, which is the part the query string carries. */
 function viewSelection(
   state: Pick<TodosState, 'view' | 'listId' | 'tagId' | 'query' | 'sort' | 'dueFrom' | 'dueTo'
-    | 'completedFrom' | 'completedTo' | 'statsFrom' | 'statsTo' | 'statsBucket'>,
+    | 'completedFrom' | 'completedTo' | 'statsFrom' | 'statsTo' | 'statsBucket'
+    | 'timelineFrom' | 'timelineTo' | 'timelineScale'>,
 ): TodoViewSelection {
   return {
     view: state.view,
@@ -529,6 +552,9 @@ function viewSelection(
     statsFrom: state.statsFrom,
     statsTo: state.statsTo,
     statsBucket: state.statsBucket,
+    timelineFrom: state.timelineFrom,
+    timelineTo: state.timelineTo,
+    timelineScale: state.timelineScale,
   }
 }
 
@@ -572,8 +598,8 @@ const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'upcoming' | 'starred' |
  * not draw the filter bar beside rows nobody is showing. One predicate, because the three followings are
  * one fact.
  */
-export function readsOwnRows(view: TodoView): view is 'stats' | 'calendar' | 'finish-day' | 'counters' {
-  return view === 'stats' || view === 'calendar' || view === 'finish-day' || view === 'counters'
+export function readsOwnRows(view: TodoView): view is 'stats' | 'calendar' | 'timeline' | 'finish-day' | 'counters' {
+  return view === 'stats' || view === 'calendar' || view === 'timeline' || view === 'finish-day' || view === 'counters'
 }
 
 /**
@@ -594,40 +620,6 @@ const PICKER_LIMIT = 8
  * replay could land twice — `/time` has no idempotency key, so a lost answer would turn five minutes
  * into ten.
  */
-type TodoOutboxOp = 'create' | 'update' | 'delete' | 'plan' | 'snooze' | 'timer-start' | 'timer-stop'
-
-type TodoOutboxPayload = {
-  op: TodoOutboxOp
-  /** The body a create posts; the optimistic row's id is this item's `entityId`, not part of it. */
-  task?: Record<string, unknown>
-  patch?: Record<string, unknown>
-  /** The revision the write was made against, when the row had one. */
-  rev?: number
-  date?: string | null
-  minutes?: SnoozeMinutes
-  /** The instant a queued timer gesture was pressed at, in the reader's own clock. */
-  at?: number
-}
-
-/** How a replay pass ended for one row; the note store's loop acts on it. */
-export type TodoOutboxOutcome =
-  | { status: 'done'; retarget?: { from: string; to: string } }
-  | { status: 'retry' }
-  | { status: 'offline' }
-
-function isTodoOutboxPayload(value: Record<string, unknown>): value is TodoOutboxPayload {
-  return value.op === 'create' || value.op === 'update' || value.op === 'delete'
-    || value.op === 'plan' || value.op === 'snooze'
-    || value.op === 'timer-start' || value.op === 'timer-stop'
-}
-
-/** The revision a queued write names, or undefined when the row was created offline. */
-function todoQueuedRev(payload: TodoOutboxPayload): number | undefined {
-  return typeof payload.rev === 'number' && Number.isSafeInteger(payload.rev) && payload.rev >= 1
-    ? payload.rev
-    : undefined
-}
-
 /**
  * Put one server row into the lists, moving it between the open and finished buckets.
  *
@@ -729,142 +721,26 @@ async function resolveTodoReplayConflict(
   return 'adopted'
 }
 
-/**
- * Replay one queued task write.
- *
- * The note store owns the queue's lease and hands each task row here. Success leaves the row in the
- * queue for that loop to complete after this call returns; `retry` leaves it for a later pass, and
- * `offline` stops the whole pass because nothing behind it can land either.
- */
 export async function replayTodoOutboxItem(
   item: OutboxItem,
   siblings: OutboxItem[] = [],
 ): Promise<TodoOutboxOutcome> {
-  const payload = item.payload
-  if (!isTodoOutboxPayload(payload)) {
-    await localDb.markOutboxFailure(item.id, item.writeId, 'invalid offline task write').catch(() => {})
-    return { status: 'retry' }
-  }
-  const id = item.entityId
-  try {
-    switch (payload.op) {
-      case 'create': {
-        const body = payload.task ?? {}
-        // The queued row's own write id is the idempotency key: it was minted when this create was
-        // enqueued and travels with the queue row, so a second attempt at the same queued write —
-        // the one where the server wrote the task and the response was lost — is answered with the
-        // task it already made rather than with a second copy.
-        const { task } = await api.todos.create(body, item.writeId)
-        storeServerTask(task, { addIfMissing: true, replaceId: id })
-        // Every later queued write for the row this create just minted names the local id. Move them
-        // together, or they would edit a task that never existed.
-        await localDb.retargetOutboxEntity('todo', id, task.id).catch(() => {})
-        // The rows this queued create waits on each gained a partner of their own to restate.
-        await refreshServerRows(cachedDependPartners(dependsIds(body.dependsOn)))
-        return { status: 'done', retarget: { from: id, to: task.id } }
-      }
-      case 'update': {
-        const patch = payload.patch ?? {}
-        // A cached row is the only place the edges being replaced are still written down, so both sets
-        // are read here — before the answer overwrites the row this queue item was about.
-        const partners = 'dependsOn' in patch
-          ? [
-            ...(useTodos.getState().tasks.find((entry) => entry.id === id)?.dependsOn.map((ref) => ref.id) ?? []),
-            ...dependsIds(patch.dependsOn),
-          ]
-          : []
-        const { task, next } = await api.todos.update(id, patch, todoQueuedRev(payload))
-        storeServerTask(task, { addIfMissing: true })
-        if (next) storeServerTask(next, { addIfMissing: true })
-        await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
-        await refreshServerRows(cachedDependPartners(partners))
-        return { status: 'done' }
-      }
-      case 'delete': {
-        try {
-          await api.todos.remove(id)
-        } catch (error) {
-          // The dequeued row is a tombstone: the point of queueing a delete rather than an update is
-          // that a row already gone is the outcome this write wanted, not a failure.
-          if (!(error instanceof ApiError && error.status === 404)) throw error
-        }
-        removeServerTask(id)
-        return { status: 'done' }
-      }
-      case 'plan': {
-        // The revision the row carried when the pick was queued rides to the route, which is what
-        // makes an offline pick a conditional write rather than a blind one.
-        const { task } = await api.todos.plan(id, payload.date ?? null, todoQueuedRev(payload))
-        storeServerTask(task, { addIfMissing: true })
-        await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
-        return { status: 'done' }
-      }
-      case 'snooze': {
-        const minutes = payload.minutes
-        if (!isSnoozeMinutes(minutes)) {
-          await localDb.markOutboxFailure(item.id, item.writeId, 'invalid snooze duration').catch(() => {})
-          return { status: 'retry' }
-        }
-        const { task } = await api.todos.snooze(id, minutes, todoQueuedRev(payload))
-        storeServerTask(task, { addIfMissing: true })
-        // A snooze spends a revision like any other write, so the edits queued behind it have to be
-        // moved onto the one that landed — otherwise the next replay reports a conflict this tab made.
-        await advanceTodoDependents(item, payload, task.rev ?? 1, siblings)
-        return { status: 'done' }
-      }
-      case 'timer-start': {
-        // The instant travels. A reader who started an interval at two and reconnected at six worked
-        // from two, and replaying the gesture as "now" would move those four hours into a different
-        // day of the ledger — which is the one thing the day buckets and the per-day ceiling read off.
-        const { entry } = await api.todos.startTimer(id, payload.at === undefined ? {} : { startAt: payload.at })
-        // The row this start displaced, if any, spent a revision too — the server closed its interval
-        // where this one begins — so it is re-read alongside the row that now holds the open span.
-        const displaced = timedRowIds(useTodos.getState()).filter((rowId) => rowId !== entry.taskId)
-        paintTimedRow(entry.taskId, entry.startAt)
-        await refreshServerRows([entry.taskId, ...displaced])
-        return { status: 'done' }
-      }
-      case 'timer-stop': {
-        try {
-          await api.todos.stopTimer(id, payload.at === undefined ? {} : { endAt: payload.at })
-        } catch (error) {
-          // Nothing running on this task is the state a stop wants, exactly as a delete of a row that
-          // is already gone is: the only way here is a replay of a stop that landed and lost its answer.
-          if (!(error instanceof ApiError && error.status === 404)) throw error
-        }
-        paintTimedRow(id, null)
-        await refreshServerRows([id])
-        return { status: 'done' }
-      }
-    }
-  } catch (error) {
-    if (error instanceof ApiError) {
-      if (error.isOffline) return { status: 'offline' }
-      if (error.isAuth) {
-        location.reload()
-        return { status: 'retry' }
-      }
-      if (error.isConflict) {
-        const resolved = await resolveTodoReplayConflict(item, payload, siblings)
-        if (resolved === 'retry') return { status: 'retry' }
-        if (resolved === 'adopted') return { status: 'done' }
-      }
-      if (error.status === 404 && payload.op === 'delete') {
-        removeServerTask(id)
-        return { status: 'done' }
-      }
-    }
-    toastError(error)
-    await localDb.markOutboxFailure(
-      item.id,
-      item.writeId,
-      error instanceof Error ? error.message : String(error),
-    ).catch(() => {})
-    return { status: 'retry' }
-  }
+  return await replayTodoOutboxItemWithRuntime(item, siblings, {
+    tasks: () => useTodos.getState().tasks,
+    timedRowIds: () => timedRowIds(useTodos.getState()),
+    storeServerTask,
+    removeServerTask,
+    advanceTodoDependents,
+    resolveTodoReplayConflict,
+    refreshServerRows,
+    cachedDependPartners,
+    dependsIds,
+    paintTimedRow,
+    toastError,
+  })
 }
 
-type ListingParams = Parameters<typeof api.todos.list>[0]
+type ListingParams = NonNullable<Parameters<typeof api.todos.list>[0]>
 
 /** Whether this document already knows it has no network; the API's own failures are handled live. */
 function offlineNow(): boolean {
@@ -1031,11 +907,6 @@ function optimisticTask(id: string, input: TaskDraft): TodoTask {
   }
 }
 
-/** The views whose page can take a task this tab never asked for: an open listing, not a date window. */
-function acceptsNewTasks(view: TodosState['view']): boolean {
-  return view === 'board' || view === 'list' || view === 'tag'
-}
-
 /** The optimistic row a create/edit shows, re-implemented for the queue because the server answered nothing. */
 function storeOptimisticTask(task: TodoTask, replaceId?: string): void {
   storeServerTask(task, { addIfMissing: true, ...(replaceId ? { replaceId } : {}) })
@@ -1170,10 +1041,12 @@ async function logTimeSpan(id: string, ms: number): Promise<void> {
 /**
  * Fold a server delta into the listing every tab holds.
  *
- * Rows already on screen are replaced in place, a row that changed bucket moves, and deleted ids
- * leave both lists. A task the current filter never asked for is not pasted into it — except on the
- * open listings, where a task created on another device is exactly what the board is for. Counts move
- * by the same one-for-one arithmetic; the next refresh still owns the authoritative aggregate.
+ * Existing rows are the delta's default business: they are replaced without widening the page. A row
+ * this store has never seen joins the current listing only when it matches the same parameters that
+ * produced that listing; a non-matching new row means the page may now be incomplete, so it is read
+ * again. `fetched` moves with `total` for rows entering or leaving the active listing, including rows
+ * hidden by the client-only tag exclusion, so the next offset and the remaining count describe one
+ * answer rather than two.
  */
 export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] }): void {
   const deleted = new Set(payload.deleted)
@@ -1186,45 +1059,134 @@ export function applyTodoSync(payload: { todos: TodoTask[]; deleted: string[] })
   const known = new Set(before.lists.map((entry) => entry.id))
   const unknownList = payload.todos.some((task) => task.listId !== null && !known.has(task.listId))
     && before.directoryKnown
-  useTodos.setState((state) => {
-    let tasks = state.tasks.filter((entry) => !deleted.has(entry.id))
-    let completed = state.completed.filter((entry) => !deleted.has(entry.id))
-    let total = state.total - (state.tasks.length - tasks.length)
-    let completedTotal = state.completedTotal - (state.completed.length - completed.length)
-    for (const task of payload.todos) {
-      if (deleted.has(task.id)) continue
-      const inTasks = tasks.some((entry) => entry.id === task.id)
-      const inCompleted = completed.some((entry) => entry.id === task.id)
-      if (inFinishedPage(task.status)) {
-        if (inTasks) {
-          tasks = tasks.filter((entry) => entry.id !== task.id)
-          total -= 1
-        }
-        if (inCompleted) completed = completed.map((entry) => (entry.id === task.id ? task : entry))
-        else if (state.view === 'completed') {
-          completed = [task, ...completed]
-          completedTotal += 1
-        }
-      } else {
-        if (inCompleted) {
-          completed = completed.filter((entry) => entry.id !== task.id)
-          completedTotal -= 1
-        }
-        if (inTasks) tasks = tasks.map((entry) => (entry.id === task.id ? task : entry))
-        else if (acceptsNewTasks(state.view)) {
-          tasks = [task, ...tasks]
-          total += 1
-        }
-      }
-    }
-    return {
-      tasks,
-      completed,
-      total: Math.max(0, total),
-      completedTotal: Math.max(0, completedTotal),
-    }
+  const merged = mergeTodoSync(before, payload.todos, deleted)
+  useTodos.setState({
+    tasks: merged.tasks,
+    completed: merged.completed,
+    total: merged.total,
+    completedTotal: merged.completedTotal,
+    fetched: merged.fetched,
   })
-  if (unknownList) void useTodos.getState().load()
+  if (unknownList || merged.reload) void useTodos.getState().load()
+  // The badges and "today" are the server's aggregate, and the delta above moves the rows without
+  // moving them: another device's tick leaves the sidebar a step behind until the next listing is
+  // asked for. The counts now have a door of their own, so the refresh is one cheap read — throttled,
+  // because a stream can deliver several deltas inside a second.
+  else scheduleCountsRefresh()
+}
+
+/** The row and count changes one delta makes, plus whether the active listing needs an authoritative read. */
+function mergeTodoSync(
+  state: TodosState,
+  todos: readonly TodoTask[],
+  deleted: ReadonlySet<string>,
+): Pick<TodosState, 'tasks' | 'completed' | 'total' | 'completedTotal' | 'fetched'> & { reload: boolean } {
+  const completedPage = isCompletedPage(state.view)
+  const params = listingParams(state)
+  const excluded = parseTodoFilter(state.query).excludedTags
+  let tasks = state.tasks.filter((entry) => !deleted.has(entry.id))
+  let completed = state.completed.filter((entry) => !deleted.has(entry.id))
+  let total = state.total - (state.tasks.length - tasks.length)
+  let completedTotal = state.completedTotal - (state.completed.length - completed.length)
+  let fetched = state.fetched
+  if (completedPage) {
+    const removed = state.completed.length - completed.length
+    completedTotal = Math.max(0, completedTotal)
+    fetched = Math.max(0, fetched - removed)
+  } else {
+    const removed = state.tasks.length - tasks.length
+    total = Math.max(0, total)
+    fetched = Math.max(0, fetched - removed)
+  }
+  let reload = false
+  for (const task of todos) {
+    if (deleted.has(task.id)) continue
+    const inTasks = tasks.some((entry) => entry.id === task.id)
+    const inCompleted = completed.some((entry) => entry.id === task.id)
+    const inActive = completedPage ? inCompleted : inTasks
+    const matches = matchesListingParams(task, state, params)
+    const visible = matches && withoutExcludedTags([task], excluded).length > 0
+    if (inActive) {
+      if (!matches) {
+        if (completedPage) {
+          completed = completed.filter((entry) => entry.id !== task.id)
+          completedTotal = Math.max(0, completedTotal - 1)
+        } else {
+          tasks = tasks.filter((entry) => entry.id !== task.id)
+          total = Math.max(0, total - 1)
+        }
+        fetched = Math.max(0, fetched - 1)
+        reload = true
+      } else if (!visible) {
+        // The route still counts this row; only the client-only `-tag:` line hides it. Keep the
+        // server's total and offset unchanged while taking it out of the visible page.
+        if (completedPage) completed = completed.filter((entry) => entry.id !== task.id)
+        else tasks = tasks.filter((entry) => entry.id !== task.id)
+      } else if (completedPage) {
+        completed = completed.map((entry) => (entry.id === task.id ? task : entry))
+      } else {
+        tasks = tasks.map((entry) => (entry.id === task.id ? task : entry))
+      }
+      continue
+    }
+    if (inTasks || inCompleted) {
+      if (!matches) {
+        // It is already cached in the other bucket, so replace that copy without inserting anything
+        // into the listing on screen.
+        if (inTasks) tasks = tasks.map((entry) => (entry.id === task.id ? task : entry))
+        if (inCompleted) completed = completed.map((entry) => (entry.id === task.id ? task : entry))
+        continue
+      }
+      if (excluded.length) {
+        // Hidden rows are not kept in `tasks`, so the store cannot tell whether this cached row was
+        // already among the active page's fetched offsets. Re-read instead of counting it twice.
+        if (inTasks) tasks = tasks.map((entry) => (entry.id === task.id ? task : entry))
+        if (inCompleted) completed = completed.map((entry) => (entry.id === task.id ? task : entry))
+        reload = true
+        continue
+      }
+      // A cached row that now belongs to the active listing moves across rather than being duplicated.
+      if (inTasks) {
+        tasks = tasks.filter((entry) => entry.id !== task.id)
+        total = Math.max(0, total - 1)
+      }
+      if (inCompleted) {
+        completed = completed.filter((entry) => entry.id !== task.id)
+        completedTotal = Math.max(0, completedTotal - 1)
+      }
+      if (completedPage) completedTotal += 1
+      else total += 1
+      fetched += 1
+      if (visible) {
+        if (completedPage) completed = [task, ...completed]
+        else tasks = [task, ...tasks]
+      }
+      continue
+    }
+    if (!matches || excluded.length) {
+      reload = true
+      continue
+    }
+    if (completedPage) completedTotal += 1
+    else total += 1
+    fetched += 1
+    if (visible) {
+      if (completedPage) completed = [task, ...completed]
+      else tasks = [task, ...tasks]
+    }
+  }
+  return { tasks, completed, total, completedTotal, fetched, reload }
+}
+
+/** How often a stream delta may re-read the counts; several can land inside a second. */
+const COUNTS_REFRESH_INTERVAL_MS = 5_000
+let countsRefreshAt = 0
+
+function scheduleCountsRefresh(): void {
+  const now = Date.now()
+  if (now < countsRefreshAt) return
+  countsRefreshAt = now + COUNTS_REFRESH_INTERVAL_MS
+  void useTodos.getState().refreshCounts()
 }
 
 /**
@@ -1299,6 +1261,11 @@ function listingParams(
   return params
 }
 
+/** The identity of one listing, independent of which page of it is being read. */
+function listingKey(state: Parameters<typeof listingParams>[0]): string {
+  return JSON.stringify({ view: state.view, params: listingParams(state) })
+}
+
 /** The id a list or tag name from the line points at, or null when the account has no such row. */
 function knownId(rows: readonly { id: string; name: string }[], value: string): string | null {
   const wanted = value.trim().toLowerCase()
@@ -1317,6 +1284,86 @@ function earlierBound(a: string | null, b: string | null): string | null {
   if (!a) return b
   if (!b) return a
   return a < b ? a : b
+}
+
+/** The end of the coming week in the account zone, matching the route's calendar-day window. */
+function upcomingBoundary(dayEnd: number, timeZone: string): number {
+  const parts = getZonedParts(new Date(dayEnd), timeZone)
+  const target = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + UPCOMING_DAYS))
+  return zonedTimeToUtc(
+    target.getUTCFullYear(), target.getUTCMonth() + 1, target.getUTCDate(), 0, 0, timeZone,
+  ).getTime()
+}
+
+/** Whether a row satisfies the server-side view clause of the current listing. */
+function matchesTaskView(task: TodoTask, state: TodosState, view: string | undefined): boolean {
+  switch (view) {
+    case 'open':
+      return isTaskOpen(task.status)
+    case 'today': {
+      if (!isTaskOpen(task.status)) return false
+      const dayEnd = state.dayEnd || localDayBounds(state.timezone).end
+      const today = localDate(new Date(dayEnd - 1), state.timezone)
+      return (task.dueAt !== null && task.dueAt < dayEnd)
+        || (task.dueAt === null && task.status === 'in_progress')
+        || task.plannedFor === today
+    }
+    case 'upcoming': {
+      if (!isTaskOpen(task.status) || task.dueAt === null) return false
+      const dayEnd = state.dayEnd || localDayBounds(state.timezone).end
+      return task.dueAt >= dayEnd && task.dueAt < upcomingBoundary(dayEnd, state.timezone)
+    }
+    case 'starred':
+      return isTaskOpen(task.status) && task.starred
+    case 'completed':
+      return !isTaskOpen(task.status)
+    default:
+      return true
+  }
+}
+
+/**
+ * Whether a server row belongs to the listing currently on screen.
+ *
+ * This is the client-side gate for sync rows, not a second listing implementation: the route still
+ * chooses and orders every page. It reuses the exact parameters sent to that route so a delta from
+ * another list, tag, search or date window cannot be pasted into a page that never asked for it.
+ */
+function matchesListingParams(task: TodoTask, state: TodosState, params: ListingParams): boolean {
+  if (readsOwnRows(state.view) || task.deletedAt != null || task.archivedAt != null) return false
+  if (!matchesTaskView(task, state, params.view)) return false
+  if (params.status && !params.status.split(',').includes(task.status)) return false
+  if (params.list === 'none') {
+    if (task.listId !== null) return false
+  } else if (params.list) {
+    const inSubtree = params.scope === 'subtree' && state.lists.some((list) =>
+      list.parentId === params.list && list.id === task.listId)
+    if (task.listId !== params.list && !inSubtree) return false
+  }
+  if (params.tag && !task.tags.some((tag) => tag.id === params.tag)) return false
+  if (params.priority && task.priority !== params.priority) return false
+  if (params.starred === '1' && !task.starred) return false
+  if (params.dueFrom || params.dueTo) {
+    if (task.dueAt === null) return false
+    const from = params.dueFrom ? parseLocalTime(params.dueFrom, state.timezone) : null
+    const to = params.dueTo ? parseLocalTime(params.dueTo, state.timezone) : null
+    if (params.dueFrom && from === null) return false
+    if (params.dueTo && to === null) return false
+    if (from !== null && task.dueAt < from) return false
+    if (to !== null && task.dueAt >= to) return false
+  }
+  if (params.completedFrom || params.completedTo) {
+    if (task.completedAt === null) return false
+    const day = localDate(task.completedAt, state.timezone)
+    if (params.completedFrom && day < params.completedFrom) return false
+    if (params.completedTo && day >= params.completedTo) return false
+  }
+  if (params.q) {
+    const wanted = params.q.toLowerCase()
+    const searchable = [task.title, task.description, ...task.tags.map((tag) => tag.name)]
+    if (!searchable.some((value) => value.toLowerCase().includes(wanted))) return false
+  }
+  return true
 }
 
 /**
@@ -1376,6 +1423,8 @@ export function remainingCount(state: TodoPageInfo): number {
  * answer to come back is not necessarily the one that was asked for last.
  */
 let listingSeq = 0
+/** The next-page request in flight; a new first page invalidates it just as a new view does. */
+let loadMoreSeq = 0
 /** The statistics read in flight: a range the reader moved off must not land on the next one. */
 let statsSeq = 0
 let searchTimer: ReturnType<typeof setTimeout> | null = null
@@ -1422,6 +1471,10 @@ export const useTodos = create<TodosState>((set, get) => ({
   statsTo: initialAddress.statsTo ?? null,
   statsBucket: initialAddress.statsBucket ?? null,
 
+  timelineFrom: initialAddress.timelineFrom ?? null,
+  timelineTo: initialAddress.timelineTo ?? null,
+  timelineScale: initialAddress.timelineScale ?? null,
+
   selectedId: null,
   selectedIds: new Set<string>(),
   editorOpen: false,
@@ -1431,8 +1484,16 @@ export const useTodos = create<TodosState>((set, get) => ({
   listEditor: { open: false, list: null },
 
   load: async () => {
-    if (get().status === 'idle') set({ status: 'loading' })
+    // A retry after a failure has to look like the first attempt, or the error stays on screen while
+    // the new read is in flight. A page that already has its listing keeps it: a refresh is not a
+    // reason to blank what the reader is looking at.
+    const current = get().status
+    if (current === 'idle' || current === 'error') set({ status: 'loading' })
     const seq = ++listingSeq
+    // A first page supersedes any next-page request, including the spinner that belongs to it.
+    ++loadMoreSeq
+    set({ loadingMore: false })
+    let key = listingKey(get())
     try {
       // A line that names a list or tag needs the directory before its id can be built. On a cold load
       // nothing is cached yet, so it is read first; the listing's own reads keep it current afterwards.
@@ -1443,15 +1504,18 @@ export const useTodos = create<TodosState>((set, get) => ({
         directory = { lists: lists.lists, tags: tags.tags }
         set({ ...directory, directoryKnown: true })
       }
-      const params = listingParams(get())
-      const excluded = parseTodoFilter(get().query).excludedTags
+      const requestState = get()
+      const params = listingParams(requestState)
+      key = listingKey(requestState)
+      const excluded = parseTodoFilter(requestState.query).excludedTags
       const [page, lists, tags] = await Promise.all([
         api.todos.list(params),
         directory ? Promise.resolve({ lists: directory.lists }) : api.todos.lists(),
         directory ? Promise.resolve({ tags: directory.tags }) : api.todos.tags(),
       ])
-      // A reader who moved on while this was in flight must not be shown the screen they left.
-      if (seq !== listingSeq) return
+      // A reader who moved on while this was in flight must not be shown the screen they left. The
+      // key also catches a filter change made during the search debounce, before its new load starts.
+      if (seq !== listingSeq || key !== listingKey(get())) return
       const visible = withoutExcludedTags(page.tasks, excluded)
       const shared = {
         counts: page.counts,
@@ -1472,7 +1536,7 @@ export const useTodos = create<TodosState>((set, get) => ({
         ? { ...shared, completed: visible, completedTotal: page.total }
         : { ...shared, tasks: visible, total: page.total })
     } catch (error) {
-      if (seq !== listingSeq) return
+      if (seq !== listingSeq || key !== listingKey(get())) return
       set({ status: 'error', error: error instanceof Error ? error.message : String(error) })
       toastError(error)
     }
@@ -1483,17 +1547,28 @@ export const useTodos = create<TodosState>((set, get) => ({
     const completed = isCompletedPage(state.view)
     const total = completed ? state.completedTotal : state.total
     if (state.loadingMore || state.fetched >= total) return
+    const listing = listingSeq
+    const seq = ++loadMoreSeq
+    const key = listingKey(state)
     set({ loadingMore: true })
     try {
       const page = await api.todos.list(listingParams(state, state.fetched))
-      const visible = withoutExcludedTags(page.tasks, parseTodoFilter(state.query).excludedTags)
-      // Appended, not replaced: the rows already on screen were read for the same filter, and swapping
-      // them out would move what the reader is in the middle of looking at.
-      if (completed) set({ completed: [...state.completed, ...visible], completedTotal: page.total, fetched: state.fetched + page.tasks.length, loadingMore: false })
-      else set({ tasks: [...state.tasks, ...visible], total: page.total, fetched: state.fetched + page.tasks.length, loadingMore: false })
+      // The page belongs to the filter and first-page generation that asked for it. A view change,
+      // a debounced filter change, or a newer first page makes this answer stale in its entirety.
+      if (seq !== loadMoreSeq || listing !== listingSeq || key !== listingKey(get())) return
+      const current = get()
+      const visible = withoutExcludedTags(page.tasks, parseTodoFilter(current.query).excludedTags)
+      const fetched = current.fetched + page.tasks.length
+      // Appended to the current rows, not the snapshot captured before the request: a delta may have
+      // replaced a row while this page was in flight, and that newer server truth must not be lost.
+      if (completed) set({ completed: [...current.completed, ...visible], completedTotal: page.total, fetched })
+      else set({ tasks: [...current.tasks, ...visible], total: page.total, fetched })
     } catch (error) {
-      set({ loadingMore: false })
+      if (seq !== loadMoreSeq || listing !== listingSeq || key !== listingKey(get())) return
       toastError(error)
+    } finally {
+      // A newer first page owns the spinner now; otherwise this request is the one that must release it.
+      if (seq === loadMoreSeq) set({ loadingMore: false })
     }
   },
 
@@ -1545,6 +1620,9 @@ export const useTodos = create<TodosState>((set, get) => ({
       // screen: it starts over at "all years". A back button or a reload restores one from the address
       // through `syncFromAddress`, which writes the state directly rather than coming through here.
       ...(view === 'completed' ? { completedFrom: null, completedTo: null } : {}),
+      // A timeline opened from navigation starts at the current week; an address or back button restores
+      // a named window through `syncFromAddress` instead of coming through this reset.
+      ...(view === 'timeline' ? { timelineFrom: null, timelineTo: null, timelineScale: null } : {}),
     })
     // Opening a view is a move the reader made on purpose, so it gets a history entry: the back button
     // walks the views they stood in instead of dumping them on the board.
@@ -1645,6 +1723,12 @@ export const useTodos = create<TodosState>((set, get) => ({
     void get().loadStats()
   },
 
+  setTimelineRange: (range) => {
+    if (get().timelineFrom === range.from && get().timelineTo === range.to && get().timelineScale === range.scale) return
+    set({ timelineFrom: range.from, timelineTo: range.to, timelineScale: range.scale })
+    pushTodoAddress(viewSelection(get()))
+  },
+
   syncFromAddress: () => {
     const address = readTodoAddress()
     const state = get()
@@ -1653,12 +1737,16 @@ export const useTodos = create<TodosState>((set, get) => ({
     const statsFrom = address.statsFrom ?? null
     const statsTo = address.statsTo ?? null
     const statsBucket = address.statsBucket ?? null
+    const timelineFrom = address.timelineFrom ?? null
+    const timelineTo = address.timelineTo ?? null
+    const timelineScale = address.timelineScale ?? null
     if (
       address.view !== state.view || address.listId !== state.listId || address.tagId !== state.tagId
       || address.query !== state.query || address.sort !== state.sort
       || address.dueFrom !== state.dueFrom || address.dueTo !== state.dueTo
       || completedFrom !== state.completedFrom || completedTo !== state.completedTo
       || statsFrom !== state.statsFrom || statsTo !== state.statsTo || statsBucket !== state.statsBucket
+      || timelineFrom !== state.timelineFrom || timelineTo !== state.timelineTo || timelineScale !== state.timelineScale
     ) {
       set({
         view: address.view,
@@ -1673,6 +1761,9 @@ export const useTodos = create<TodosState>((set, get) => ({
         statsFrom,
         statsTo,
         statsBucket,
+        timelineFrom,
+        timelineTo,
+        timelineScale,
         // The back button moved the reader to another listing, so the rows picked on the old one are no
         // longer the rows on screen.
         selectedIds: new Set<string>(),
@@ -1897,7 +1988,23 @@ export const useTodos = create<TodosState>((set, get) => ({
   },
 
   toggleTask: async (task) => {
-    await get().updateTask(task.id, { status: toggledStatus(task.status) })
+    const nextStatus = toggledStatus(task.status)
+    if (isTaskDone(nextStatus)) {
+      const children = get().tasks.filter((entry) => entry.parentId === task.id && isTaskOpen(entry.status))
+      if (children.length) {
+        const { confirm } = await import('../../components/overlay')
+        const completeChildren = await confirm({
+          title: t('todo.parent.complete_title'),
+          description: t('todo.parent.complete_description', { count: children.length }),
+          confirmLabel: t('todo.parent.complete_children'),
+          cancelLabel: t('todo.parent.complete_only'),
+        })
+        if (completeChildren) {
+          for (const child of children) await get().updateTask(child.id, { status: 'done' }, child.rev)
+        }
+      }
+    }
+    await get().updateTask(task.id, { status: nextStatus })
   },
 
   toggleTaskCollapsed: (id) => set((state) => ({
@@ -2019,12 +2126,18 @@ export const useTodos = create<TodosState>((set, get) => ({
         // the undo has to hand back are read out of it rather than assumed.
         const deleted = result.done.map((entry) => entry.id)
         offerUndo(set, get, t('todo.toast.batch_deleted', { count: deleted.length }), async () => {
-          for (const id of deleted) {
-            try {
-              await api.todos.restore(id)
-            } catch (error) {
-              throw new Error(`A deleted task could not be restored: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
-            }
+          // Every id is asked for at once, and the answers are counted rather than thrown away: the
+          // restore door is one row at a time, so a loop that stopped at the first failure left the
+          // rest in the trash with a single toast that named none of them. What a partial undo owes
+          // the reader is the count of what came back and what did not.
+          const outcomes = await Promise.allSettled(deleted.map((id) => api.todos.restore(id)))
+          const restored = outcomes.filter((outcome) => outcome.status === 'fulfilled').length
+          const failed = outcomes.length - restored
+          if (failed > 0) {
+            useUi.getState().toast({
+              title: t('todo.toast.restore_partial', { restored, failed }),
+              tone: 'danger',
+            })
           }
           await get().load()
         })
@@ -2227,23 +2340,17 @@ export const useTodos = create<TodosState>((set, get) => ({
    * The picker's search: open tasks whose title (or note, or tag) says what the reader typed.
    *
    * A read on its own, not the page's listing: the picker is looking across the whole shelf while the
-   * page behind it stays scoped to today. A failure is reported through the same toast every other
-   * failed read uses and answers with nothing, so the field stays usable rather than throwing inside
-   * an effect.
+   * page behind it stays scoped to today. A failure is thrown to the caller rather than toasted here,
+   * because the picker has to tell a failed search from one that found nothing.
    */
   searchTasks: async (query) => {
     const text = query.trim()
     if (!text) return []
-    try {
-      // The shelf is read from both sides here, and this is the surface that makes a put-away task
-      // findable again: every listing hides it, so a search that hid it too would tell the reader the
-      // work never existed. The hit still names which side it came from, so nothing downstream guesses.
-      const page = await api.todos.list({ view: 'open', q: text, limit: PICKER_LIMIT, archived: 'any' })
-      return page.tasks
-    } catch (error) {
-      toastError(error)
-      return []
-    }
+    // The shelf is read from both sides here, and this is the surface that makes a put-away task
+    // findable again: every listing hides it, so a search that hid it too would tell the reader the
+    // work never existed. The hit still names which side it came from, so nothing downstream guesses.
+    const page = await api.todos.list({ view: 'open', q: text, limit: PICKER_LIMIT, archived: 'any' })
+    return page.tasks
   },
 
   createList: async (input) => {

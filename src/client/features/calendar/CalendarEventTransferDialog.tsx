@@ -12,6 +12,7 @@ import { useUi } from '../../store/ui'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
 import { Field, Select } from '../../components/form'
+import { ApiError } from '../../lib/api'
 import * as api from './api'
 
 interface CalendarEventTransferDialogProps {
@@ -37,6 +38,7 @@ export function CalendarEventTransferDialog({
 }: CalendarEventTransferDialogProps) {
   const current = new Set(event.calendarIds)
   const targets = calendars.filter(calendar => !calendar.readOnly && (mode === 'copy' || !current.has(calendar.id)))
+  const targetSignature = targets.map(calendar => calendar.id).join('\u0000')
   const [targetId, setTargetId] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -46,7 +48,7 @@ export function CalendarEventTransferDialog({
     setTargetId(targets[0]?.id ?? '')
     setSaving(false)
     setError(null)
-  }, [open, mode, event.id, calendars])
+  }, [open, mode, event.id, targetSignature])
 
   const submit = async (): Promise<void> => {
     if (!targetId) {
@@ -57,20 +59,28 @@ export function CalendarEventTransferDialog({
     setError(null)
     try {
       if (mode === 'move') {
-        const updated = await api.updateEventCalendars(event.id, [targetId], event.rev)
-        void updated
+        await api.updateEventCalendars(event.id, [targetId], event.rev)
         useUi.getState().toast({ title: t('calendar.event.moved'), tone: 'success' })
       } else {
-        const created = await api.createEvent({
-          ...event,
-          id: crypto.randomUUID(),
-          title: t('calendar.event.copy_of', { title: event.title }),
-          calendarId: targetId,
-          calendarIds: [targetId],
-          rev: undefined,
-          source: undefined,
-          externalId: null,
-        })
+        const copyId = `copy:${event.id}:${targetId}`
+        let created: CalendarEventDto
+        try {
+          created = await api.createEvent({
+            ...event,
+            id: copyId,
+            title: t('calendar.event.copy_of', { title: event.title }),
+            calendarId: targetId,
+            calendarIds: [targetId],
+            rev: undefined,
+            source: undefined,
+            externalId: null,
+          })
+        } catch (createError) {
+          if (!(createError instanceof ApiError) || createError.status !== 409) throw createError
+          const existing = await api.getEvent(copyId)
+          if (!existing) throw createError
+          created = existing
+        }
         let rev = created.rev
         if (reminders.length > 0) {
           rev = (await api.setEventReminders(created.id, [...reminders], rev)).event.rev

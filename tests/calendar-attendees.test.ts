@@ -7,6 +7,7 @@ import type { CalendarDto, CalendarEventDto } from '../src/shared/calendar/model
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { CalendarStore } from '../src/worker/calendar/store'
+import { parseEventInput, parseEventPatch } from '../src/worker/calendar/validation'
 import { calendarRoutes } from '../src/worker/routes/calendar'
 import type { AppBindings } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -70,6 +71,83 @@ beforeEach(async () => {
 })
 
 describe('the guest list', () => {
+  it('strips legacy meta attendees at the public input boundary', async () => {
+    const event = await createEvent({
+      meta: { location: 'Room', attendees: [{ email: 'legacy@example.com', name: 'Legacy' }] },
+    })
+    expect(event.meta).toEqual({ location: 'Room' })
+    expect(await store().eventAttendees(event.id)).toEqual([])
+
+    const patch = parseEventPatch({
+      rev: event.rev,
+      meta: { attendees: [{ email: 'patch@example.com' }], location: 'New room' },
+    }, { defaultTimeZone: 'UTC' })
+    expect(patch.meta).toEqual({ location: 'New room' })
+    expect(patch.attendees).toBeUndefined()
+  })
+
+  it('creates and updates top-level attendees atomically without storing meta copies', async () => {
+    const event = await createEvent({
+      attendees: [
+        { email: ' Kim@Example.com ', name: 'Kim', status: 'accepted' },
+        { email: 'kim@example.com', name: 'duplicate', status: 'declined' },
+      ],
+      meta: { attendees: [{ email: 'ignored@example.com' }] },
+    })
+    expect(await store().eventAttendees(event.id)).toEqual([
+      { email: 'kim@example.com', name: 'Kim', status: 'accepted' },
+    ])
+    expect(event.meta).toEqual({})
+
+    const updated = await store().updateEvent(event.id, {
+      rev: event.rev,
+      attendees: [{ email: 'lee@example.com', name: 'Lee', status: 'tentative' }],
+    })
+    expect(updated.meta).toEqual({})
+    expect(await store().eventAttendees(event.id)).toEqual([
+      { email: 'lee@example.com', name: 'Lee', status: 'tentative' },
+    ])
+  })
+
+  it('preserves guests on an upsert that does not edit them and clears an explicit empty list', async () => {
+    const event = await createEvent({
+      attendees: [{ email: 'kim@example.com', name: 'Kim', status: 'accepted' }],
+    })
+    const changed = parseEventInput({
+      id: event.id,
+      rev: event.rev,
+      title: 'Changed without guest edit',
+      start: event.start,
+      end: event.end,
+      calendarIds: [calendar.id],
+    }, { defaultTimeZone: 'UTC' })
+    await store().createEvents([changed], 'upsert')
+    expect(await store().eventAttendees(event.id)).toEqual([
+      { email: 'kim@example.com', name: 'Kim', status: 'accepted' },
+    ])
+
+    const cleared = parseEventInput({
+      id: event.id,
+      rev: event.rev + 1,
+      title: 'Changed with guest edit',
+      start: event.start,
+      end: event.end,
+      calendarIds: [calendar.id],
+      attendees: [],
+    }, { defaultTimeZone: 'UTC' })
+    await store().createEvents([cleared], 'upsert')
+    expect(await store().eventAttendees(event.id)).toEqual([])
+  })
+
+  it('clears legacy meta when the dedicated guest write empties the table', async () => {
+    const event = await createEvent()
+    sqlite.prepare('UPDATE calendar_events SET meta_json = ? WHERE user_id = ? AND id = ?')
+      .run(JSON.stringify({ attendees: [{ email: 'old@example.com' }], location: 'Room' }), ALICE, event.id)
+    const answer = await store().setEventAttendees(event.id, [], event.rev)
+    expect(answer.event.meta).toEqual({ location: 'Room' })
+    expect(await store().eventAttendees(event.id)).toEqual([])
+  })
+
   it('replaces the whole list and reads it back in order', async () => {
     const event = await createEvent()
 
@@ -106,19 +184,16 @@ describe('the guest list', () => {
 
   it('keeps a read-only calendar read-only', async () => {
     const readOnly = await store().createCalendar({ name: 'Feed', color: '#112233', readOnly: true })
-    // Only a provider sync may write into a read-only calendar, and it goes through the batch route.
-    const synced = await json<{ events: CalendarEventDto[] }>(await call('POST', '/events/batch', {
-      mode: 'create',
-      events: [{
-        title: 'Kickoff',
-        start: { value: '2026-11-02T09:00:00', type: 'datetime' },
-        end: { value: '2026-11-02T10:00:00', type: 'datetime' },
-        calendarId: readOnly.id,
-        source: 'caldav',
-        externalId: 'ext-1',
-      }],
-    }))
-    const event = synced.events[0]!
+    // Provider identity is accepted only by the internal sync/import path, never the public batch API.
+    const created = await store().createEvents([parseEventInput({
+      title: 'Kickoff',
+      start: { value: '2026-11-02T09:00:00', type: 'datetime' },
+      end: { value: '2026-11-02T10:00:00', type: 'datetime' },
+      calendarIds: [readOnly.id],
+      source: 'caldav',
+      externalId: 'ext-1',
+    }, { defaultTimeZone: 'UTC' })], 'create')
+    const event = created[0]!
 
     await expect(store().setEventAttendees(event.id, [
       { email: 'kim@example.com', name: '', status: 'accepted' },
@@ -140,6 +215,42 @@ describe('the guest list', () => {
     await store().setEventAttendees(other.id, [{ email: 'lee@example.com', name: '', status: 'accepted' }], other.rev)
     await store().deleteCalendar(calendar.id, { mode: 'delete' })
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM calendar_event_attendees').get()).toEqual({ n: 0 })
+  })
+  it('copies table guests to a recurrence exception and a following series', async () => {
+    const event = await createEvent({
+      recurrenceRule: 'FREQ=DAILY;COUNT=4',
+      attendees: [{ email: 'guest@example.com', name: 'Guest', status: 'accepted' }],
+    })
+    await store().applyRecurrenceChange(event.id, {
+      rev: event.rev,
+      occurrenceStart: { value: '2026-11-03T09:00:00', type: 'datetime' },
+      occurrenceEnd: { value: '2026-11-03T10:00:00', type: 'datetime' },
+      scope: 'this',
+      action: 'update',
+      patch: { rev: event.rev, title: 'Exception' },
+    })
+    const exception = (await store().listAllEvents()).find(row => row.recurrenceParentId === event.id)
+    expect(exception).toBeTruthy()
+    expect(await store().eventAttendees(exception!.id)).toEqual([
+      { email: 'guest@example.com', name: 'Guest', status: 'accepted' },
+    ])
+
+    const master = await store().getEvent(event.id)
+    expect(await store().eventAttendees(event.id)).toEqual([
+      { email: 'guest@example.com', name: 'Guest', status: 'accepted' },
+    ])
+    const split = await store().applyRecurrenceChange(event.id, {
+      rev: master!.rev,
+      occurrenceStart: { value: '2026-11-04T09:00:00', type: 'datetime' },
+      occurrenceEnd: { value: '2026-11-04T10:00:00', type: 'datetime' },
+      scope: 'following',
+      action: 'update',
+      patch: { rev: master!.rev, title: 'Following' },
+    })
+    expect(split.masterId).not.toBe(event.id)
+    expect(await store().eventAttendees(split.masterId!)).toEqual([
+      { email: 'guest@example.com', name: 'Guest', status: 'accepted' },
+    ])
   })
 })
 

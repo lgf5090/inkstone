@@ -11,17 +11,20 @@
  * `quick-parse.ts` gives a date typed into the quick-add bar). Nothing here repeats a 23:59 of its own.
  */
 
-import { ArrowDown, ArrowUp, CalendarDays, CalendarOff, Check, Flag, FolderInput, Grid2X2, Tag, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, CalendarDays, CalendarOff, Check, Flag, FolderInput, Grid2X2, Tag, Timer, Trash2 } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { addDaysKey } from '../../lib/time'
 import { localDate } from '@shared/assistant-time'
 import { DatePicker } from '../../components/date-picker'
-import { MenuSubmenuList, confirm, type MenuItem } from '../../components/overlay'
+import { MenuSubmenuList, confirm, prompt, type MenuItem } from '../../components/overlay'
+import { useUi } from '../../store/ui'
 import { dueValue, priorityLabel } from './todo-ui'
 import { snoozeLabel } from './store'
 import {
+  MAX_SNOOZE_MINUTES,
+  MIN_SNOOZE_MINUTES,
   SNOOZE_MINUTES,
-  type SnoozeMinutes,
+  snoozeMinutesOrNull,
   type TaskBatchOp,
   type TaskList,
   type TaskPriority,
@@ -91,7 +94,7 @@ export interface TaskMenuHandlers {
   onClose: () => void
   update: (patch: Record<string, unknown>) => void
   /** Left out for a task that has nothing left to be reminded about. */
-  snooze?: (minutes: SnoozeMinutes) => void
+  snooze?: (minutes: number) => void
   /** Left out everywhere but the matrix screen. */
   quadrant?: TaskQuadrantControls
 }
@@ -99,6 +102,54 @@ export interface TaskMenuHandlers {
 /** The day a quick row writes: the reader's own calendar day, moved by whole days. */
 function quickDueDay(handlers: Pick<TaskMenuHandlers, 'timezone' | 'now'>, days: number): string {
   return addDaysKey(localDate(handlers.now, handlers.timezone), days)
+}
+
+/**
+ * The durations a "remind me again" menu offers, in one place.
+ *
+ * Two surfaces ask the question — the card's menu and the notification that just arrived — and a
+ * reader should not find a shorter list on one of them. The four presets are the fast path; the fifth
+ * row takes a length nobody put on a menu, because "in 45 minutes" is a real answer to a reminder that
+ * came at the wrong moment, and refusing it would be the menu deciding for the reader. The dialog is
+ * the shared `prompt`, so this is not a second kind of prompt, and the range is the route's own pair of
+ * constants rather than a second opinion about what a snooze may be.
+ */
+export function buildSnoozeMenuItems(pick: (minutes: number) => void): MenuItem[] {
+  return [
+    ...SNOOZE_MINUTES.map((minutes) => ({
+      id: `snooze-${minutes}`,
+      label: snoozeLabel(minutes),
+      onSelect: () => pick(minutes),
+    })),
+    {
+      id: 'snooze-custom',
+      label: t('todo.snooze.custom'),
+      icon: <Timer size={13} />,
+      // No divider of its own: the presets and the typed length are one group of answers to one
+      // question, and this repository draws a line between groups rather than between rows.
+      onSelect: () => {
+        void prompt({
+          title: t('todo.snooze.custom'),
+          description: t('todo.snooze.custom_hint', { min: MIN_SNOOZE_MINUTES, max: MAX_SNOOZE_MINUTES }),
+          defaultValue: '45',
+          confirmLabel: t('todo.snooze.custom_confirm'),
+        }).then((answer) => {
+          // A closed dialog answers null, which is a cancel rather than a bad number: only a typed
+          // value is judged, and one outside the range says so through a toast instead of writing.
+          if (answer === null) return
+          const minutes = snoozeMinutesOrNull(Number(answer.trim()))
+          if (minutes === null) {
+            useUi.getState().toast({
+              title: t('todo.snooze.custom_invalid', { min: MIN_SNOOZE_MINUTES, max: MAX_SNOOZE_MINUTES }),
+              tone: 'danger',
+            })
+            return
+          }
+          pick(minutes)
+        })
+      },
+    },
+  ]
 }
 
 /**
@@ -126,7 +177,8 @@ export function buildScheduleMenuItems(task: TodoTask, handlers: TaskMenuHandler
       <DatePicker
         className="w-64"
         label={t('todo.task.due_label')}
-        value={dueValue(task.dueAt, handlers.timezone)}
+        value={task.dueAllDay && task.dueOn ? task.dueOn : dueValue(task.dueAt, handlers.timezone)}
+        withTime={task.dueAllDay === false}
         onChange={(dateStr) => {
           closeMenu()
           handlers.update({ dueAt: dateStr || null })
@@ -347,16 +399,7 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
       ]
     : []
 
-  const snoozeItems: MenuItem[] = snooze
-    ? SNOOZE_MINUTES.map((minutes) => ({
-        id: `snooze-${minutes}`,
-        label: snoozeLabel(minutes),
-        onSelect: () => {
-          onClose()
-          snooze(minutes)
-        },
-      }))
-    : []
+  const snoozeItems: MenuItem[] = snooze ? buildSnoozeMenuItems(snooze) : []
 
   return joinMenuGroups([statusItems, priorityItems, quadrantItems, orderItems, listItems, snoozeItems])
 }

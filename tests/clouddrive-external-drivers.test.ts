@@ -482,6 +482,55 @@ describe('external writes', () => {
     expect(init.method).toBe('DELETE')
   })
 
+  it('applies rename and skip conflict policies before an external write', async () => {
+    const mount = await mountWith('webdav', { baseUrl: 'https://dav.example.com/dav', rootPath: 'root' }, { username: 'u', password: 'p' })
+    fetchMock.mockResolvedValueOnce(new Response(`<D:multistatus xmlns:D="DAV:">
+      <D:response><D:href>/dav/root/folder/a.txt</D:href><D:propstat><D:prop><D:getcontentlength>1</D:getcontentlength></D:prop></D:propstat></D:response>
+    </D:multistatus>`, { status: 207, headers: { 'content-type': 'application/xml' } }))
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 201 }))
+    const renamed = await writeExternalFile(env, db, mount, '/folder/a.txt', new TextEncoder().encode('new'), 'text/plain', 'rename')
+    expect(renamed.path).toBe('/folder/a (1).txt')
+    expect(callUrl(1)).toBe('https://dav.example.com/dav/root/folder/a%20(1).txt')
+
+    fetchMock.mockResolvedValueOnce(new Response(`<D:multistatus xmlns:D="DAV:">
+      <D:response><D:href>/dav/root/folder/a.txt</D:href><D:propstat><D:prop><D:getcontentlength>1</D:getcontentlength></D:prop></D:propstat></D:response>
+    </D:multistatus>`, { status: 207, headers: { 'content-type': 'application/xml' } }))
+    const skipped = await writeExternalFile(env, db, mount, '/folder/a.txt', new TextEncoder().encode('new'), 'text/plain', 'skip')
+    expect(skipped.skipped).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('rolls back copied S3 destination keys when a move copy fails', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', rootPath: 'root', pathStyle: true,
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    const objects = new Map<string, string>([
+      ['root/source/', ''], ['root/source/a.txt', 'a'], ['root/source/b.txt', 'b'],
+    ])
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      const key = decodeURIComponent(url.pathname.replace(/^\/bucket\//, ''))
+      if (!init?.method || init.method === 'GET') {
+        const children = [...objects.keys()].filter((one) => one.startsWith('root/source/'))
+        return new Response(`<ListBucketResult>${children.map((one) => `<Contents><Key>${one}</Key></Contents>`).join('')}</ListBucketResult>`)
+      }
+      if (init.method === 'PUT') {
+        const source = String(new Headers(init.headers).get('x-amz-copy-source') ?? '')
+        const from = decodeURIComponent(source.replace(/^\/bucket\//, ''))
+        if (key === 'root/target/b.txt') return new Response('copy failed', { status: 502 })
+        objects.set(key, objects.get(from) ?? '')
+        return new Response(null, { status: 200 })
+      }
+      if (init.method === 'DELETE') {
+        objects.delete(key)
+        return new Response(null, { status: 204 })
+      }
+      throw new Error(`unexpected ${init.method} ${key}`)
+    })
+    await expect(moveExternalPath(env, db, mount, '/source', '/target', 'rename')).rejects.toMatchObject({ code: 'clouddrive_mount_unavailable' })
+    expect([...objects.keys()].sort()).toEqual(['root/source/', 'root/source/a.txt', 'root/source/b.txt'])
+  })
+
   it('writes an object through S3', async () => {
     const mount = await mountWith('s3', {
       endpoint: 'https://s3.example.com', bucketName: 'bucket', rootPath: 'root', pathStyle: true,

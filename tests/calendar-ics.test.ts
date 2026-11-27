@@ -1,17 +1,18 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Temporal } from 'temporal-polyfill'
 import {
   IcsParseError,
   encodeIcsChunks,
+  expandRecurringEvents,
   icsCalendarChunks,
   icsExternalId,
   parseIcsCalendar,
   serializeIcsCalendar,
 } from '../src/worker/calendar/ics'
 import type { IcsParseInput } from '../src/worker/calendar/ics'
-import type { CalendarEventInput, TemporalValue } from '../src/shared/calendar/model'
+import type { CalendarEventDto, CalendarEventInput, TemporalValue } from '../src/shared/calendar/model'
 
 function fixture(name: string): string {
   return readFileSync(resolve(process.cwd(), 'tests/fixtures/calendar', name), 'utf8')
@@ -134,32 +135,40 @@ describe('parseIcsCalendar', () => {
     expect(event.meta?.recurrenceId).toBeUndefined()
   })
 
-  it('flattens EXDATE, RDATE and RECURRENCE-ID instances without duplicates', () => {
+  it('preserves a recurring master, EXDATE/RDATE and its override', () => {
     const result = parseFixture('exceptions.ics')
-    expect(result.events).toHaveLength(5)
+    expect(result.events).toHaveLength(2)
+    const master = byUid(result.events, 'daily-1@example.com')
+    const override = result.events.find(event => event.title === 'Moved standup')!
+    expect(master.recurrenceRule).toBe('FREQ=DAILY;COUNT=5')
+    expect(master.meta?.exdates).toHaveLength(2)
+    expect(master.meta?.rdates).toHaveLength(1)
+    expect(override.recurrenceRule).toBeNull()
+    expect((override.meta?.recurrenceId as TemporalValue).value).toBe('2025-02-06T10:00:00+00:00[UTC]')
+    expect(override.start.value).toBe('2025-02-06T12:00:00+00:00[UTC]')
+    expect(result.warnings.find(warning => warning.code === 'flattened')?.message)
+      .toContain('preserved without flattening')
+    const output = serializeIcsCalendar({ name: 'Exceptions', timeZone: 'UTC', events: result.events })
+    expect(output.match(/UID:daily-1@example\.com/g)).toHaveLength(2)
+    expect(output).toContain('RECURRENCE-ID:20250206T100000Z')
+    expect(parseIcsCalendar({ content: output, defaultTimeZone: 'UTC', maxEvents: 10 }).events).toHaveLength(2)
+  })
 
-    const starts = result.events.map((event) => event.start.value).sort()
-    expect(starts).toEqual([
-      '2025-02-03T10:00:00+00:00[UTC]',
-      '2025-02-05T10:00:00+00:00[UTC]',
-      '2025-02-06T12:00:00+00:00[UTC]',
-      '2025-02-07T10:00:00+00:00[UTC]',
-      '2025-02-10T10:00:00+00:00[UTC]',
-    ])
-
-    const recurrenceIds = result.events.map((event) => {
-      return (event.meta?.recurrenceId as TemporalValue | undefined)?.value
+  it('expands an old exception series in the current range', () => {
+    const result = parseIcsCalendar({
+      defaultTimeZone: 'UTC', maxEvents: 10,
+      content: [
+        'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Audit//EN', 'BEGIN:VEVENT', 'UID:old',
+        'DTSTART:20190107T090000Z', 'DTEND:20190107T100000Z', 'RRULE:FREQ=WEEKLY;BYDAY=MO',
+        'EXDATE:20261123T090000Z', 'SUMMARY:Old weekly', 'END:VEVENT', 'END:VCALENDAR', '',
+      ].join('\r\n'),
     })
-    expect(recurrenceIds.filter((value): value is string => Boolean(value))).toHaveLength(5)
-    expect(new Set(recurrenceIds).size).toBe(5)
-    expect(result.events.every((event) => event.recurrenceRule === null)).toBe(true)
-    expect(result.events.every((event) => event.meta?.recurrenceRule === undefined)).toBe(true)
-    expect(byUid(result.events, 'daily-1@example.com')).toBeDefined()
-    expect(result.events.find((event) => event.title === 'Moved standup')?.start.value)
-      .toBe('2025-02-06T12:00:00+00:00[UTC]')
-    expect(result.warnings.filter((warning) => warning.code === 'flattened')).toHaveLength(1)
-    expect(result.warnings.find((warning) => warning.code === 'flattened')?.message)
-      .toContain('5 independent occurrences')
+    const stored = result.events.map((event, index) => ({
+      ...event, id: event.id ?? `old-${index}`, calendarId: 'cal', calendarIds: ['cal'], rev: 1,
+      recurrenceParentId: null, recurrenceId: null, recurrenceCancelled: false, source: 'local' as const, externalId: null,
+    })) as CalendarEventDto[]
+    const expanded = expandRecurringEvents(stored, Date.parse('2026-11-23T00:00:00Z'), Date.parse('2026-12-01T00:00:00Z'), 'UTC')
+    expect(expanded.occurrences.map(event => event.start.value)).toEqual(['2026-11-30T09:00:00+00:00[UTC]'])
   })
 
   it('resolves a DST boundary in the event zone rather than in UTC', () => {
@@ -306,6 +315,111 @@ describe('serializeIcsCalendar', () => {
 })
 
 describe('recurrence expansion', () => {
+  function recurring(input: {
+    id?: string
+    start: CalendarEventDto['start']
+    end: CalendarEventDto['end']
+    rule?: string
+    allDay?: boolean
+  }): CalendarEventDto {
+    const rule = input.rule ?? 'FREQ=DAILY'
+    return {
+      id: input.id ?? 'series-1',
+      title: 'Recurring',
+      description: '',
+      kind: 'event',
+      task: null,
+      conference: null,
+      start: input.start,
+      end: input.end,
+      allDay: input.allDay ?? false,
+      calendarId: 'cal-1',
+      calendarIds: ['cal-1'],
+      meta: { recurrenceRule: rule },
+      icon: null,
+      color: null,
+      recurrenceRule: rule,
+      recurrenceParentId: null,
+      recurrenceId: null,
+      recurrenceCancelled: false,
+      rev: 1,
+      source: 'local',
+      externalId: null,
+    }
+  }
+
+  it('diagnoses a stored occurrence that cannot be expanded instead of silently dropping it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const event = recurring({
+      start: { value: 'not-a-date', type: 'date' },
+      end: { value: 'not-a-date', type: 'date' },
+    })
+
+    expect(expandRecurringEvents([event], Date.parse('2026-10-01T00:00:00Z'), Date.parse('2026-11-01T00:00:00Z'), 'UTC'))
+      .toEqual({ occurrences: [], truncated: false })
+    expect(warn.mock.calls.some(([message, eventId, stage]) =>
+      message === '[inkstone] calendar recurrence expansion failed:' && eventId === event.id && stage === 'setup')).toBe(true)
+    warn.mockRestore()
+  })
+
+  it('includes occurrences that begin before the range but overlap it', () => {
+    const event = recurring({
+      start: { value: '2026-10-01T00:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+      end: { value: '2026-10-04T00:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+    })
+    const result = expandRecurringEvents([event], Date.parse('2026-10-02T00:00:00Z'), Date.parse('2026-10-03T23:59:59Z'), 'UTC')
+
+    expect(result.occurrences.map((entry) => entry.start.value)).toEqual([
+      '2026-10-02T00:00:00+00:00[UTC]',
+      '2026-10-03T00:00:00+00:00[UTC]',
+    ])
+    expect(result.occurrences[0]!.end.value).toBe('2026-10-05T00:00:00+00:00[UTC]')
+  })
+
+  it('excludes an occurrence ending exactly at the range start and terminates by start', () => {
+    const event = recurring({
+      start: { value: '2026-10-01T00:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+      end: { value: '2026-10-01T01:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+    })
+    const result = expandRecurringEvents([event], Date.parse('2026-10-02T01:00:00Z'), Date.parse('2026-10-03T00:00:00Z'), 'UTC')
+
+    expect(result.occurrences.map((entry) => entry.start.value)).toEqual(['2026-10-03T00:00:00+00:00[UTC]'])
+  })
+
+  it('preserves point-occurrence boundaries', () => {
+    const event = recurring({
+      start: { value: '2026-10-01T00:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+      end: { value: '2026-10-01T00:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+    })
+    const result = expandRecurringEvents([event], Date.parse('2026-10-02T00:00:00Z'), Date.parse('2026-10-02T00:00:00Z'), 'UTC')
+    expect(result.occurrences.map((entry) => entry.start.value)).toEqual(['2026-10-02T00:00:00+00:00[UTC]'])
+  })
+
+  it('keeps all-day recurrence ends exclusive when testing overlap', () => {
+    const event = recurring({
+      start: { value: '2026-10-01', type: 'date' },
+      end: { value: '2026-10-04', type: 'date' },
+      allDay: true,
+    })
+    const result = expandRecurringEvents([event], Date.parse('2026-10-02T00:00:00Z'), Date.parse('2026-10-03T23:59:59Z'), 'UTC')
+    expect(result.occurrences.map((entry) => entry.start.value)).toEqual(['2026-10-02', '2026-10-03'])
+    expect(result.occurrences.every((entry) => entry.allDay)).toBe(true)
+  })
+
+  it('keeps an overlap that crosses the spring DST transition', () => {
+    const event = recurring({
+      start: { value: '2026-03-06T23:00:00-05:00[America/New_York]', type: 'zoned', timeZone: 'America/New_York' },
+      end: { value: '2026-03-07T03:00:00-05:00[America/New_York]', type: 'zoned', timeZone: 'America/New_York' },
+      rule: 'FREQ=DAILY;COUNT=3',
+    })
+    const result = expandRecurringEvents([event], Date.parse('2026-03-08T06:30:00Z'), Date.parse('2026-03-09T04:00:00Z'), 'America/New_York')
+    expect(result.occurrences.map((entry) => entry.start.value)).toEqual([
+      '2026-03-07T23:00:00-05:00[America/New_York]',
+      '2026-03-08T23:00:00-04:00[America/New_York]',
+    ])
+    expect(result.occurrences[0]!.end.value).toBe('2026-03-08T03:00:00-04:00[America/New_York]')
+  })
+
   it('expands a floating weekly rule with an Asia/Shanghai fallback', async () => {
     const { expandRecurringEvents } = await import('../src/worker/calendar/ics')
     const event = {
@@ -338,6 +452,41 @@ describe('recurrence expansion', () => {
       'Asia/Shanghai',
     )
     expect(result.occurrences).toHaveLength(8)
+  })
+
+  it('marks a series truncated when it exhausts the request iteration budget', async () => {
+    const { expandRecurringEvents } = await import('../src/worker/calendar/ics')
+    const event = {
+      id: 'ancient-series',
+      title: 'Ancient',
+      description: '',
+      kind: 'event' as const,
+      task: null,
+      conference: null,
+      start: { value: '1800-01-01T09:00:00', type: 'datetime' as const },
+      end: { value: '1800-01-01T10:00:00', type: 'datetime' as const },
+      allDay: false,
+      calendarId: 'cal-1',
+      calendarIds: ['cal-1'],
+      meta: {},
+      icon: null,
+      color: null,
+      recurrenceRule: 'FREQ=DAILY;COUNT=100000',
+      recurrenceParentId: null,
+      recurrenceId: null,
+      recurrenceCancelled: false,
+      rev: 1,
+      source: 'local' as const,
+      externalId: null,
+    }
+    const result = expandRecurringEvents(
+      [event],
+      Date.parse('2026-10-01T00:00:00Z'),
+      Date.parse('2026-11-01T00:00:00Z'),
+      'UTC',
+    )
+    expect(result.occurrences).toEqual([])
+    expect(result.truncated).toBe(true)
   })
 })
 
@@ -376,6 +525,25 @@ describe('icsCalendarChunks', () => {
       expect(block.startsWith('BEGIN:VEVENT\r\n')).toBe(true)
       expect(block.endsWith('END:VEVENT\r\n')).toBe(true)
     }
+  })
+
+  it('emits VTIMEZONE transitions for zoned events', () => {
+    const text = serializeIcsCalendar({
+      name: 'Zoned export',
+      timeZone: 'UTC',
+      events: [{
+        ...exportedEvent('zoned-event', 'Zoned event'),
+        start: { value: '2026-07-06T09:00:00-04:00[America/New_York]', type: 'zoned', timeZone: 'America/New_York' },
+        end: { value: '2026-07-06T10:00:00-04:00[America/New_York]', type: 'zoned', timeZone: 'America/New_York' },
+      }],
+    })
+    expect(text).toContain('BEGIN:VTIMEZONE')
+    expect(text).toContain('TZID:America/New_York')
+    expect(text).toContain('BEGIN:DAYLIGHT')
+    expect(text).toContain('BEGIN:STANDARD')
+    expect(text).toContain('TZOFFSETFROM:-0500')
+    expect(text).toContain('TZOFFSETTO:-0400')
+    expect(parseIcsCalendar({ content: text, defaultTimeZone: 'UTC', maxEvents: 10 }).events).toHaveLength(1)
   })
 
   it('collects the encoded blocks while they fit the budget and reports nothing when they do not', () => {

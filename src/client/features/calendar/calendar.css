@@ -6,6 +6,9 @@
  * calendar element but still inside the document that reads these variables.
  */
 :root {
+  /* Calendar detail and availability lists share the same viewport-relative scroll ceiling. */
+  --calendar-scroll-max-height: 45vh;
+
   --df-color-background: var(--bg-base);
   --df-color-foreground: var(--text-primary);
   --df-color-hover: var(--bg-hover);
@@ -69,11 +72,9 @@
   z-index: var(--z-pop);
 }
 
-/* Occurrences are a rendered view of a series, never rows of their own: every interaction is refused,
- * so make that visible by keeping the pointer off them instead of letting a click open a dead panel. */
-.inkstone-calendar .df-event[data-event-id*="::repeat-"],
-.inkstone-calendar .df-event[id*="::repeat-"] {
-  pointer-events: none;
+.inkstone-calendar .df-time-grid-row[data-inkstone-working="false"],
+.inkstone-calendar .df-time-slot[data-inkstone-working="false"] {
+  background-color: color-mix(in oklab, var(--bg-sunken) 72%, transparent);
 }
 
 /* The library's event blocks are divs; calendar-chrome gives them a keyboard stop, so the shell's
@@ -84,6 +85,12 @@
   border-radius: var(--r-sm);
 }
 
+.inkstone-calendar .df-event[data-inkstone-selected="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--r-sm);
+}
+
 /* The printed sheet. It exists only for paper: on screen it is not there at all, and in print it is
    the only body child left, so none of the app's own layout has to be unwound to get a clean page. */
 .calendar-print-sheet {
@@ -91,25 +98,39 @@
 }
 
 @media print {
+  html.calendar-printing {
+    /* Paper never inherits a dark theme: these tokens exist only in the print document. */
+    --print-paper: #ffffff;
+    --print-ink: #111111;
+    --print-ink-secondary: #333333;
+    --print-ink-tertiary: #555555;
+    --print-rule: #dddddd;
+    --print-dot-rule: rgba(0, 0, 0, .25);
+  }
+
   html.calendar-printing body > :not(.calendar-print-sheet) {
+    /* App-shell display rules outrank this selector; the paper sheet must be the only body child. */
     display: none !important;
   }
 
   html.calendar-printing,
   html.calendar-printing body {
+    /* The app fixes both boxes to the viewport; paper grows with its content across pages. */
     height: auto !important;
+    /* Shell scrolling clips multi-page output; the print sheet must be able to fragment. */
     overflow: visible !important;
-    background: #ffffff !important;
+    /* Dark-mode body backgrounds print as ink; the paper token keeps every page white. */
+    background: var(--print-paper) !important;
   }
 
   .calendar-print-sheet {
+    /* This deliberately reverses the screen-only `display: none` above. */
     display: block !important;
-    /* Dark mode repaints the app with tokens; paper gets its own set so the sheet is ink on white. */
-    --bg-base: #ffffff;
-    --text-primary: #111111;
-    --text-secondary: #333333;
-    --text-tertiary: #555555;
-    --border-subtle: #dddddd;
+    --bg-base: var(--print-paper);
+    --text-primary: var(--print-ink);
+    --text-secondary: var(--print-ink-secondary);
+    --text-tertiary: var(--print-ink-tertiary);
+    --border-subtle: var(--print-rule);
     color: var(--text-primary);
     font: 400 11pt/1.45 system-ui, sans-serif;
     padding: 0;
@@ -173,7 +194,7 @@
   }
 
   .calendar-print-dot {
-    border: 1px solid rgba(0, 0, 0, .25);
+    border: 1px solid var(--print-dot-rule);
     border-radius: 50%;
     display: inline-block;
     height: 6pt;

@@ -10,7 +10,10 @@ import {
   loadCalendarCredential,
 } from '../src/worker/calendar/connections'
 import {
+  discoverCalendarConnection,
   discoverCalendarHome,
+  extractFirstHref,
+  extractFirstText,
   parseCalendarPrivileges,
   resolvePreset,
   validateConnectionUrl,
@@ -36,6 +39,7 @@ import type { AppBindings, Env } from '../src/worker/env'
 import { calendarSyncRoutes } from '../src/worker/routes/calendar-sync'
 import { CalendarStore } from '../src/worker/calendar/store'
 import { syncDueProviderConnections } from '../src/worker/calendar/provider-sync'
+import { refreshCalendarOAuthToken } from '../src/worker/calendar/oauth-token'
 import { testBindings, testDurableObjectNamespace } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -44,7 +48,11 @@ const OTHER = 'b'.repeat(26)
 const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar'
 const GOOGLE_READ_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
 
-const mocks = vi.hoisted(() => ({ userId: 'a'.repeat(26) }))
+const mocks = vi.hoisted(() => ({ userId: 'a'.repeat(26), projectSync: vi.fn() }))
+
+vi.mock('../src/worker/project/project-calendar', () => ({
+  syncProjectCardForCalendarEvent: mocks.projectSync,
+}))
 
 vi.mock('../src/worker/middleware/auth', () => ({
   requireAuth: async (
@@ -67,10 +75,43 @@ interface Vault {
 
 function makeVault(): Vault {
   const entries = new Map<string, { scope: string; value: unknown }>()
+  const flights = new Map<string, ReturnType<typeof refreshCalendarOAuthToken>>()
   let sequence = 0
   const namespace = testDurableObjectNamespace(async (request) => {
     const url = new URL(request.url)
-    const body = await request.json() as { scope?: string; value?: unknown; ciphertext?: string }
+    const body = await request.json() as {
+      scope?: string
+      value?: unknown
+      ciphertext?: string
+      userId?: string
+      connectionId?: string
+      provider?: 'google' | 'outlook'
+      clientId?: string
+      clientSecret?: string
+      refreshToken?: string
+    }
+    if (url.pathname === '/calendar-oauth/refresh') {
+      const key = `${body.userId}:${body.connectionId}`
+      let flight = flights.get(key)
+      if (!flight) {
+        flight = refreshCalendarOAuthToken({
+          provider: body.provider!,
+          clientId: body.clientId!,
+          clientSecret: body.clientSecret!,
+          refreshToken: body.refreshToken!,
+          ...(body.scope ? { scope: body.scope } : {}),
+        })
+        flights.set(key, flight)
+      }
+      try {
+        const result = await flight
+        return result.ok
+          ? Response.json({ tokens: result.tokens })
+          : Response.json({ error: result.reason }, { status: result.reason === 'authorization_expired' ? 409 : 502 })
+      } finally {
+        if (flights.get(key) === flight) flights.delete(key)
+      }
+    }
     if (url.pathname === '/encrypt') {
       const ciphertext = `vault-${++sequence}`
       entries.set(ciphertext, { scope: body.scope ?? '', value: body.value })
@@ -115,6 +156,8 @@ beforeEach(() => {
     OUTLOOK_CLIENT_SECRET: 'outlook-secret',
   })
   mocks.userId = USER
+  mocks.projectSync.mockReset()
+  mocks.projectSync.mockResolvedValue(undefined)
 })
 
 async function request(path: string, init?: RequestInit, bindings: Env = env): Promise<Response> {
@@ -238,6 +281,26 @@ describe('CalDAV presets and address validation', () => {
 })
 
 describe('CalDAV discovery', () => {
+  it('verifies a preset calendar home before storing the connection', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      calls.push(String(input))
+      return new Response(multistatus('<D:resourcetype><D:collection/></D:resourcetype>'), { status: 207 })
+    })
+    const result = await discoverCalendarConnection({
+      preset: 'nextcloud', serverUrl: 'https://cloud.example.com/', username: 'alice', password: 'secret-password', writable: false,
+    })
+    expect(result.calendarHomeUrl).toBe('https://cloud.example.com/remote.php/dav/calendars/alice/')
+    expect(calls).toEqual([result.calendarHomeUrl])
+  })
+
+  it('rejects a preset endpoint that does not answer with a DAV multistatus', async () => {
+    vi.stubGlobal('fetch', async () => new Response('ok', { status: 200 }))
+    await expect(discoverCalendarConnection({
+      preset: 'nextcloud', serverUrl: 'https://cloud.example.com/', username: 'alice', password: 'secret-password', writable: false,
+    })).rejects.toMatchObject({ status: 502 })
+  })
+
   it('sends Basic auth, follows the principal to the home, and never returns the password', async () => {
     const calls = stubDiscovery()
     const result = await discoverCalendarHome(new URL('https://dav.example.com/'), 'alice', 'secret-password')
@@ -281,6 +344,30 @@ describe('CalDAV discovery', () => {
     vi.stubGlobal('fetch', async () => new Response('x'.repeat(64 * 1024 + 1), { status: 207 }))
     await expect(discoverCalendarHome(new URL('https://dav.example.com/'), 'alice', 'secret-password'))
       .rejects.toMatchObject({ status: 502 })
+  })
+
+  it('parses namespace URIs and XML entities rather than element spellings', () => {
+    const xml = `<multistatus xmlns="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+      <response><propstat><prop>
+        <c:calendar-home-set><href>/calendars/a&amp;b/</href></c:calendar-home-set>
+        <current-user-principal><href>&#47;principals&#47;alice&#47;</href></current-user-principal>
+      </prop></propstat></response>
+    </multistatus>`
+    expect(extractFirstHref(xml, 'calendar-home-set', 'urn:ietf:params:xml:ns:caldav'))
+      .toBe('/calendars/a&b/')
+    expect(extractFirstText(xml, 'current-user-principal')).toContain('/principals/alice/')
+  })
+
+  it('refuses malformed XML, DTDs and properties from an unrelated namespace', () => {
+    expect(() => extractFirstText('<multistatus xmlns="DAV:"><response></multistatus>', 'response'))
+      .toThrowError(expect.objectContaining({ status: 502 }))
+    expect(() => extractFirstText(
+      '<!DOCTYPE multistatus [<!ENTITY principal "/fake/">]><multistatus xmlns="DAV:"><current-user-principal>&principal;</current-user-principal></multistatus>',
+      'current-user-principal',
+    )).toThrowError(expect.objectContaining({ status: 502 }))
+    const wrongNamespace = '<multistatus xmlns="DAV:" xmlns:x="urn:not-dav"><x:current-user-principal><x:href>/fake/</x:href></x:current-user-principal></multistatus>'
+    expect(extractFirstText(wrongNamespace, 'current-user-principal')).toBeNull()
+    expect(extractFirstHref(wrongNamespace, 'current-user-principal')).toBeNull()
   })
 
   it('parses privileges without knowing the server prefix', () => {
@@ -467,6 +554,55 @@ describe('OAuth start and callback', () => {
       state,
       origin: 'https://notes.example.com',
     })).rejects.toMatchObject({ status: 400 })
+
+    const restarted = await startOAuth(env, USER, { provider: 'google', writable: false, origin: 'https://notes.example.com' })
+    const reauthorized = await completeOAuth(env, USER, {
+      code: 'synthetic-code',
+      state: new URL(restarted.url).searchParams.get('state')!,
+      origin: 'https://notes.example.com',
+    })
+    expect(reauthorized.connectionId).toBe(completed.connectionId)
+    expect((await getCalendarConnection(db, USER, reauthorized.connectionId))?.writable).toBe(true)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_connections WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
+  })
+
+  it('persists the configured beta Graph base when Outlook OAuth completes', async () => {
+    const betaEnv: Env = { ...env, OUTLOOK_GRAPH_API_BASE: 'https://graph.microsoft.com/beta/' }
+    const started = await startOAuth(betaEnv, USER, {
+      provider: 'outlook',
+      writable: false,
+      origin: 'https://notes.example.com',
+    })
+    vi.stubGlobal('fetch', async () => Response.json({
+      access_token: 'outlook-access',
+      refresh_token: 'outlook-refresh',
+      expires_in: 3600,
+      scope: 'https://graph.microsoft.com/Calendars.Read offline_access',
+    }))
+    const completed = await completeOAuth(betaEnv, USER, {
+      code: 'synthetic-code',
+      state: new URL(started.url).searchParams.get('state')!,
+      origin: 'https://notes.example.com',
+    })
+    expect(await getCalendarConnection(db, USER, completed.connectionId)).toMatchObject({
+      kind: 'outlook',
+      baseUrl: 'https://graph.microsoft.com/beta/',
+      calendarHomeUrl: 'https://graph.microsoft.com/beta/',
+    })
+  })
+
+  it('refuses an invalid Outlook Graph base before starting OAuth', async () => {
+    const invalidEnv: Env = { ...env, OUTLOOK_GRAPH_API_BASE: 'http://graph.microsoft.com/v1.0/' }
+    const fetchMock = vi.fn(async () => Response.json({}))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(startOAuth(invalidEnv, USER, {
+      provider: 'outlook',
+      writable: false,
+      origin: 'https://notes.example.com',
+    })).rejects.toMatchObject({ status: 503, code: 'server_misconfigured' })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_oauth_states').get())
+      .toEqual({ count: 0 })
   })
 
   it('does not accept a state minted for another account or an expired one', async () => {
@@ -562,6 +698,29 @@ describe('access token refresh', () => {
 })
 
 describe('background provider sync', () => {
+  it('rejects an unknown stored provider before listing, mapping or touching the network', async () => {
+    const connection = await seedBasic()
+    await new CalendarStore(db, USER).createCalendar({ id: 'remote-cal', name: 'Remote', source: 'caldav' })
+    sqlite.prepare('UPDATE calendar_connections SET kind = ? WHERE user_id = ? AND id = ?')
+      .run('unknown-provider', USER, connection.id)
+    sqlite.prepare(`INSERT INTO calendar_provider_calendars
+      (user_id, connection_id, remote_calendar_id, local_calendar_id, created_at, updated_at)
+      VALUES (?, ?, 'remote-cal', 'remote-cal', 1, 1)`).run(USER, connection.id)
+    const fetchMock = vi.fn(async () => Response.json({}))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(listCalendarConnections(db, USER)).rejects.toMatchObject({ status: 500 })
+    await expect(new CalendarStore(db, USER).meta()).rejects.toMatchObject({ status: 500 })
+    const mapped = await request(`/connections/${connection.id}/calendars`, json({
+      calendars: [{ remoteId: 'remote-cal', localId: 'remote-cal' }],
+    }))
+    expect(mapped.status).toBe(500)
+    await expect(syncDueProviderConnections(env, Date.now())).rejects.toMatchObject({ status: 500 })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_provider_calendars').get())
+      .toEqual({ count: 1 })
+  })
+
   it('pulls events for a mapped Google calendar through the same proxy', async () => {
     const seeded = await seedOAuth()
     await new CalendarStore(db, USER).createCalendar({
@@ -576,7 +735,8 @@ describe('background provider sync', () => {
        VALUES (?, ?, 'google-cal-1', 'google-cal-1', NULL, 1, 1)`,
     ).run(USER, seeded.id)
     const calls: string[] = []
-    const eventDay = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const eventAt = Date.now() - 24 * 60 * 60 * 1000
+    const eventDay = new Date(eventAt).toISOString().slice(0, 10)
     vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
       calls.push(String(input))
       return Response.json({
@@ -604,6 +764,24 @@ describe('background provider sync', () => {
     }])
 
     const store = new CalendarStore(db, USER)
+    const remote = (await store.listEvents(eventAt - 2 * 86_400_000, eventAt + 2 * 86_400_000))
+      .events.find(event => event.externalId === 'google-event-1')!
+    await store.setEventReminders(remote.id, [10], remote.rev)
+    sqlite.prepare('INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(USER, remote.id, 'remote@example.com', 'Remote', 'needs-action', 1)
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS attachments (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, scope TEXT NOT NULL,
+      filename TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL,
+      object_key TEXT, storage TEXT NOT NULL, created_at INTEGER NOT NULL
+    ); CREATE TABLE IF NOT EXISTS attachment_cleanup (
+      object_key TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at INTEGER NOT NULL
+    )`)
+    sqlite.prepare(`INSERT INTO attachments
+      (id, user_id, scope, filename, mime, size, sha256, object_key, storage, created_at)
+      VALUES (?, ?, 'calendar', 'remote.txt', 'text/plain', 6, 'hash', ?, 'r2', ?)`)
+      .run('remote-attachment', USER, 'calendar/user/remote-attachment.txt', 1)
+    sqlite.prepare('INSERT INTO calendar_event_attachments (user_id, attachment_id, event_id, created_at) VALUES (?, ?, ?, ?)')
+      .run(USER, 'remote-attachment', remote.id, 1)
     await store.createEvent({
       title: 'Local only',
       description: '',
@@ -623,15 +801,47 @@ describe('background provider sync', () => {
       externalId: null,
     })
     vi.stubGlobal('fetch', async () => Response.json({ items: [] }))
+    sqlite.exec(`CREATE TRIGGER fail_provider_delete
+      BEFORE DELETE ON calendar_events
+      WHEN OLD.external_id = 'google-event-1'
+      BEGIN SELECT RAISE(ABORT, 'forced provider delete'); END`)
     sqlite.prepare(
-      `UPDATE calendar_provider_calendars SET last_sync_at = ? WHERE user_id = ? AND connection_id = ?`,
+      'UPDATE calendar_provider_calendars SET last_sync_at = ? WHERE user_id = ? AND connection_id = ?',
     ).run(Date.now() - 16 * 60_000, USER, seeded.id)
-    const second = await syncDueProviderConnections(env, Date.now())
-    expect(second.deleted).toBe(1)
+    expect(await syncDueProviderConnections(env, Date.now())).toMatchObject({ deleted: 0, failed: 1 })
+    expect(await store.getEvent(remote.id)).not.toBeNull()
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_reminders WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attendees WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attachments WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
+
+    sqlite.exec('DROP TRIGGER fail_provider_delete')
+    sqlite.prepare(
+      'UPDATE calendar_provider_calendars SET last_sync_at = ? WHERE user_id = ? AND connection_id = ?',
+    ).run(Date.now() - 16 * 60_000, USER, seeded.id)
+    expect(await syncDueProviderConnections(env, Date.now())).toMatchObject({ deleted: 1, failed: 0 })
     const remaining = sqlite.prepare(
-      `SELECT title FROM calendar_events WHERE user_id = ? ORDER BY title`,
+      'SELECT title FROM calendar_events WHERE user_id = ? ORDER BY title',
     ).all(USER) as Array<{ title: string }>
     expect(remaining).toEqual([{ title: 'Local only' }])
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_reminders WHERE user_id = ?').get(USER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attendees WHERE user_id = ?').get(USER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attachments WHERE user_id = ?').get(USER)).toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM attachment_cleanup WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
+  })
+
+  it('backs off failed mappings and reports the connection as failed', async () => {
+    const seeded = await seedOAuth()
+    await new CalendarStore(db, USER).createCalendar({ id: 'google-fail', name: 'Google', source: 'google' })
+    sqlite.prepare(`INSERT INTO calendar_provider_calendars
+      (user_id, connection_id, remote_calendar_id, local_calendar_id, last_sync_at, created_at, updated_at)
+      VALUES (?, ?, 'google-fail', 'google-fail', NULL, 1, 1)`).run(USER, seeded.id)
+    vi.stubGlobal('fetch', async () => new Response('busy', { status: 503 }))
+    const now = Date.now()
+    expect(await syncDueProviderConnections(env, now)).toMatchObject({ connections: 1, failed: 1 })
+    expect((await getCalendarConnection(db, USER, seeded.id))?.status).toBe('error')
+    expect(sqlite.prepare('SELECT last_sync_at FROM calendar_provider_calendars WHERE connection_id = ?').get(seeded.id))
+      .toEqual({ last_sync_at: now })
+    expect(await syncDueProviderConnections(env, now)).toMatchObject({ connections: 0 })
   })
 })
 
@@ -719,9 +929,8 @@ describe('calendar sync routes', () => {
       writable: true,
       status: 'connected',
     })
-    // The browser-facing DTO is sanitized: base address and username stay server-side.
     expect(body.connection.username).toBeUndefined()
-    expect(body.connection.baseUrl).toBeUndefined()
+    expect(body.connection.baseUrl).toBe('https://dav.example.com/')
     expect(JSON.stringify(body)).not.toContain('synthetic-password')
     expect(JSON.stringify(body)).not.toContain('ciphertext')
   })
@@ -764,10 +973,14 @@ describe('calendar sync routes', () => {
     const refused = await request(`/connections/${seeded.id}/status`, json({ state: 'nonsense' }))
     expect(refused.status).toBe(400)
 
+    sqlite.prepare(`INSERT INTO calendar_provider_calendars
+      (user_id, connection_id, remote_calendar_id, local_calendar_id, created_at, updated_at)
+      VALUES (?, ?, 'remote', 'local', 1, 1)`).run(USER, seeded.id)
     const deleted = await request(`/connections/${seeded.id}`, { method: 'DELETE' })
     expect(deleted.status).toBe(204)
     expect(await getCalendarConnection(db, USER, seeded.id)).toBeNull()
     expect(await loadCalendarCredential(db, USER, seeded.id, 'basic')).toBeNull()
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_provider_calendars WHERE connection_id = ?').get(seeded.id)).toEqual({ count: 0 })
   })
 
   it('answers 404 for another account connection and a malformed id', async () => {

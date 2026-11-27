@@ -9,7 +9,7 @@ import { normalizeCalendarPreferences } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { Button } from '../../components/primitives'
-import { Modal } from '../../components/overlay'
+import { confirm, Modal } from '../../components/overlay'
 import { Input, Segmented, Select, SettingRow, Switch } from '../../components/form'
 import { DAY_HOUR_HEIGHTS } from './model'
 import { CalendarTimeZoneField } from './CalendarTimeZoneField'
@@ -38,7 +38,7 @@ const WEEKDAY_KEYS = [
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="border-b border-[var(--border-subtle)] pb-1 last:border-b-0">
-      <h3 className="pt-3 pb-1 text-[length:var(--text-11)] font-semibold uppercase tracking-[0.07em] text-[var(--text-quaternary)]">
+      <h3 className="pt-3 pb-1 text-[length:var(--text-11)] font-semibold uppercase tracking-[var(--tracking-section)] text-[var(--text-quaternary)]">
         {title}
       </h3>
       {children}
@@ -62,6 +62,21 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
   }, [open])
 
   const patch = (changes: Partial<CalendarPreferences>): void => setDraft(current => ({ ...current, ...changes }))
+
+  const openConnections = async (): Promise<void> => {
+    if (!onOpenConnections) return
+    const dirty = JSON.stringify(normalizeCalendarPreferences(draft)) !== JSON.stringify(normalizeCalendarPreferences(preferences))
+    if (dirty) {
+      const discard = await confirm({
+        title: t('calendar.settings.discard_title'),
+        description: t('calendar.settings.discard_description'),
+        confirmLabel: t('calendar.settings.discard_confirm'),
+        tone: 'danger',
+      })
+      if (!discard) return
+    }
+    onOpenConnections()
+  }
 
   const save = async (): Promise<void> => {
     setSaving(true)
@@ -300,7 +315,7 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
                   }}
                 >
                   {HOURS_END.map(hour => (
-                    <option key={hour} value={hour}>{t('calendar.settings.hour', { hour: hour % 24 })}</option>
+                    <option key={hour} value={hour}>{t('calendar.settings.hour', { hour })}</option>
                   ))}
                 </Select>
               </div>
@@ -446,14 +461,14 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
         {onOpenConnections && (
           <Section title={t('calendar.connections.title')}>
             <SettingRow title={t('calendar.connections.existing')} description={t('calendar.connections.description')}>
-              <Button variant="secondary" onClick={onOpenConnections}>{t('calendar.connections.add')}</Button>
+              <Button variant="secondary" onClick={() => void openConnections()} disabled={saving}>{t('calendar.connections.add')}</Button>
             </SettingRow>
           </Section>
         )}
 
         {error && (
           <p role="alert" className="flex items-start gap-1.5 pt-3 text-[length:var(--text-12)] leading-relaxed text-[var(--danger)]">
-            <AlertTriangle size={13} className="mt-[2px] shrink-0" aria-hidden="true" />
+            <AlertTriangle size={13} className="mt-[var(--sp-0-5)] shrink-0" aria-hidden="true" />
             <span>{error}</span>
           </p>
         )}

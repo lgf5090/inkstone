@@ -155,7 +155,7 @@ describe('CloudDrive file requests', () => {
     expect((await publicCall('GET', `/api/public/clouddrive/requests/${slug}`)).status).toBe(404)
   })
 
-  it('streams the public upload into object storage instead of buffering it', async () => {
+  it('bounds unknown-length public uploads before writing object storage', async () => {
     await folder('inbox')
     const created = await call(USER, 'POST', '/api/clouddrive/requests', {
       name: 'Stream', targetPath: '/inbox', maxFiles: 5, maxBytes: 5_000, maxFileBytes: 64,
@@ -163,12 +163,17 @@ describe('CloudDrive file requests', () => {
     expect(created.status).toBe(201)
     const slug = (created.body.request as { slug: string }).slug
 
-    // What the bucket receives is the contract: a stream keeps the isolate flat no matter how big the
-    // visitor's file is, a buffer is the memory DoS this route used to be.
+    // R2 requires a known length. Unknown-length bodies are therefore capped in memory before the put;
+    // the reservation prevents concurrent visitors from each allocating the same ceiling.
     const shapes: string[] = []
+    let reservedDuringPut = 0
     const put = r2.put.bind(r2)
     r2.put = async (key, value, options) => {
       shapes.push(value instanceof ReadableStream ? 'stream' : 'buffered')
+      const row = sqlite.prepare(
+        'SELECT received_bytes FROM CloudDrive_file_requests WHERE slug = ?',
+      ).get(slug) as { received_bytes: number }
+      reservedDuringPut = row.received_bytes
       return await put(key, value, options)
     }
 
@@ -177,7 +182,9 @@ describe('CloudDrive file requests', () => {
       body: 'hello stream',
     })
     expect(accepted.status).toBe(200)
-    expect(shapes).toEqual(['stream'])
+    expect(shapes).toEqual(['buffered'])
+    // The unknown-length body is capped by a budget reservation before it is read.
+    expect(reservedDuringPut).toBe(64)
     expect(accepted.body).toMatchObject({ ok: true, name: 'note.txt', size: 12 })
     const stored = [...r2.objects.entries()]
     expect(stored).toHaveLength(1)
@@ -194,9 +201,11 @@ describe('CloudDrive file requests', () => {
       duplex: 'half',
     } as RequestInit)
     expect(oversized.status).toBe(413)
-    expect(shapes.at(-1)).toBe('stream')
+    expect(shapes.at(-1)).toBe('buffered')
     // The bytes that did not fit are taken back out of the bucket, so the rejection leaves no orphan.
     expect(r2.objects.size).toBe(1)
+    const afterRefusal = await publicCall('GET', `/api/public/clouddrive/requests/${slug}`)
+    expect(afterRefusal.body).toMatchObject({ receivedFiles: 1, receivedBytes: 12 })
     const listed = await call(USER, 'GET', '/api/clouddrive/files?path=%2Finbox')
     const rows = (listed.body.files as { name: string; size: number }[]).map((item) => [item.name, item.size])
     expect(rows).toEqual([['note.txt', 12]])

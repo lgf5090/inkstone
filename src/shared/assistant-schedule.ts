@@ -125,16 +125,6 @@ function formatter(timeZone: string): Intl.DateTimeFormat {
   return cached
 }
 
-export function isValidTimeZone(timeZone: string): boolean {
-  if (!timeZone) return false
-  try {
-    formatter(timeZone)
-    return true
-  } catch {
-    return false
-  }
-}
-
 export function getZonedParts(date: Date, timeZone: string): ZonedParts {
   const parts: Record<string, string> = {}
   for (const part of formatter(timeZone).formatToParts(date)) parts[part.type] = part.value

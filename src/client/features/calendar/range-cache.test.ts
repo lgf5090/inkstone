@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CalendarEventDto } from '@shared/calendar/model'
 import {
   MAX_CACHE_BYTES,
@@ -71,6 +71,21 @@ describe('the calendar range cache', () => {
     expect(ranges).toHaveLength(MAX_CACHED_RANGES)
     expect(ranges.map(item => item.from)).toEqual([500, 400, 300, 200])
     expect(rangeFor(ALICE, 0, 50)).toBeNull()
+  })
+
+  it('parses each unchanged cache file once and observes cross-tab rewrites', () => {
+    saveRange(ALICE, entry(100, 200, 5000))
+    const parse = vi.spyOn(JSON, 'parse')
+    readRanges(ALICE)
+    rangeFor(ALICE, 100, 200)
+    paintableRange(ALICE, 100, 200)
+    expect(parse).not.toHaveBeenCalled()
+    localStorage.setItem('inkstone.calendar.range.v1:user-alice', JSON.stringify({
+      version: 1, entries: [entry(100, 200, 7000, [event('cross-tab')])],
+    }))
+    expect(rangeFor(ALICE, 100, 200)?.events[0]?.id).toBe('cross-tab')
+    expect(parse).toHaveBeenCalledTimes(1)
+    parse.mockRestore()
   })
 
   it('discards a corrupted value and leaves the account able to store again', () => {

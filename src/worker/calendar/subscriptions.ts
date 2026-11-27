@@ -1,5 +1,6 @@
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { resolvePublicHost } from '../lib/host-guard'
+import { sha256Hex } from '../lib/encoding'
 import {
   MAX_ICS_BYTES,
   MAX_ICS_EVENTS,
@@ -13,16 +14,20 @@ import { newId } from '../lib/id'
 import { isRedirectResponse, NO_REDIRECT } from '../lib/no-redirect'
 import { readStreamTextWithinLimit } from '../lib/request'
 import { CalendarStore, type CalendarEventWriteInput } from './store'
+import { normalizeEventAttendees } from './attendees'
 import { parseEventInput } from './validation'
-import { IcsParseError, icsExternalId, parseIcsCalendar } from './ics'
+import { IcsParseError, icsExternalId, parseIcsCalendar, type IcsWarning } from './ics'
 
 const FETCH_TIMEOUT_MS = 15_000
 const MAX_REDIRECTS = 3
 const EVENT_CHUNK = 200
-const SUBSCRIPTION_COLORS = [
+const EVENT_DELETE_CHUNK = 80
+const SUBSCRIPTION_COLOR_HASH_MULTIPLIER = 31
+export const MAX_SUBSCRIPTION_NAME_CHARS = 80
+export const SUBSCRIPTION_COLORS = Object.freeze([
   '#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444',
   '#f97316', '#ec4899', '#14b8a6', '#6366f1', '#6b7280',
-]
+] as const)
 
 interface FeedResult {
   notModified: boolean
@@ -39,6 +44,8 @@ interface SubscriptionRow {
   sync_state_json: string
   last_sync_at: number | null
   last_error_code: string | null
+  created_at: number
+  updated_at: number
 }
 
 export interface CreateSubscriptionResult {
@@ -64,9 +71,9 @@ export async function createIcsSubscription(
   const url = validateFeedUrl(input.url)
   const store = new CalendarStore(env.DB, userId)
   const preferences = await store.preferences()
-  const feed = await fetchFeed(url, { etag: null, lastModified: null }, preferences.timeZone)
+  const feed = await fetchFeed(url, { etag: null, lastModified: null })
   const parsed = parseFeed(feed.text, preferences.timeZone)
-  const name = (input.name?.trim() || parsed.name || url.hostname).slice(0, 80)
+  const name = (input.name?.trim() || parsed.name || url.hostname).slice(0, MAX_SUBSCRIPTION_NAME_CHARS)
   const color = normalizeColor(input.color) ?? colorFor(name)
   const calendar = await store.createCalendar({
     name,
@@ -93,24 +100,19 @@ export async function createIcsSubscription(
         lastModified: feed.lastModified,
       }), now),
     ])
-    const inputs = await subscriptionEvents(parsed.events, calendar.id, preferences.timeZone)
+    const subscription = await loadSubscription(env.DB, userId, subscriptionId)
+    if (!subscription) throw new Error('Calendar subscription create did not persist')
+    const inputs = await subscriptionEvents(parsed.events, calendar.id, preferences.timeZone, parsed.warnings)
+    if (inputs.length === 0) throw ApiError.badRequest('The calendar feed contains no valid events')
     const imported = await insertInChunks(store, inputs)
     return {
-      subscription: subscriptionRowToDto({
-        id: subscriptionId,
-        calendar_id: calendar.id,
-        url: url.href,
-        enabled: 1,
-        sync_state_json: JSON.stringify({ etag: feed.etag, lastModified: feed.lastModified }),
-        last_sync_at: now,
-        last_error_code: null,
-      }),
+      subscription: subscriptionRowToDto(subscription),
       calendarId: calendar.id,
       imported,
       warnings: parsed.warnings,
     }
   } catch (error) {
-    await removeCalendarData(env.DB, userId, calendar.id).catch((cleanupError) => {
+    await store.deleteCalendar(calendar.id, { mode: 'delete', allowLast: true }).catch((cleanupError) => {
       console.warn('[inkstone] Calendar subscription cleanup failed:', cleanupError instanceof Error ? cleanupError.message : cleanupError)
     })
     throw error
@@ -131,7 +133,7 @@ export async function refreshIcsSubscription(
   const url = validateFeedUrl(row.url)
   let feed: FeedResult
   try {
-    feed = await fetchFeed(url, state, preferences.timeZone)
+    feed = await fetchFeed(url, state)
   } catch (error) {
     await markSubscriptionError(env.DB, userId, subscriptionId, 'fetch_failed')
     throw error
@@ -148,9 +150,11 @@ export async function refreshIcsSubscription(
     await markSubscriptionError(env.DB, userId, subscriptionId, error instanceof IcsParseError ? error.code : 'invalid_ics')
     throw error
   }
-  const inputs = await subscriptionEvents(parsed.events, row.calendar_id, preferences.timeZone)
+  let inputs: CalendarEventWriteInput[]
   let imported = 0
   try {
+    inputs = await subscriptionEvents(parsed.events, row.calendar_id, preferences.timeZone, parsed.warnings)
+    if (inputs.length === 0) throw ApiError.badRequest('The calendar feed contains no valid events')
     imported = await insertInChunks(store, inputs)
     const keep = new Set(inputs.map((event) => event.externalId).filter((id): id is string => Boolean(id)))
     const removed = await removeStaleEvents(env.DB, userId, row.calendar_id, keep)
@@ -177,7 +181,7 @@ export async function deleteIcsSubscription(
   if (calendars.length <= 1) {
     throw ApiError.conflict('Create another calendar before deleting the last one')
   }
-  await removeCalendarData(env.DB, userId, row.calendar_id)
+  await store.deleteCalendar(row.calendar_id, { mode: 'delete' })
   await store.ensureDefaultCalendar()
 }
 
@@ -196,14 +200,16 @@ export async function setIcsSubscriptionEnabled(
 }
 
 const DUE_REFRESH_INTERVAL_MS = 15 * 60 * 1000
-const DUE_REFRESH_RETRY_MS = 60 * 60 * 1000
-const DUE_REFRESH_LIMIT = 3
+const DUE_REFRESH_RETRY_BASE_MS = 5 * 60 * 1000
+const DUE_REFRESH_RETRY_MAX_MS = 24 * 60 * 60 * 1000
+const DUE_REFRESH_MAX_FAILURES = 8
+const DUE_REFRESH_LIMIT = 20
 
 /**
  * Refresh a few due ICS feeds on each cron fire.
  *
- * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of
- * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.
+ * `last_sync_at` spaces successful runs; `last_error_at` holds the next exponential retry, and repeated
+ * failures pause the feed. The limit keeps one slow feed from spending the whole scheduled budget.
  */
 export async function refreshDueIcsSubscriptions(env: Env, now = Date.now()): Promise<number> {
   const { results } = await env.DB.prepare(
@@ -213,7 +219,7 @@ export async function refreshDueIcsSubscriptions(env: Env, now = Date.now()): Pr
         AND (last_error_at IS NULL OR last_error_at <= ?2)
       ORDER BY COALESCE(last_sync_at, 0) ASC
       LIMIT ?3`,
-  ).bind(now - DUE_REFRESH_INTERVAL_MS, now - DUE_REFRESH_RETRY_MS, DUE_REFRESH_LIMIT)
+  ).bind(now - DUE_REFRESH_INTERVAL_MS, now, DUE_REFRESH_LIMIT)
     .all<{ user_id: string; id: string }>()
   const outcomes = await Promise.all((results ?? []).map(async (row) => {
     try {
@@ -246,20 +252,36 @@ async function subscriptionEvents(
   events: readonly CalendarEventInput[],
   calendarId: string,
   defaultTimeZone: string,
+  warnings: IcsWarning[],
 ): Promise<CalendarEventWriteInput[]> {
-  return Promise.all(events.map(async (event) => {
-    const uid = event.meta?.originalUid
-    const externalId = typeof uid === 'string'
-      ? await icsExternalId(calendarId, uid, recurrenceIdOf(event.meta?.recurrenceId))
-      : null
-    return parseEventInput({
-      ...event,
-      calendarIds: [calendarId],
-      calendarId: undefined,
-      source: 'ics',
-      externalId,
-    }, { defaultTimeZone })
-  }))
+  const inputs: CalendarEventWriteInput[] = []
+  for (let index = 0; index < events.length; index++) {
+    const event = events[index]!
+    try {
+      const uid = event.meta?.originalUid
+      const recurrenceId = recurrenceIdOf(event.meta?.recurrenceId)
+      const stableUid = typeof uid === 'string'
+        ? uid
+        : `missing:${await sha256Hex(JSON.stringify([event.title, event.start, event.end, event.description, event.recurrenceRule, recurrenceId]))}`
+      const externalId = await icsExternalId(calendarId, stableUid, recurrenceId)
+      inputs.push(parseEventInput({
+        ...event,
+        calendarIds: [calendarId],
+        calendarId: undefined,
+        source: 'ics',
+        externalId,
+        attendees: normalizeEventAttendees(event.meta?.attendees),
+      }, { defaultTimeZone }))
+    } catch (error) {
+      warnings.push({
+        line: index + 1,
+        ...(typeof event.meta?.originalUid === 'string' ? { uid: event.meta.originalUid } : {}),
+        code: 'invalid_event',
+        message: error instanceof Error ? error.message : 'The event could not be imported',
+      })
+    }
+  }
+  return inputs
 }
 
 function recurrenceIdOf(value: unknown): string | null {
@@ -293,47 +315,12 @@ async function removeStaleEvents(
     .filter((row) => !row.external_id || !keepExternalIds.has(row.external_id))
     .map((row) => row.id)
   if (!stale.length) return 0
-  for (let index = 0; index < stale.length; index += 100) {
-    const ids = stale.slice(index, index + 100)
-    const membershipPlaceholders = ids.map((_, offset) => `?${offset + 3}`).join(', ')
-    const eventPlaceholders = ids.map((_, offset) => `?${offset + 2}`).join(', ')
-    await db.batch([
-      db.prepare(
-        `DELETE FROM calendar_event_calendars
-          WHERE user_id = ?1 AND calendar_id = ?2 AND event_id IN (${membershipPlaceholders})`,
-      ).bind(userId, calendarId, ...ids),
-      db.prepare(
-        `DELETE FROM calendar_events
-          WHERE user_id = ?1 AND id IN (${eventPlaceholders})
-            AND NOT EXISTS (
-              SELECT 1 FROM calendar_event_calendars m
-               WHERE m.user_id = ?1 AND m.event_id = calendar_events.id
-            )`,
-      ).bind(userId, ...ids),
-    ])
+  const store = new CalendarStore(db, userId)
+  let removed = 0
+  for (let index = 0; index < stale.length; index += EVENT_DELETE_CHUNK) {
+    removed += await store.removeEventMembershipsAndDeleteOrphans(calendarId, stale.slice(index, index + EVENT_DELETE_CHUNK))
   }
-  return stale.length
-}
-
-async function removeCalendarData(db: D1Database, userId: string, calendarId: string): Promise<void> {
-  await db.batch([
-    db.prepare(
-      `DELETE FROM calendar_event_calendars WHERE user_id = ?1 AND calendar_id = ?2`,
-    ).bind(userId, calendarId),
-    db.prepare(
-      `DELETE FROM calendar_events
-        WHERE user_id = ?1 AND NOT EXISTS (
-          SELECT 1 FROM calendar_event_calendars m
-           WHERE m.user_id = ?1 AND m.event_id = calendar_events.id
-        )`,
-    ).bind(userId),
-    db.prepare(
-      `DELETE FROM calendar_subscriptions WHERE user_id = ?1 AND calendar_id = ?2`,
-    ).bind(userId, calendarId),
-    db.prepare(
-      `DELETE FROM calendar_calendars WHERE user_id = ?1 AND id = ?2`,
-    ).bind(userId, calendarId),
-  ])
+  return removed
 }
 
 async function loadSubscription(
@@ -342,7 +329,8 @@ async function loadSubscription(
   id: string,
 ): Promise<SubscriptionRow | null> {
   return db.prepare(
-    `SELECT id, calendar_id, url, enabled, sync_state_json, last_sync_at, last_error_code
+    `SELECT id, calendar_id, url, enabled, sync_state_json, last_sync_at, last_error_code,
+            created_at, updated_at
        FROM calendar_subscriptions
       WHERE user_id = ?1 AND id = ?2`,
   ).bind(userId, id).first<SubscriptionRow>()
@@ -360,7 +348,7 @@ async function touchSubscription(
         SET last_sync_at = ?3, last_error_code = NULL, last_error_at = NULL,
             sync_state_json = ?4, updated_at = ?3
       WHERE user_id = ?1 AND id = ?2`,
-  ).bind(userId, id, at, JSON.stringify(state)).run()
+  ).bind(userId, id, at, JSON.stringify({ ...state, failures: 0 })).run()
 }
 
 async function markSubscriptionError(
@@ -369,12 +357,28 @@ async function markSubscriptionError(
   id: string,
   code: string,
 ): Promise<void> {
+  const row = await db.prepare(
+    'SELECT sync_state_json FROM calendar_subscriptions WHERE user_id = ?1 AND id = ?2',
+  ).bind(userId, id).first<{ sync_state_json: string }>()
+  if (!row) return
+  const state = readSyncState(row.sync_state_json)
+  const failures = Math.min(state.failures + 1, DUE_REFRESH_MAX_FAILURES)
   const now = Date.now()
+  const retryAt = now + Math.min(
+    DUE_REFRESH_RETRY_BASE_MS * (2 ** (failures - 1)),
+    DUE_REFRESH_RETRY_MAX_MS,
+  )
   await db.prepare(
     `UPDATE calendar_subscriptions
-        SET last_error_code = ?3, last_error_at = ?4, updated_at = ?4
+        SET last_error_code = ?3, last_error_at = ?4,
+            sync_state_json = ?5, enabled = CASE WHEN ?6 >= ?7 THEN 0 ELSE enabled END,
+            updated_at = ?8
       WHERE user_id = ?1 AND id = ?2`,
-  ).bind(userId, id, code, now).run()
+  ).bind(
+    userId, id, code, retryAt,
+    JSON.stringify({ etag: state.etag, lastModified: state.lastModified, failures }),
+    failures, DUE_REFRESH_MAX_FAILURES, now,
+  ).run()
 }
 
 function subscriptionHost(raw: string | null): string | null {
@@ -387,7 +391,6 @@ function subscriptionHost(raw: string | null): string | null {
 }
 
 function subscriptionRowToDto(row: SubscriptionRow): CalendarSubscriptionDto {
-  const now = Date.now()
   return {
     id: row.id,
     calendarId: row.calendar_id,
@@ -396,20 +399,23 @@ function subscriptionRowToDto(row: SubscriptionRow): CalendarSubscriptionDto {
     enabled: row.enabled === 1,
     lastSyncAt: row.last_sync_at,
     lastErrorCode: row.last_error_code,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }
 
-function readSyncState(raw: string): { etag: string | null; lastModified: string | null } {
+function readSyncState(raw: string): { etag: string | null; lastModified: string | null; failures: number } {
   try {
-    const parsed = JSON.parse(raw) as { etag?: unknown; lastModified?: unknown }
+    const parsed = JSON.parse(raw) as { etag?: unknown; lastModified?: unknown; failures?: unknown }
     return {
       etag: typeof parsed.etag === 'string' ? parsed.etag : null,
       lastModified: typeof parsed.lastModified === 'string' ? parsed.lastModified : null,
+      failures: typeof parsed.failures === 'number' && Number.isInteger(parsed.failures)
+        ? Math.max(0, Math.min(parsed.failures, DUE_REFRESH_MAX_FAILURES))
+        : 0,
     }
   } catch {
-    return { etag: null, lastModified: null }
+    return { etag: null, lastModified: null, failures: 0 }
   }
 }
 
@@ -420,7 +426,7 @@ function normalizeColor(value: string | undefined): string | null {
 
 function colorFor(name: string): string {
   let hash = 0
-  for (const char of name) hash = (hash * 31 + char.codePointAt(0)!) >>> 0
+  for (const char of name) hash = (hash * SUBSCRIPTION_COLOR_HASH_MULTIPLIER + char.codePointAt(0)!) >>> 0
   return SUBSCRIPTION_COLORS[hash % SUBSCRIPTION_COLORS.length]!
 }
 
@@ -442,21 +448,22 @@ function validateFeedUrl(raw: string): URL {
 async function fetchFeed(
   url: URL,
   state: { etag: string | null; lastModified: string | null },
-  _timeZone: string,
 ): Promise<FeedResult> {
   let current = url
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    // The literal check above cannot see a hostname that resolves to a private address. Resolving it
-    // first (DoH, cached for five minutes) closes that gap; a resolver outage is not an answer about
-    // the name, so only a conclusive block or an empty answer stops the fetch.
     const verdict = await resolvePublicHost(current.hostname)
     if (verdict === 'blocked') throw ApiError.badRequest('That address is not reachable from this deployment')
     if (verdict === 'unresolved') throw ApiError.badRequest('The calendar address does not resolve')
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-    let response: Response
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort()
+        reject(new ApiError(502, 'internal', 'The calendar feed took too long to download'))
+      }, FETCH_TIMEOUT_MS)
+    })
     try {
-      response = await fetch(current.href, {
+      const response = await Promise.race([fetch(current.href, {
         redirect: NO_REDIRECT,
         signal: controller.signal,
         headers: {
@@ -465,44 +472,38 @@ async function fetchFeed(
           ...(state.etag ? { 'if-none-match': state.etag } : {}),
           ...(state.lastModified ? { 'if-modified-since': state.lastModified } : {}),
         },
-      })
-    } catch {
-      controller.abort()
+      }), deadline])
+      if (response.status === 304) {
+        return { notModified: true, text: '', etag: state.etag, lastModified: state.lastModified }
+      }
+      if (isRedirectResponse(response)) {
+        const location = response.headers.get('location')
+        if (!location || hop === MAX_REDIRECTS) {
+          throw new ApiError(502, 'internal', 'The calendar feed redirected too many times')
+        }
+        current = validateFeedUrl(new URL(location, current).href)
+        continue
+      }
+      if (!response.ok) {
+        throw new ApiError(502, 'internal', `The calendar feed answered ${response.status}`)
+      }
+      const declared = Number(response.headers.get('content-length') ?? '')
+      if (Number.isFinite(declared) && declared > MAX_ICS_BYTES) {
+        throw ApiError.tooLarge('That calendar feed is too large')
+      }
+      const text = await Promise.race([readStreamTextWithinLimit(response.body, MAX_ICS_BYTES), deadline])
+      if (text === null) throw ApiError.tooLarge('That calendar feed is too large')
+      return {
+        notModified: false,
+        text,
+        etag: response.headers.get('etag'),
+        lastModified: response.headers.get('last-modified'),
+      }
+    } catch (error) {
+      if (error instanceof ApiError) throw error
       throw new ApiError(502, 'internal', 'The calendar feed could not be reached')
     } finally {
-      clearTimeout(timeout)
-    }
-    if (response.status === 304) {
-      return { notModified: true, text: '', etag: state.etag, lastModified: state.lastModified }
-    }
-    if (isRedirectResponse(response)) {
-      const location = response.headers.get('location')
-      if (!location || hop === MAX_REDIRECTS) {
-        controller.abort()
-        throw new ApiError(502, 'internal', 'The calendar feed redirected too many times')
-      }
-      current = validateFeedUrl(new URL(location, current).href)
-      continue
-    }
-    if (!response.ok) {
-      controller.abort()
-      throw new ApiError(502, 'internal', `The calendar feed answered ${response.status}`)
-    }
-    const declared = Number(response.headers.get('content-length') ?? '')
-    if (Number.isFinite(declared) && declared > MAX_ICS_BYTES) {
-      controller.abort()
-      throw ApiError.tooLarge('That calendar feed is too large')
-    }
-    const text = await readStreamTextWithinLimit(response.body, MAX_ICS_BYTES)
-    if (text === null) {
-      controller.abort()
-      throw ApiError.tooLarge('That calendar feed is too large')
-    }
-    return {
-      notModified: false,
-      text,
-      etag: response.headers.get('etag'),
-      lastModified: response.headers.get('last-modified'),
+      if (timer !== undefined) clearTimeout(timer)
     }
   }
   throw new ApiError(502, 'internal', 'The calendar feed could not be reached')

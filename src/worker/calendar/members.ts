@@ -2,6 +2,7 @@
 import type { CalendarMemberDto } from '@shared/calendar/model'
 
 interface MemberRow {
+  calendar_id: string
   member_user_id: string
   role: string
   status: string
@@ -10,18 +11,23 @@ interface MemberRow {
   name: string
 }
 
-export async function listMembers(db: D1Database, ownerId: string, calendarId: string): Promise<CalendarMemberDto[]> {
+export async function listMembers(
+  db: D1Database,
+  ownerId: string,
+  calendarId?: string,
+): Promise<CalendarMemberDto[]> {
   const { results } = await db.prepare(
-    `SELECT m.member_user_id, m.role, m.status, m.created_at, u.username, u.name
+    `SELECT m.calendar_id, m.member_user_id, m.role, m.status, m.created_at, u.username, u.name
        FROM calendar_members m
        JOIN users u ON u.id = m.member_user_id
-      WHERE m.owner_user_id = ? AND m.calendar_id = ?
+      WHERE m.owner_user_id = ? ${calendarId ? 'AND m.calendar_id = ?' : ''}
       ORDER BY m.created_at ASC`,
-  ).bind(ownerId, calendarId).all<MemberRow>()
+  ).bind(...(calendarId ? [ownerId, calendarId] : [ownerId])).all<MemberRow>()
   return (results ?? []).map(row => ({
     memberId: row.member_user_id,
+    calendarId: row.calendar_id,
     username: row.username,
-    name: row.name,
+    name: row.status === 'accepted' ? row.name : '',
     role: row.role === 'writer' ? 'writer' : 'reader',
     status: row.status === 'accepted' || row.status === 'declined' ? row.status : 'pending',
     createdAt: Number(row.created_at),
@@ -50,7 +56,9 @@ export async function upsertMember(
        (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
      VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?5)
      ON CONFLICT(owner_user_id, calendar_id, member_user_id) DO UPDATE SET
-       role = excluded.role, status = 'pending', updated_at = excluded.updated_at`,
+       role = excluded.role,
+       status = CASE WHEN calendar_members.status = 'declined' THEN 'pending' ELSE calendar_members.status END,
+       updated_at = excluded.updated_at`,
   ).bind(ownerId, calendarId, memberId, role, now).run()
 }
 

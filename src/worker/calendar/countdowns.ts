@@ -11,9 +11,9 @@
  * the reader picked one lunar day.
  */
 
-import type { CalendarCountdownDto, CalendarCountdownInput, CountdownRepeat } from '@shared/calendar/countdown'
+import type { CalendarCountdownDto, CountdownRepeat } from '@shared/calendar/countdown'
 import { MAX_COUNTDOWNS } from '@shared/calendar/countdown'
-import { solar2lunar } from '@shared/subscriptions/lunar'
+import { solar2lunar } from '@shared/calendar/lunar'
 import { ApiError } from '../lib/errors'
 
 interface CountdownRow {
@@ -207,9 +207,4 @@ export class CountdownStore {
       `SELECT ${SELECT_COLUMNS} FROM calendar_countdowns WHERE user_id = ?1 AND id = ?2`,
     ).bind(this.userId, id).first<CountdownRow>()
   }
-}
-
-/** The id a countdown write may carry, so a client can create one optimistic row and keep its id. */
-export function countdownWriteId(input: CalendarCountdownInput, generated: string): string {
-  return input.id ?? generated
 }

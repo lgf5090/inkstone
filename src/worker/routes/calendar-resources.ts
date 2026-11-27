@@ -6,7 +6,7 @@
  * applies; this route only keeps the label and capacity row in step with it.
  */
 import { Hono } from 'hono'
-import { MAX_CALENDAR_NAME } from '@shared/calendar/model'
+import { MAX_CALENDARS, MAX_CALENDAR_NAME } from '@shared/calendar/model'
 import type { CalendarResourceDto } from '@shared/calendar/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -14,13 +14,14 @@ import { createMinuteBudget } from '../lib/rate-limit'
 import { readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { CalendarStore } from '../calendar/store'
-import { deleteResourceRow, getResource, insertResource, listResources, updateResourceRow } from '../calendar/resources'
+import { countResources, deleteResourceRow, getResource, insertResource, listResources, updateResourceRow } from '../calendar/resources'
 import { newId } from '../lib/id'
 import { parseCalendarInput } from '../calendar/validation'
 
 const readBudget = createMinuteBudget(240, 'Too many calendar reads at once. Try again in a minute.')
 const writeBudget = createMinuteBudget(60, 'Too many calendar changes. Try again in a minute.')
 const BODY_LIMIT = 8 * 1024
+const MAX_RESOURCES = MAX_CALENDARS
 
 export const calendarResourceRoutes = new Hono<AppBindings>()
 calendarResourceRoutes.use('*', requireAuth)
@@ -53,6 +54,8 @@ calendarResourceRoutes.post('/resources', async (c) => {
   const resourceName = name(body.name)
   const seats = capacity(body.capacity)
   const store = new CalendarStore(c.env.DB, c.get('userId'))
+  const count = await countResources(c.env.DB, c.get('userId'))
+  if (count >= MAX_RESOURCES) throw ApiError.conflict('The resource limit has been reached')
   const input = parseCalendarInput({
     name: resourceName,
     ...(body.color === undefined ? {} : { color: body.color }),
@@ -62,7 +65,9 @@ calendarResourceRoutes.post('/resources', async (c) => {
   try {
     await insertResource(c.env.DB, c.get('userId'), { id, calendarId: calendar.id, name: resourceName, capacity: seats })
   } catch (error) {
-    await store.deleteCalendar(calendar.id, { mode: 'delete' }).catch(() => { /* The insert error is the one to report. */ })
+    await store.deleteCalendar(calendar.id, { mode: 'delete', allowLast: true }).catch((cleanupError: unknown) => {
+      console.warn('[inkstone] Resource calendar cleanup failed:', cleanupError instanceof Error ? cleanupError.message : cleanupError)
+    })
     throw error
   }
   return c.json({ resource: { id, calendarId: calendar.id, name: resourceName, capacity: seats } satisfies CalendarResourceDto })

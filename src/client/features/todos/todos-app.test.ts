@@ -13,18 +13,22 @@ import { TodosApp } from './TodosApp'
  * case is about structure rather than about a fetch that never lands.
  */
 
-const state = vi.hoisted(() => ({ today: 0 }))
+const state = vi.hoisted(() => ({ today: 0, failList: false, listCalls: 0 }))
 
 vi.mock('../../lib/api', () => ({
   api: {
     todos: {
-      list: async () => ({
-        tasks: [],
-        total: 0,
-        counts: { inbox: 0, today: state.today, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} },
-        dayEnd: Date.now() + 3_600_000,
-        timezone: 'UTC',
-      }),
+      list: async () => {
+        state.listCalls += 1
+        if (state.failList) throw new Error('listing unavailable')
+        return {
+          tasks: [],
+          total: 0,
+          counts: { inbox: 0, today: state.today, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} },
+          dayEnd: Date.now() + 3_600_000,
+          timezone: 'UTC',
+        }
+      },
       lists: async () => ({ lists: [] }),
       tags: async () => ({ tags: [] }),
       get: async () => ({ task: null, steps: [] }),
@@ -36,9 +40,11 @@ let view: RenderedElement
 
 beforeEach(async () => {
   localStorage.clear()
+  state.failList = false
+  state.listCalls = 0
   // The store outlives a render, so a case that expects a fresh load has to hand it back the idle state;
   // without this the first case's counts answer for every case after it.
-  useTodos.setState({ status: 'idle', counts: null, tasks: [], completed: [], lists: [], tags: [], view: 'board', listId: null, tagId: null })
+  useTodos.setState({ status: 'idle', error: null, counts: null, tasks: [], completed: [], lists: [], tags: [], view: 'board', listId: null, tagId: null })
   await initI18n()
 })
 
@@ -70,6 +76,45 @@ describe('the to-do container', () => {
 
     expect(view.container.querySelector(`nav[aria-label="${t('todo.a11y.lists')}"]`)).not.toBeNull()
     expect(view.container.querySelector(`nav[aria-label="${t('todo.app.navigation')}"]`)).toBeNull()
+  })
+
+  it('shows a failed listing with a retry that reads it again', async () => {
+    stubBreakpoint(true)
+    state.failList = true
+    await render()
+
+    expect(view.container.querySelector('[role="alert"]')?.textContent).toContain(t('todo.error.load'))
+    const retry = [...view.container.querySelectorAll('button')]
+      .find((button) => (button.textContent ?? '').includes(t('common.retry')))
+    expect(retry, 'the failed listing offers no retry').toBeDefined()
+
+    const before = state.listCalls
+    state.failList = false
+    await act(async () => {
+      retry!.click()
+      await Promise.resolve()
+    })
+    await act(async () => { await Promise.resolve() })
+
+    expect(state.listCalls, 'the retry never asked the server again').toBeGreaterThan(before)
+    expect(view.container.textContent).not.toContain(t('todo.error.load'))
+  })
+
+  it('reads the listing again once the account day has rolled over', async () => {
+    stubBreakpoint(true)
+    await render()
+    const before = state.listCalls
+
+    // The server names the instant the account's today ends. Handing the store a deadline that has
+    // already passed is the midnight this effect exists for: without it the tab would keep showing
+    // yesterday's rows under today's heading until the reader reloaded by hand.
+    await act(async () => {
+      useTodos.setState({ dayEnd: Date.now() - 1_000 })
+      await Promise.resolve()
+    })
+    await act(async () => { await Promise.resolve() })
+
+    expect(state.listCalls, 'the day rolled over without a re-read').toBeGreaterThan(before)
   })
 
   it('keeps the sidebar’s own order and words for the four cross-cutting views', async () => {
@@ -104,6 +149,35 @@ describe('the to-do container', () => {
     // Today's work is the only number the phone's bar carries: more badges across the views is noise.
     const badged = tabs.filter((tab) => /\d/.test(tab.textContent ?? ''))
     expect(badged.map((tab) => tab.getAttribute('aria-label'))).toEqual([t('todo.view.plan')])
+  })
+
+  it('wears the shared bottom-bar pill rather than a fourth copy of it', async () => {
+    stubBreakpoint(false)
+    await render()
+
+    const bar = view.container.querySelector(`nav[aria-label="${t('todo.app.navigation')}"]`)
+    // The pressed state and the 56×48 floor are `.mobile-bottom-nav` / `.mobile-tab-content` in
+    // `app.css`; the notebook and the chat both inherit them, and this bar was the one that did not —
+    // which is why it had no press state and no minimum size of its own.
+    expect(bar!.classList.contains('mobile-bottom-nav')).toBe(true)
+    for (const tab of [...bar!.querySelectorAll('button')]) {
+      expect(tab.querySelector('.mobile-tab-content'), `${tab.getAttribute('aria-label')} has no pill`).not.toBeNull()
+    }
+    expect(bar!.querySelector('[aria-current="page"] .mobile-tab-content')).not.toBeNull()
+  })
+
+  it('paints the plan badge in ink that reads on the danger fill', async () => {
+    state.today = 3
+    stubBreakpoint(false)
+    await render()
+
+    const badge = view.container.querySelector<HTMLElement>(
+      `nav[aria-label="${t('todo.app.navigation')}"] button[aria-label="${t('todo.view.plan')}"] span.rounded-full`,
+    )
+    expect(badge, 'the plan tab carries no badge').not.toBeNull()
+    // `text-white` measured about 2.9:1 on the dark theme's 68% red; the token is the theme's own answer.
+    expect(badge!.className).toContain('text-[var(--danger-contrast)]')
+    expect(badge!.className).not.toContain('text-white')
   })
 
   it('reaches the calendar from the sidebar and names it in the address', async () => {
