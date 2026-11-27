@@ -116,6 +116,25 @@ describe('the access links', () => {
   })
 })
 
+describe('number drafts', () => {
+  it('saves a budget on blur instead of on every keystroke', async () => {
+    const onSaveSettings = vi.fn(async () => true)
+    await show({ settings: { budgetMonthly: 100 }, onSaveSettings })
+    const label = [...document.querySelectorAll<HTMLLabelElement>('label')]
+      .find((node) => node.textContent?.includes(t('subscriptions.settings.budget')))
+    const input = label?.htmlFor ? document.getElementById(label.htmlFor) as HTMLInputElement | null : null
+    expect(input).toBeTruthy()
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      setter.call(input, '200')
+      input!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(onSaveSettings).not.toHaveBeenCalled()
+    await act(async () => { input!.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    expect(onSaveSettings).toHaveBeenCalledWith({ budgetMonthly: 200 })
+  })
+})
+
 describe('the rate boxes', () => {
   it('offers one per currency the account meets, and no box for the anchor', async () => {
     await show({ currencies: ['USD', 'JPY', 'CNY'], settings: { rateOverrides: { GBP: 9.1 } } })

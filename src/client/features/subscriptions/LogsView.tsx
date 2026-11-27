@@ -51,6 +51,20 @@ export function LogsView({
     })
   }
 
+  const apply = (next: { period?: Period; channel?: ChannelKind | ''; status?: 'success' | 'failed' | ''; subscriptionId?: string }): void => {
+    const merged = { period, channel, status, subscriptionId, ...next }
+    if (next.period !== undefined) setPeriod(next.period)
+    if (next.channel !== undefined) setChannel(next.channel)
+    if (next.status !== undefined) setStatus(next.status)
+    if (next.subscriptionId !== undefined) setSubscriptionId(next.subscriptionId)
+    onLoad({
+      since: sinceOf(merged.period),
+      channel: merged.channel || undefined,
+      status: merged.status || undefined,
+      subscriptionId: merged.subscriptionId || undefined,
+    })
+  }
+
   useEffect(() => {
     onLoad({ since: sinceOf('week') })
   }, [onLoad])
@@ -72,12 +86,12 @@ export function LogsView({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        <Select aria-label={t('subscriptions.logs.filter_period')} value={period} onChange={(event) => setPeriod(event.target.value as Period)} className="h-7 w-[120px] text-[length:var(--text-11-5)]">
+        <Select aria-label={t('subscriptions.logs.filter_period')} value={period} onChange={(event) => apply({ period: event.target.value as Period })} className="h-7 w-[120px] text-[length:var(--text-11-5)]">
           <option value="today">{t('subscriptions.logs.period_today')}</option>
           <option value="week">{t('subscriptions.logs.period_week')}</option>
           <option value="month">{t('subscriptions.logs.period_month')}</option>
         </Select>
-        <Select aria-label={t('subscriptions.logs.filter_channel')} value={channel} onChange={(event) => setChannel(event.target.value as ChannelKind | '')} className="h-7 w-[132px] text-[length:var(--text-11-5)]">
+        <Select aria-label={t('subscriptions.logs.filter_channel')} value={channel} onChange={(event) => apply({ channel: event.target.value as ChannelKind | '' })} className="h-7 w-[132px] text-[length:var(--text-11-5)]">
           <option value="">{t('subscriptions.logs.all')}</option>
           {/* The registry of kinds, not a copy of it: the hand-written list here had already fallen behind
               and left the in-app channel unfilterable. */}
@@ -85,12 +99,12 @@ export function LogsView({
             <option key={kind} value={kind}>{t(channelLabelKey(kind))}</option>
           ))}
         </Select>
-        <Select aria-label={t('subscriptions.logs.filter_status')} value={status} onChange={(event) => setStatus(event.target.value as 'success' | 'failed' | '')} className="h-7 w-[112px] text-[length:var(--text-11-5)]">
+        <Select aria-label={t('subscriptions.logs.filter_status')} value={status} onChange={(event) => apply({ status: event.target.value as 'success' | 'failed' | '' })} className="h-7 w-[112px] text-[length:var(--text-11-5)]">
           <option value="">{t('subscriptions.logs.all')}</option>
           <option value="success">{t('subscriptions.logs.status_success')}</option>
           <option value="failed">{t('subscriptions.logs.status_failed')}</option>
         </Select>
-        <Select aria-label={t('subscriptions.logs.filter_subscription')} value={subscriptionId} onChange={(event) => setSubscriptionId(event.target.value)} className="h-7 max-w-[180px] text-[length:var(--text-11-5)]">
+        <Select aria-label={t('subscriptions.logs.filter_subscription')} value={subscriptionId} onChange={(event) => apply({ subscriptionId: event.target.value })} className="h-7 max-w-[180px] text-[length:var(--text-11-5)]">
           <option value="">{t('subscriptions.logs.all')}</option>
           {items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </Select>

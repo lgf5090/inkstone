@@ -30,6 +30,20 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
   const fileRef = useRef<HTMLInputElement>(null)
   const [categoryDraft, setCategoryDraft] = useState<string | null>(null)
   const [pending, setPending] = useState<{ rows: ReturnType<typeof parseCsv>; filename: string } | null>(null)
+  const [working, setWorking] = useState(false)
+  const workingRef = useRef(false)
+
+  const run = async (action: () => Promise<void>): Promise<void> => {
+    if (workingRef.current) return
+    workingRef.current = true
+    setWorking(true)
+    try {
+      await action()
+    } finally {
+      workingRef.current = false
+      setWorking(false)
+    }
+  }
 
   const report = (count: number, action: string): void => {
     useUi.getState().toast({
@@ -40,14 +54,16 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
   }
 
   const apply = async (action: 'activate' | 'deactivate', label: string): Promise<void> => {
-    report(await bulk(action), label)
+    await run(async () => { report(await bulk(action), label) })
   }
 
   const applyCategory = async (): Promise<void> => {
     const category = (categoryDraft ?? '').trim()
     if (!category) return
-    report(await bulk('set_category', category), t('subscriptions.bulk.category'))
-    setCategoryDraft(null)
+    await run(async () => {
+      report(await bulk('set_category', category), t('subscriptions.bulk.category'))
+      setCategoryDraft(null)
+    })
   }
 
   const trashSelected = async (): Promise<void> => {
@@ -56,7 +72,7 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
       description: t('subscriptions.bulk.trash_confirm', { count: selection.length }),
       confirmLabel: t('subscriptions.bulk.trash'),
     })
-    if (ok) report(await bulk('trash'), t('subscriptions.bulk.trash'))
+    if (ok) await run(async () => { report(await bulk('trash'), t('subscriptions.bulk.trash')) })
   }
 
   const exportCsv = (): void => {
@@ -83,13 +99,15 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
 
   const confirmImport = async (): Promise<void> => {
     if (!pending) return
-    const result = await importRows(pending.rows.map(rowToInput))
-    setPending(null)
-    if (!result) return
-    useUi.getState().toast({
-      title: t('subscriptions.import.done'),
-      description: t('subscriptions.import.done_detail', { created: result.created, skipped: result.skipped.length }),
-      tone: result.skipped.length ? 'warning' : 'success',
+    await run(async () => {
+      const result = await importRows(pending.rows.map(rowToInput))
+      setPending(null)
+      if (!result) return
+      useUi.getState().toast({
+        title: t('subscriptions.import.done'),
+        description: t('subscriptions.import.done_detail', { created: result.created, skipped: result.skipped.length }),
+        tone: result.skipped.length ? 'warning' : 'success',
+      })
     })
   }
 
@@ -100,19 +118,19 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
           <span className="text-[length:var(--text-11-5)] tabular-nums text-[var(--text-secondary)]">
             {t('subscriptions.bulk.selected', { count: selection.length })}
           </span>
-          <Button size="sm" variant="secondary" onClick={() => void apply('activate', t('subscriptions.bulk.activate'))}>
+          <Button size="sm" variant="secondary" disabled={working} onClick={() => void apply('activate', t('subscriptions.bulk.activate'))}>
             {t('subscriptions.bulk.activate')}
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => void apply('deactivate', t('subscriptions.bulk.deactivate'))}>
+          <Button size="sm" variant="secondary" disabled={working} onClick={() => void apply('deactivate', t('subscriptions.bulk.deactivate'))}>
             {t('subscriptions.bulk.deactivate')}
           </Button>
-          <Button size="sm" variant="secondary" icon={<Tag size={12} />} onClick={() => setCategoryDraft('')}>
+          <Button size="sm" variant="secondary" icon={<Tag size={12} />} disabled={working} onClick={() => setCategoryDraft('')}>
             {t('subscriptions.bulk.category')}
           </Button>
-          <Button size="sm" variant="ghost" icon={<Trash2 size={12} />} onClick={() => void trashSelected()}>
+          <Button size="sm" variant="ghost" icon={<Trash2 size={12} />} disabled={working} onClick={() => void trashSelected()}>
             {t('subscriptions.bulk.trash')}
           </Button>
-          <IconButton label={t('subscriptions.bulk.clear')} size="sm" onClick={clearSelection}>
+          <IconButton label={t('subscriptions.bulk.clear')} size="sm" disabled={working} onClick={clearSelection}>
             <XCircle size={13} />
           </IconButton>
           {categoryDraft !== null && (
@@ -120,6 +138,7 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
               <Input
                 className="min-w-0 flex-1"
                 autoFocus
+                disabled={working}
                 value={categoryDraft}
                 aria-label={t('subscriptions.bulk.category')}
                 placeholder={t('subscriptions.bulk.category_placeholder')}
@@ -130,10 +149,10 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
                   if (event.key === 'Escape') setCategoryDraft(null)
                 }}
               />
-              <Button size="sm" variant="primary" disabled={!categoryDraft.trim()} onClick={() => void applyCategory()}>
+              <Button size="sm" variant="primary" disabled={!categoryDraft.trim() || working} onClick={() => void applyCategory()}>
                 {t('subscriptions.bulk.apply')}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setCategoryDraft(null)}>{t('subscriptions.cancel')}</Button>
+              <Button size="sm" variant="ghost" disabled={working} onClick={() => setCategoryDraft(null)}>{t('subscriptions.cancel')}</Button>
             </span>
           )}
         </>
@@ -142,6 +161,7 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
         ref={fileRef}
         type="file"
         accept=".csv,text/csv"
+        disabled={working}
         className="hidden"
         aria-label={t('subscriptions.import.pick')}
         onChange={(event) => void pickFile(event.target.files?.[0])}
@@ -149,7 +169,7 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
       <Button size="sm" variant="ghost" icon={<Download size={13} />} onClick={exportCsv}>
         {t('subscriptions.export')}
       </Button>
-      <Button size="sm" variant="ghost" icon={<FileUp size={13} />} onClick={() => fileRef.current?.click()}>
+      <Button size="sm" variant="ghost" icon={<FileUp size={13} />} disabled={working} onClick={() => fileRef.current?.click()}>
         {t('subscriptions.import')}
       </Button>
       {pending && (
@@ -157,8 +177,8 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
           <span className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
             {t('subscriptions.import.confirm', { filename: pending.filename, count: pending.rows.length })}
           </span>
-          <Button size="sm" variant="ghost" onClick={() => setPending(null)}>{t('subscriptions.cancel')}</Button>
-          <Button size="sm" variant="primary" onClick={() => void confirmImport()}>{t('subscriptions.import.go')}</Button>
+          <Button size="sm" variant="ghost" disabled={working} onClick={() => setPending(null)}>{t('subscriptions.cancel')}</Button>
+          <Button size="sm" variant="primary" loading={working} onClick={() => void confirmImport()}>{t('subscriptions.import.go')}</Button>
         </div>
       )}
     </div>

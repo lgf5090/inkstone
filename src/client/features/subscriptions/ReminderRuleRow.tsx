@@ -14,7 +14,7 @@ import type { ReactElement } from 'react'
 import { Trash2 } from 'lucide-react'
 import { t, type MessageKey } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
-import { Input, Select, Switch } from '../../components/form'
+import { CommitNumberInput, Select, Switch } from '../../components/form'
 import {
   REPEAT_INTERVAL_MAX,
   REPEAT_UNTIL,
@@ -58,13 +58,13 @@ export function ReminderRuleRow({ rule, onPatch, onRemove, canAcknowledge = fals
       </Select>
       {isBefore && (
         <>
-          <Input
+          <CommitNumberInput
             aria-label={t('subscriptions.rules.value')}
-            type="number"
             min={0}
             max={RULE_VALUE_MAX}
+            inputMode="numeric"
             value={rule.value ?? 0}
-            onChange={(event) => onPatch({ value: Number(event.target.value) })}
+            onCommit={(value) => { if (value !== null) onPatch({ value }) }}
             className="h-7 w-14 shrink-0 text-center text-[length:var(--text-11-5)] tabular-nums"
           />
           <Select
@@ -81,13 +81,13 @@ export function ReminderRuleRow({ rule, onPatch, onRemove, canAcknowledge = fals
       {isAfter && (
         <>
           <span className="flex min-w-0 items-center gap-1">
-            <Input
+            <CommitNumberInput
               aria-label={t('subscriptions.rules.repeat_every_value')}
-              type="number"
               min={1}
               max={REPEAT_INTERVAL_MAX}
+              inputMode="numeric"
               value={rule.repeatInterval ?? 24}
-              onChange={(event) => onPatch({ repeatInterval: Number(event.target.value) })}
+              onCommit={(value) => { if (value !== null) onPatch({ repeatInterval: value }) }}
               className="h-7 w-14 shrink-0 text-center text-[length:var(--text-11-5)] tabular-nums"
             />
             <span className="truncate text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">{t('subscriptions.rules.unit_hours')}</span>

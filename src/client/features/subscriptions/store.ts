@@ -644,7 +644,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       return changed
     } catch (error) {
       report(error, 'subscriptions.error.save')
-      return 0
+      throw error
     }
   },
 

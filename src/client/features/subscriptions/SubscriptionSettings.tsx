@@ -12,7 +12,7 @@ import { Copy, Send, Trash2 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
-import { Field, Input, Segmented, Select, Switch, Textarea } from '../../components/form'
+import { Field, Input, Segmented, Select, Switch, Textarea, CommitNumberInput } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { CHANNEL_DEFINITIONS, channelLabelKey, INBOUND_HOOK_PATH, type ChannelField } from '@shared/subscriptions/channels'
 import { copyText } from '../../lib/clipboard'
@@ -151,12 +151,12 @@ export function SubscriptionSettings({
               />
             </Field>
             <Field label={t('subscriptions.settings.history_limit')}>
-              <Input
-                type="number"
+              <CommitNumberInput
                 min={PAYMENT_LIMIT_MIN}
                 max={PAYMENT_LIMIT_MAX}
+                inputMode="numeric"
                 value={settings.paymentHistoryLimit}
-                onChange={(event) => void saveGeneral({ paymentHistoryLimit: Number(event.target.value) })}
+                onCommit={(value) => { if (value !== null) void saveGeneral({ paymentHistoryLimit: value }) }}
               />
             </Field>
             <Field label={t('subscriptions.settings.language')}>
@@ -171,28 +171,26 @@ export function SubscriptionSettings({
             {/* A ceiling the reader sets, not one the app infers: the dashboard already says what was
                 spent, and the number only means anything against a limit they chose themselves. */}
             <Field label={t('subscriptions.settings.budget')} hint={t('subscriptions.settings.budget_hint')}>
-              <Input
-                type="number"
+              <CommitNumberInput
                 min={0}
-                step="1"
-                inputMode="decimal"
-                value={settings.budgetMonthly ?? ''}
+                step={1}
+                allowEmpty
+                value={settings.budgetMonthly}
                 placeholder={t('subscriptions.settings.budget_placeholder')}
-                onChange={(event) => void saveGeneral({ budgetMonthly: event.target.value === '' ? null : Number(event.target.value) })}
+                onCommit={(value) => { void saveGeneral({ budgetMonthly: value }) }}
               />
             </Field>
             {/* The year is its own ceiling because an annual plan spends twelve months of cost in one
                 month, and a reader who set only the monthly number is told they overspent on the day they
                 bought the thing that makes their other months cheap. */}
             <Field label={t('subscriptions.settings.budget_yearly')} hint={t('subscriptions.settings.budget_yearly_hint')}>
-              <Input
-                type="number"
+              <CommitNumberInput
                 min={0}
-                step="1"
-                inputMode="decimal"
-                value={settings.budgetYearly ?? ''}
+                step={1}
+                allowEmpty
+                value={settings.budgetYearly}
                 placeholder={t('subscriptions.settings.budget_placeholder')}
-                onChange={(event) => void saveGeneral({ budgetYearly: event.target.value === '' ? null : Number(event.target.value) })}
+                onCommit={(value) => { void saveGeneral({ budgetYearly: value }) }}
               />
             </Field>
           </div>
@@ -445,6 +443,7 @@ function ChannelPanel({
   const [config, setConfig] = useState<Record<string, unknown>>({})
   const [enabled, setEnabled] = useState(state?.enabled ?? false)
   const [busy, setBusy] = useState(false)
+  const [toggling, setToggling] = useState(false)
 
   const configured = state?.configured ?? false
   // A channel with fields cannot send until they are filled in; one with none is ready as soon as it is
@@ -466,6 +465,23 @@ function ChannelPanel({
     }
   }
 
+  const toggle = async (next: boolean): Promise<void> => {
+    setToggling(true)
+    setEnabled(next)
+    const ok = await onSave(kind, { enabled: next, config: {} })
+    if (!ok) setEnabled(!next)
+    setToggling(false)
+  }
+
+  const clear = async (): Promise<void> => {
+    const previous = enabled
+    setToggling(true)
+    setEnabled(false)
+    const ok = await onClear(kind)
+    if (!ok) setEnabled(previous)
+    setToggling(false)
+  }
+
   return (
     <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)]">
       <div className="flex items-center gap-2 px-2.5 py-2">
@@ -482,8 +498,8 @@ function ChannelPanel({
         </button>
         <Switch
           checked={enabled}
-          disabled={needsConfiguration}
-          onChange={(next) => { setEnabled(next); void onSave(kind, { enabled: next, config: {} }) }}
+          disabled={needsConfiguration || toggling}
+          onChange={(next) => { void toggle(next) }}
           label={t('subscriptions.channel.enable')}
         />
       </div>
@@ -509,8 +525,8 @@ function ChannelPanel({
                 label={t('subscriptions.channel.clear')}
                 size="sm"
                 className="ml-auto text-[var(--danger)]"
-                disabled={!configured}
-                onClick={() => { void onClear(kind); setEnabled(false) }}
+                disabled={!configured || toggling}
+                onClick={() => { void clear() }}
               >
                 <Trash2 size={14} />
               </IconButton>
