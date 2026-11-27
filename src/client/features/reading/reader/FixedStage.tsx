@@ -81,6 +81,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
   const [pages, setPages] = useState(0)
   const [page, setPage] = useState(() => (start?.kind === 'fixed' ? start.page : 1))
   const [error, setError] = useState<string | null>(null)
+  const [rtl, setRtl] = useState(false)
   const [ready, setReady] = useState(false)
   /**
    * A page is sized from the stage, never from itself. Measuring the page box instead is circular — the
@@ -118,6 +119,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
     pageUrls.current = null
     setReady(false)
     setError(null)
+    setRtl(false)
     clearFixedPageText(book.id)
     void (async () => {
       const blob = await readBookBlob(userId, book.id)
@@ -130,10 +132,13 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
         const { openZip } = await import('../engine/zip')
         const archive = await openZip(bytes)
         if (cancelled) return
-        const paths = archive.entries
-          .filter((entry) => /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(entry.name))
-          .sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }))
-          .map((entry) => entry.name)
+        const { orderComicPages } = await import('../engine/comic')
+        const ordered = orderComicPages(
+          archive.entries.filter((entry) => /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(entry.name)).map((entry) => entry.name),
+          archive.has('ComicInfo.xml') ? await archive.readText('ComicInfo.xml') : null,
+        )
+        const paths = ordered.paths
+        setRtl(ordered.rtl)
         const cache = new PageUrlCache(async (path) => {
           const page = await archive.read(path)
           const extension = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
@@ -369,6 +374,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
       ref={scrollerRef}
       className="reader-stage reader-fixed"
       data-mode={settings.readMode}
+      data-rtl={rtl ? 'true' : undefined}
       style={{ background: theme.background, '--reader-fg': theme.foreground } as React.CSSProperties}
     >
       {!ready ? <div className="reader-fixed-row"><p className="text-[length:var(--text-12)] opacity-60">{t('reading.opening_book')}</p></div> : null}

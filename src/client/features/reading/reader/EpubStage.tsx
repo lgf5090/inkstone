@@ -38,6 +38,8 @@ import { t } from '../../../lib/i18n'
 import type { ReaderSettings } from '../store/reader-settings'
 import { fontStackFor } from '../store/reader-settings'
 import { DEFAULT_HIGHLIGHT_PAINT, type ReaderTheme } from '../themes'
+import { createPortal } from 'react-dom'
+import { ImageLightbox } from './ImageLightbox'
 import { chapterText } from '../engine/book-search'
 import { api } from '../../../lib/api'
 
@@ -113,6 +115,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
   const [page, setPage] = useState(0)
   const [pages, setPages] = useState(1)
   const [failed, setFailed] = useState(false)
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
   usePointerPaging(stageRef, {
     zones: paging.zones,
     swipe: paging.swipe,
@@ -732,6 +735,12 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
   const onClick = useCallback((event: React.MouseEvent) => {
     const doc = docRef.current
     if (!doc) return
+    const image = (event.target as HTMLElement | null)?.closest<HTMLImageElement>('img')
+    if (image?.src) {
+      event.preventDefault()
+      setLightbox({ src: image.src, alt: image.alt || '' })
+      return
+    }
     const mark = (event.target as HTMLElement | null)?.closest<HTMLElement>('.reader-mark')
     if (mark) {
       event.preventDefault()
@@ -799,6 +808,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
           {t('reading.chapter_missing')}
         </p>
       ) : null}
+      {lightbox ? createPortal(<ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />, document.body) : null}
     </div>
   )
 })
