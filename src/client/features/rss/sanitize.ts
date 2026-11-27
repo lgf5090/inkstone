@@ -37,6 +37,8 @@ const ALLOWED_ATTR = [
 // read: they carry a picture's real address in the markup feeds write, and are removed on the way out.
 /** Attributes a lazy-loading feed hides its real address behind. */
 const LAZY_SRC_ATTRS = ['data-src', 'data-original-src', 'data-original', 'data-lazy-src']
+const ADDRESS_ATTRS = ['src', 'href', ...LAZY_SRC_ATTRS]
+const ADDRESS_SELECTOR = ADDRESS_ATTRS.map(attribute => `[${attribute}]`).join(',')
 
 const CONFIG = {
   ALLOWED_TAGS,
@@ -59,14 +61,16 @@ export function sanitizeFeedHtml(html: string, base?: string): string {
   const clean = DOMPurify.sanitize(html || '', CONFIG)
   if (!base) return clean
   const root = sanitizedElement(clean)
-  for (const node of Array.from(root.querySelectorAll('[src],[href]'))) {
-    const attribute = node.hasAttribute('src') ? 'src' : 'href'
-    const raw = node.getAttribute(attribute) || ''
-    const resolved = safeHttpUrl(raw, base)
-    // An address that is not http(s) after resolution — `mailto:`, `javascript:`, a fragment-only
-    // pointer to a page that is not this one — is dropped rather than kept for the browser to guess.
-    if (resolved) node.setAttribute(attribute, resolved.href)
-    else node.removeAttribute(attribute)
+  for (const node of Array.from(root.querySelectorAll(ADDRESS_SELECTOR))) {
+    for (const attribute of ADDRESS_ATTRS) {
+      if (!node.hasAttribute(attribute)) continue
+      const raw = node.getAttribute(attribute) || ''
+      const resolved = safeHttpUrl(raw, base)
+      // An address that is not http(s) after resolution — `mailto:`, `javascript:`, a fragment-only
+      // pointer to a page that is not this one — is dropped rather than kept for the browser to guess.
+      if (resolved) node.setAttribute(attribute, resolved.href)
+      else node.removeAttribute(attribute)
+    }
   }
   return root.innerHTML
 }
@@ -75,6 +79,8 @@ export interface DisplayOptions {
   images: 'relay' | 'direct' | 'off'
   /** Where a relayed address goes. Injected so this module stays free of the API client. */
   relay: (url: string) => string
+  /** The article address, used to repair relative lazy sources from an older cache. */
+  base?: string
 }
 
 /**
@@ -86,7 +92,7 @@ export interface DisplayOptions {
  */
 export function articleDisplayHtml(html: string, options: DisplayOptions): string {
   const host = document.createElement('template')
-  host.innerHTML = sanitizeFeedHtml(html)
+  host.innerHTML = sanitizeFeedHtml(html, options.base)
   for (const node of Array.from(host.content.querySelectorAll('*'))) {
     const tag = node.tagName.toLowerCase()
     if (tag === 'img') {
@@ -97,9 +103,9 @@ export function articleDisplayHtml(html: string, options: DisplayOptions): strin
       const declared = LAZY_SRC_ATTRS.map(attribute => node.getAttribute(attribute)).find(Boolean)
       const written = node.getAttribute('src') || ''
       for (const attribute of LAZY_SRC_ATTRS) node.removeAttribute(attribute)
-      // A lazy-loading feed puts a placeholder in `src` and the real picture in `data-src`, so the
-      // placeholder is only believed when it is an address of its own.
-      const url = safeHttpUrl(written) || safeHttpUrl(declared || '')
+      // A lazy-loading feed puts a placeholder in `src` and the real picture in `data-src`; the
+      // declared picture wins even when the placeholder is itself a valid address.
+      const url = safeHttpUrl(declared || '') || safeHttpUrl(written)
       // srcset would let the browser pick a candidate the relay never saw, so the choice is taken
       // away rather than trusted to agree with us.
       node.removeAttribute('srcset')

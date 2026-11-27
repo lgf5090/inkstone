@@ -61,6 +61,12 @@ describe('articleDisplayHtml', () => {
     expect(html).not.toContain('base64')
   })
 
+  it('prefers the real lazy address over a valid placeholder', () => {
+    const html = articleDisplayHtml('<img data-src="https://cdn.example.com/real.jpg" src="https://cdn.example.com/placeholder.gif">', { images: 'relay', relay })
+    expect(html).toContain(relay('https://cdn.example.com/real.jpg'))
+    expect(html).not.toContain('placeholder.gif')
+  })
+
   it('makes links safe to open and unwraps the ones that are not addresses', () => {
     const html = articleDisplayHtml('<a href="https://x.example/a">post</a><a href="javascript:alert(1)">y</a>', { images: 'off', relay })
     expect(html).not.toContain('javascript:')
@@ -76,9 +82,16 @@ describe('articleDisplayHtml', () => {
     expect(sanitizeFeedHtml('<a href="mailto:hi@example.com">mail</a>', 'https://blog.example.com/entry')).not.toContain('href=')
   })
 
+  it('resolves a relative lazy picture against the article, not the notebook', () => {
+    const clean = sanitizeFeedHtml('<img data-original="/images/lazy.png" src="/i.png">', 'https://blog.example.com/entry')
+    expect(clean).toContain('data-original="https://blog.example.com/images/lazy.png"')
+    const html = articleDisplayHtml('<img data-original="/images/lazy.png">', { images: 'relay', relay, base: 'https://blog.example.com/entry' })
+    expect(html).toContain(relay('https://blog.example.com/images/lazy.png'))
+  })
+
   it('resolves a relative picture against the article, not the notebook', () => {
-    const html = articleDisplayHtml('<img src="/images/inline.png">', { images: 'relay', relay })
-    expect(html).not.toContain('/relay?u=%2Fimages')
+    const html = articleDisplayHtml('<img src="/images/inline.png">', { images: 'relay', relay, base: 'https://blog.example.com/entry' })
+    expect(html).toContain(relay('https://blog.example.com/images/inline.png'))
   })
 })
 

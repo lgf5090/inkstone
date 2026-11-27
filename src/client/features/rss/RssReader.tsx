@@ -152,6 +152,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
     ? articleDisplayHtml(entry.content, {
       images: imagesOn ? 'relay' : settings.images,
       relay: api.rss.relayUrl,
+      base: entry.link,
     })
     : ''), [entry, settings.images, imagesOn])
 
