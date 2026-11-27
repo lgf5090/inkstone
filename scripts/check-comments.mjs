@@ -1654,7 +1654,6 @@ const allowed = new Map([
     "// scrolling draws ten rows, so the length comes from the cells rather than a constant.",
     "// The date number is wider than two digits on the first of a month (\"1 October\"), and its",
     "// width is the only thing that decides where the label has to stop. Measured here and handed",
-    "/** One month grid is redrawn many times per view; rebuilding its lunar map each pass is wasted work. */",
     "/** Bumped on resize: a cell only has to measure its number again when the column width changed. */",
     "// to CSS as a custom property, so no cell's label can run under its own number. A cell keeps",
     "// its measurement until a resize changes the column width; re-reading it every pass forced",
@@ -1720,6 +1719,8 @@ const allowed = new Map([
     "// handler to the date the cell had before the header was mirrored onto the body's rolling window.",
     "// The timed canvas announces its horizontal position by rewriting its own transform, so a header",
     "// that follows it has to hear that one attribute instead of every event repaint.",
+    "// DayFlow renders events as divs and exposes no semantic event slot. This bridge supplies the",
+    "// equivalent button role, focus stop and keyboard activation because the app intercepts selection.",
   ]],
   ["src/client/features/calendar/calendar-download.ts", [
     "/**\n * Turn a calendar export into the file the browser saves.\n *\n * ICS and CSV are both plain text documents the route already built; the only job here is the\n * anchor download, so the same name sanitiser and object-URL lifetime cover both.\n */",

@@ -94,6 +94,42 @@ describe('calendar chrome bridge', () => {
     expect(app.selectEvent).not.toHaveBeenCalled()
   })
 
+  it('moves focus between library event divs and activates them with Space', () => {
+    const { root, event } = mount()
+    const second = document.createElement('div')
+    second.className = 'df-event'
+    second.dataset.eventId = 'event-2'
+    second.innerHTML = '<div class="df-event-title">Second</div><div class="df-event-time">11:00</div>'
+    root.append(second)
+    const app = fakeApp()
+    const onSelect = vi.fn()
+    const onOpenDetail = vi.fn()
+    const cleanup = attachCalendarChrome({
+      root,
+      app,
+      locale: 'en-US',
+      weekStart: 0,
+      detailTrigger: 'dbClick',
+      addLabel: 'New event',
+      untitledLabel: 'Untitled',
+      allDayLabel: 'All day',
+      interceptEvents: true,
+      onAdd: vi.fn(),
+      onRecurring: vi.fn(),
+      onSelect,
+      onOpenDetail,
+    })
+
+    event.focus()
+    event.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    expect(document.activeElement).toBe(second)
+    second.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    expect(app.selectEvent).toHaveBeenCalledWith('event-2')
+    expect(onSelect).toHaveBeenCalledWith('event-2')
+    expect(onOpenDetail).toHaveBeenCalledWith('event-2')
+    cleanup()
+  })
+
   it('refuses a recurrence occurrence instead of selecting a row that does not exist', () => {
     const { root, event } = mount()
     event.setAttribute('data-event-id', 'master::repeat-0')

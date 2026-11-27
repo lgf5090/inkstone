@@ -192,6 +192,8 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
     const byId = new Map(options.app.getEvents().map(event => [event.id, event]))
     options.root.querySelectorAll<HTMLElement>(EVENT_SELECTOR).forEach((element) => {
       if (element.tabIndex !== 0) element.tabIndex = 0
+      // DayFlow renders events as divs and exposes no semantic event slot. This bridge supplies the
+      // equivalent button role, focus stop and keyboard activation because the app intercepts selection.
       if (element.getAttribute('role') !== 'button') element.setAttribute('role', 'button')
       const name = eventAccessibleName(element, options.untitledLabel, options.allDayLabel)
       if (name && element.getAttribute('aria-label') !== name) element.setAttribute('aria-label', name)
