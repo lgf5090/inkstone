@@ -7,10 +7,11 @@
  * The card is not a tooltip: it holds a paragraph, a reader may need to select from it, and it stays
  * until they say otherwise.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { ArrowDownToLine, X } from 'lucide-react'
 import { IconButton } from '../../../components/primitives'
 import { t } from '../../../lib/i18n'
+import { useDialogFocus } from './use-dialog-focus'
 
 export interface FootnoteNote {
   /** The note's own words. */
@@ -30,7 +31,7 @@ export function FootnotePopover({ note, anchor, onJump, onClose }: {
   onJump: () => void
   onClose: () => void
 }) {
-  const card = useRef<HTMLDivElement | null>(null)
+  const card = useDialogFocus<HTMLDivElement>()
   const [box, setBox] = useState<{ top: number; left: number } | null>(null)
 
   // Measured after the first paint: the card's own height decides whether it goes above or below the
@@ -69,6 +70,7 @@ export function FootnotePopover({ note, anchor, onJump, onClose }: {
       ref={card}
       role="dialog"
       aria-label={t('reading.footnote_title_value0', { value0: note.label })}
+      tabIndex={-1}
       className="reader-note-card"
       style={{ top: box?.top ?? -9999, left: box?.left ?? -9999 }}
     >

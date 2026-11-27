@@ -123,6 +123,8 @@ describe('paintHighlights', () => {
     const { marks, repainted } = paint(root, [highlight({ start: 3, end: 6, ...anchor })])
     expect(root.querySelectorAll('.reader-mark')).toHaveLength(1)
     expect(root.querySelector('.reader-mark')?.textContent).toBe('，非常')
+    expect(root.querySelector('.reader-mark')?.getAttribute('role')).toBe('button')
+    expect(root.querySelector<HTMLElement>('.reader-mark')?.tabIndex).toBe(0)
     // Painting must not change what the chapter's text is, or every later offset would be wrong.
     expect(repainted.text).toBe(index.text)
     expect(marks.byHighlight.get('hl-1')).toHaveLength(1)

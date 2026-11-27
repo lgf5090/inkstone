@@ -6,11 +6,12 @@
  * used is shown: an AI answer and a plain translation are different kinds of confident, and the reader
  * deserves to know which one they are copying.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { BookMarked, Sparkles, X } from 'lucide-react'
 import { t } from '../../../lib/i18n'
 import { Spinner } from '../../../components/primitives'
 import type { LookupOutcome } from '../lookup'
+import { useDialogFocus } from './use-dialog-focus'
 
 export interface LookupCardProps {
   rect: DOMRect
@@ -23,7 +24,7 @@ export interface LookupCardProps {
 }
 
 export function LookupCard({ rect, pending, outcome, error, onClose, onCollect, collected }: LookupCardProps) {
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useDialogFocus<HTMLDivElement>()
 
   useEffect(() => {
     const onDown = (event: PointerEvent) => {
@@ -49,6 +50,7 @@ export function LookupCard({ rect, pending, outcome, error, onClose, onCollect, 
       ref={ref}
       role="status"
       aria-live="polite"
+      tabIndex={-1}
       className="app-viewport-fixed fixed z-[8] flex flex-col gap-1.5 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2.5 shadow-[var(--shadow-pop)]"
       style={{ left, top, width }}
     >

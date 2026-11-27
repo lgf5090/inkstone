@@ -6,11 +6,12 @@
  * and a reader picking a chapter out of the contents wants to preview the jump. So this is a floating
  * card over the page, closable by Escape, the backdrop or its own button, and nothing else.
  */
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { IconButton } from '../../../components/primitives'
 import { t } from '../../../lib/i18n'
 import type { ReaderTheme } from '../themes'
+import { useDialogFocus } from './use-dialog-focus'
 
 export interface ReaderPanelProps {
   name: string
@@ -21,16 +22,7 @@ export interface ReaderPanelProps {
 }
 
 export function ReaderPanel({ name, title, theme, onClose, children }: ReaderPanelProps) {
-  const ref = useRef<HTMLElement>(null)
-
-  useEffect(() => {
-    const node = ref.current
-    if (!node) return
-    // A panel that raises its own field keeps the caret: the frame is focused only so Escape has somewhere
-    // to come from, and stealing focus back would leave the search box needing a click to type in.
-    if (document.activeElement !== document.body) return
-    node.focus({ preventScroll: true })
-  }, [name])
+  const ref = useDialogFocus<HTMLElement>()
 
   useEffect(() => {
     const onDown = (event: PointerEvent) => {

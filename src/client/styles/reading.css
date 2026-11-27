@@ -283,6 +283,12 @@
   pointer-events: none;
 }
 
+.reader-hud[data-hidden='true']:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
 .reader-hud[data-edge='top'][data-hidden='true'] {
   transform: translateY(-140%);
 }

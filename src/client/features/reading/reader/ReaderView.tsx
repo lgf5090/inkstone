@@ -655,6 +655,9 @@ export function ReaderView({ book }: { book: BookRecord }) {
         />
       ) : null}
 
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {t('reading.reader_position_value0_value1', { value0: page.page, value1: page.pages })}
+      </div>
       <div className="reader-hud" data-edge="top" data-hidden={hudHidden ? 'true' : 'false'}>
         <IconButton label={t('reading.back_to_shelf')} size="sm" onClick={() => navigateToPath('/reading')}>
           <ArrowLeft size={15} />

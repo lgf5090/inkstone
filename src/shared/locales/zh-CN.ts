@@ -6954,6 +6954,7 @@ console.log(\`Hello, \${name}!\`)
     "reading.paragraph_spacing": "段距",
     "reading.pick_imported_font": "选择已导入的字体",
     "reading.previous_page": "上一页",
+    "reading.reader_position_value0_value1": "第 {value0} 页，共 {value1} 页",
     "reading.reading_settings": "阅读设置",
     "reading.reading_time_hint": "今日 {value0}",
     "reading.remove": "移出",

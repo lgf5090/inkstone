@@ -6963,6 +6963,7 @@ const CORE_MESSAGES_TAIL = {
     "reading.paragraph_spacing": "Paragraph spacing",
     "reading.pick_imported_font": "Choose an imported face",
     "reading.previous_page": "Previous page",
+    "reading.reader_position_value0_value1": "Page {value0} of {value1}",
     "reading.reading_settings": "Reading settings",
     "reading.reading_time_hint": "{value0} today",
     "reading.remove": "Remove",

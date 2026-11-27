@@ -707,6 +707,15 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     jump({ kind: 'epub', chapter: target, offset: 0 }, fragment)
   }, [handle.pkg, jump, slot])
 
+  const onKeyDown = useCallback((event: React.KeyboardEvent) => {
+    const mark = (event.target as HTMLElement | null)?.closest<HTMLElement>('.reader-mark')
+    if (!mark || (event.key !== 'Enter' && event.key !== ' ')) return
+    event.preventDefault()
+    event.stopPropagation()
+    const ids = (mark.dataset.hl ?? '').split(' ').filter(Boolean)
+    if (ids.length) emit.current.onMarkClick(ids, mark.getBoundingClientRect())
+  }, [])
+
   const onClick = useCallback((event: React.MouseEvent) => {
     const doc = docRef.current
     if (!doc) return
@@ -757,6 +766,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
       data-motion={settings.pageTurnAnimation ? 'on' : 'off'}
       style={cssVars()}
       onClick={onClick}
+      onKeyDown={onKeyDown}
       onPointerOver={onPointerOver}
       onPointerOut={onPointerOut}
     >
