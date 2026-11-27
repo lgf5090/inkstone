@@ -50,6 +50,7 @@ import { applyBackupQuickAdd } from '../backup/quickadd'
 import { applyBackupSubscriptions } from '../subscriptions/backup'
 import { applyBackupTodos } from '../todos/backup'
 import { applyBackupMusic } from '../music/backup'
+import { applyBackupReader } from '../reader/backup'
 import { applyBackupInknote } from '../inknote/backup'
 import { applyBackupCalendar } from '../calendar/backup'
 import {
@@ -304,6 +305,9 @@ transferRoutes.post('/import', async (c) => {
           if (backup.manifest.music) {
             expected.add(`${backup.rootPrefix}${backup.manifest.music.path}`.toLowerCase())
           }
+          if (backup.manifest.reader) {
+            expected.add(`${backup.rootPrefix}${backup.manifest.reader.path}`.toLowerCase())
+          }
           if (backup.manifest.calendar) {
             expected.add(`${backup.rootPrefix}${backup.manifest.calendar.path}`.toLowerCase())
           }
@@ -513,6 +517,7 @@ async function importBackupFileBatch(
   const subscriptionsByPath = manifest.subscriptions?.path.toLowerCase() ?? null
   const todosByPath = manifest.todos?.path.toLowerCase() ?? null
   const musicByPath = manifest.music?.path.toLowerCase() ?? null
+  const readerByPath = manifest.reader?.path.toLowerCase() ?? null
   const calendarByPath = manifest.calendar?.path.toLowerCase() ?? null
   const inknoteByPath = manifest.inknote?.path.toLowerCase() ?? null
   const emailByPath = manifest.email?.path.toLowerCase() ?? null
@@ -571,15 +576,16 @@ async function importBackupFileBatch(
     const subscriptions = subscriptionsByPath !== null && key === subscriptionsByPath
     const todos = todosByPath !== null && key === todosByPath
     const music = musicByPath !== null && key === musicByPath
+    const reader = readerByPath !== null && key === readerByPath
     const calendar = calendarByPath !== null && key === calendarByPath
     const inknote = inknoteByPath !== null && key === inknoteByPath
     const email = emailByPath !== null && key === emailByPath
     const emailAttachment = emailAttachmentByPath.get(key) ?? null
     const emailRawMime = emailRawMimeByPath.get(key) ?? null
-    if (!note && !attachment && !templates && !automation && !subscriptions && !todos && !music && !calendar && !email && !emailAttachment && !emailRawMime && !inknote) {
+    if (!note && !attachment && !templates && !automation && !subscriptions && !todos && !music && !reader && !calendar && !email && !emailAttachment && !emailRawMime && !inknote) {
       throw new Error(`The file is not listed in the backup manifest: ${path}`)
     }
-    return { file, path, note, attachment, templates, automation, subscriptions, todos, music, calendar, email, emailAttachment, emailRawMime, inknote }
+    return { file, path, note, attachment, templates, automation, subscriptions, todos, music, reader, calendar, email, emailAttachment, emailRawMime, inknote }
   })
 
   const cachedBytes = new Map<string, Uint8Array>()
@@ -631,6 +637,7 @@ async function importBackupFileBatch(
       ?? (item.subscriptions ? manifest.subscriptions ?? null : null)
       ?? (item.todos ? manifest.todos ?? null : null)
       ?? (item.music ? manifest.music ?? null : null)
+      ?? (item.reader ? manifest.reader ?? null : null)
       ?? (item.calendar ? manifest.calendar ?? null : null)
       ?? (item.inknote ? manifest.inknote ?? null : null)
     if (!entry) continue
@@ -642,6 +649,7 @@ async function importBackupFileBatch(
         : item.templates ? manifest.templates!.bytes
         : item.automation ? manifest.automation!.bytes
         : item.music ? manifest.music!.bytes
+        : item.reader ? manifest.reader!.bytes
         : item.todos ? manifest.todos!.bytes
         : item.calendar ? manifest.calendar!.bytes
         : item.inknote ? manifest.inknote!.bytes
@@ -662,7 +670,7 @@ async function importBackupFileBatch(
         }
       }
       noteTextByPath.set(item.path.toLowerCase(), text)
-    } else if (item.templates || item.automation || item.subscriptions || item.todos || item.music || item.calendar || item.inknote) {
+    } else if (item.templates || item.automation || item.subscriptions || item.todos || item.music || item.reader || item.calendar || item.inknote) {
       decodeBackupText(bytes, entry.path)
     }
   }
@@ -723,6 +731,14 @@ async function importBackupFileBatch(
       new Uint8Array(await musicItem.file.arrayBuffer()),
     )
     await applyBackupMusic(c.env.DB, userId, text)
+  }
+  const readerItem = planned.find((item) => item.reader)
+  if (readerItem) {
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      new Uint8Array(await readerItem.file.arrayBuffer()),
+    )
+    const summary = await applyBackupReader(c.env, userId, text)
+    if (summary.missingObjects) addWarning(ctx.result, `${summary.missingObjects} reader objects were not present in the R2 bucket backup`)
   }
   const calendarItem = planned.find((item) => item.calendar)
   if (calendarItem) {
