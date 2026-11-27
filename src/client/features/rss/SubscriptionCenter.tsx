@@ -36,7 +36,7 @@ import { rssReasonMessage as reasonText } from './reason'
 
 type Tab = 'manage' | 'discover'
 
-export function SubscriptionCenter({ onClose, adding = false, tab: initialTab = 'manage' }: { onClose: () => void, adding?: boolean, tab?: Tab }): ReactElement {
+export function SubscriptionCenter({ onClose, adding = false, initialAddUrl = '', tab: initialTab = 'manage' }: { onClose: () => void, adding?: boolean, initialAddUrl?: string, tab?: Tab }): ReactElement {
   // Which shelf the palette named is only an opening position: both tabs stay mounted, so a reader
   // who walks over to the catalogue and back keeps their search, their scroll and their selection.
   const [tab, setTab] = useState<Tab>(initialTab)
@@ -55,7 +55,7 @@ export function SubscriptionCenter({ onClose, adding = false, tab: initialTab = 
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className={cn('h-full min-h-0', tab === 'manage' ? 'block' : 'hidden')}>
-          <ManagePanel adding={adding} onAdded={onClose} />
+          <ManagePanel adding={adding} initialAddUrl={initialAddUrl} onAdded={onClose} />
         </div>
         <div className={cn('h-full min-h-0', tab === 'discover' ? 'block' : 'hidden')}>
           <DiscoverPanel />
@@ -83,7 +83,7 @@ function TabButton({ active, onClick, label }: { active: boolean, onClick: () =>
   )
 }
 
-function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void }): ReactElement {
+function ManagePanel({ adding, initialAddUrl, onAdded }: { adding: boolean, initialAddUrl: string, onAdded: () => void }): ReactElement {
   const library = useRss(state => state.library)
   const store = useRss()
   const [query, setQuery] = useState('')
@@ -199,7 +199,7 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
         </span>
       </div>
 
-      {showAdd && <AddFeedForm onDone={() => setShowAdd(false)} onAdded={onAdded} />}
+      {showAdd && <AddFeedForm initialUrl={initialAddUrl} onDone={() => setShowAdd(false)} onAdded={onAdded} />}
 
       {selected.size > 0 && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5">
@@ -404,8 +404,8 @@ async function newGroupThenMove(feedId: string): Promise<void> {
   if (id) useRss.getState().moveFeed(feedId, id)
 }
 
-function AddFeedForm({ onDone, onAdded }: { onDone: () => void, onAdded: () => void }): ReactElement {
-  const [url, setUrl] = useState('')
+function AddFeedForm({ initialUrl, onDone, onAdded }: { initialUrl: string, onDone: () => void, onAdded: () => void }): ReactElement {
+  const [url, setUrl] = useState(initialUrl)
   const [group, setGroup] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

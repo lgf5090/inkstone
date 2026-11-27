@@ -22,6 +22,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Modal, Tooltip, hasOpenLayer } from '../../components/overlay'
 import { isEditableTarget } from '../../lib/hotkeys'
 import { channelEntries, channelKey, findEntry, unreadCounts } from '@shared/rss/reading'
+import { RSS_LIMITS } from '@shared/rss/model'
 import type { AssistantPageContext } from '@shared/assistant'
 import { AssistantDock } from '../chat/AssistantDock'
 import { useAssistant } from '../chat/assistant-store'
@@ -53,6 +54,7 @@ export function RssApp(): ReactElement {
   const [pane, setPane] = useState<Pane>('list')
   const [railHidden, setRailHidden] = useState(false)
   const [center, setCenter] = useState<'manage' | 'add' | 'discover' | null>(null)
+  const [addUrl, setAddUrl] = useState('')
   const [preferences, setPreferences] = useState(false)
   const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches)
   // The dock needs a third column, not a three-pane rail: 768px is where this app already lets
@@ -100,7 +102,15 @@ export function RssApp(): ReactElement {
   // than passed down, and taking it is what keeps the back button from reopening the dialog.
   useEffect(() => {
     const section = takeRssSection()
-    if (section === 'manage' || section === 'add' || section === 'discover') setCenter(section)
+    const params = new URLSearchParams(window.location.search)
+    const incomingUrl = params.get('add')?.slice(0, RSS_LIMITS.urlChars) ?? ''
+    if (incomingUrl) {
+      setAddUrl(incomingUrl)
+      setCenter('add')
+      params.delete('add')
+      window.history.replaceState(null, '', `${window.location.pathname}${params.size ? `?${params}` : ''}`)
+    }
+    else if (section === 'manage' || section === 'add' || section === 'discover') setCenter(section)
     else if (section === 'health') setPreferences(true)
   }, [])
 
@@ -304,6 +314,7 @@ export function RssApp(): ReactElement {
       {center && (
         <SubscriptionCenter
           adding={center === 'add'}
+          initialAddUrl={addUrl}
           tab={center === 'discover' ? 'discover' : 'manage'}
           onClose={() => setCenter(null)}
         />

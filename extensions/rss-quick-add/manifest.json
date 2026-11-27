@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Inkstone RSS Quick Add",
+  "version": "1.0.0",
+  "description": "Send the current web page to Inkstone's RSS subscription dialog.",
+  "permissions": ["activeTab", "storage"],
+  "action": {
+    "default_title": "Add page to Inkstone RSS",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html"
+}
