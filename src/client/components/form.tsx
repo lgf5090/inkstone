@@ -156,6 +156,7 @@ export function CommitNumberInput({
       onChange={(event) => setText(event.target.value)}
       onBlur={() => { focused.current = false; commit() }}
       onKeyDown={(event) => {
+        if (isImeComposing(event)) return
         if (event.key === 'Escape') reset()
         else commitOnEnter(event, commit)
       }}
