@@ -11,7 +11,7 @@
  * server may choose any prefix (or a default namespace) without letting an unrelated namespace impersonate
  * a DAV property. DTDs are refused because discovery has no legitimate use for entity declarations.
  */
-import { DOMParser } from '@xmldom/xmldom'
+import { Parser } from 'htmlparser2'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { toBase64, utf8 } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
@@ -324,29 +324,119 @@ function resolveHref(base: URL, href: string): URL {
 
 // ---------------------------------------------------------------------------- XML
 
+interface DiscoveryElement {
+  name: string
+  namespace: string
+  children: DiscoveryElement[]
+  text: string
+}
+
+interface OpenElement {
+  node: DiscoveryElement
+  namespaces: ReadonlyMap<string, string>
+  qualifiedName: string
+  selfClosing: boolean
+}
+
+function openingTag(xml: string, start: number): { end: number; selfClosing: boolean } {
+  let quote = ''
+  for (let index = start + 1; index < xml.length; index += 1) {
+    const character = xml[index]!
+    if (quote) {
+      if (character === quote) quote = ''
+    } else if (character === '"' || character === "'") {
+      quote = character
+    } else if (character === '>') {
+      return { end: index, selfClosing: xml.slice(start + 1, index).trimEnd().endsWith('/') }
+    }
+  }
+  throw new Error('Unclosed XML tag')
+}
+
+function qualifiedName(name: string): { prefix: string; local: string } {
+  const parts = name.split(':')
+  if (parts.length > 2 || parts.some(part => !XML_ELEMENT_NAME.test(part))) throw new Error('Invalid XML name')
+  return parts.length === 2 ? { prefix: parts[0]!, local: parts[1]! } : { prefix: '', local: name }
+}
+
 /** Parse one bounded CalDAV XML response, rejecting malformed documents and every DTD. */
-function parseDiscoveryXml(xml: string): ReturnType<DOMParser['parseFromString']> {
+function parseDiscoveryXml(xml: string): DiscoveryElement {
   try {
-    const parser = new DOMParser({
-      onError: (level, message) => {
-        throw new Error(`${level}: ${message}`)
+    const rootBox: { current: DiscoveryElement | null } = { current: null }
+    const stack: OpenElement[] = []
+    const parser = new Parser({
+      onopentag(name, attributes) {
+        if (stack.length === 0 && root) throw new Error('Multiple XML roots')
+        const namespaces = new Map(stack.at(-1)?.namespaces ?? [])
+        for (const [attribute, value] of Object.entries(attributes)) {
+          if (attribute === 'xmlns') namespaces.set('', value)
+          else if (attribute.startsWith('xmlns:')) {
+            const prefix = attribute.slice('xmlns:'.length)
+            if (!XML_ELEMENT_NAME.test(prefix) || !value) throw new Error('Invalid namespace declaration')
+            namespaces.set(prefix, value)
+          }
+        }
+        const qualified = qualifiedName(name)
+        const namespace = (qualified.prefix ? namespaces.get(qualified.prefix) : namespaces.get('')) ?? ''
+        if (qualified.prefix && !namespace) throw new Error('Undeclared XML namespace')
+        const node: DiscoveryElement = { name: qualified.local, namespace, children: [], text: '' }
+        if (stack.at(-1)) stack.at(-1)!.node.children.push(node)
+        else rootBox.current = node
+        const tag = openingTag(xml, parser.startIndex)
+        stack.push({ node, namespaces, qualifiedName: name, selfClosing: tag.selfClosing })
       },
-    })
-    const document = parser.parseFromString(xml, 'application/xml')
-    if (document.doctype) throw new Error('DTD is not allowed')
-    const root = document.documentElement
-    if (root?.namespaceURI !== DAV_NAMESPACE || root.localName !== 'multistatus') {
+      onclosetag(name, implied) {
+        const open = stack.at(-1)
+        if (!open) throw new Error('Unexpected XML close tag')
+        if (open.selfClosing && implied) {
+          stack.pop()
+          return
+        }
+        if (implied || open.qualifiedName !== name) throw new Error('Mismatched XML close tag')
+        stack.pop()
+      },
+      ontext(value) {
+        if (!stack.length) {
+          if (value.trim()) throw new Error('Text outside the XML root')
+          return
+        }
+        stack.at(-1)!.node.text += value
+      },
+      onprocessinginstruction(name) {
+        if (name.toLowerCase() === '!doctype') throw new Error('DTD is not allowed')
+      },
+      onerror(error) {
+        throw error
+      },
+    }, { xmlMode: true, decodeEntities: true })
+    parser.write(xml)
+    parser.end()
+    const root = rootBox.current
+    if (stack.length > 0 || !root) throw new Error('Incomplete XML document')
+    if (root.namespace !== DAV_NAMESPACE || root.name !== 'multistatus') {
       throw new Error('Expected a DAV multistatus document')
     }
-    return document
+    return root
   } catch {
     throw new ApiError(502, 'internal', 'The calendar server returned malformed discovery XML')
   }
 }
 
+function descendants(element: DiscoveryElement): DiscoveryElement[] {
+  return element.children.flatMap(child => [child, ...descendants(child)])
+}
+
+function firstElement(element: DiscoveryElement, tag: string, namespace = DAV_NAMESPACE): DiscoveryElement | null {
+  return descendants(element).find(candidate => candidate.name === tag && candidate.namespace === namespace) ?? null
+}
+
+function elementText(element: DiscoveryElement): string {
+  return element.text + element.children.map(elementText).join('')
+}
+
 function hasXmlElement(xml: string, tag: string, namespace = DAV_NAMESPACE): boolean {
   if (!XML_ELEMENT_NAME.test(tag)) throw new Error('Invalid XML element name')
-  return parseDiscoveryXml(xml).getElementsByTagNameNS(namespace, tag).length > 0
+  return firstElement(parseDiscoveryXml(xml), tag, namespace) !== null
 }
 
 /** Text content of the first element in the expected namespace, decoded by the XML parser. */
@@ -356,8 +446,8 @@ export function extractFirstText(
   namespace = DAV_NAMESPACE,
 ): string | null {
   if (!XML_ELEMENT_NAME.test(tag)) throw new Error('Invalid XML element name')
-  const element = parseDiscoveryXml(xml).getElementsByTagNameNS(namespace, tag)[0]
-  return element?.textContent?.trim() ?? null
+  const element = firstElement(parseDiscoveryXml(xml), tag, namespace)
+  return element ? elementText(element).trim() : null
 }
 
 /** The first DAV `<href>` inside the named property, resolved by namespace rather than prefix. */
@@ -367,21 +457,19 @@ export function extractFirstHref(
   namespace = DAV_NAMESPACE,
 ): string | null {
   if (!XML_ELEMENT_NAME.test(tag)) throw new Error('Invalid XML element name')
-  const property = parseDiscoveryXml(xml).getElementsByTagNameNS(namespace, tag)[0]
-  const href = property?.getElementsByTagNameNS(DAV_NAMESPACE, 'href')[0]
-  return href?.textContent?.trim() || null
+  const property = firstElement(parseDiscoveryXml(xml), tag, namespace)
+  const href = property ? firstElement(property, 'href') : null
+  return href ? elementText(href).trim() || null : null
 }
 
 /** `current-user-privilege-set`, or null when the server omitted it (Radicale does). */
 export function parseCalendarPrivileges(xml: string): CalendarPrivileges | null {
-  const property = parseDiscoveryXml(xml).getElementsByTagNameNS(DAV_NAMESPACE, 'current-user-privilege-set')[0]
+  const property = firstElement(parseDiscoveryXml(xml), 'current-user-privilege-set')
   if (!property) return null
   const privileges = new Set<string>()
-  for (const privilege of Array.from(property.getElementsByTagNameNS(DAV_NAMESPACE, 'privilege'))) {
-    for (const child of Array.from(privilege.childNodes)) {
-      if (child.nodeType === 1 && child.namespaceURI === DAV_NAMESPACE && child.localName) {
-        privileges.add(child.localName)
-      }
+  for (const privilege of descendants(property).filter(element => element.name === 'privilege' && element.namespace === DAV_NAMESPACE)) {
+    for (const child of privilege.children) {
+      if (child.namespace === DAV_NAMESPACE) privileges.add(child.name)
     }
   }
   const write = privileges.has('write') || privileges.has('write-content')

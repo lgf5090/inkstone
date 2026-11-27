@@ -14,7 +14,7 @@ import { createMinuteBudget } from '../lib/rate-limit'
 import { readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { CalendarStore } from '../calendar/store'
-import { deleteResourceRow, getResource, insertResource, listResources, updateResourceRow } from '../calendar/resources'
+import { countResources, deleteResourceRow, getResource, insertResource, listResources, updateResourceRow } from '../calendar/resources'
 import { newId } from '../lib/id'
 import { parseCalendarInput } from '../calendar/validation'
 
@@ -54,9 +54,8 @@ calendarResourceRoutes.post('/resources', async (c) => {
   const resourceName = name(body.name)
   const seats = capacity(body.capacity)
   const store = new CalendarStore(c.env.DB, c.get('userId'))
-  const count = await c.env.DB.prepare('SELECT COUNT(*) AS count FROM calendar_resources WHERE user_id = ?')
-    .bind(c.get('userId')).first<{ count: number }>()
-  if (Number(count?.count ?? 0) >= MAX_RESOURCES) throw ApiError.conflict('The resource limit has been reached')
+  const count = await countResources(c.env.DB, c.get('userId'))
+  if (count >= MAX_RESOURCES) throw ApiError.conflict('The resource limit has been reached')
   const input = parseCalendarInput({
     name: resourceName,
     ...(body.color === undefined ? {} : { color: body.color }),
