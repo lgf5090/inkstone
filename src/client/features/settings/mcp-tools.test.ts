@@ -160,7 +160,7 @@ describe('the scope switches for a new API key', () => {
     await act(async () => { await Promise.resolve() })
     // The withheld list, not a permission list: the server adds reads back, since a key that may read
     // nothing has no use at this endpoint.
-    expect(mocks.createKey).toHaveBeenCalledWith('Automation', [])
+    expect(mocks.createKey).toHaveBeenCalledWith('Automation', ['rss:read'])
   })
 
   it('asks for everything the account allows when nothing was touched', async () => {
@@ -192,6 +192,7 @@ describe('the permissions a key may be given', () => {
     expect(keyScopeSwitch('settings.mcp_scope_todo_write'), 'a key can never be given to-do writes').toBeTruthy()
     expect(keyScopeSwitch('settings.mcp_scope_trash'), 'trash was offered with the account switch off').toBeNull()
     expect(keyScopeSwitch('settings.mcp_scope_todo_danger'), 'hard delete was offered with the account switch off').toBeNull()
+    expect(keyScopeSwitch('settings.mcp_scope_rss_read'), 'RSS reads were not offered').toBeTruthy()
   })
 
   it('opens the delete family together for both domains and closes together', async () => {
@@ -225,6 +226,6 @@ describe('the permissions a key may be given', () => {
     await act(async () => { byText(t('settings.mcp_api_key_create'))?.click() })
     await act(async () => { await Promise.resolve() })
 
-    expect(mocks.createKey).toHaveBeenCalledWith('Calendar', ['notes:write', 'todos:write'])
+    expect(mocks.createKey).toHaveBeenCalledWith('Calendar', ['notes:write', 'todos:write', 'rss:read'])
   })
 })
