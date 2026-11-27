@@ -7,6 +7,7 @@ import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { subscriptionInboundRoutes } from '../src/worker/routes/subscriptions-inbound'
 import { buildEvents, toICal } from '../src/worker/subscriptions/calendar'
+import { parseIcsCalendar } from '../src/worker/calendar/ics'
 import { rotateInboundToken } from '../src/worker/subscriptions/settings'
 import { SubscriptionsStore, storeContext } from '../src/worker/subscriptions/store'
 import { DEFAULT_SETTINGS } from '../src/shared/subscriptions/model'
@@ -103,8 +104,25 @@ describe('the calendar file', () => {
     const folded = long.split('\r\n').filter((line) => line.startsWith(' '))
     expect(folded.length, 'a 60-character Han name should have to fold').toBeGreaterThan(0)
     for (const line of long.split('\r\n')) {
-      expect(Buffer.byteLength(line, 'utf8'), `line over the limit: ${line.slice(0, 20)}`).toBeLessThanOrEqual(74)
+      expect(Buffer.byteLength(line, 'utf8'), `line over the limit: ${line.slice(0, 20)}`).toBeLessThanOrEqual(75)
     }
+  })
+
+  it('round-trips reserved text through ical.js without losing slashes or line breaks', () => {
+    const title = 'Path C:\\media, semi; quote " and\r\nnext line'
+    const detail = '1 month · 60 CNY\\legacy\nrenewal'
+    const text = toICal([{
+      uid: 'sub-9@inkstone.subscriptions', day: '2026-11-01', title, detail,
+    }], { name: 'Inkstone', stamp: STAMP })
+
+    const parsed = parseIcsCalendar({ content: text, defaultTimeZone: 'UTC', maxEvents: 10 })
+    expect(parsed.events).toHaveLength(1)
+    expect(parsed.events[0]).toMatchObject({
+      title: title.replace(/\r\n/g, '\n'),
+      description: detail.replace(/\r\n/g, '\n'),
+      start: { value: '2026-11-01', type: 'date' },
+      end: { value: '2026-11-02', type: 'date' },
+    })
   })
 
   it('escapes an injected uid and refuses a day that is not a plain date', () => {

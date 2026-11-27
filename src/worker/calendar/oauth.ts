@@ -15,6 +15,7 @@ import {
   decryptCalendarOAuthVerifier,
   encryptCalendarCredential,
   encryptCalendarOAuthVerifier,
+  vaultRequest,
   type CalendarCredentialPayload,
 } from '../lib/crypto'
 import { sha256Hex, toBase64Url } from '../lib/encoding'
@@ -32,8 +33,9 @@ import {
   type CalendarConnectionRecord,
 } from './connections'
 import { outlookGraphBase } from './graph'
+import { CALENDAR_OAUTH_TOKEN_URLS, type CalendarOAuthProvider, type RefreshedCalendarTokens } from './oauth-token'
 
-export type CalendarOAuthProvider = 'google' | 'outlook'
+export type { CalendarOAuthProvider } from './oauth-token'
 
 export const CALENDAR_OAUTH_PROVIDERS = ['google', 'outlook'] as const
 
@@ -44,10 +46,8 @@ const REFRESH_SKEW_MS = 60 * 1000
 const DEFAULT_TOKEN_LIFETIME_SECONDS = 60 * 60
 
 const GOOGLE_AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
-const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_REVOKE_URL = 'https://oauth2.googleapis.com/revoke'
 const OUTLOOK_AUTHORIZE_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize'
-const OUTLOOK_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
 
 const GOOGLE_SCOPES = {
   read: 'https://www.googleapis.com/auth/calendar.readonly',
@@ -62,8 +62,6 @@ const OUTLOOK_SCOPES = {
 const CALLBACK_PATH = '/api/calendar/oauth/callback'
 
 export type CalendarOAuthCredential = Extract<CalendarCredentialPayload, { kind: 'oauth' }>
-
-const refreshFlights = new Map<string, Promise<CalendarOAuthCredential>>()
 
 interface ProviderSettings {
   provider: CalendarOAuthProvider
@@ -261,72 +259,41 @@ export async function ensureAccessToken(
   if (!isCalendarOAuthProvider(connection.kind)) {
     throw new ApiError(500, 'internal', 'An OAuth credential belongs to an unknown provider')
   }
-  const key = `${userId}:${connection.id}`
-  const existing = refreshFlights.get(key)
-  if (existing) return existing
-  const flight = refreshAccessToken(env, userId, connection, credential)
-  refreshFlights.set(key, flight)
-  try {
-    return await flight
-  } finally {
-    if (refreshFlights.get(key) === flight) refreshFlights.delete(key)
-  }
-}
-
-async function refreshAccessToken(
-  env: Env,
-  userId: string,
-  connection: CalendarConnectionRecord,
-  credential: CalendarOAuthCredential,
-): Promise<CalendarOAuthCredential> {
-  if (!isCalendarOAuthProvider(connection.kind)) {
-    throw new ApiError(500, 'internal', 'An OAuth credential belongs to an unknown provider')
-  }
   const settings = providerSettings(env, connection.kind)
-  const form = new URLSearchParams({
-    grant_type: 'refresh_token',
-    client_id: settings.clientId,
-    client_secret: settings.clientSecret,
-    refresh_token: credential.refreshToken,
-  })
-  if (settings.provider === 'outlook' && credential.scope) form.set('scope', credential.scope)
-  let response: Response
-  try {
-    response = await tokenRequest(settings.tokenUrl, form, connection.kind)
-  } catch {
-    // A network failure says nothing about the grant; marking expired would force a re-login for an
-    // outage the reader cannot fix.
-    throw new ApiError(502, 'internal', 'The calendar provider could not be reached')
-  }
-  if (!response.ok) {
-    console.warn('[inkstone] Calendar token refresh refused', { provider: connection.kind, status: response.status })
-    if (response.status === 429 || response.status >= 500) {
-      throw new ApiError(502, 'internal', 'The calendar provider is temporarily unavailable')
-    }
+  const response = await vaultRequest(env, '/calendar-oauth/refresh', {
+    userId,
+    connectionId: connection.id,
+    provider: connection.kind,
+    clientId: settings.clientId,
+    clientSecret: settings.clientSecret,
+    refreshToken: credential.refreshToken,
+    ...(credential.scope ? { scope: credential.scope } : {}),
+  }, `calendar-oauth:${userId}:${connection.id}`)
+  if (response.status === 409) {
     await markExpired(env, userId, connection.id)
     throw reconnectError()
   }
-  const text = await readStreamTextWithinLimit(response.body, MAX_TOKEN_RESPONSE_BYTES)
-  if (text === null) {
-    throw new ApiError(502, 'internal', 'The calendar provider answered with too much data')
+  if (!response.ok) {
+    // Transport, rate-limit and provider outages do not revoke the grant; a later request retries.
+    throw new ApiError(502, 'internal', 'The calendar provider is temporarily unavailable')
   }
-  let body: TokenResponse
+  let payload: unknown
   try {
-    body = JSON.parse(text) as TokenResponse
+    payload = await response.json()
   } catch {
     throw new ApiError(502, 'internal', 'The calendar provider answered with an unreadable token response')
   }
-  const accessToken = readToken(body.access_token, 7000)
-  if (!accessToken) {
+  const tokens = readRefreshedTokens(payload)
+  if (!tokens) {
     throw new ApiError(502, 'internal', 'The calendar provider answered without an access token')
   }
   const next: CalendarOAuthCredential = {
     kind: 'oauth',
-    accessToken,
-    refreshToken: readToken(body.refresh_token, 7000) ?? credential.refreshToken,
-    expiresAt: expiresAtFrom(body.expires_in),
-    scope: readToken(body.scope, 1024) ?? credential.scope,
-    tokenType: readToken(body.token_type, 64) ?? credential.tokenType,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken ?? credential.refreshToken,
+    expiresAt: tokens.expiresAt,
+    scope: tokens.scope ?? credential.scope,
+    tokenType: tokens.tokenType ?? credential.tokenType,
   }
   const ciphertext = await encryptCalendarCredential(env, connection.id, next)
   await saveCalendarCredential(env.DB, userId, connection.id, 'oauth', ciphertext)
@@ -335,6 +302,25 @@ async function refreshAccessToken(
     errorCode: null,
   })
   return next
+}
+
+function readRefreshedTokens(payload: unknown): RefreshedCalendarTokens | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !('tokens' in payload)) return null
+  const value = (payload as { tokens: unknown }).tokens
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const tokens = value as Record<string, unknown>
+  const accessToken = readToken(tokens.accessToken, 7000)
+  const refreshToken = readToken(tokens.refreshToken, 7000)
+  const scope = readToken(tokens.scope, 1024)
+  const tokenType = readToken(tokens.tokenType, 64)
+  if (!accessToken || typeof tokens.expiresAt !== 'number' || !Number.isFinite(tokens.expiresAt)) return null
+  return {
+    accessToken,
+    expiresAt: tokens.expiresAt,
+    ...(refreshToken ? { refreshToken } : {}),
+    ...(scope ? { scope } : {}),
+    ...(tokenType ? { tokenType } : {}),
+  }
 }
 
 /**
@@ -407,7 +393,7 @@ function providerSettings(env: Env, provider: CalendarOAuthProvider): ProviderSe
         clientId,
         clientSecret,
         authorizeUrl: GOOGLE_AUTHORIZE_URL,
-        tokenUrl: GOOGLE_TOKEN_URL,
+        tokenUrl: CALENDAR_OAUTH_TOKEN_URLS.google,
         apiBase: GOOGLE_CALENDAR_API_BASE,
         label: 'Google Calendar',
       }
@@ -423,7 +409,7 @@ function providerSettings(env: Env, provider: CalendarOAuthProvider): ProviderSe
         clientId,
         clientSecret,
         authorizeUrl: OUTLOOK_AUTHORIZE_URL,
-        tokenUrl: OUTLOOK_TOKEN_URL,
+        tokenUrl: CALENDAR_OAUTH_TOKEN_URLS.outlook,
         apiBase: outlookGraphBase(env),
         label: 'Outlook Calendar',
       }

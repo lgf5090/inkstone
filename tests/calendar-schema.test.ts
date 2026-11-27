@@ -68,6 +68,13 @@ describe('the calendar tables', () => {
       statements: ['ALTER TABLE calendar_reminder_snoozes ADD COLUMN occurrence_start_ms INTEGER'],
     })
   })
+  it('ships the provider sync token column as an idempotent migration', () => {
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 430)).toEqual({
+      version: 430,
+      skipIfColumnExists: { table: 'calendar_provider_calendars', column: 'sync_token' },
+      statements: ['ALTER TABLE calendar_provider_calendars ADD COLUMN sync_token TEXT'],
+    })
+  })
   it('creates and rebuilds calendar FTS before applying its migration on an existing database', async () => {
     await initializeDatabase({ DB: makeD1(sqlite) } as Env)
     insertEvent('user-alice', 'existing-event')

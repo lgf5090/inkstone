@@ -50,7 +50,8 @@ function whenText(at: number, timeZone: string): string {
       timeZone,
       year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
     }).format(new Date(at))
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] calendar reminder time zone formatting failed:', timeZone, errorDetail(error))
     return new Date(at).toISOString().slice(0, 16).replace('T', ' ')
   }
 }
@@ -60,7 +61,8 @@ function dateKey(at: number, timeZone: string): string {
     return new Intl.DateTimeFormat('en-CA', {
       timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
     }).format(new Date(at))
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] calendar reminder time zone date failed:', timeZone, errorDetail(error))
     return new Date(at).toISOString().slice(0, 10)
   }
 }

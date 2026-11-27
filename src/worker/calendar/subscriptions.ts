@@ -20,10 +20,13 @@ import { IcsParseError, icsExternalId, parseIcsCalendar, type IcsWarning } from 
 const FETCH_TIMEOUT_MS = 15_000
 const MAX_REDIRECTS = 3
 const EVENT_CHUNK = 200
-const SUBSCRIPTION_COLORS = [
+const EVENT_DELETE_CHUNK = 80
+const SUBSCRIPTION_COLOR_HASH_MULTIPLIER = 31
+export const MAX_SUBSCRIPTION_NAME_CHARS = 80
+export const SUBSCRIPTION_COLORS = Object.freeze([
   '#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444',
   '#f97316', '#ec4899', '#14b8a6', '#6366f1', '#6b7280',
-]
+] as const)
 
 interface FeedResult {
   notModified: boolean
@@ -69,7 +72,7 @@ export async function createIcsSubscription(
   const preferences = await store.preferences()
   const feed = await fetchFeed(url, { etag: null, lastModified: null })
   const parsed = parseFeed(feed.text, preferences.timeZone)
-  const name = (input.name?.trim() || parsed.name || url.hostname).slice(0, 80)
+  const name = (input.name?.trim() || parsed.name || url.hostname).slice(0, MAX_SUBSCRIPTION_NAME_CHARS)
   const color = normalizeColor(input.color) ?? colorFor(name)
   const calendar = await store.createCalendar({
     name,
@@ -312,8 +315,8 @@ async function removeStaleEvents(
   if (!stale.length) return 0
   const store = new CalendarStore(db, userId)
   let removed = 0
-  for (let index = 0; index < stale.length; index += 80) {
-    removed += await store.removeEventMembershipsAndDeleteOrphans(calendarId, stale.slice(index, index + 80))
+  for (let index = 0; index < stale.length; index += EVENT_DELETE_CHUNK) {
+    removed += await store.removeEventMembershipsAndDeleteOrphans(calendarId, stale.slice(index, index + EVENT_DELETE_CHUNK))
   }
   return removed
 }
@@ -421,7 +424,7 @@ function normalizeColor(value: string | undefined): string | null {
 
 function colorFor(name: string): string {
   let hash = 0
-  for (const char of name) hash = (hash * 31 + char.codePointAt(0)!) >>> 0
+  for (const char of name) hash = (hash * SUBSCRIPTION_COLOR_HASH_MULTIPLIER + char.codePointAt(0)!) >>> 0
   return SUBSCRIPTION_COLORS[hash % SUBSCRIPTION_COLORS.length]!
 }
 

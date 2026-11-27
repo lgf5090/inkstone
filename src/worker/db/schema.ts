@@ -4846,6 +4846,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `INSERT INTO calendar_events_fts(calendar_events_fts) VALUES ('rebuild')`,
     ],
   },
+  {
+    // Provider delta cursors belong to the mapped calendar, not event metadata. Existing rows start
+    // with a full sync; fresh databases already carry the column and skip the ALTER.
+    version: 430,
+    skipIfColumnExists: { table: 'calendar_provider_calendars', column: 'sync_token' },
+    statements: [`ALTER TABLE calendar_provider_calendars ADD COLUMN sync_token TEXT`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

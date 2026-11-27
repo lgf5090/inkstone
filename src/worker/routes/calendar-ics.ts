@@ -1,52 +1,21 @@
 import { Hono } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { newId } from '../lib/id'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { CalendarStore, type CalendarEventWriteInput } from '../calendar/store'
-import { parseCalendarInput, parseEventInput } from '../calendar/validation'
-import {
-  IcsParseError,
-  encodeIcsChunks,
-  icsExternalId,
-  parseIcsCalendar,
-} from '../calendar/ics'
+import { CalendarStore } from '../calendar/store'
+import { encodeIcsChunks } from '../calendar/ics'
+import { ICS_IMPORT_BODY_LIMIT, importCalendarIcs } from '../calendar/ics-import'
 import { safeFilename } from '../calendar/filename'
 import {
-  MAX_ICS_BYTES,
-  MAX_ICS_EVENTS,
   MAX_ICS_EXPORT_BYTES,
-  isCalendarAttendeeStatus,
   isCalendarEntityId,
 } from '@shared/calendar/model'
-import { isValidTimeZone } from '@shared/time-zone'
-import type { CalendarAttendeeDto, CalendarEventDto } from '@shared/calendar/model'
+import type { CalendarEventDto } from '@shared/calendar/model'
 
-const IMPORT_BODY_LIMIT = MAX_ICS_BYTES * 2 + 64 * 1024
-const IMPORT_CHUNK = 200
 const importBudget = createMinuteBudget(10, 'Too many calendar imports. Try again in a minute.')
 const exportBudget = createMinuteBudget(30, 'Too many calendar exports. Try again in a minute.')
-
-function importedAttendees(meta: Record<string, unknown>): CalendarAttendeeDto[] {
-  const raw = meta.attendees
-  if (!Array.isArray(raw)) return []
-  const guests: CalendarAttendeeDto[] = []
-  for (const entry of raw.slice(0, 50)) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
-    const record = entry as Record<string, unknown>
-    const email = typeof record.email === 'string' ? record.email.trim().toLowerCase() : ''
-    if (!email || email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) continue
-    if (guests.some(guest => guest.email === email)) continue
-    guests.push({
-      email,
-      name: typeof record.name === 'string' ? record.name.trim().slice(0, 120) : '',
-      status: isCalendarAttendeeStatus(record.status) ? record.status : 'needs-action',
-    })
-  }
-  return guests
-}
 
 export const calendarIcsRoutes = new Hono<AppBindings>()
 
@@ -57,131 +26,9 @@ calendarIcsRoutes.use('*', async (c, next) => {
 })
 
 calendarIcsRoutes.post('/import', async (c) => {
-  const body = await readJson<{
-    content?: unknown
-    calendarId?: unknown
-    newCalendar?: unknown
-    defaultTimeZone?: unknown
-  }>(c, IMPORT_BODY_LIMIT)
-  if (typeof body.content !== 'string' || body.content.length === 0) {
-    throw ApiError.badRequest('content is required')
-  }
-  if (!isCalendarEntityId(body.calendarId) && !body.newCalendar) {
-    throw ApiError.badRequest('calendarId or newCalendar is required')
-  }
-
-  const store = new CalendarStore(c.env.DB, c.get('userId'))
-  const preferences = await store.preferences()
-  // An imported file without a usable zone is placed in the account's zone, not refused: the
-  // calendar's own default is the meaningful answer for a missing or unrecognised `defaultTimeZone`.
-  const defaultTimeZone = typeof body.defaultTimeZone === 'string' && body.defaultTimeZone
-    && isValidTimeZone(body.defaultTimeZone)
-    ? body.defaultTimeZone
-    : preferences.timeZone
-
-  let parsed: ReturnType<typeof parseIcsCalendar>
-  try {
-    parsed = parseIcsCalendar({
-      content: body.content,
-      defaultTimeZone,
-      maxEvents: MAX_ICS_EVENTS,
-    })
-  } catch (error) {
-    if (error instanceof IcsParseError) {
-      if (error.code === 'too_large' || error.code === 'too_many_events') throw ApiError.tooLarge(error.message)
-      throw ApiError.badRequest(error.message)
-    }
-    throw new ApiError(502, 'internal', 'The calendar file could not be parsed')
-  }
-
-  let calendar
-  let created = false
-  let newCalendarInput: ReturnType<typeof parseCalendarInput> | null = null
-  let newCalendarId: string | null = null
-  if (isCalendarEntityId(body.calendarId)) {
-    calendar = (await store.listCalendars()).find((entry) => entry.id === body.calendarId)
-    if (!calendar) throw ApiError.notFound('Calendar not found')
-    if (calendar.readOnly) throw ApiError.forbidden('The target calendar is read-only')
-  } else {
-    const requested = body.newCalendar
-    if (!requested || typeof requested !== 'object' || Array.isArray(requested)) {
-      throw ApiError.badRequest('newCalendar must be an object')
-    }
-    const record = requested as Record<string, unknown>
-    const requestedName = typeof record.name === 'string' ? record.name : ''
-    const name = requestedName.trim() || parsed.name || 'Imported calendar'
-    newCalendarInput = parseCalendarInput({
-      name,
-      ...(record.color === undefined ? {} : { color: record.color }),
-    })
-    newCalendarId = newId()
-  }
-  const targetCalendarId = calendar?.id ?? newCalendarId!
-
-  const inputs: CalendarEventWriteInput[] = []
-  for (let index = 0; index < parsed.events.length; index++) {
-    const event = parsed.events[index]!
-    try {
-      const uid = event.meta?.originalUid
-      const externalId = typeof uid === 'string'
-        ? await icsExternalId(targetCalendarId, uid, recurrenceIdOf(event.meta?.recurrenceId))
-        : null
-      inputs.push(parseEventInput({
-        ...event,
-        calendarIds: [targetCalendarId],
-        source: 'ics',
-        externalId,
-      }, { defaultTimeZone }))
-    } catch (error) {
-      parsed.warnings.push({
-        line: index + 1,
-        ...(typeof event.meta?.originalUid === 'string' ? { uid: event.meta.originalUid } : {}),
-        code: 'invalid_event',
-        message: error instanceof Error ? error.message : 'The event could not be imported',
-      })
-    }
-  }
-  if (inputs.length === 0) {
-    throw ApiError.badRequest('The calendar file contains no valid events')
-  }
-  if (!calendar) {
-    if (!newCalendarInput || !newCalendarId) throw new Error('Calendar import target was not prepared')
-    calendar = await store.createCalendar({ ...newCalendarInput, id: newCalendarId })
-    created = true
-  }
-
-  let imported = 0
-  try {
-    for (let index = 0; index < inputs.length; index += IMPORT_CHUNK) {
-      const chunk = inputs.slice(index, index + IMPORT_CHUNK)
-      const written = await store.createEvents(chunk, 'upsert')
-      imported += written.length
-      for (const event of written) {
-        const guests = importedAttendees(event.meta)
-        if (guests.length > 0) {
-          await store.setEventAttendees(event.id, guests, event.rev)
-        }
-      }
-    }
-  } catch {
-    if (created) {
-      await store.deleteCalendar(calendar.id, { mode: 'delete', allowLast: true }).catch((cleanupError) => {
-        console.warn('[inkstone] Calendar import cleanup failed:', cleanupError instanceof Error ? cleanupError.message : cleanupError)
-      })
-    }
-    // The events are idempotent by (source, external id), so a retry of the same file is safe.
-    throw new ApiError(
-      500,
-      'internal',
-      `The calendar was only partially imported (${imported} events). Retry the same file; existing events will be updated.`,
-    )
-  }
-
-  return c.json({
-    calendarId: calendar.id,
-    imported,
-    warnings: parsed.warnings,
-  })
+  const body = await readJson<Record<string, unknown>>(c, ICS_IMPORT_BODY_LIMIT)
+  const result = await importCalendarIcs(c.env, c.get('userId'), body)
+  return c.json(result)
 })
 
 calendarIcsRoutes.get('/export', async (c) => {
@@ -232,9 +79,3 @@ calendarIcsRoutes.get('/export', async (c) => {
     'Cache-Control': 'no-store',
   })
 })
-
-function recurrenceIdOf(value: unknown): string | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const record = value as Record<string, unknown>
-  return typeof record.value === 'string' ? record.value : null
-}

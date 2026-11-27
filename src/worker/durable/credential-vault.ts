@@ -1,5 +1,12 @@
 import { fromBase64Url, fromUtf8, toBase64Url, utf8 } from '../lib/encoding'
 import { evaluateInternalGuard } from '../lib/internal-auth'
+import { isValidId } from '../lib/id'
+import {
+  refreshCalendarOAuthToken,
+  type CalendarOAuthProvider,
+  type CalendarTokenRefreshInput,
+  type CalendarTokenRefreshResult,
+} from '../calendar/oauth-token'
 import type { Env } from '../env'
 
 
@@ -83,8 +90,17 @@ const DEFAULT_MAX_FIELD_LENGTH = 4096
 
 type CredentialRecord = Record<string, string | boolean>
 
+interface CalendarRefreshRequest extends CalendarTokenRefreshInput {
+  userId: string
+  connectionId: string
+}
+
+const MAX_CALENDAR_REFRESH_SECRET_LENGTH = 16 * 1024
+const CALENDAR_REFRESH_CONTROL_CHARS = /[\u0000-\u001f\u007f]/
+
 export class CredentialVault implements DurableObject {
   private masterKeyPromise: Promise<CryptoKey> | null = null
+  private readonly calendarRefreshFlights = new Map<string, Promise<CalendarTokenRefreshResult>>()
 
   constructor(private readonly state: DurableObjectState, private readonly env?: Env) {}
 
@@ -97,7 +113,14 @@ export class CredentialVault implements DurableObject {
     const body = await readBody(request)
     if (!body) return jsonError(400, 'invalid_request')
 
-    if (new URL(request.url).pathname === '/encrypt') {
+    const path = new URL(request.url).pathname
+    if (path === '/calendar-oauth/refresh') {
+      const input = calendarRefreshInput(body)
+      if (!input) return jsonError(400, 'invalid_request')
+      return await this.refreshCalendarOAuth(input)
+    }
+
+    if (path === '/encrypt') {
       if (!isScope(body.scope) || !isCredentialRecord(body.scope, body.value)) {
         return jsonError(400, 'invalid_request')
       }
@@ -107,7 +130,7 @@ export class CredentialVault implements DurableObject {
       return Response.json({ ciphertext })
     }
 
-    if (new URL(request.url).pathname === '/decrypt') {
+    if (path === '/decrypt') {
       if (
         !isScope(body.scope) ||
         typeof body.ciphertext !== 'string' ||
@@ -120,6 +143,31 @@ export class CredentialVault implements DurableObject {
     }
 
     return jsonError(404, 'not_found')
+  }
+
+  /**
+   * One provider refresh per user/connection, shared by every isolate calling this object. The result is
+   * returned to each caller; the worker that received it seals and persists the rotated token in D1.
+   */
+  private async refreshCalendarOAuth(input: CalendarRefreshRequest): Promise<Response> {
+    const key = `${input.userId}:${input.connectionId}`
+    let flight = this.calendarRefreshFlights.get(key)
+    if (!flight) {
+      flight = refreshCalendarOAuthToken(input)
+      this.calendarRefreshFlights.set(key, flight)
+    }
+    try {
+      const result = await flight
+      if (!result.ok) {
+        return Response.json(
+          { error: result.reason },
+          { status: result.reason === 'authorization_expired' ? 409 : 502 },
+        )
+      }
+      return Response.json({ tokens: result.tokens })
+    } finally {
+      if (this.calendarRefreshFlights.get(key) === flight) this.calendarRefreshFlights.delete(key)
+    }
   }
 
   private async encrypt(scope: string, plaintext: Uint8Array): Promise<string> {
@@ -218,6 +266,33 @@ async function readBody(request: Request): Promise<Record<string, unknown> | nul
   } catch {
     return null
   }
+}
+
+function calendarRefreshInput(value: Record<string, unknown>): CalendarRefreshRequest | null {
+  const { userId, connectionId, provider, clientId, clientSecret, refreshToken, scope } = value
+  if (typeof userId !== 'string' || !isValidId(userId)
+    || typeof connectionId !== 'string' || !isValidId(connectionId)
+    || (provider !== 'google' && provider !== 'outlook')
+    || !isBoundedSecret(clientId, MAX_CALENDAR_REFRESH_SECRET_LENGTH)
+    || !isBoundedSecret(clientSecret, MAX_CALENDAR_REFRESH_SECRET_LENGTH)
+    || !isBoundedSecret(refreshToken, MAX_CALENDAR_REFRESH_SECRET_LENGTH)
+    || (scope !== undefined && !isBoundedSecret(scope, 1024))) {
+    return null
+  }
+  return {
+    userId,
+    connectionId,
+    provider: provider as CalendarOAuthProvider,
+    clientId,
+    clientSecret,
+    refreshToken,
+    ...(scope === undefined ? {} : { scope }),
+  }
+}
+
+function isBoundedSecret(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= max
+    && !CALENDAR_REFRESH_CONTROL_CHARS.test(value)
 }
 
 function isScope(value: unknown): value is string {

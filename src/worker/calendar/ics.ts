@@ -31,6 +31,10 @@ const MAX_ICS_COMPONENT_DEPTH = 4
 const MAX_CATEGORIES = 100
 const MAX_META_DATES = 500
 const MAX_ZONE_CACHE_ENTRIES = 500
+export const MAX_ICS_CATEGORY_CHARS = 200
+export const MAX_ICS_ATTENDEES = 50
+export const MAX_ICS_ATTENDEE_NAME_CHARS = 120
+const VTIMEZONE_TRANSITION_PRECISION_MS = 60_000
 const ICS_CONTROL_CHARS = /[\u0000-\u001F\u007F]/
 
 /** A stable per-calendar external id; flattened occurrences need their recurrence id in the key. */
@@ -126,6 +130,7 @@ function isIanaZone(zone: string): boolean {
     new Intl.DateTimeFormat('en-US', { timeZone: zone }).format(0)
     return true
   } catch {
+    // An unknown TZID is an expected parse outcome; callers warn or try a recognized suffix.
     return false
   }
 }
@@ -280,7 +285,7 @@ function readCategories(
     try {
       for (const value of property.getValues()) {
         if (typeof value !== 'string') continue
-        const category = value.trim().slice(0, 200)
+        const category = value.trim().slice(0, MAX_ICS_CATEGORY_CHARS)
         if (category && !categories.includes(category) && categories.length < MAX_CATEGORIES) {
           categories.push(category)
         }
@@ -322,10 +327,10 @@ function readAttendees(
       const name = property.getParameter('cn')
       guests.push({
         email,
-        name: typeof name === 'string' ? name.trim().slice(0, 120) : '',
+        name: typeof name === 'string' ? name.trim().slice(0, MAX_ICS_ATTENDEE_NAME_CHARS) : '',
         status: attendeeStatus(property.getParameter('partstat')),
       })
-      if (guests.length >= 50) break
+      if (guests.length >= MAX_ICS_ATTENDEES) break
     } catch {
       addWarning(context, 'invalid_property', 'ATTENDEE could not be read.')
     }
@@ -336,9 +341,15 @@ function readAttendees(
 function readOrganizer(
   component: IcalComponent,
   fallback: IcalComponent | undefined,
+  context: WarningContext,
 ): string | null {
-  const property = sourceFor(component, fallback, 'organizer').getFirstProperty('organizer')
-  return property ? mailAddress(property.getFirstValue()) : null
+  try {
+    const property = sourceFor(component, fallback, 'organizer').getFirstProperty('organizer')
+    return property ? mailAddress(property.getFirstValue()) : null
+  } catch {
+    addWarning(context, 'invalid_property', 'ORGANIZER could not be read.')
+    return null
+  }
 }
 
 function readDatesProperty(
@@ -481,7 +492,7 @@ function mapEvent(options: MapEventOptions): CalendarEventInput {
   if (recurrenceRule) meta.recurrenceRule = recurrenceRule
   const attendees = readAttendees(component, fallback, warningContext)
   if (attendees.length > 0) meta.attendees = attendees
-  const organizerEmail = readOrganizer(component, fallback)
+  const organizerEmail = readOrganizer(component, fallback, warningContext)
   if (organizerEmail) meta.organizerEmail = organizerEmail
   if (options.recurrenceId) {
     meta.recurrenceId = temporalValueFor(
@@ -790,12 +801,12 @@ function metaOf(event: CalendarEventInput): Record<string, unknown> {
 
 function attendeesFor(event: IcsSerializableEvent, meta: Record<string, unknown>): unknown[] {
   const attendees = Array.isArray(event.attendees) ? event.attendees : meta.attendees
-  return Array.isArray(attendees) ? attendees.slice(0, 50) : []
+  return Array.isArray(attendees) ? attendees.slice(0, MAX_ICS_ATTENDEES) : []
 }
 
 function attendeeName(value: unknown): string {
   return typeof value === 'string'
-    ? value.replace(/[\r\n]+/g, ' ').trim().slice(0, 120)
+    ? value.replace(/[\r\n]+/g, ' ').trim().slice(0, MAX_ICS_ATTENDEE_NAME_CHARS)
     : ''
 }
 
@@ -872,10 +883,15 @@ function uidFor(event: CalendarEventInput, index: number): string {
   return `inkstone-${index + 1}@calendar.local`
 }
 
+function diagnosticDetail(error: unknown): string {
+  return (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).slice(0, 200)
+}
+
 function sortKey(event: CalendarEventInput, fallbackTimeZone: string, index: number): number {
   try {
     return temporalValueToEpochMs(event.start, fallbackTimeZone)
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] calendar ICS event sort failed:', event.id, diagnosticDetail(error))
     return index
   }
 }
@@ -938,13 +954,15 @@ export function expandRecurringEvents(
       vevent.addPropertyWithValue('rrule', ICAL.Recur.fromString(rule))
       for (const exdate of metaDates(event.meta, 'exdates')) addTimeProperty(vevent, 'exdate', exdate)
       for (const rdate of metaDates(event.meta, 'rdates')) addTimeProperty(vevent, 'rdate', rdate)
-    } catch {
+    } catch (error) {
+      console.warn('[inkstone] calendar recurrence expansion failed:', event.id, 'setup', diagnosticDetail(error))
       continue
     }
     let icalEvent: InstanceType<typeof ICAL.Event>
     try {
       icalEvent = new ICAL.Event(vevent)
-    } catch {
+    } catch (error) {
+      console.warn('[inkstone] calendar recurrence expansion failed:', event.id, 'event', diagnosticDetail(error))
       continue
     }
     const iterator = icalEvent.iterator()
@@ -964,7 +982,8 @@ export function expandRecurringEvents(
         end = temporalValueFor(details.endDate, context)
         startMs = temporalValueToEpochMs(start, fallbackTimeZone)
         endMs = temporalValueToEpochMs(end, fallbackTimeZone)
-      } catch {
+      } catch (error) {
+        console.warn('[inkstone] calendar recurrence expansion failed:', event.id, 'occurrence', diagnosticDetail(error))
         continue
       }
       if (endMs > startMs ? endMs <= fromMs : startMs < fromMs) continue
@@ -1047,8 +1066,11 @@ function vtimezoneFor(zone: string): string {
     if (currentOffset === previousOffset) continue
     let low = previousAt
     let high = at
-    while (high - low > 60_000) {
-      const middle = low + Math.max(60_000, Math.floor((high - low) / 120_000) * 60_000)
+    while (high - low > VTIMEZONE_TRANSITION_PRECISION_MS) {
+      const middle = low + Math.max(
+        VTIMEZONE_TRANSITION_PRECISION_MS,
+        Math.floor((high - low) / (VTIMEZONE_TRANSITION_PRECISION_MS * 2)) * VTIMEZONE_TRANSITION_PRECISION_MS,
+      )
       if (offsetMinutes(zone, middle) === previousOffset) low = middle
       else high = middle
     }
@@ -1171,7 +1193,7 @@ function veventFor(event: IcsSerializableEvent, uid: string, organizerEmail?: st
     let added = 0
     for (const category of categories) {
       if (typeof category !== 'string' || !category.trim()) continue
-      vevent.addPropertyWithValue('categories', category.trim().slice(0, 200))
+      vevent.addPropertyWithValue('categories', category.trim().slice(0, MAX_ICS_CATEGORY_CHARS))
       added += 1
       if (added >= MAX_CATEGORIES) break
     }

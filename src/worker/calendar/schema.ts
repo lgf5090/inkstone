@@ -243,6 +243,7 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
     connection_id TEXT NOT NULL,
     remote_calendar_id TEXT NOT NULL,
     local_calendar_id TEXT NOT NULL,
+    sync_token TEXT,
     last_sync_at INTEGER,
     last_error_code TEXT,
     created_at INTEGER NOT NULL,
@@ -516,8 +517,8 @@ export const CALENDAR_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[
   calendar_shares: ['user_id', 'calendar_id', 'slug', 'views', 'created_at', 'updated_at', 'last_viewed_at'],
   calendar_event_attachments: ['user_id', 'attachment_id', 'event_id', 'created_at'],
   calendar_provider_calendars: [
-    'user_id', 'connection_id', 'remote_calendar_id', 'local_calendar_id', 'last_sync_at',
-    'last_error_code', 'created_at', 'updated_at',
+    'user_id', 'connection_id', 'remote_calendar_id', 'local_calendar_id', 'sync_token',
+    'last_sync_at', 'last_error_code', 'created_at', 'updated_at',
   ],
   calendar_members: [
     'owner_user_id', 'calendar_id', 'member_user_id', 'role', 'status', 'created_at',

@@ -334,6 +334,23 @@ describe('calendar reminder reliability', () => {
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 1 })
   })
 
+  it('keeps delivering another account when one account has corrupted preferences', async () => {
+    const now = Date.parse('2026-10-26T08:00:00Z')
+    const userId = await createEvent(now + 10 * 60_000)
+    const userStore = new CalendarStore(db, USER)
+    await userStore.setEventReminders(userId, [10], (await userStore.getEvent(userId))!.rev)
+    const other = await createEvent(now + 10 * 60_000, undefined, OTHER_USER)
+    const otherStore = new CalendarStore(db, OTHER_USER)
+    await otherStore.setEventReminders(other, [10], (await otherStore.getEvent(other))!.rev)
+    sqlite.prepare('UPDATE calendar_preferences SET preferences_json = ? WHERE user_id = ?').run('{broken', USER)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(await sweepCalendarReminders(env, now)).toMatchObject({ due: 2, sent: 2, failed: 0 })
+    expect(error.mock.calls.some(([message, userId]) =>
+      message === '[inkstone] calendar reminder preferences failed:' && userId === USER)).toBe(true)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications').get()).toEqual({ count: 2 })
+  })
+
   it('isolates a corrupt per-event lead instead of skipping the whole account', async () => {
     const now = Date.parse('2026-10-26T08:00:00Z')
     const store = new CalendarStore(db, USER)

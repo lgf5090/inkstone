@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Temporal } from 'temporal-polyfill'
 import {
   IcsParseError,
@@ -347,6 +347,20 @@ describe('recurrence expansion', () => {
       externalId: null,
     }
   }
+
+  it('diagnoses a stored occurrence that cannot be expanded instead of silently dropping it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const event = recurring({
+      start: { value: 'not-a-date', type: 'date' },
+      end: { value: 'not-a-date', type: 'date' },
+    })
+
+    expect(expandRecurringEvents([event], Date.parse('2026-10-01T00:00:00Z'), Date.parse('2026-11-01T00:00:00Z'), 'UTC'))
+      .toEqual({ occurrences: [], truncated: false })
+    expect(warn.mock.calls.some(([message, eventId, stage]) =>
+      message === '[inkstone] calendar recurrence expansion failed:' && eventId === event.id && stage === 'setup')).toBe(true)
+    warn.mockRestore()
+  })
 
   it('includes occurrences that begin before the range but overlap it', () => {
     const event = recurring({

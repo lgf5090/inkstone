@@ -7,10 +7,11 @@
  * because discovery is a redirect by another name, and a redirect that is followed without a check is
  * how a proxy ends up talking to a metadata endpoint.
  *
- * The XML reader is deliberately small: CalDAV answers are well-formed XML with a handful of known
- * elements, so namespace prefixes are normalized away and the first matching element is read. It is
- * not a general XML parser and never sees HTML.
+ * CalDAV answers are parsed as XML, not searched as text. The parser resolves namespace URIs so a
+ * server may choose any prefix (or a default namespace) without letting an unrelated namespace impersonate
+ * a DAV property. DTDs are refused because discovery has no legitimate use for entity declarations.
  */
+import { DOMParser } from '@xmldom/xmldom'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { toBase64, utf8 } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
@@ -27,6 +28,10 @@ const MAX_DISCOVERY_BYTES = 64 * 1024
 const MAX_URL_LENGTH = 2048
 const MAX_USERNAME_LENGTH = 256
 const MAX_PASSWORD_LENGTH = 4096
+
+const DAV_NAMESPACE = 'DAV:'
+const CALDAV_NAMESPACE = 'urn:ietf:params:xml:ns:caldav'
+const XML_ELEMENT_NAME = /^[A-Za-z_][A-Za-z0-9_.-]*$/
 
 const CURRENT_USER_PRINCIPAL_BODY = `<?xml version="1.0" encoding="utf-8"?>
 <D:propfind xmlns:D="DAV:">
@@ -207,7 +212,7 @@ export async function discoverCalendarConnection(
   } else {
     const authorization = `Basic ${toBase64(utf8(`${preset.username}:${password}`))}`
     const xml = await propfind(new URL(calendarHomeUrl), CALENDAR_HOME_VERIFICATION_BODY, authorization)
-    if (!extractFirstText(xml, 'resourcetype')) {
+    if (!hasXmlElement(xml, 'resourcetype')) {
       throw new ApiError(502, 'internal', 'The calendar server did not confirm a CalDAV calendar home')
     }
   }
@@ -242,7 +247,7 @@ export async function discoverCalendarHome(
   assertAllowedDiscoveryUrl(principalUrl, serverUrl)
 
   const homeXml = await propfind(principalUrl, CALENDAR_HOME_BODY, authorization)
-  const homeHref = extractFirstHref(homeXml, 'calendar-home-set')
+  const homeHref = extractFirstHref(homeXml, 'calendar-home-set', CALDAV_NAMESPACE)
   if (!homeHref) {
     throw new ApiError(502, 'internal', 'The calendar server did not say where the calendars live')
   }
@@ -319,60 +324,70 @@ function resolveHref(base: URL, href: string): URL {
 
 // ---------------------------------------------------------------------------- XML
 
-/**
- * Remove namespace prefixes and declarations so one regex can match whichever prefix a server chose.
- * Comments and processing instructions go too; neither carries discovery state.
- */
-export function normalizeXml(xml: string): string {
-  return xml
-    .replaceAll(/<!--[\s\S]*?-->/g, '')
-    .replaceAll(/<\?[\s\S]*?\?>/g, '')
-    .replaceAll(/\s+xmlns(?::\w+)?\s*=\s*("[^"]*"|'[^']*')/g, '')
-    .replaceAll(/<(\/?)\w+:([\w-]+)/g, '<$1$2')
+/** Parse one bounded CalDAV XML response, rejecting malformed documents and every DTD. */
+function parseDiscoveryXml(xml: string): ReturnType<DOMParser['parseFromString']> {
+  try {
+    const parser = new DOMParser({
+      onError: (level, message) => {
+        throw new Error(`${level}: ${message}`)
+      },
+    })
+    const document = parser.parseFromString(xml, 'application/xml')
+    if (document.doctype) throw new Error('DTD is not allowed')
+    const root = document.documentElement
+    if (root?.namespaceURI !== DAV_NAMESPACE || root.localName !== 'multistatus') {
+      throw new Error('Expected a DAV multistatus document')
+    }
+    return document
+  } catch {
+    throw new ApiError(502, 'internal', 'The calendar server returned malformed discovery XML')
+  }
 }
 
-/** Text content of the first matching element, with the five XML entities and numeric ones decoded. */
-export function extractFirstText(xml: string, tag: string): string | null {
-  const normalized = normalizeXml(xml)
-  const safeTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = normalized.match(new RegExp(`<${safeTag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${safeTag}>`, 'i'))
-  return match ? decodeXmlText(match[1]!.trim()) : null
+function hasXmlElement(xml: string, tag: string, namespace = DAV_NAMESPACE): boolean {
+  if (!XML_ELEMENT_NAME.test(tag)) throw new Error('Invalid XML element name')
+  return parseDiscoveryXml(xml).getElementsByTagNameNS(namespace, tag).length > 0
 }
 
-/** The first `<href>` inside the named element, which is how every CalDAV property carries a URL. */
-export function extractFirstHref(xml: string, tag: string): string | null {
-  const inner = extractFirstText(xml, tag)
-  if (!inner) return null
-  const match = inner.match(/<href(?:\s[^>]*)?>([\s\S]*?)<\/href>/i)
-  return match ? match[1]!.trim() : null
+/** Text content of the first element in the expected namespace, decoded by the XML parser. */
+export function extractFirstText(
+  xml: string,
+  tag: string,
+  namespace = DAV_NAMESPACE,
+): string | null {
+  if (!XML_ELEMENT_NAME.test(tag)) throw new Error('Invalid XML element name')
+  const element = parseDiscoveryXml(xml).getElementsByTagNameNS(namespace, tag)[0]
+  return element?.textContent?.trim() ?? null
+}
+
+/** The first DAV `<href>` inside the named property, resolved by namespace rather than prefix. */
+export function extractFirstHref(
+  xml: string,
+  tag: string,
+  namespace = DAV_NAMESPACE,
+): string | null {
+  if (!XML_ELEMENT_NAME.test(tag)) throw new Error('Invalid XML element name')
+  const property = parseDiscoveryXml(xml).getElementsByTagNameNS(namespace, tag)[0]
+  const href = property?.getElementsByTagNameNS(DAV_NAMESPACE, 'href')[0]
+  return href?.textContent?.trim() || null
 }
 
 /** `current-user-privilege-set`, or null when the server omitted it (Radicale does). */
 export function parseCalendarPrivileges(xml: string): CalendarPrivileges | null {
-  const inner = extractFirstText(xml, 'current-user-privilege-set')
-  if (!inner) return null
-  const has = (name: string) => new RegExp(`<${name}(?:[\\s/>]|>)`).test(inner)
-  const write = has('write') || has('write-content')
-  return {
-    canCreate: has('bind') || write,
-    canUpdate: write,
-    canDelete: has('unbind') || write,
+  const property = parseDiscoveryXml(xml).getElementsByTagNameNS(DAV_NAMESPACE, 'current-user-privilege-set')[0]
+  if (!property) return null
+  const privileges = new Set<string>()
+  for (const privilege of Array.from(property.getElementsByTagNameNS(DAV_NAMESPACE, 'privilege'))) {
+    for (const child of Array.from(privilege.childNodes)) {
+      if (child.nodeType === 1 && child.namespaceURI === DAV_NAMESPACE && child.localName) {
+        privileges.add(child.localName)
+      }
+    }
   }
-}
-
-function decodeXmlText(value: string): string {
-  return value
-    .replaceAll(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => codePoint(Number.parseInt(hex, 16)))
-    .replaceAll(/&#(\d+);/g, (_, decimal: string) => codePoint(Number.parseInt(decimal, 10)))
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&apos;', "'")
-    .replaceAll('&amp;', '&')
-}
-
-function codePoint(value: number): string {
-  return Number.isSafeInteger(value) && value >= 0 && value <= 0x10ffff
-    ? String.fromCodePoint(value)
-    : '\ufffd'
+  const write = privileges.has('write') || privileges.has('write-content')
+  return {
+    canCreate: privileges.has('bind') || write,
+    canUpdate: write,
+    canDelete: privileges.has('unbind') || write,
+  }
 }

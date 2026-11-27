@@ -35,6 +35,11 @@ export const PROXY_JSON_BODY_LIMIT = PROXY_REQUEST_MAX_BYTES * 2 + 64 * 1024
 export const PROXY_BUDGET_PER_MINUTE = 120
 export const PROXY_FAILURE_LIMIT = 5
 export const PROXY_BREAKER_MS = 60_000
+export const PROXY_PATH_MAX_CHARS = 8192
+export const PROXY_HEADER_VALUE_MAX_CHARS = 1024
+export const PROXY_RESPONSE_HEADER_MAX_CHARS = 2048
+export const PROXY_LOCATION_MAX_CHARS = 2048
+export const PROXY_BREAKER_STATE_LIMIT = 512
 
 const CALDAV_METHODS = new Set(['GET', 'PROPFIND', 'REPORT', 'PUT', 'DELETE'])
 const OAUTH_METHODS = new Set(['GET', 'POST', 'PATCH', 'DELETE'])
@@ -173,7 +178,7 @@ export async function proxyCalendarRequest(
   const resultHeaders: Record<string, string> = {}
   for (const name of ALLOWED_RESPONSE_HEADERS) {
     const value = response.headers.get(name)
-    if (value && value.length <= 2048 && !/[\r\n\0]/.test(value)) resultHeaders[name] = value
+    if (value && value.length <= PROXY_RESPONSE_HEADER_MAX_CHARS && !/[\r\n\0]/.test(value)) resultHeaders[name] = value
   }
   const location = response.headers.get('location')
   if (location && isSafeLocation(location, target)) resultHeaders.location = location
@@ -191,7 +196,7 @@ export async function proxyCalendarRequest(
  */
 export function resolveProxyUrl(baseUrl: string, rawPath: unknown): URL {
   if (typeof rawPath !== 'string') throw ApiError.badRequest('A calendar request path is required')
-  if (!rawPath || rawPath.length > 8192) throw ApiError.badRequest('The calendar request path is not valid')
+  if (!rawPath || rawPath.length > PROXY_PATH_MAX_CHARS) throw ApiError.badRequest('The calendar request path is not valid')
   if (/[\u0000-\u001f\u007f]/.test(rawPath) || rawPath.includes('#')) {
     throw ApiError.badRequest('The calendar request path is not valid')
   }
@@ -270,7 +275,7 @@ export function proxyHeaders(raw: unknown): Record<string, string> {
   for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
     const canonical = ALLOWED_REQUEST_HEADERS.get(name.toLowerCase())
     if (!canonical) continue
-    if (typeof value !== 'string' || value.length > 1024 || /[\r\n\0]/.test(value)) {
+    if (typeof value !== 'string' || value.length > PROXY_HEADER_VALUE_MAX_CHARS || /[\r\n\0]/.test(value)) {
       throw ApiError.badRequest(`The ${canonical} header is not valid`)
     }
     if (value) headers[canonical] = value
@@ -301,7 +306,7 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
 }
 
 function isSafeLocation(location: string, target: URL): boolean {
-  if (location.length > 2048 || /[\r\n\0]/.test(location)) return false
+  if (location.length > PROXY_LOCATION_MAX_CHARS || /[\r\n\0]/.test(location)) return false
   try {
     return new URL(location, target).origin === target.origin
   } catch {
@@ -328,7 +333,7 @@ function recordFailure(key: string): void {
     state.failures = 0
     state.openUntil = Date.now() + PROXY_BREAKER_MS
   }
-  if (breakers.size > 512) breakers.clear()
+  if (breakers.size > PROXY_BREAKER_STATE_LIMIT) breakers.clear()
   breakers.set(key, state)
 }
 

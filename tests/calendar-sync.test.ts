@@ -12,6 +12,8 @@ import {
 import {
   discoverCalendarConnection,
   discoverCalendarHome,
+  extractFirstHref,
+  extractFirstText,
   parseCalendarPrivileges,
   resolvePreset,
   validateConnectionUrl,
@@ -37,6 +39,7 @@ import type { AppBindings, Env } from '../src/worker/env'
 import { calendarSyncRoutes } from '../src/worker/routes/calendar-sync'
 import { CalendarStore } from '../src/worker/calendar/store'
 import { syncDueProviderConnections } from '../src/worker/calendar/provider-sync'
+import { refreshCalendarOAuthToken } from '../src/worker/calendar/oauth-token'
 import { testBindings, testDurableObjectNamespace } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -68,10 +71,43 @@ interface Vault {
 
 function makeVault(): Vault {
   const entries = new Map<string, { scope: string; value: unknown }>()
+  const flights = new Map<string, ReturnType<typeof refreshCalendarOAuthToken>>()
   let sequence = 0
   const namespace = testDurableObjectNamespace(async (request) => {
     const url = new URL(request.url)
-    const body = await request.json() as { scope?: string; value?: unknown; ciphertext?: string }
+    const body = await request.json() as {
+      scope?: string
+      value?: unknown
+      ciphertext?: string
+      userId?: string
+      connectionId?: string
+      provider?: 'google' | 'outlook'
+      clientId?: string
+      clientSecret?: string
+      refreshToken?: string
+    }
+    if (url.pathname === '/calendar-oauth/refresh') {
+      const key = `${body.userId}:${body.connectionId}`
+      let flight = flights.get(key)
+      if (!flight) {
+        flight = refreshCalendarOAuthToken({
+          provider: body.provider!,
+          clientId: body.clientId!,
+          clientSecret: body.clientSecret!,
+          refreshToken: body.refreshToken!,
+          ...(body.scope ? { scope: body.scope } : {}),
+        })
+        flights.set(key, flight)
+      }
+      try {
+        const result = await flight
+        return result.ok
+          ? Response.json({ tokens: result.tokens })
+          : Response.json({ error: result.reason }, { status: result.reason === 'authorization_expired' ? 409 : 502 })
+      } finally {
+        if (flights.get(key) === flight) flights.delete(key)
+      }
+    }
     if (url.pathname === '/encrypt') {
       const ciphertext = `vault-${++sequence}`
       entries.set(ciphertext, { scope: body.scope ?? '', value: body.value })
@@ -302,6 +338,30 @@ describe('CalDAV discovery', () => {
     vi.stubGlobal('fetch', async () => new Response('x'.repeat(64 * 1024 + 1), { status: 207 }))
     await expect(discoverCalendarHome(new URL('https://dav.example.com/'), 'alice', 'secret-password'))
       .rejects.toMatchObject({ status: 502 })
+  })
+
+  it('parses namespace URIs and XML entities rather than element spellings', () => {
+    const xml = `<multistatus xmlns="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+      <response><propstat><prop>
+        <c:calendar-home-set><href>/calendars/a&amp;b/</href></c:calendar-home-set>
+        <current-user-principal><href>&#47;principals&#47;alice&#47;</href></current-user-principal>
+      </prop></propstat></response>
+    </multistatus>`
+    expect(extractFirstHref(xml, 'calendar-home-set', 'urn:ietf:params:xml:ns:caldav'))
+      .toBe('/calendars/a&b/')
+    expect(extractFirstText(xml, 'current-user-principal')).toContain('/principals/alice/')
+  })
+
+  it('refuses malformed XML, DTDs and properties from an unrelated namespace', () => {
+    expect(() => extractFirstText('<multistatus xmlns="DAV:"><response></multistatus>', 'response'))
+      .toThrowError(expect.objectContaining({ status: 502 }))
+    expect(() => extractFirstText(
+      '<!DOCTYPE multistatus [<!ENTITY principal "/fake/">]><multistatus xmlns="DAV:"><current-user-principal>&principal;</current-user-principal></multistatus>',
+      'current-user-principal',
+    )).toThrowError(expect.objectContaining({ status: 502 }))
+    const wrongNamespace = '<multistatus xmlns="DAV:" xmlns:x="urn:not-dav"><x:current-user-principal><x:href>/fake/</x:href></x:current-user-principal></multistatus>'
+    expect(extractFirstText(wrongNamespace, 'current-user-principal')).toBeNull()
+    expect(extractFirstHref(wrongNamespace, 'current-user-principal')).toBeNull()
   })
 
   it('parses privileges without knowing the server prefix', () => {

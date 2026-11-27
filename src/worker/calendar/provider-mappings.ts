@@ -19,6 +19,7 @@ export interface ProviderCalendarRow {
   connection_id: string
   remote_calendar_id: string
   local_calendar_id: string
+  sync_token: string | null
   last_sync_at: number | null
   last_error_code: string | null
 }
@@ -107,7 +108,7 @@ export async function listProviderCalendarMappings(
   connectionId: string,
 ): Promise<ProviderCalendarRow[]> {
   const { results } = await db.prepare(
-    `SELECT connection_id, remote_calendar_id, local_calendar_id, last_sync_at, last_error_code
+    `SELECT connection_id, remote_calendar_id, local_calendar_id, sync_token, last_sync_at, last_error_code
        FROM calendar_provider_calendars
       WHERE user_id = ?1 AND connection_id = ?2
       ORDER BY local_calendar_id ASC`,
