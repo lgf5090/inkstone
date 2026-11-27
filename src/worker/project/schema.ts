@@ -8,6 +8,23 @@
  * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.
  */
 
+export const PROJECT_CALENDAR_LINK_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_calendar_links (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    calendar_id TEXT NOT NULL,
+    event_id TEXT NOT NULL UNIQUE,
+    property_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_calendar_links_card
+     ON project_calendar_links(card_id, user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_calendar_links_user
+     ON project_calendar_links(user_id, event_id)`,
+]
+
 export const PROJECT_NOTE_LINK_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS project_card_notes (
     card_id TEXT NOT NULL,
@@ -87,6 +104,7 @@ export const PROJECT_PRESENCE_SCHEMA_STATEMENTS: readonly string[] = [
 ]
 
 export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
+  ...PROJECT_CALENDAR_LINK_SCHEMA_STATEMENTS,
   ...PROJECT_NOTE_LINK_SCHEMA_STATEMENTS,
   ...PROJECT_GUEST_SCHEMA_STATEMENTS,
   ...PROJECT_VERSION_SCHEMA_STATEMENTS,
@@ -799,6 +817,7 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_activity_changes',
   'project_card_versions',
   'project_card_notes',
+  'project_calendar_links',
   'project_intake_grants',
   'project_card_links',
   'project_todo_links',
@@ -846,6 +865,8 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_card_versions_board',
   'idx_project_card_notes_note',
   'idx_project_card_notes_user',
+  'idx_project_calendar_links_card',
+  'idx_project_calendar_links_user',
   'idx_project_intake_grants_share',
   'idx_project_intake_grants_board',
   'idx_project_card_links_to',
@@ -916,6 +937,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   ],
   project_card_versions: ['id', 'card_id', 'board_id', 'actor_id', 'title', 'payload', 'size', 'created_at'],
   project_card_notes: ['card_id', 'note_id', 'user_id', 'created_at'],
+  project_calendar_links: ['id', 'card_id', 'user_id', 'calendar_id', 'event_id', 'property_id', 'created_at', 'updated_at'],
   project_intake_grants: ['card_id', 'board_id', 'share_slug', 'token_hash', 'field_ids', 'expires_at', 'revoked_at', 'created_at'],
   project_card_links: ['from_card_id', 'to_card_id', 'kind', 'board_id', 'created_at'],
   project_todo_links: ['card_id', 'todo_id', 'user_id', 'created_at'],

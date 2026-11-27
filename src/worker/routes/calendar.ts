@@ -41,6 +41,7 @@ import { ApiError } from '../lib/errors'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
+import { syncProjectCardForCalendarEvent } from '../project/project-calendar'
 
 type Ctx = Context<AppBindings>
 
@@ -370,9 +371,16 @@ calendarRoutes.patch('/events/:id', async (c) => {
       throw ApiError.forbidden('A guest cannot move an event outside the shared calendars')
     }
     const event = await target.store.updateEvent(target.eventId, patch)
+    await syncProjectCardForCalendarEvent(c.env.DB, target.ownerId, target.eventId).catch((error: unknown) => {
+      console.warn('[inkstone] calendar-to-project sync failed:', error instanceof Error ? error.message : error)
+    })
     return c.json({ event: sharedEventDto(target.ownerId, event) })
   }
-  return c.json({ event: await s.updateEvent(id, patch) })
+  const event = await s.updateEvent(id, patch)
+  await syncProjectCardForCalendarEvent(c.env.DB, c.get('userId'), id).catch((error: unknown) => {
+    console.warn('[inkstone] calendar-to-project sync failed:', error instanceof Error ? error.message : error)
+  })
+  return c.json({ event })
 })
 
 calendarRoutes.post('/events/:id/recurrence', async (c) => {
@@ -406,8 +414,17 @@ calendarRoutes.delete('/events/:id', async (c) => {
   const rev = parseRevQuery(c.req.query('rev'))
   if (rev === null) throw ApiError.badRequest('rev is required')
   const target = await sharedEventTarget(c, id)
-  if (target) await target.store.deleteEvent(target.eventId, rev)
-  else await store(c).deleteEvent(id, rev)
+  if (target) {
+    await target.store.deleteEvent(target.eventId, rev)
+    await syncProjectCardForCalendarEvent(c.env.DB, target.ownerId, target.eventId, true).catch((error: unknown) => {
+      console.warn('[inkstone] calendar-to-project sync failed:', error instanceof Error ? error.message : error)
+    })
+  } else {
+    await store(c).deleteEvent(id, rev)
+    await syncProjectCardForCalendarEvent(c.env.DB, c.get('userId'), id, true).catch((error: unknown) => {
+      console.warn('[inkstone] calendar-to-project sync failed:', error instanceof Error ? error.message : error)
+    })
+  }
   return noContent(c)
 })
 

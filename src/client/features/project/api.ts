@@ -18,6 +18,7 @@ import type {
   ProjectCardMarks,
   ProjectCardNoteLink,
   ProjectNoteCardLink,
+  ProjectCalendarLink,
   ProjectCardVersion,
   ProjectCardVersionDetail,
   ProjectGuestOpenResponse,
@@ -295,6 +296,20 @@ export async function fetchNoteProjectCards(noteId: string, signal?: AbortSignal
 
 export async function searchLinkableNotes(query: string, signal?: AbortSignal): Promise<SearchResponse> {
   return request<SearchResponse>(`/api/search?q=${encodeURIComponent(query)}&limit=20`, { signal })
+}
+
+export async function fetchProjectCalendarLinks(cardId: string, signal?: AbortSignal): Promise<ProjectCalendarLink[]> {
+  const body = await request<{ links: ProjectCalendarLink[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/calendar-links`, { signal })
+  return body.links
+}
+
+export async function linkProjectCalendar(cardId: string, input: { calendarId: string, eventId: string, propertyId: string }): Promise<ProjectCalendarLink> {
+  const body = await request<{ link: ProjectCalendarLink }>(`/api/project/cards/${encodeURIComponent(cardId)}/calendar-links`, { method: 'POST', body: input })
+  return body.link
+}
+
+export async function unlinkProjectCalendar(cardId: string, linkId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/cards/${encodeURIComponent(cardId)}/calendar-links/${encodeURIComponent(linkId)}`, { method: 'DELETE' })
 }
 
 export async function fetchCardComments(cardId: string, signal?: AbortSignal): Promise<ProjectComment[]> {

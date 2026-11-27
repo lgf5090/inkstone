@@ -24,6 +24,7 @@ import { CardAttachmentsSection, CardCommentsSection, CardDependenciesSection, C
 import { PROJECT_REALTIME_EVENT, type ProjectRealtimeDetail } from './realtime-events'
 import { CardVersionsDialog } from './CardVersionsDialog'
 import { CardNotesSection } from './CardNotesSection'
+import { CardCalendarLinksSection } from './CardCalendarLinksSection'
 
 interface CardDialogProps {
   card: ProjectCard
@@ -748,6 +749,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
           onRemove={(id) => void removeDependency(id)}
         />
         <CardNotesSection cardId={card.id} canEdit={canEdit} />
+        <CardCalendarLinksSection cardId={card.id} properties={properties} canEdit={canEdit} />
         <CardAttachmentsSection
           files={files}
           error={filesError}

@@ -576,6 +576,7 @@ describe('background provider sync', () => {
        VALUES (?, ?, 'google-cal-1', 'google-cal-1', NULL, 1, 1)`,
     ).run(USER, seeded.id)
     const calls: string[] = []
+    const eventDay = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
       calls.push(String(input))
       return Response.json({
@@ -583,8 +584,8 @@ describe('background provider sync', () => {
           id: 'google-event-1',
           status: 'confirmed',
           summary: 'Remote design review',
-          start: { dateTime: '2026-10-28T09:00:00Z' },
-          end: { dateTime: '2026-10-28T10:00:00Z' },
+          start: { dateTime: `${eventDay}T09:00:00Z` },
+          end: { dateTime: `${eventDay}T10:00:00Z` },
         }],
       })
     })
@@ -609,10 +610,10 @@ describe('background provider sync', () => {
       kind: 'event',
       task: null,
       conference: null,
-      start: { value: '2026-10-28T11:00:00', type: 'datetime' },
-      end: { value: '2026-10-28T12:00:00', type: 'datetime' },
-      startMs: Date.parse('2026-10-28T11:00:00Z'),
-      endMs: Date.parse('2026-10-28T12:00:00Z'),
+      start: { value: `${eventDay}T11:00:00`, type: 'datetime' },
+      end: { value: `${eventDay}T12:00:00`, type: 'datetime' },
+      startMs: Date.parse(`${eventDay}T11:00:00Z`),
+      endMs: Date.parse(`${eventDay}T12:00:00Z`),
       allDay: false,
       calendarIds: ['google-cal-1'],
       meta: {},

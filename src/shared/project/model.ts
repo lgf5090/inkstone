@@ -124,6 +124,18 @@ export type ProjectSubscriptionBlock = (typeof PROJECT_SUBSCRIPTION_BLOCKS)[numb
 export const PROJECT_CARD_LINK_KINDS = ['blocks', 'parent'] as const
 export type ProjectCardLinkKind = (typeof PROJECT_CARD_LINK_KINDS)[number]
 
+export interface ProjectCalendarLink {
+  id: string
+  cardId: string
+  calendarId: string
+  eventId: string
+  propertyId: string
+  eventTitle: string
+  eventStart: number
+  eventEnd: number
+  allDay: boolean
+}
+
 export interface ProjectCardNoteLink {
   cardId: string
   noteId: string

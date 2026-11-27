@@ -38,6 +38,7 @@ import {
   ProjectPublicIntakeSchema,
   ProjectGuestOpenSchema,
   ProjectGuestPatchSchema,
+  ProjectCalendarLinkSchema,
   ProjectCardNoteLinkSchema,
   ProjectTimeEntryCreateSchema,
   ProjectTimeEntryPatchSchema,
@@ -190,6 +191,7 @@ import {
 import { projectCardForRole, projectPropertiesForRole } from './visibility'
 import { defaultWorkloadRange, readProjectWorkload } from './workload'
 import { listCardNotes, linkCardNote, unlinkCardNote, listNoteProjectCards } from './card-notes'
+import { linkProjectCalendar, listProjectCalendarLinks, syncProjectCalendarLinksForCard, unlinkProjectCalendar } from './project-calendar'
 
 export const projectRoutes = new Hono<AppBindings>()
 
@@ -1328,11 +1330,11 @@ projectRoutes.patch('/cards/:id', async (c) => {
   await snapshotProjectRequestVersions(c, patch)
   const now = Date.now()
   const updated = await patchProjectCard(c.env.DB, rawCard, patch, userId, now, projectRelationTargets(properties))
-  if (patch.values !== undefined) {
-    const fresh = await applyCardValueEffects(c.env.DB, c.env, board, rawCard, updated, properties, userId, now)
-    return c.json({ card: projectCardForRole(fresh, properties, role) })
-  }
-  return c.json({ card: projectCardForRole(updated, properties, role) })
+  const fresh = patch.values !== undefined
+    ? await applyCardValueEffects(c.env.DB, c.env, board, rawCard, updated, properties, userId, now)
+    : updated
+  await syncProjectCalendarLinksForCard(c.env.DB, rawCard, fresh, userId, now)
+  return c.json({ card: projectCardForRole(fresh, properties, role) })
 })
 
 projectRoutes.delete('/cards/:id', async (c) => {
@@ -1479,7 +1481,9 @@ projectRoutes.post('/cards/:id/versions/:versionId/restore', async (c) => {
   const version = await getProjectCardVersion(c.env.DB, card.id, c.req.param('versionId'))
   if (!version) throw ApiError.notFound('Version not found')
   await createProjectCardVersion(c.env.DB, card.id, userId, Date.now())
-  const restored = await restoreProjectCardVersion(c.env.DB, c.env, board, card, version, userId, Math.max(Date.now(), card.updateAt + 1))
+  const now = Math.max(Date.now(), card.updateAt + 1)
+  const restored = await restoreProjectCardVersion(c.env.DB, c.env, board, card, version, userId, now)
+  await syncProjectCalendarLinksForCard(c.env.DB, card, restored, userId, now)
   const properties = await readBoardProperties(c.env.DB, card.boardId)
   return c.json({ card: projectCardForRole(restored, properties, role) })
 })
@@ -1504,6 +1508,24 @@ projectRoutes.delete('/cards/:id/notes/:noteId', async (c) => {
 
 projectRoutes.get('/notes/:id/cards', async (c) => {
   return c.json({ cards: await listNoteProjectCards(c.env.DB, c.req.param('id'), projectUserId(c)) })
+})
+
+projectRoutes.get('/cards/:id/calendar-links', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ links: await listProjectCalendarLinks(c.env.DB, projectUserId(c), card.id) })
+})
+
+projectRoutes.post('/cards/:id/calendar-links', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectCalendarLinkSchema)
+  const link = await linkProjectCalendar(c.env.DB, projectUserId(c), card, input, Date.now())
+  return c.json({ link }, 201)
+})
+
+projectRoutes.delete('/cards/:id/calendar-links/:linkId', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  await unlinkProjectCalendar(c.env.DB, projectUserId(c), card.id, c.req.param('linkId'))
+  return c.json({ ok: true })
 })
 
 projectRoutes.get('/cards/:id/comments', async (c) => {

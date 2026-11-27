@@ -459,6 +459,14 @@ export const ProjectCardNoteLinkSchema = z.object({
 
 export type ProjectCardNoteLinkInput = z.infer<typeof ProjectCardNoteLinkSchema>
 
+export const ProjectCalendarLinkSchema = z.object({
+  calendarId: z.string().min(1).max(64),
+  eventId: z.string().min(1).max(64),
+  propertyId: projectId,
+})
+
+export type ProjectCalendarLinkInput = z.infer<typeof ProjectCalendarLinkSchema>
+
 export const ProjectCardLinkSchema = z.object({
   toCardId: projectId,
   kind: z.enum(PROJECT_CARD_LINK_KINDS),
