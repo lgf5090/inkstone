@@ -1,12 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
-import { Archive, AtSign, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, ListTodo, MessageSquare, Minus, MoreHorizontal, Paperclip, Pencil, Plus, Repeat, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
+import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, Minus, MoreHorizontal, Pencil, Plus, Repeat, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectPeople, ProjectProperty } from '@shared/project/model'
-import { isProjectCardDone, projectDonePatch, projectPersonLabel } from '@shared/project/model'
+import { isProjectCardDone, projectDonePatch } from '@shared/project/model'
 import { moveContentOrder, type ProjectContentOrder } from '@shared/project/content-order'
 import { t, useLocale } from '../../lib/i18n'
-import { Avatar, Button, IconButton } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input, Textarea } from '../../components/form'
-import { SelectMenu } from '../../components/select-menu'
 import { confirm, Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
 import { sendForAnswerDetailed } from '../chat/editor-ai'
 import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardDetail, fetchCardLinks, listBoardFiles, moveCardContent, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, undeleteCardContent, uploadBoardFile } from './api'
@@ -18,6 +17,7 @@ import { useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
 import { useProjectWatch } from './use-watch'
 import type { UndoCommand } from './undo'
+import { CardAttachmentsSection, CardCommentsSection, CardDependenciesSection, CardSubtasksSection } from './CardDialogSections'
 
 interface CardDialogProps {
   card: ProjectCard
@@ -71,14 +71,11 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   const [filesAttempt, setFilesAttempt] = useState(0)
   const [detailError, setDetailError] = useState(false)
   const [detailAttempt, setDetailAttempt] = useState(0)
-  const fileInput = useRef<HTMLInputElement>(null)
   const [blocker, setBlocker] = useState('')
   const addAnchor = useRef<HTMLButtonElement>(null)
   const [addOpen, setAddOpen] = useState(false)
   const menuAnchor = useRef<HTMLButtonElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
-  const mentionAnchor = useRef<HTMLButtonElement>(null)
-  const [mentionOpen, setMentionOpen] = useState(false)
   const toast = useUi((state) => state.toast)
   const currentUserId = useSession((state) => state.user?.id)
   const watch = useProjectWatch('card', card.id)
@@ -634,219 +631,69 @@ export function CardDialog({ card, properties, members, people, contents, siblin
             ))}
           </div>
         </section>
-        <section aria-label={t('project.card.subtasks')} className="space-y-2">
-          <div className="flex items-center gap-2">
-            <SectionHeading icon={ListTodo} label={t('project.card.subtasks')} />
-            {canEdit && (
-              <>
-                <Button size="sm" icon={<Plus size={14} />} onClick={() => void addSubtask()}>{t('project.card.add_subtask')}</Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  icon={<Sparkles size={14} />}
-                  disabled={aiSplitting || !card.title.trim()}
-                  onClick={() => void splitSubtasksWithAi()}
-                >
-                  {aiSplitting ? t('project.card.ai_split_loading') : t('project.card.ai_split')}
-                </Button>
-              </>
-            )}
-          </div>
-          {subtasks.length > 0 && (
-            <div className="flex items-center gap-2">
-              <div role="progressbar" aria-valuenow={subtaskDone} aria-valuemin={0} aria-valuemax={subtasks.length} aria-valuetext={`${subtaskDone}/${subtasks.length}`} aria-label={t('project.card.subtask_progress')} className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--bg-sunken)]">
-                <div className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-200" style={{ width: `${Math.round((subtaskDone / subtasks.length) * 100)}%` }} />
-              </div>
-              <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{subtaskDone}/{subtasks.length}</span>
-            </div>
-          )}
-          <ul className="space-y-1">
-            {subtasks.map((subtask) => {
-              const isDone = isProjectCardDone(subtask, properties)
-              return (
-                <li key={subtask.id} className="group flex items-center gap-1.5 text-[length:var(--text-13)] text-[var(--text-primary)]">
-                  <Checkbox ariaLabel={subtask.title || t('project.board.untitled_card')} checked={isDone} disabled={!canEdit} onChange={(checked) => void toggleSubtask(subtask, checked)} />
-                  <button
-                    type="button"
-                    className={`min-w-0 flex-1 truncate text-left hover:text-[var(--accent)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${isDone ? 'text-[var(--text-tertiary)] line-through' : ''}`}
-                    onClick={() => onOpenCard?.(subtask.id)}
-                  >
-                    {subtask.title || t('project.board.untitled_card')}
-                  </button>
-                  {canEdit && (
-                    <IconButton
-                      label={t('common.delete')}
-                      size="sm"
-                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100" data-touch-reveal=""
-                      onClick={() => {
-                        onDelete(subtask.id)
-                      }}
-                    >
-                      <Trash2 size={13} />
-                    </IconButton>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-        <section aria-label={t('project.card.dependencies')} className="space-y-2">
-          <SectionHeading icon={Link2} label={t('project.card.dependencies')} />
-          {linksError
-            ? (
-                <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
-                  {t('project.common.load_failed')}
-                  <Button size="sm" variant="ghost" onClick={() => setLinksAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
-                </div>
-              )
-            : links === null
-              ? <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
-              : blockers.length === 0
-                ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.card.dependencies_empty')}</p>
-                : (
-          <ul className="space-y-1">
-            {blockers.map((link) => (
-              <li key={link.fromCardId} className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] text-[var(--text-primary)]">{siblings.find((s) => s.id === link.fromCardId)?.title ?? link.fromCardId}</span>
-                {canEdit && <IconButton label={t('common.delete')} size="sm" onClick={() => void removeDependency(link.fromCardId)}><Trash2 size={14} /></IconButton>}
-              </li>
-            ))}
-          </ul>
-          )}
-          {canEdit && (
-            <div className="flex items-center gap-2">
-              <SelectMenu className="min-w-0 flex-1" value={blocker} label={t('project.card.add_dependency')} searchable onChange={setBlocker} options={[{ value: '', label: t('project.card.add_dependency') }, ...siblings.filter((s) => s.id !== card.id && !blockers.some((b) => b.fromCardId === s.id)).map((s) => ({ value: s.id, label: s.title }))]} />
-              <Button size="sm" disabled={!blocker} onClick={() => void addDependency()}>{t('project.card.add_dependency')}</Button>
-            </div>
-          )}
-        </section>
-        <section aria-label={t('project.card.attachments')} className="space-y-2">
-          <div className="flex items-center gap-2">
-            <SectionHeading icon={Paperclip} label={t('project.card.attachments')} />
-            {canEdit && (
-              <>
-                <input ref={fileInput} type="file" className="hidden" onChange={(event) => { const f = event.target.files?.[0]; if (f) void attachFile(f); event.target.value = '' }} />
-                <Button size="sm" icon={<Paperclip size={14} />} onClick={() => fileInput.current?.click()}>{t('project.card.add_attachment')}</Button>
-              </>
-            )}
-          </div>
-          {filesError
-            ? (
-                <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
-                  {t('project.common.load_failed')}
-                  <Button size="sm" variant="ghost" onClick={() => setFilesAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
-                </div>
-              )
-            : files === null
-              ? <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
-              : files.length === 0
-                ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.card.attachments_empty')}</p>
-                : (
-          <ul className="space-y-1">
-            {(files ?? []).map((file) => (
-              <li key={file.id} className="flex items-center gap-2">
-                <a className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--accent)]" href={projectFileUrl(file.id)} target="_blank" rel="noreferrer">{file.filename}</a>
-                {canEdit && (
-                  <IconButton
-                    label={t('common.delete')}
-                    size="sm"
-                    onClick={() => {
-                      void run(async () => {
-                        const ok = await confirm({ title: t('project.card.delete_attachment'), tone: 'danger', confirmLabel: t('common.delete') })
-                        if (!ok) return
-                        await deleteProjectFile(file.id)
-                        setFiles((current) => (current ?? []).filter((f) => f.id !== file.id))
-                      })
-                    }}
-                  >
-                    <Trash2 size={14} />
-                  </IconButton>
-                )}
-              </li>
-            ))}
-          </ul>
-          )}
-        </section>
+        <CardSubtasksSection
+          subtasks={subtasks}
+          properties={properties}
+          doneCount={subtaskDone}
+          canEdit={canEdit}
+          canAiSplit={Boolean(card.title.trim())}
+          aiSplitting={aiSplitting}
+          onToggle={(subtask, checked) => void toggleSubtask(subtask, checked)}
+          onOpen={(id) => onOpenCard?.(id)}
+          onDelete={onDelete}
+          onAdd={() => void addSubtask()}
+          onAiSplit={() => void splitSubtasksWithAi()}
+        />
+        <CardDependenciesSection
+          links={links}
+          error={linksError}
+          onRetry={() => setLinksAttempt((current) => current + 1)}
+          blockers={blockers}
+          siblings={siblings}
+          cardId={card.id}
+          canEdit={canEdit}
+          blocker={blocker}
+          onBlockerChange={setBlocker}
+          onAdd={() => void addDependency()}
+          onRemove={(id) => void removeDependency(id)}
+        />
+        <CardAttachmentsSection
+          files={files}
+          error={filesError}
+          onRetry={() => setFilesAttempt((current) => current + 1)}
+          canEdit={canEdit}
+          onAttach={(file) => void attachFile(file)}
+          onDelete={(id) => void run(async () => {
+            const ok = await confirm({ title: t('project.card.delete_attachment'), tone: 'danger', confirmLabel: t('common.delete') })
+            if (!ok) return
+            await deleteProjectFile(id)
+            setFiles((current) => (current ?? []).filter((file) => file.id !== id))
+          })}
+        />
       </div>
       <div className="min-w-0 flex-1 space-y-2 border-t border-[var(--border-subtle)] pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0">
         <CardTimeTracker cardId={card.id} canEdit={canEdit} />
-        <section aria-label={t('project.card.comments')} className="space-y-2">
-          <SectionHeading icon={MessageSquare} label={t('project.card.comments')} />
-          {commentsError
-            ? (
-                <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
-                  {t('project.common.load_failed')}
-                  <Button size="sm" variant="ghost" onClick={() => setCommentsAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
-                </div>
-              )
-            : comments === null
-              ? <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
-              : comments.length === 0
-                ? <p className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.card.comments_empty')}</p>
-                : (
-          <ul className="space-y-2">
-            {(comments ?? []).map((comment) => (
-              <li key={comment.id} className="rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <Avatar src={people[comment.authorId]?.avatarUrl} name={projectPersonLabel(people, comment.authorId)} size={18} />
-                  <p className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{projectPersonLabel(people, comment.authorId)}</p>
-                  {canEdit && comment.authorId === currentUserId && editingCommentId !== comment.id && (
-                    <>
-                      <IconButton label={t('project.card.edit_comment')} size="sm" onClick={() => { setEditingCommentId(comment.id); setEditDraft(comment.body) }}><Pencil size={13} /></IconButton>
-                      <IconButton label={t('common.delete')} size="sm" onClick={() => void removeComment(comment.id)}><Trash2 size={13} /></IconButton>
-                    </>
-                  )}
-                </div>
-                {editingCommentId === comment.id
-                  ? (
-                    <div className="space-y-2">
-                      <Textarea className="w-full" rows={2} value={editDraft} aria-label={t('project.card.edit_comment')} onChange={(event) => setEditDraft(event.target.value)} />
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="primary" disabled={!editDraft.trim()} onClick={() => void saveCommentEdit()}>{t('common.save')}</Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEditingCommentId(null)}>{t('common.cancel')}</Button>
-                      </div>
-                    </div>
-                  )
-                  : <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{comment.body}</p>}
-              </li>
-            ))}
-          </ul>
-          )}
-          <form
-            className="space-y-2"
-            onSubmit={(event) => { event.preventDefault(); void postComment() }}
-          >
-            <Textarea
-              className="w-full"
-              rows={2}
-              value={commentDraft}
-              placeholder={t('project.card.comment_placeholder')}
-              aria-label={t('project.card.comment_placeholder')}
-              onChange={(event) => setCommentDraft(event.target.value)}
-            />
-            <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.card.mention_hint')}</span>
-            <IconButton ref={mentionAnchor} label={t('project.card.mention')} size="sm" onClick={() => setMentionOpen(true)}>
-              <AtSign size={13} />
-            </IconButton>
-            <Menu
-              anchor={mentionAnchor}
-              open={mentionOpen}
-              onClose={() => setMentionOpen(false)}
-              label={t('project.card.mention')}
-              items={members.map((member) => ({
-                id: member.userId,
-                label: projectPersonLabel(people, member.userId),
-                onSelect: () => {
-                  setMentionOpen(false)
-                  setCommentDraft((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}@${projectPersonLabel(people, member.userId)} `)
-                },
-              }))}
-            />
-            <Button type="submit" variant="primary" size="sm" disabled={posting || comments === null || commentsError || !commentDraft.trim()}>
-              {t('project.card.post_comment')}
-            </Button>
-          </form>
-        </section>
+        <CardCommentsSection
+          comments={comments}
+          error={commentsError}
+          onRetry={() => setCommentsAttempt((current) => current + 1)}
+          draft={commentDraft}
+          onDraftChange={setCommentDraft}
+          posting={posting}
+          onPost={() => void postComment()}
+          editingId={editingCommentId}
+          onStartEdit={(id, body) => { setEditingCommentId(id); setEditDraft(body) }}
+          editDraft={editDraft}
+          onEditDraftChange={setEditDraft}
+          onSaveEdit={() => void saveCommentEdit()}
+          onCancelEdit={() => setEditingCommentId(null)}
+          onDelete={(id) => void removeComment(id)}
+          onMention={(name) => setCommentDraft((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}@${name} `)}
+          members={members}
+          people={people}
+          currentUserId={currentUserId}
+          canEdit={canEdit}
+        />
       </div>
     </div>
     </Modal>
