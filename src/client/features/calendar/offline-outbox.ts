@@ -8,11 +8,12 @@
 import type { CalendarEventInput } from '@shared/calendar/model'
 import { ApiError } from '../../lib/api'
 import * as api from './api'
+import { calendarStorageKey } from '../../lib/calendar-storage'
 import { toPersistedCalendarEvent } from './model'
 import type { ConflictRequest } from './persistence'
 
-const PREFIX = 'inkstone:calendar:outbox:'
 const MAX_ENTRIES = 200
+const LEGACY_PREFIX = 'inkstone:calendar:outbox:'
 
 type SaveEntry = { kind: 'save'; eventId: string; input: CalendarEventInput; baseRev: number | null; at: number; legacy?: false }
 type LegacySaveEntry = { kind: 'save'; eventId: string; input: CalendarEventInput; legacy: true; at: number }
@@ -23,7 +24,11 @@ export type OutboxEntry = SaveEntry | LegacySaveEntry
 export type OutboxWrite = SaveEntry | Exclude<OutboxEntry, { kind: 'save' }>
 
 function key(userId: string): string {
-  return `${PREFIX}${userId}`
+  return calendarStorageKey('outbox.v1', userId)
+}
+
+function legacyKey(userId: string): string {
+  return `${LEGACY_PREFIX}${userId}`
 }
 
 function isRevision(value: unknown): value is number {
@@ -54,7 +59,20 @@ function isLegacySaveEntry(value: unknown): value is LegacySaveEntry {
 
 export function readOutbox(userId: string): OutboxEntry[] {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(key(userId)) ?? '[]')
+    const current = localStorage.getItem(key(userId))
+    let raw = current
+    if (raw === null) {
+      raw = localStorage.getItem(legacyKey(userId))
+      if (raw !== null) {
+        try {
+          localStorage.setItem(key(userId), raw)
+          localStorage.removeItem(legacyKey(userId))
+        } catch {
+          // A full or read-only store can still replay the legacy row; the next write retries migration.
+        }
+      }
+    }
+    const parsed: unknown = JSON.parse(raw ?? '[]')
     if (!Array.isArray(parsed)) return []
     // Rows written before baseRev existed cannot be replayed safely: their baseline is unknown.
     // Keep them until the flush reports and discards them instead of silently erasing or overwriting.

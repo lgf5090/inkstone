@@ -15,6 +15,7 @@
  *    entry costs one fetch, never a wrong calendar.
  */
 import type { CalendarEventDto, CalendarRangeRevisionDto } from '@shared/calendar/model'
+import { calendarStorageKey } from '../../lib/calendar-storage'
 
 export interface CachedCalendarRange {
   from: number
@@ -31,7 +32,7 @@ interface CacheFile {
   entries: CachedCalendarRange[]
 }
 
-const STORAGE_PREFIX = 'inkstone.calendar.range.v1'
+const STORAGE_SCOPE = 'range.v1'
 const parsedCache = new WeakMap<Storage, Map<string, { raw: string; ranges: CachedCalendarRange[] }>>()
 /** Four ranges is a month of weeks, or a week of days: more than that is history nobody returns to. */
 export const MAX_CACHED_RANGES = 4
@@ -43,7 +44,7 @@ function readStorage(): Storage | null {
 }
 
 function keyFor(userId: string): string {
-  return `${STORAGE_PREFIX}:${userId}`
+  return calendarStorageKey(STORAGE_SCOPE, userId)
 }
 
 function isRevision(value: unknown): value is CalendarRangeRevisionDto {

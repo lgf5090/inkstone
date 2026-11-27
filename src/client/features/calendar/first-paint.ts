@@ -10,9 +10,11 @@
  * discarded rather than repaired: a missing entry costs one skeleton, a wrong one would cost trust.
  */
 import type { CalendarMetaDto } from '@shared/calendar/model'
+import { calendarStorageKey } from '../../lib/calendar-storage'
 
-const STORAGE_KEY = 'inkstone.calendar.first-paint.v3'
-const LEGACY_KEYS = ['inkstone.calendar.first-paint.v1', 'inkstone.calendar.first-paint.v2'] as const
+const STORAGE_SCOPE = 'first-paint.v3'
+const LEGACY_SCOPES = ['first-paint.v1', 'first-paint.v2'] as const
+const LEGACY_CLEANUP_DEADLINE = Date.UTC(2027, 3, 1)
 const MAX_BYTES = 256 * 1024
 
 function readStorage(): Storage | null {
@@ -20,12 +22,13 @@ function readStorage(): Storage | null {
 }
 
 function keyFor(userId: string): string {
-  return `${STORAGE_KEY}:${userId}`
+  return calendarStorageKey(STORAGE_SCOPE, userId)
 }
 
 function clearLegacy(userId: string, storage: Storage): void {
+  if (Date.now() >= LEGACY_CLEANUP_DEADLINE) return
   try {
-    for (const key of LEGACY_KEYS) storage.removeItem(`${key}:${userId}`)
+    for (const scope of LEGACY_SCOPES) storage.removeItem(calendarStorageKey(scope, userId))
   } catch {
     // A storage that cannot remove the old entry also cannot have served it to us now.
   }

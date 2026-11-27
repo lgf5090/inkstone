@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CalendarMetaDto } from '@shared/calendar/model'
 import { readFirstPaintMeta, saveFirstPaintMeta } from './first-paint'
 
@@ -81,6 +81,21 @@ describe('the first-paint metadata cache', () => {
     const huge = meta('x'.repeat(300 * 1024))
     saveFirstPaintMeta(ALICE, huge)
     expect(readFirstPaintMeta(ALICE)).toBeNull()
+  })
+
+  it('stops retrying legacy cleanup after the migration window', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2027-04-02T00:00:00Z'))
+    const remove = vi.spyOn(Storage.prototype, 'removeItem')
+    try {
+      localStorage.setItem(`inkstone.calendar.first-paint.v2:${ALICE}`, '{"version":1}')
+      expect(readFirstPaintMeta(ALICE)).toBeNull()
+      expect(remove).not.toHaveBeenCalled()
+      expect(localStorage.getItem(`inkstone.calendar.first-paint.v2:${ALICE}`)).not.toBeNull()
+    } finally {
+      remove.mockRestore()
+      vi.useRealTimers()
+    }
   })
 
   it('survives a storage that refuses every call', () => {

@@ -102,6 +102,18 @@ describe('the offline calendar outbox', () => {
     expect(readOutbox('u1')).toEqual([])
   })
 
+  it('migrates a valid durable row from the legacy key without losing it', () => {
+    localStorage.setItem('inkstone:calendar:outbox:u1', JSON.stringify([
+      { kind: 'save', eventId: 'e1', input: input('e1', 'Legacy key'), baseRev: 2, at: 1 },
+    ]))
+
+    expect(readOutbox('u1')).toEqual([
+      expect.objectContaining({ kind: 'save', eventId: 'e1', baseRev: 2 }),
+    ])
+    expect(localStorage.getItem('inkstone.calendar.outbox.v1:u1')).not.toBeNull()
+    expect(localStorage.getItem('inkstone:calendar:outbox:u1')).toBeNull()
+  })
+
   it('reports and discards legacy rows whose base revision is unknown instead of overwriting', async () => {
     localStorage.setItem('inkstone:calendar:outbox:u1', JSON.stringify([
       { kind: 'save', eventId: 'e1', input: input('e1', 'Legacy'), at: 1 },
@@ -139,7 +151,7 @@ describe('the offline calendar outbox', () => {
     }
     await enqueueOutbox('u1', { kind: 'save', eventId: 'e1', input: event, baseRev: 1, at: 1 })
 
-    const raw = localStorage.getItem('inkstone:calendar:outbox:u1') ?? ''
+    const raw = localStorage.getItem('inkstone.calendar.outbox.v1:u1') ?? ''
     expect(raw).not.toContain('private')
     expect(readOutbox('u1')[0]).toMatchObject({
       input: { conference: { provider: 'zoom', joinUrl: 'https://meet.example.com/join/123', meetingId: '123' } },
@@ -162,7 +174,7 @@ describe('the offline calendar outbox', () => {
       baseRev: null,
       at: index,
     }))
-    localStorage.setItem('inkstone:calendar:outbox:u1', JSON.stringify(entries))
+    localStorage.setItem('inkstone.calendar.outbox.v1:u1', JSON.stringify(entries))
 
     await expect(enqueueOutbox('u1', {
       kind: 'save', eventId: 'overflow', input: input('overflow', 'Overflow'), baseRev: null, at: 201,
@@ -196,7 +208,7 @@ describe('the offline calendar outbox', () => {
     })))
 
     expect(request).toHaveBeenCalledTimes(10)
-    expect(request.mock.calls.every(([name]) => name === 'inkstone:calendar:outbox:u1')).toBe(true)
+    expect(request.mock.calls.every(([name]) => name === 'inkstone.calendar.outbox.v1:u1')).toBe(true)
     expect(maxActive).toBe(1)
     expect(readOutbox('u1')).toHaveLength(10)
   })
@@ -212,6 +224,6 @@ describe('the offline calendar outbox', () => {
   it('clears the durable queue on sign-out', async () => {
     await enqueueOutbox('u1', { kind: 'save', eventId: 'e1', input: input('e1', 'Mine'), baseRev: 1, at: 1 })
     await clearOutbox('u1')
-    expect(localStorage.getItem('inkstone:calendar:outbox:u1')).toBeNull()
+    expect(localStorage.getItem('inkstone.calendar.outbox.v1:u1')).toBeNull()
   })
 })
