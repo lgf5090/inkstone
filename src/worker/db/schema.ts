@@ -4968,6 +4968,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE sub_settings ADD COLUMN calendar_token_hint TEXT NOT NULL DEFAULT ''`,
     ],
   },
+  {
+    version: 443,
+    statements: [`CREATE INDEX IF NOT EXISTS idx_sub_rule_due ON sub_reminder_rule(user_id, subscription_id, enabled, kind, value, unit)`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

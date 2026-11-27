@@ -82,6 +82,7 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_sub_rule_sub ON sub_reminder_rule(user_id, subscription_id, value)`,
+  `CREATE INDEX IF NOT EXISTS idx_sub_rule_due ON sub_reminder_rule(user_id, subscription_id, enabled, kind, value, unit)`,
 
   /**
    * The two label registries — a type and a category are the same thing wearing different names.
@@ -230,6 +231,7 @@ export const SUBSCRIPTIONS_REQUIRED_INDEXES: readonly string[] = [
   'idx_sub_payment_sub',
   'idx_sub_payment_recent',
   'idx_sub_rule_sub',
+  'idx_sub_rule_due',
   'idx_sub_channel_kind',
   'idx_sub_notify_log_recent',
   'idx_sub_notify_log_sub',

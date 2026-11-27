@@ -1,16 +1,12 @@
 /**
- * The hourly sweep: who is due, who has already been told, and what actually went out.
+ * The due-driven sweep: who is due, who has already been told, and what actually went out.
  *
- * It runs on every cron fire rather than once an hour, because the deployment fires every minute and a
- * reminder that waits for the next hour is a reminder that arrives up to fifty-nine minutes late.
- * Repeating the sweep is safe for one reason only: a delivery is recorded against the reader's own
- * local hour before it is sent, so the fires that follow find it already claimed and do nothing. That
- * claim is also what gives an "every N hours after expiry" rule its interval — the last claim is the last
- * delivery, and a rule that asked for twelve hours is not due after one.
+ * It runs on every cron fire, but the first query only returns accounts with an expired auto-renewal or a
+ * reminder inside its lead window. One-shot rules claim by local day; expired repeats keep their hourly
+ * interval. Routine minutes write nothing, while an hourly heartbeat preserves a visible scheduler status.
  *
- * Each account is swept inside its own try, so one broken configuration cannot stop the others, and the
- * per-account log row is written even when the sweep throws: a reader whose reminders stopped needs to
- * find a line saying why.
+ * Each candidate account is swept inside its own try, so one broken configuration cannot stop the others,
+ * and a thrown sweep always writes the error line a reader needs to diagnose stopped reminders.
  */
 import type { ReminderRule, SubscriptionItem, SubscriptionSettings } from '@shared/subscriptions/model'
 import { hourIsOpen } from '@shared/subscriptions/model'
@@ -41,7 +37,23 @@ interface Candidate {
 
 export async function sweepSubscriptions(env: Env, now = Date.now()): Promise<SweepResult> {
   const result: SweepResult = { accounts: 0, renewed: 0, matched: 0, deduped: 0, sent: 0, failed: 0 }
-  const { results } = await env.DB.prepare(`SELECT DISTINCT user_id FROM sub_item`).all<{ user_id: string }>()
+  const { results } = await env.DB.prepare(`
+    SELECT DISTINCT i.user_id
+      FROM sub_item i
+     WHERE i.deleted_at IS NULL AND i.is_active = 1
+       AND (
+         (i.auto_renew = 1 AND i.expiry_date <= ?1)
+         OR EXISTS (
+           SELECT 1 FROM sub_reminder_rule r
+            WHERE r.user_id = i.user_id AND r.subscription_id = i.id AND r.enabled = 1
+              AND (
+                (r.kind = 'after_expiry' AND i.expiry_date <= ?1)
+                OR (r.kind = 'on_expiry' AND i.expiry_date <= ?1 + 86400000)
+                OR (r.kind = 'before_expiry' AND i.expiry_date <= ?1 + CASE r.unit WHEN 'hours' THEN r.value * 3600000 ELSE r.value * 86400000 END + 86400000)
+              )
+           )
+         )
+  `).bind(now).all<{ user_id: string }>()
   for (const row of results) {
     result.accounts++
     try {
@@ -142,17 +154,19 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
   }
 
   if (!hourIsOpen(settings.notificationHours, clock.hourString)) {
-    await writeScheduleLog(env.DB, userId, {
-      ...base,
-      finishedAt: Date.now(),
-      inWindow: false,
-      matchedCount: matched,
-      dedupedCount: 0,
-      sentCount: 0,
-      status: 'skipped',
-      reason: `Hour ${clock.hourString} is outside the notification window`,
-      detail: '',
-    })
+    if (renewed > 0 || await shouldWriteHeartbeat(env.DB, userId, now)) {
+      await writeScheduleLog(env.DB, userId, {
+        ...base,
+        finishedAt: Date.now(),
+        inWindow: false,
+        matchedCount: matched,
+        dedupedCount: 0,
+        sentCount: 0,
+        status: 'skipped',
+        reason: `Hour ${clock.hourString} is outside the notification window`,
+        detail: '',
+      })
+    }
     return { renewed, matched, deduped: 0, sent: 0, failed: 0 }
   }
 
@@ -166,19 +180,21 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
   }
 
   if (ready.length === 0) {
-    await writeScheduleLog(env.DB, userId, {
-      ...base,
-      finishedAt: Date.now(),
-      inWindow: true,
-      matchedCount: matched,
-      dedupedCount: deduped,
-      sentCount: 0,
-      status: 'skipped',
-      reason: matched > 0
-        ? `Matched ${matched} rule(s), all already claimed in this hour`
-        : 'No reminder rule came due this hour',
-      detail: '',
-    })
+    if (matched > deduped || renewed > 0 || await shouldWriteHeartbeat(env.DB, userId, now)) {
+      await writeScheduleLog(env.DB, userId, {
+        ...base,
+        finishedAt: Date.now(),
+        inWindow: true,
+        matchedCount: matched,
+        dedupedCount: deduped,
+        sentCount: 0,
+        status: 'skipped',
+        reason: matched > 0
+          ? `Matched ${matched} rule(s), all already claimed in this hour`
+          : 'No reminder rule came due this hour',
+        detail: '',
+      })
+    }
     return { renewed, matched, deduped, sent: 0, failed: 0 }
   }
 
@@ -273,6 +289,12 @@ async function claim(db: D1Database, userId: string, candidate: Candidate, hourK
      VALUES (?1, ?2, ?3, ?4, ?5)`,
   ).bind(userId, candidate.item.id, candidate.rule.id, hourKey, now).run()
   return (result.meta.changes ?? 0) > 0
+}
+
+async function shouldWriteHeartbeat(db: D1Database, userId: string, now: number): Promise<boolean> {
+  const row = await db.prepare(`SELECT started_at FROM sub_schedule_log WHERE user_id = ?1 ORDER BY started_at DESC LIMIT 1`)
+    .bind(userId).first<{ started_at: number }>()
+  return !row || now - row.started_at >= 3_600_000
 }
 
 async function recentFireTimes(db: D1Database, userId: string): Promise<Map<string, number>> {

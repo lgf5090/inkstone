@@ -102,8 +102,9 @@ describe('the sweep', () => {
     await enableGotify('u1')
     const result = await sweepSubscriptions(env(), NOW)
     expect(result.sent).toBe(0)
+    expect(result.accounts).toBe(0)
     expect(deliveries).toEqual([])
-    expect(schedules('u1')[0]!.status).toBe('skipped')
+    expect(schedules('u1')).toEqual([])
   })
 
   it('sends one aggregated message when a rule comes due', async () => {
@@ -129,7 +130,8 @@ describe('the sweep', () => {
     const second = await sweepSubscriptions(env(), NOW + 15 * 60_000)
     expect(deliveries).toHaveLength(1)
     expect(second.deduped).toBeGreaterThan(0)
-    expect(schedules('u1')[0]!.status).toBe('skipped')
+    expect(schedules('u1')).toHaveLength(1)
+    expect(schedules('u1')[0]!.status).toBe('ok')
   })
 
   it('sends a before-expiry rule once across different local hours', async () => {
@@ -218,6 +220,14 @@ describe('the trash', () => {
    * silently spend money on the reader's behalf while they were deciding whether to restore it, and one
    * that kept notifying would make the trash the noisiest place in the app.
    */
+  it('does not scan an account whose only subscription is in the trash', async () => {
+    const created = await seed('u1', { name: 'Gone', days: 7 })
+    await new SubscriptionsStore(db, 'u1').trash(created.item.id, { timezone: 'Asia/Shanghai', paymentLimit: 100, now: NOW })
+    const result = await sweepSubscriptions(env(), NOW)
+    expect(result.accounts).toBe(0)
+    expect(schedules('u1')).toEqual([])
+  })
+
   it('leaves a trashed subscription alone', async () => {
     await saveSettings(db, 'u1', { timezone: 'Asia/Shanghai', notificationHours: [], locale: 'zh-CN' })
     const store = new SubscriptionsStore(db, 'u1')

@@ -174,6 +174,15 @@ describe('an existing subscriptions database', () => {
     expect(columnsOf(sqlite, 'sub_restore_stage')).toEqual(['user_id', 'restore_id', 'kind', 'id', 'payload', 'created_at'])
   })
 
+  it('creates the scheduler due index on an existing database', async () => {
+    sqlite.exec('DROP INDEX idx_sub_rule_due')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 443')
+    sqlite.exec(`DELETE FROM app_meta WHERE key = 'database-state-v1'`)
+    await boot()
+    const index = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sub_rule_due'").get()
+    expect(index).toEqual({ name: 'idx_sub_rule_due' })
+  })
+
   it('settles into the same shape twice, so a second boot changes nothing', async () => {
     await boot()
     const first = ['sub_category', 'sub_settings', 'sub_item', 'sub_type'].map((table) => columnsOf(sqlite, table))
