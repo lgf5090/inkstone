@@ -5,7 +5,7 @@
  * was I in *this* book, and did I keep the habit. Both are derived here rather than stored, so a day can
  * never be counted twice or lost when a book is deleted while its log survives.
  */
-import type { BookStats } from './types'
+import type { BookStats, ReadingProgress } from './types'
 
 export interface ReadingDay {
   day: string
@@ -56,6 +56,35 @@ export function dayLog(stats: Record<string, BookStats>): Record<string, number>
     }
   }
   return out
+}
+
+export interface AnnualReadingSummary {
+  totalSeconds: number
+  daysRead: number
+  finishedBooks: number
+  best: ReadingDay | null
+}
+
+export function annualReadingSummary(
+  stats: Record<string, BookStats>,
+  progress: Record<string, ReadingProgress>,
+  year: number,
+): AnnualReadingSummary {
+  const prefix = `${year}-`
+  const log = Object.fromEntries(Object.entries(dayLog(stats)).filter(([day]) => day.startsWith(prefix)))
+  const days = Object.values(log).filter((seconds) => seconds > 0)
+  const best = days.length
+    ? Object.entries(log).map(([day, seconds]) => ({ day, seconds })).sort((a, b) => b.seconds - a.seconds)[0]!
+    : null
+  return {
+    totalSeconds: days.reduce((total, seconds) => total + seconds, 0),
+    daysRead: days.length,
+    finishedBooks: Object.values(progress).filter((one) => {
+      if (!one?.finishedAt) return false
+      return new Date(one.finishedAt).getFullYear() === year
+    }).length,
+    best,
+  }
 }
 
 export function summariseStats(stats: Record<string, BookStats>, today: string): ReadingSummary {

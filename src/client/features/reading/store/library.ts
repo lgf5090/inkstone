@@ -564,9 +564,14 @@ export const useLibrary = create<LibraryState>((set, get) => {
 
     setProgress(progress) {
       set((state) => {
-        const updatedAt = Math.max(numberOr(progress.updatedAt), nextTimestamp(state.progress[progress.bookId]?.updatedAt))
+        const previous = state.progress[progress.bookId]
+        const updatedAt = Math.max(numberOr(progress.updatedAt), nextTimestamp(previous?.updatedAt))
         return {
-          progress: { ...state.progress, [progress.bookId]: { ...progress, updatedAt } },
+          progress: { ...state.progress, [progress.bookId]: {
+            ...progress,
+            updatedAt,
+            finishedAt: progress.fraction >= 1 ? previous?.finishedAt ?? updatedAt : previous?.finishedAt ?? null,
+          } },
           deleted: withoutTombstone(state.deleted, 'progress', progress.bookId),
         }
       })

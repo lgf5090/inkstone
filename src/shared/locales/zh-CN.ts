@@ -7076,6 +7076,8 @@ console.log(\`Hello, \${name}!\`)
     "reading.speech_rate": "语速",
     "reading.speech_sleep": "定时停止（分钟）",
     "reading.speech_failed": "朗读无法启动",
+    "reading.stats_finished_books": "读完书籍",
+    "reading.stats_year_value0": "{value0} 年阅读",
     "reading.stats_title": "阅读时长",
     "reading.swipe_turns": "滑动翻页",
     "reading.tap_zones": "点击翻页",

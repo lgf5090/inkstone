@@ -7085,6 +7085,8 @@ const CORE_MESSAGES_TAIL = {
     "reading.speech_rate": "Speed",
     "reading.speech_sleep": "Sleep timer (minutes)",
     "reading.speech_failed": "Read aloud could not start",
+    "reading.stats_finished_books": "Books finished",
+    "reading.stats_year_value0": "{value0} reading",
     "reading.stats_title": "Reading time",
     "reading.swipe_turns": "Swipe to turn",
     "reading.tap_zones": "Tap to turn pages",

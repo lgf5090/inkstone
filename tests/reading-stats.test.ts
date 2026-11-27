@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { dayLog, readingStreak, shiftDayKey, summariseStats } from '../src/client/features/reading/reading-stats'
-import type { BookStats } from '../src/client/features/reading/types'
+import { annualReadingSummary, dayLog, readingStreak, shiftDayKey, summariseStats } from '../src/client/features/reading/reading-stats'
+import type { BookStats, ReadingProgress } from '../src/client/features/reading/types'
 
 const TODAY = '2026-10-13'
 
@@ -47,6 +47,20 @@ describe('the day log', () => {
       b: book('b', { [TODAY]: 50, '2026-10-09': 10 }),
     })
     expect(log).toEqual({ [TODAY]: 150, '2026-10-09': 10 })
+  })
+})
+
+describe('the annual report', () => {
+  it('counts only the selected year and books finished in it', () => {
+    const progress: Record<string, ReadingProgress> = {
+      a: { bookId: 'a', position: null, fraction: 1, updatedAt: 1, finishedAt: new Date(2026, 5, 1).getTime() },
+      b: { bookId: 'b', position: null, fraction: 1, updatedAt: 1, finishedAt: new Date(2025, 5, 1).getTime() },
+    }
+    const summary = annualReadingSummary({
+      a: book('a', { '2026-01-01': 60, '2025-12-31': 120 }),
+      b: book('b', { '2026-01-02': 30 }),
+    }, progress, 2026)
+    expect(summary).toEqual({ totalSeconds: 90, daysRead: 2, finishedBooks: 1, best: { day: '2026-01-01', seconds: 60 } })
   })
 })
 

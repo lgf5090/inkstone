@@ -65,6 +65,12 @@ describe('importing a library file', () => {
     expect(useLibrary.getState().books[0]?.localOnly).toBe(true)
   })
 
+  it('marks a book finished when progress reaches one', () => {
+    useLibrary.getState().setProgress({ bookId: 'b1', position: { kind: 'fixed', page: 10 }, fraction: 1, updatedAt: 1, finishedAt: null })
+    expect(useLibrary.getState().progress.b1?.finishedAt).toEqual(expect.any(Number))
+    expect(useLibrary.getState().progress.b1?.fraction).toBe(1)
+  })
+
   it('creates progress when a book is marked finished before it was opened', () => {
     useLibrary.getState().markFinished('b1', true)
     expect(useLibrary.getState().progress.b1).toMatchObject({ bookId: 'b1', fraction: 1, finishedAt: expect.any(Number) })

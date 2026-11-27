@@ -8,7 +8,7 @@
 import { Tooltip } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { dayKey, formatReadingSeconds } from '../format-time'
-import { summariseStats } from '../reading-stats'
+import { summariseStats, annualReadingSummary } from '../reading-stats'
 import { useLibrary } from '../store/library'
 
 const WINDOW_DAYS = 14
@@ -20,8 +20,12 @@ export interface StatsPanelProps {
 
 export function StatsPanel({ bookId, goalMinutes }: StatsPanelProps) {
   const stats = useLibrary((state) => state.stats)
+  const progress = useLibrary((state) => state.progress)
   const books = useLibrary((state) => state.books)
-  const summary = summariseStats(stats, dayKey())
+  const today = dayKey()
+  const year = Number(today.slice(0, 4))
+  const annual = annualReadingSummary(stats, progress, year)
+  const summary = summariseStats(stats, today)
   const goalSeconds = Math.max(0, goalMinutes) * 60
   const peak = Math.max(1, ...summary.recent.map((one) => one.seconds))
   const titles = new Map(books.map((one) => [one.id, one.title || one.filename]))
@@ -60,6 +64,14 @@ export function StatsPanel({ bookId, goalMinutes }: StatsPanelProps) {
         {summary.best ? (
           <Cell label={t('reading.stats_best_day')} value={`${formatDay(summary.best.day)} · ${formatReadingSeconds(summary.best.seconds)}`} />
         ) : null}
+      </dl>
+
+      <p className="mb-1 text-[length:var(--text-11)] opacity-55">{t('reading.stats_year_value0', { value0: year })}</p>
+      <dl className="mb-3 grid grid-cols-2 gap-x-3 gap-y-2">
+        <Cell label={t('reading.stats_library')} value={formatReadingSeconds(annual.totalSeconds)} />
+        <Cell label={t('reading.stats_days_read')} value={`${annual.daysRead}`} />
+        <Cell label={t('reading.stats_finished_books')} value={`${annual.finishedBooks}`} />
+        {annual.best ? <Cell label={t('reading.stats_best_day')} value={`${formatDay(annual.best.day)} · ${formatReadingSeconds(annual.best.seconds)}`} /> : null}
       </dl>
 
       <p className="mb-1 text-[length:var(--text-11)] opacity-55">{t('reading.stats_last_days', { value0: WINDOW_DAYS })}</p>
