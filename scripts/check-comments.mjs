@@ -15891,7 +15891,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/subscriptions/SubscriptionSettings.tsx", [
     "/**\n * Settings, in two halves: how this app behaves, and where its reminders may go.\n *\n * The channel half is drawn from the shared field table rather than from nine hand-written forms, so a\n * field added to an adapter appears here without this file knowing what a bot token is. What it does own\n * is the shape of the interaction: a secret that is already stored is never shown, and leaving the box\n * empty keeps it — the only arrangement that lets a reader change a webhook address without retyping a\n * token they cannot see.\n */",
-    "/** A dialog wrapper, so the app does not repeat the modal's own props at its call site. */",
     "/* A ceiling the reader sets, not one the app infers: the dashboard already says what was\n                spent, and the number only means anything against a limit they chose themselves. */",
     "// A channel with fields cannot send until they are filled in; one with none is ready as soon as it is",
     "// switched on, so gating its switch on `configured` would ask the reader to configure nothing.",

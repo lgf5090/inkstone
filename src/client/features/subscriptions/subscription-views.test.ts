@@ -140,7 +140,7 @@ describe('the month calendar', () => {
       timezone: 'UTC',
       onOpenItem: onSelect,
     }))
-    const buttons = [...document.querySelectorAll('[role="gridcell"] button')]
+    const buttons = [...document.querySelectorAll('[role="cell"] button')]
     expect(buttons).toHaveLength(2)
     press(buttons[0], 'the expiry event')
     expect(onSelect).toHaveBeenCalledWith('sub-1')
@@ -148,7 +148,7 @@ describe('the month calendar', () => {
 
   it('moves between months and returns to today', () => {
     mount(createElement(SubscriptionCalendar, { items: ITEMS, timezone: 'UTC', onOpenItem: () => {} }))
-    const heading = () => document.querySelector('[role="grid"]')?.getAttribute('aria-label')
+    const heading = () => document.querySelector('[role="table"]')?.getAttribute('aria-label')
     const initial = heading()
     press(document.querySelector(`button[aria-label="${t('subscriptions.calendar.next')}"]`), 'next month')
     expect(heading()).not.toBe(initial)

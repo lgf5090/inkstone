@@ -19,7 +19,7 @@ import { AssistantDock } from '../chat/AssistantDock'
 import { NotificationsBell } from '../chat/NotificationCenter'
 import { Button, IconButton } from '../../components/primitives'
 import { LoadingBlock } from '../../components/feedback'
-import { Drawer, Modal, Tooltip, confirm } from '../../components/overlay'
+import { Drawer, Modal, Tooltip, confirm, hasOpenLayer } from '../../components/overlay'
 import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { formatAmount } from '@shared/subscriptions/format'
@@ -138,7 +138,7 @@ export function SubscriptionsApp(): ReactElement {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || hasOpenLayer()) return
       const target = event.target as HTMLElement | null
       if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return
       if (event.key === 'n') {

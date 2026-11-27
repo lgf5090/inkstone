@@ -26,7 +26,7 @@ import {
   type IconSpec,
 } from '@shared/subscriptions/identity'
 import type { LabelEntry, LabelKind } from '@shared/subscriptions/model'
-import { useClickOutside, useEscape, usePanelCaret } from '../../components/overlay'
+import { useClickOutside, useDialogFocus, useEscape } from '../../components/overlay'
 import { Swatch } from '../../components/color-swatch'
 import { cn } from '../../lib/cn'
 import { useThemeDark } from '../../lib/hooks'
@@ -210,15 +210,19 @@ export function LabelStylePicker({ kind, name, onPick }: {
   const wrapRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const wasOpen = useRef(false)
   const identity = useLabelIdentity()(kind, name)
 
   useEscape(open, () => setOpen(false))
   useClickOutside([wrapRef, panelRef], open, () => setOpen(false))
-  usePanelCaret(open, panelRef, triggerRef)
+  useDialogFocus(open, panelRef)
+  useEffect(() => {
+    if (wasOpen.current && !open) triggerRef.current?.focus({ preventScroll: true })
+    wasOpen.current = open
+  }, [open])
   useEffect(() => {
     if (!name) setOpen(false)
   }, [name])
-
   /**
    * Open the panel where the trigger is, clamped to the viewport.
    *
@@ -255,6 +259,9 @@ export function LabelStylePicker({ kind, name, onPick }: {
       {open && createPortal(
         <div
           ref={panelRef}
+          role="dialog"
+          aria-label={t('subscriptions.picker.icon')}
+          tabIndex={-1}
           className='fixed overflow-y-auto rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2 shadow-[var(--shadow-pop)]'
           style={{ width: PANEL_WIDTH, top: place.top, left: place.left, maxHeight: place.maxHeight, zIndex: Z_INDEX.pop }}
           onClick={(event) => event.stopPropagation()}

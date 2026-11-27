@@ -13,7 +13,6 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Field, Input, Segmented, Select, Switch, Textarea, CommitNumberInput } from '../../components/form'
-import { Modal } from '../../components/overlay'
 import { CHANNEL_DEFINITIONS, channelLabelKey, INBOUND_HOOK_PATH, type ChannelField } from '@shared/subscriptions/channels'
 import { copyText } from '../../lib/clipboard'
 import { useUi } from '../../store/ui'
@@ -603,14 +602,5 @@ function ChannelFieldInput({
         onChange={(event) => onChange(event.target.value)}
       />
     </Field>
-  )
-}
-
-/** A dialog wrapper, so the app does not repeat the modal's own props at its call site. */
-export function SettingsDialog({ children, onClose }: { children: ReactElement; onClose: () => void }): ReactElement {
-  return (
-    <Modal open onClose={onClose} title={t('subscriptions.settings.title')} width={720} bodyClassName="px-4 py-3">
-      {children}
-    </Modal>
   )
 }

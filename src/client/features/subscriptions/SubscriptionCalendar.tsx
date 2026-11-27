@@ -13,6 +13,9 @@ interface CalendarEntry {
   kind: 'expiry' | 'trial'
 }
 
+const DAYS_PER_WEEK = 7
+const MAX_VISIBLE_EVENTS = 3
+
 function entriesByDay(items: readonly SubscriptionItem[], timezone: string): Map<string, CalendarEntry[]> {
   const entries = new Map<string, CalendarEntry[]>()
   for (const item of items) {
@@ -46,7 +49,7 @@ export function SubscriptionCalendar({ items, timezone, onOpenItem }: {
   const days = useMemo(() => monthGrid(cursor.year, cursor.month), [cursor])
   const monthLabel = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'long', timeZone: 'UTC' })
     .format(new Date(Date.UTC(cursor.year, cursor.month - 1, 1)))
-  const weekdays = useMemo(() => Array.from({ length: 7 }, (_, index) =>
+  const weekdays = useMemo(() => Array.from({ length: DAYS_PER_WEEK }, (_, index) =>
     new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, 1 + index))),
   ), [locale])
 
@@ -73,21 +76,21 @@ export function SubscriptionCalendar({ items, timezone, onOpenItem }: {
           <IconButton label={t('subscriptions.calendar.next')} size="sm" onClick={() => move(1)}><ChevronRight size={15} /></IconButton>
         </div>
       </div>
-      <div role="grid" aria-label={monthLabel} className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)]">
+      <div role="table" aria-label={monthLabel} className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)]">
         <div role="row" className="grid grid-cols-7 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
           {weekdays.map((day) => (
             <div key={day} role="columnheader" className="px-1 py-1.5 text-center text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{day}</div>
           ))}
         </div>
-        {Array.from({ length: days.length / 7 }, (_, row) => (
+        {Array.from({ length: days.length / DAYS_PER_WEEK }, (_, row) => (
           <div key={row} role="row" className="grid grid-cols-7">
-            {days.slice(row * 7, row * 7 + 7).map((day, index) => {
+            {days.slice(row * DAYS_PER_WEEK, row * DAYS_PER_WEEK + DAYS_PER_WEEK).map((day, index) => {
               const dayEntries = day ? entries.get(day) ?? [] : []
               return (
                 <div
                   key={day ?? `empty-${row}-${index}`}
-                  role="gridcell"
-                  aria-selected={day === today}
+                  role="cell"
+                  aria-label={day ?? undefined}
                   className={cn(
                     'min-h-20 min-w-0 border-b border-r border-[var(--border-subtle)] p-1 last:border-r-0',
                     !day && 'bg-[var(--bg-inset)]',
@@ -96,9 +99,9 @@ export function SubscriptionCalendar({ items, timezone, onOpenItem }: {
                 >
                   {day && (
                     <>
-                      <span className={cn('text-[length:var(--text-10-5)] tabular-nums', day === today ? 'font-semibold text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}>{Number(day.slice(8))}</span>
+                      <span aria-current={day === today ? 'date' : undefined} className={cn('text-[length:var(--text-10-5)] tabular-nums', day === today ? 'font-semibold text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}>{Number(day.slice(8))}</span>
                       <div className="mt-0.5 space-y-0.5">
-                        {dayEntries.slice(0, 3).map((entry) => (
+                        {dayEntries.slice(0, MAX_VISIBLE_EVENTS).map((entry) => (
                           <button
                             key={`${entry.id}-${entry.kind}`}
                             type="button"
@@ -112,7 +115,7 @@ export function SubscriptionCalendar({ items, timezone, onOpenItem }: {
                             {entry.name}
                           </button>
                         ))}
-                        {dayEntries.length > 3 && <span className="block px-1 text-[length:var(--text-10)] text-[var(--text-quaternary)]">+{dayEntries.length - 3}</span>}
+                        {dayEntries.length > MAX_VISIBLE_EVENTS && <span className="block px-1 text-[length:var(--text-10)] text-[var(--text-quaternary)]">+{dayEntries.length - MAX_VISIBLE_EVENTS}</span>}
                       </div>
                     </>
                   )}
@@ -128,10 +131,10 @@ export function SubscriptionCalendar({ items, timezone, onOpenItem }: {
 
 function monthGrid(year: number, month: number): Array<string | null> {
   const first = new Date(Date.UTC(year, month - 1, 1))
-  const offset = (first.getUTCDay() + 6) % 7
+  const offset = (first.getUTCDay() + 6) % DAYS_PER_WEEK
   const count = new Date(Date.UTC(year, month, 0)).getUTCDate()
   const cells: Array<string | null> = Array.from({ length: offset }, () => null)
   for (let day = 1; day <= count; day++) cells.push(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`)
-  while (cells.length % 7 !== 0) cells.push(null)
+  while (cells.length % DAYS_PER_WEEK !== 0) cells.push(null)
   return cells
 }
