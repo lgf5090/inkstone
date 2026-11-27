@@ -24,6 +24,7 @@ export const ZH_CN_CLOUDDRIVE_MEDIA = {
   'clouddrive.viewer.counter': '第 {index} 项，共 {count} 项',
   'clouddrive.viewer.reset_zoom': '重置缩放',
   'clouddrive.viewer.image_failed': '无法加载此图片',
+  'clouddrive.viewer.heic_failed': '当前浏览器无法预览 HEIC/HEIF，请下载文件后查看。',
   'clouddrive.viewer.media_failed': '无法播放此文件',
   'clouddrive.viewer.unsupported': '此文件无法在此预览',
   'clouddrive.viewer.video': '视频',
@@ -83,5 +84,11 @@ export const ZH_CN_CLOUDDRIVE_MEDIA = {
   'clouddrive.settings.webdav_password_set': '已设置密码，留空则保持不变。',
   'clouddrive.settings.empty_trash': '清空回收站',
   'clouddrive.settings.empty_trash_done': '已彻底删除 {count} 项',
+  'clouddrive.settings.empty_trash_failed': '清空回收站失败',
+  'clouddrive.settings.config_backup': '导出配置',
+  'clouddrive.settings.config_backup_busy': '正在导出配置…',
+  'clouddrive.settings.config_backup_done': '配置导出已开始',
+  'clouddrive.settings.config_backup_failed': '配置导出失败',
+  'clouddrive.settings.config_backup_hint': '包含挂载映射、标签、分享策略和同步设置，不包含凭据与密码哈希。',
 
 } as const

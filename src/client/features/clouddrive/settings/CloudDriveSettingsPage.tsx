@@ -1,21 +1,25 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Save, Trash2 } from 'lucide-react'
 import type { CloudDrivePublicSettings, CloudDriveSettingsPatch } from '@shared/clouddrive/settings'
-import { Button } from '../../../components/primitives'
+import { Button, Spinner } from '../../../components/primitives'
 import { Field, Input, Switch } from '../../../components/form'
 import { confirm } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
 import { clouddriveApi } from '../api'
+import { ConfigBackupButton } from '../ConfigBackupButton'
 import { ct } from '../media-i18n'
 
 export function CloudDriveSettingsPage({ owner }: { owner: boolean }) {
   const toast = useUi((state) => state.toast)
   const [settings, setSettings] = useState<CloudDrivePublicSettings | null>(null)
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [saving, setSaving] = useState(false)
+  const [purging, setPurging] = useState(false)
   const [webdavPassword, setWebdavPassword] = useState('')
   const [draft, setDraft] = useState<CloudDriveSettingsPatch>({})
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    setStatus('loading')
     try {
       const result = await clouddriveApi.settings()
       setSettings(result.settings)
@@ -33,11 +37,13 @@ export function CloudDriveSettingsPage({ owner }: { owner: boolean }) {
         webdavUsername: result.settings.webdavUsername,
         adminOwnerCanViewMemberFiles: result.settings.adminOwnerCanViewMemberFiles,
       })
+      setStatus('ready')
     } catch (error) {
+      setStatus('error')
       toast({ title: ct('clouddrive.settings.load_failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
     }
-  }
-  useEffect(() => { void load() }, [])
+  }, [toast])
+  useEffect(() => { void load() }, [load])
 
   const save = async () => {
     setSaving(true)
@@ -55,7 +61,31 @@ export function CloudDriveSettingsPage({ owner }: { owner: boolean }) {
     }
   }
 
-  if (!settings) return <div className="p-4 text-[var(--text-tertiary)]">{ct('clouddrive.loading')}</div>
+  const emptyTrash = async () => {
+    if (purging || !await confirm({ title: ct('clouddrive.settings.empty_trash'), tone: 'danger' })) return
+    setPurging(true)
+    try {
+      const result = await clouddriveApi.purge({ all: true })
+      toast({ title: ct('clouddrive.settings.empty_trash_done', { count: result.deleted }) })
+      await load()
+    } catch (error) {
+      toast({ title: ct('clouddrive.settings.empty_trash_failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+    } finally {
+      setPurging(false)
+    }
+  }
+
+  if (status === 'loading') {
+    return <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 p-4 text-[var(--text-tertiary)]"><Spinner />{ct('clouddrive.loading')}</div>
+  }
+  if (status === 'error' || !settings) {
+    return (
+      <div role="alert" className="flex flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-[length:var(--text-13)] text-[var(--text-secondary)]">{ct('clouddrive.settings.load_failed')}</p>
+        <Button variant="secondary" onClick={() => void load()}>{ct('clouddrive.retry')}</Button>
+      </div>
+    )
+  }
   const number = (value: unknown) => typeof value === 'number' ? value : 0
   // Every field below the title is a deployment policy: the server answers a member's PATCH with 403,
   // so the form shows the owner's values without pretending they can be edited here.
@@ -111,9 +141,19 @@ export function CloudDriveSettingsPage({ owner }: { owner: boolean }) {
           </div>
         </section>
       )}
+      <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+        <h2 className="mb-2 text-[length:var(--text-13)] font-medium">{ct('clouddrive.settings.config_backup')}</h2>
+        <p className="mb-3 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{ct('clouddrive.settings.config_backup_hint')}</p>
+        <ConfigBackupButton
+          label={ct('clouddrive.settings.config_backup')}
+          busyLabel={ct('clouddrive.settings.config_backup_busy')}
+          successLabel={ct('clouddrive.settings.config_backup_done')}
+          errorLabel={ct('clouddrive.settings.config_backup_failed')}
+        />
+      </section>
       <div className="flex flex-wrap items-center gap-2">
         {owner && <Button variant="primary" loading={saving} onClick={() => void save()}><Save size={13} /> {ct('clouddrive.dialog.save')}</Button>}
-        {owner && <Button variant="danger" onClick={async () => { if (await confirm({ title: ct('clouddrive.settings.empty_trash'), tone: 'danger' })) { await clouddriveApi.purge({ all: true }); toast({ title: ct('clouddrive.settings.empty_trash_done') }); await load() } }}><Trash2 size={13} /> {ct('clouddrive.settings.empty_trash')}</Button>}
+        {owner && <Button variant="danger" loading={purging} onClick={() => void emptyTrash()}><Trash2 size={13} /> {ct('clouddrive.settings.empty_trash')}</Button>}
       </div>
     </div>
   )

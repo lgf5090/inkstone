@@ -18,6 +18,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { fromBase64 } from '../lib/encoding'
 import { contentDisposition } from '../lib/http-range'
+import { knownLengthByteStream, readBoundedBytes } from '../lib/body-stream'
 import { newId } from '../lib/id'
 import { verifyPassword } from '../lib/password'
 import {
@@ -39,8 +40,10 @@ import { cloudDriveUsage, ensurePrimaryMount, readCloudDriveSettings } from './s
 import { entityTagOf, headResponse, planContentResponse } from './content-response'
 import { assertUnlockedMeta } from './routes-meta'
 import { effectiveMeta, hiddenByPatterns, type EffectiveCloudDriveMeta } from './meta'
-import { authenticateApiKey, pathWithinPrefix } from './store-keys'
+import { authenticateApiKey, pathWithinPrefix, type CloudDriveKeyScope } from './store-keys'
 import { createFolder, trashEntries } from './store-files'
+import { deleteFileParts, distributedStream, fileParts } from './distributed'
+import { pruneVersions } from './upload-finalize'
 import {
   activeLocks,
   blockingLock,
@@ -77,6 +80,8 @@ const MAX_COPY_ROWS = 5000
 const MAX_PROPFIND_CHILDREN = 5000
 const MAX_BUFFERED_EXTERNAL_WRITE = 64 * 1024 * 1024
 const AUTH_REALM = 'Basic realm="CloudDrive"'
+export const WEBDAV_AUTH_CACHE_TTL_MS = 5 * 60_000
+const WEBDAV_AUTH_CACHE_MAX_ENTRIES = 256
 
 interface DavActor {
   userId: string
@@ -139,7 +144,50 @@ async function usersWithWebdavUsername(db: D1Database, username: string): Promis
   return (results ?? []).map((row) => row.user_id)
 }
 
-async function authenticateDav(c: Context<AppBindings>): Promise<DavAuth> {
+interface DavCredentialCacheEntry {
+  userId: string
+  passwordHash: string
+  expiresAt: number
+}
+
+/**
+ * A DAV client sends the same Basic credentials on every PROPFIND. Remember only a digest of those
+ * credentials, never the password, and re-read the current hash before accepting a hit. That read is
+ * what makes a password rotation or WebDAV disable revoke the session immediately, including after
+ * another isolate handled the settings write.
+ */
+const davCredentialCache = new Map<string, DavCredentialCacheEntry>()
+
+async function davCredentialCacheKey(credentials: { username: string; password: string }): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${credentials.username}\0${credentials.password}`))
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('')
+}
+
+function cachedDavCredential(key: string): DavCredentialCacheEntry | null {
+  const entry = davCredentialCache.get(key)
+  if (!entry) return null
+  if (entry.expiresAt <= Date.now()) {
+    davCredentialCache.delete(key)
+    return null
+  }
+  return entry
+}
+
+function rememberDavCredential(key: string, userId: string, passwordHash: string): void {
+  davCredentialCache.delete(key)
+  davCredentialCache.set(key, {
+    userId,
+    passwordHash,
+    expiresAt: Date.now() + WEBDAV_AUTH_CACHE_TTL_MS,
+  })
+  while (davCredentialCache.size > WEBDAV_AUTH_CACHE_MAX_ENTRIES) {
+    const oldest = davCredentialCache.keys().next().value
+    if (oldest === undefined) break
+    davCredentialCache.delete(oldest)
+  }
+}
+
+async function authenticateDav(c: Context<AppBindings>, scope: CloudDriveKeyScope = 'webdav:read'): Promise<DavAuth> {
   const header = c.req.header('authorization')
   if (!header) {
     if (!await webdavConfigured(c.env.DB)) return { response: unavailable() }
@@ -165,7 +213,7 @@ async function authenticateDav(c: Context<AppBindings>): Promise<DavAuth> {
   }
   let verified = false
   try {
-    const answer = await davCredentials(c, credentials, throttleKey)
+    const answer = await davCredentials(c, credentials, throttleKey, scope)
     verified = !('response' in answer)
     return answer
   } finally {
@@ -177,9 +225,10 @@ async function davCredentials(
   c: Context<AppBindings>,
   credentials: { username: string; password: string },
   throttleKey: string,
+  scope: CloudDriveKeyScope,
 ): Promise<DavAuth> {
   if (credentials.username === 'apikey') {
-    const actor = await authenticateApiKey(c.env.DB, credentials.password, 'webdav')
+    const actor = await authenticateApiKey(c.env.DB, credentials.password, scope)
     if (!actor) return { response: unauthorized('Invalid credentials') }
     const settings = await readCloudDriveSettings(c.env.DB, actor.userId)
     if (!settings.webdavEnabled) return { response: unavailable() }
@@ -190,11 +239,30 @@ async function davCredentials(
     }
   }
 
+  const cacheKey = await davCredentialCacheKey(credentials)
+  const cached = cachedDavCredential(cacheKey)
+  if (cached) {
+    const settings = await readCloudDriveSettings(c.env.DB, cached.userId)
+    if (
+      settings.webdavEnabled
+      && settings.webdavUsername === credentials.username
+      && settings.webdavPasswordHash === cached.passwordHash
+    ) {
+      rememberDavCredential(cacheKey, cached.userId, cached.passwordHash)
+      return {
+        actor: { userId: cached.userId, pathPrefix: '/', keyId: null },
+        settings,
+      }
+    }
+    davCredentialCache.delete(cacheKey)
+  }
+
   for (const userId of await usersWithWebdavUsername(c.env.DB, credentials.username)) {
     const settings = await readCloudDriveSettings(c.env.DB, userId)
     if (!settings.webdavEnabled || !settings.webdavPasswordHash) continue
     if (settings.webdavUsername !== credentials.username) continue
     if (!(await verifyPassword(credentials.password, settings.webdavPasswordHash))) continue
+    rememberDavCredential(cacheKey, userId, settings.webdavPasswordHash)
     await notePasscodeSuccess(c.env.DB, throttleKey)
     return {
       actor: { userId, pathPrefix: '/', keyId: null },
@@ -564,7 +632,7 @@ clouddriveDavRoutes.on(['OPTIONS'], '*', () => new Response(null, {
 }))
 
 clouddriveDavRoutes.on(['PROPFIND'], '*', async (c) => {
-  const auth = await authenticateDav(c)
+  const auth = await authenticateDav(c, 'webdav:read')
   if ('response' in auth) return auth.response
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)
@@ -655,7 +723,7 @@ clouddriveDavRoutes.on(['PROPFIND'], '*', async (c) => {
 })
 
 clouddriveDavRoutes.on(['GET', 'HEAD'], '*', async (c) => {
-  const auth = await authenticateDav(c)
+  const auth = await authenticateDav(c, 'webdav:read')
   if ('response' in auth) return auth.response
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)
@@ -723,7 +791,7 @@ clouddriveDavRoutes.on(['GET', 'HEAD'], '*', async (c) => {
 })
 
 clouddriveDavRoutes.put('*', async (c) => {
-  const auth = await authenticateDav(c)
+  const auth = await authenticateDav(c, 'webdav:write')
   if ('response' in auth) return auth.response
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)
@@ -735,16 +803,24 @@ clouddriveDavRoutes.put('*', async (c) => {
   if (target.external) {
     if (target.path === '/') return new Response('A file name is required', { status: 400 })
     if (target.mount.readOnly) throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
-    const declared = Number(c.req.header('content-length'))
+    const lengthHeader = c.req.header('content-length')
+    const declared = lengthHeader === undefined ? null : Number(lengthHeader)
+    if (declared !== null && (!Number.isSafeInteger(declared) || declared < 0)) {
+      throw ApiError.badRequest('Content-Length is not a byte count')
+    }
     // A write to an external driver is buffered whole: the S3 signature and the WebDAV PUT both need
     // the body in hand, so it is the isolate's memory that bounds this path, not the owner's upload
     // ceiling. Anything larger belongs to the chunked upload session, which streams part by part.
     const buffered = Math.max(0, Math.min(auth.settings.uploadMaxFileBytes, MAX_BUFFERED_EXTERNAL_WRITE))
-    if (Number.isFinite(declared) && declared > buffered) {
+    if (declared !== null && declared > buffered) {
       throw ApiError.tooLarge(`A WebDAV write to an external mount holds at most ${buffered} bytes`)
     }
-    const bytes = new Uint8Array(await c.req.arrayBuffer())
-    if (bytes.byteLength > buffered) throw ApiError.tooLarge(`A WebDAV write to an external mount holds at most ${buffered} bytes`)
+    const bytes = await readBoundedBytes(c.req.raw.body, {
+      maxBytes: buffered,
+      expectedBytes: declared ?? undefined,
+      tooLarge: () => ApiError.tooLarge(`A WebDAV write to an external mount holds at most ${buffered} bytes`),
+      mismatched: (received) => ApiError.badRequest(`The request body was ${received} bytes but Content-Length declared ${declared}`),
+    })
     const capacity = await externalCapacityBytes(c.env.DB, target.mount)
     // Same rule as the web upload: the whole-mount walk happens in the folder-size view and the
     // background job, not in front of every write.
@@ -770,83 +846,136 @@ clouddriveDavRoutes.put('*', async (c) => {
 
   const mime = mimeOf(c.req.header('content-type'))
   const category = categoryFor(name, mime)
-  const declaredLength = Number(c.req.header('content-length'))
+  const lengthHeader = c.req.header('content-length')
+  const declaredLength = lengthHeader === undefined ? null : Number(lengthHeader)
+  if (declaredLength !== null && (!Number.isSafeInteger(declaredLength) || declaredLength < 0)) {
+    throw ApiError.badRequest('Content-Length is not a byte count')
+  }
   const maxBytes = auth.settings.uploadMaxFileBytes
-  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+  if (declaredLength !== null && declaredLength > maxBytes) {
     throw ApiError.tooLarge('The file exceeds the configured maximum size')
   }
   const quota = auth.settings.quotaDefaultBytes
-  if (quota !== null && Number.isFinite(declaredLength)) {
-    const usage = await cloudDriveUsage(c.env.DB, userId, c.env)
-    if (usage.usedBytes + declaredLength > quota) {
-      throw new ApiError(403, 'clouddrive_quota_exceeded', 'The account quota would be exceeded')
-    }
+  const usage = quota === null ? null : await cloudDriveUsage(c.env.DB, userId, c.env)
+  const replacedBytes = existing?.kind === 'file' ? existing.size : 0
+  const quotaRemaining = usage === null ? Number.POSITIVE_INFINITY : Math.max(0, (quota ?? 0) - usage.usedBytes + replacedBytes)
+  if (quota !== null && quotaRemaining <= 0 && declaredLength !== 0) {
+    throw new ApiError(403, 'clouddrive_quota_exceeded', 'The account quota would be exceeded')
   }
+  if (declaredLength !== null && declaredLength > quotaRemaining) {
+    throw new ApiError(403, 'clouddrive_quota_exceeded', 'The account quota would be exceeded')
+  }
+  const allowedBytes = declaredLength === null
+    ? Math.min(maxBytes, quotaRemaining, MAX_BUFFERED_EXTERNAL_WRITE)
+    : Math.min(maxBytes, quotaRemaining)
 
   const id = newId()
   const storageKey = `CloudDrive/${category}/${id}`
-  const body = c.req.raw.body ?? new Uint8Array(0)
-  let object: R2Object
+  let object: R2Object | null = null
+  let predecessorVersionKey: string | null = null
   try {
-    object = await bucket.put(storageKey, body, {
+    const limits = {
+      maxBytes: allowedBytes,
+      expectedBytes: declaredLength ?? undefined,
+      tooLarge: (received: number) => ApiError.tooLarge(`The upload body was ${received} bytes but at most ${allowedBytes} were allowed`),
+      mismatched: (received: number) => ApiError.badRequest(`The request body was ${received} bytes but Content-Length declared ${declaredLength}`),
+    }
+    const options = {
       httpMetadata: { contentType: mime },
-      customMetadata: { fileId: id, category },
-    })
-  } catch (error) {
-    // The upload never became a row; R2 owns whatever bytes a failed put may have left.
-    console.warn('[clouddrive] WebDAV PUT failed before the row was written:', error)
-    throw error
-  }
-
-  if (object.size > maxBytes) {
-    await deleteObjectQuietly(bucket, storageKey)
-    throw ApiError.tooLarge('The file exceeds the configured maximum size')
-  }
-  if (quota !== null) {
-    const usage = await cloudDriveUsage(c.env.DB, userId, c.env)
-    if (usage.usedBytes + object.size > quota) {
-      await deleteObjectQuietly(bucket, storageKey)
+      customMetadata: { fileId: existing?.id ?? id, category },
+    }
+    if (declaredLength === null) {
+      const bytes = await readBoundedBytes(c.req.raw.body, limits)
+      object = await bucket.put(storageKey, bytes, options)
+    } else {
+      const { stream, completed } = knownLengthByteStream(c.req.raw.body, limits, declaredLength)
+      object = (await Promise.all([bucket.put(storageKey, stream, options), completed]))[0]!
+    }
+    if (object.size > maxBytes) throw ApiError.tooLarge('The file exceeds the configured maximum size')
+    if (quota !== null && usage !== null && usage.usedBytes + object.size - replacedBytes > quota) {
       throw new ApiError(403, 'clouddrive_quota_exceeded', 'The account quota would be exceeded')
     }
-  }
 
-  const finalName = name
-  const statements: D1PreparedStatement[] = []
-  if (existing) {
-    const batch = newId()
-    statements.push(c.env.DB.prepare(
-      `UPDATE CloudDrive_files SET deleted_at = ?, trash_batch = ?, updated_at = ?
-        WHERE user_id = ? AND id = ? AND deleted_at IS NULL`,
-    ).bind(now, batch, now, userId, existing.id))
-    statements.push(c.env.DB.prepare(
-      `UPDATE CloudDrive_shares SET revoked_at = ?
-        WHERE user_id = ? AND file_id = ? AND revoked_at IS NULL`,
-    ).bind(now, userId, existing.id))
-  }
-  statements.push(c.env.DB.prepare(
-    `INSERT INTO CloudDrive_files
-       (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path,
-        category, mime, size, etag, checksum, storage_kind, storage_key, metadata, color,
-        starred_at, last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
-     VALUES (?, ?, ?, ?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'r2', ?, '{}', '',
-             NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
-  ).bind(
-    id, userId, mount.id, parent.id, finalName, foldedName(finalName), initialsOf(finalName),
-    path, category, mime, object.size, object.etag, storageKey, now, now, now, now,
-  ))
-  try {
+    const statements: D1PreparedStatement[] = []
+    if (existing) {
+      let versionKey = existing.storage_key
+      if (!versionKey) {
+        if (existing.storage_kind !== 'distributed') throw ApiError.conflict('The existing file has no versionable object')
+        const parts = await fileParts(c.env.DB, userId, existing.id)
+        if (parts.length === 0) throw ApiError.conflict('The existing distributed file has no parts')
+        predecessorVersionKey = `CloudDrive/versions/${existing.id}/${now}`
+        const { stream, completed } = knownLengthByteStream(
+          await distributedStream(c.env, c.env.DB, userId, parts),
+          {
+            maxBytes: existing.size,
+            expectedBytes: existing.size,
+            tooLarge: () => ApiError.badRequest('The existing distributed file is larger than its recorded size'),
+            mismatched: () => ApiError.badRequest('The existing distributed file does not match its recorded size'),
+          },
+          existing.size,
+        )
+        const snapshot = (await Promise.all([
+          bucket.put(predecessorVersionKey, stream, { httpMetadata: { contentType: existing.mime } }),
+          completed,
+        ]))[0]!
+        if (snapshot.size !== existing.size) throw ApiError.badRequest('The existing distributed file could not be versioned')
+        versionKey = predecessorVersionKey
+      }
+      const latest = await c.env.DB.prepare(
+        `SELECT COALESCE(MAX(version), 0) AS version FROM CloudDrive_file_versions
+          WHERE user_id = ? AND file_id = ?`,
+      ).bind(userId, existing.id).first<{ version: number }>()
+      statements.push(
+        c.env.DB.prepare(
+          `INSERT INTO CloudDrive_file_versions
+             (user_id, file_id, version, storage_key, size, mime, etag, checksum, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+        ).bind(
+          userId, existing.id, (latest?.version ?? 0) + 1, versionKey,
+          existing.size, existing.mime, existing.etag, existing.checksum, now,
+        ),
+        c.env.DB.prepare(
+          `UPDATE CloudDrive_files
+              SET category = ?3, mime = ?4, size = ?5, etag = ?6, checksum = NULL,
+                  storage_kind = 'r2', storage_key = ?7, updated_at = ?8, modified_at = ?8
+            WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
+        ).bind(userId, existing.id, category, mime, object.size, object.etag, storageKey, now),
+        // The row id is stable, so tags, stars, ACL grants and share tokens keep pointing at it.
+        c.env.DB.prepare(
+          `UPDATE CloudDrive_shares SET name = ?3, size = ?4, mime = ?5
+            WHERE user_id = ?1 AND file_id = ?2 AND revoked_at IS NULL`,
+        ).bind(userId, existing.id, existing.name, object.size, mime),
+      )
+    } else {
+      statements.push(c.env.DB.prepare(
+        `INSERT INTO CloudDrive_files
+           (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path,
+            category, mime, size, etag, checksum, storage_kind, storage_key, metadata, color,
+            starred_at, last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
+         VALUES (?, ?, ?, ?, 'file', ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'r2', ?, '{}', '',
+                 NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
+      ).bind(
+        id, userId, mount.id, parent.id, name, foldedName(name), initialsOf(name),
+        path, category, mime, object.size, object.etag, storageKey, now, now, now, now,
+      ))
+    }
     await c.env.DB.batch(statements)
   } catch (error) {
-    // The row is the authority; an object whose row never landed would be an orphan.
     await deleteObjectQuietly(bucket, storageKey)
+    if (predecessorVersionKey) await deleteObjectQuietly(bucket, predecessorVersionKey)
     throw error
   }
 
+  if (!object) throw new ApiError(500, 'internal', 'The uploaded object is missing')
+  if (existing?.storage_kind === 'distributed') {
+    await deleteFileParts(c.env.DB, c.env, userId, [existing.id])
+  }
+  if (existing) await pruneVersions(c.env.DB, bucket, userId, existing.id)
   return new Response(null, { status: existing ? 204 : 201, headers: { ETag: `"${object.etag}"` } })
 })
 
 clouddriveDavRoutes.delete('*', async (c) => {
-  const auth = await authenticateDav(c)
+  const auth = await authenticateDav(c, 'webdav:write')
   if ('response' in auth) return auth.response
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)
@@ -868,7 +997,7 @@ clouddriveDavRoutes.delete('*', async (c) => {
 })
 
 clouddriveDavRoutes.on(['MKCOL'], '*', async (c) => {
-  const auth = await authenticateDav(c)
+  const auth = await authenticateDav(c, 'webdav:write')
   if ('response' in auth) return auth.response
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)
@@ -943,7 +1072,7 @@ function assertTransferable(source: CloudDriveFileRow, destination: string): voi
 }
 
 clouddriveDavRoutes.on(['MOVE'], '*', async (c) => {
-  const auth = await authenticateDav(c)
+  const auth = await authenticateDav(c, 'webdav:write')
   if ('response' in auth) return auth.response
   const sourcePath = davPathOf(c)
   const destination = destinationPath(c)
@@ -1024,7 +1153,7 @@ clouddriveDavRoutes.on(['MOVE'], '*', async (c) => {
 })
 
 clouddriveDavRoutes.on(['COPY'], '*', async (c) => {
-  const auth = await authenticateDav(c)
+  const auth = await authenticateDav(c, 'webdav:write')
   if ('response' in auth) return auth.response
   const sourcePath = davPathOf(c)
   const destination = destinationPath(c)
@@ -1046,6 +1175,9 @@ clouddriveDavRoutes.on(['COPY'], '*', async (c) => {
   assertWritable(mount)
   const userId = auth.actor.userId
   const source = await resolveEntry(c.env.DB, userId, mount.id, sourceTarget.path)
+  if (source.storage_kind === 'distributed') {
+    return new Response('COPY of a distributed file is not supported', { status: 501 })
+  }
   assertTransferable(source, destination)
 
   const existing = await optionalEntry(c.env.DB, userId, mount.id, destination)
@@ -1071,6 +1203,9 @@ clouddriveDavRoutes.on(['COPY'], '*', async (c) => {
   }
   if (sources.length > MAX_COPY_ROWS) {
     throw ApiError.tooLarge(`A synchronous WebDAV copy is limited to ${MAX_COPY_ROWS} entries`)
+  }
+  if (sources.some((row) => row.storage_kind === 'distributed')) {
+    return new Response('COPY containing a distributed file is not supported', { status: 501 })
   }
 
   const idMap = new Map<string, string>([[source.id, newId()]])
@@ -1140,7 +1275,7 @@ function copyStatement(
  * already holds. `Depth: 0` locks a single resource, anything else the whole subtree under it.
  */
 clouddriveDavRoutes.on(['LOCK'], '*', async (c) => {
-  const auth = await authenticateDav(c)
+  const auth = await authenticateDav(c, 'webdav:write')
   if ('response' in auth) return auth.response
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)
@@ -1185,7 +1320,7 @@ clouddriveDavRoutes.on(['LOCK'], '*', async (c) => {
 })
 
 clouddriveDavRoutes.on(['UNLOCK'], '*', async (c) => {
-  const auth = await authenticateDav(c)
+  const auth = await authenticateDav(c, 'webdav:write')
   if ('response' in auth) return auth.response
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)

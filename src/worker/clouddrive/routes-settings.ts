@@ -15,6 +15,7 @@ import { hashPassword, PASSWORD_MAX_LENGTH } from '../lib/password'
 import { readJson } from '../lib/request'
 import { cloudDriveUsage, listMounts, readCloudDriveSettings } from './store'
 import { PRIMARY_MOUNT } from './lib'
+import { buildCloudDriveConfigBackup, cloudDriveConfigBackupFilename } from './config-backup'
 
 export const cloudDriveSettingsRoutes = new Hono<AppBindings>()
 
@@ -74,6 +75,19 @@ cloudDriveSettingsRoutes.patch('/settings', async (c) => {
 
   const settings = await readCloudDriveSettings(c.env.DB, userId)
   return c.json({ settings: publicCloudDriveSettings(settings) })
+})
+
+cloudDriveSettingsRoutes.get('/config/export', async (c) => {
+  const userId = userIdOf(c)
+  const settings = await readCloudDriveSettings(c.env.DB, userId)
+  const backup = await buildCloudDriveConfigBackup(c.env.DB, userId, publicCloudDriveSettings(settings))
+  return new Response(JSON.stringify(backup), {
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${cloudDriveConfigBackupFilename()}"`,
+      'Cache-Control': 'private, no-store',
+    },
+  })
 })
 
 cloudDriveSettingsRoutes.get('/capacity', async (c) => {

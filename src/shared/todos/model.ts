@@ -11,8 +11,18 @@ import type { Task, TaskPriority, TaskStatus } from '../assistant'
 import { isTaskDone, isTaskOpen } from './status'
 import { daysInMonth, getZonedParts, zonedTimeToUtc } from '../assistant-schedule'
 import { ORGANIZER_COLORS, organizerColorOrNull } from '../organizer-colors'
+import { holidayDay } from '../calendar/holidays'
+import { LUNAR_RANGE_END, leapDays, lunar2solar, monthDays, solar2lunar } from '../subscriptions/lunar'
 
-export const REPEAT_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const
+export const MIN_TODO_TIMESTAMP_MS = 0
+export const MAX_TODO_TIMESTAMP_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999)
+
+export function isTodoTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value)
+    && value >= MIN_TODO_TIMESTAMP_MS && value <= MAX_TODO_TIMESTAMP_MS
+}
+
+export const REPEAT_FREQUENCIES = ['daily', 'workday', 'weekly', 'monthly', 'yearly', 'lunar'] as const
 export type RepeatFrequency = (typeof REPEAT_FREQUENCIES)[number]
 
 /**
@@ -156,8 +166,32 @@ export const MAX_REMINDERS_PER_TASK = 5
 export const SNOOZE_MINUTES = [10, 60, 540, 1440] as const
 export type SnoozeMinutes = (typeof SNOOZE_MINUTES)[number]
 
+/**
+ * The shortest and longest a hand-typed snooze may be: a minute from now, or a week.
+ *
+ * The four presets are a menu, not the vocabulary — "in 45 minutes" is a real answer to a reminder
+ * that arrived at the wrong moment, and refusing it because it is not on the list would be the menu
+ * deciding for the reader. A week is the ceiling because a longer one is a due date, which the editor
+ * already has a field for.
+ */
+export const MIN_SNOOZE_MINUTES = 1
+export const MAX_SNOOZE_MINUTES = 10_080
+
 export function isSnoozeMinutes(value: unknown): value is SnoozeMinutes {
   return typeof value === 'number' && (SNOOZE_MINUTES as readonly number[]).includes(value)
+}
+
+/**
+ * A snooze of any length inside the range, or null for a value the route must refuse.
+ *
+ * Kept beside `isSnoozeMinutes` rather than replacing it: the presets answer "which menu row is this",
+ * which is a question with four answers, while this answers "how long did the reader ask for", which
+ * has 10,080. A whole number only — a fractional minute would make `remind_at` a time nobody chose.
+ */
+export function snoozeMinutesOrNull(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return null
+  if (value < MIN_SNOOZE_MINUTES || value > MAX_SNOOZE_MINUTES) return null
+  return value
 }
 
 export const MAX_LIST_NAME_CHARS = 60
@@ -485,6 +519,15 @@ export function taskIsBlocked(task: Pick<TodoTask, 'dependsOn'>): boolean {
   return task.dependsOn.some((entry) => !isTaskDone(entry.status))
 }
 
+/** One row of a task's history, as the panel reads it back. */
+export interface TaskEvent {
+  id: string
+  kind: 'born' | 'status'
+  fromStatus: TaskStatus | null
+  toStatus: TaskStatus
+  at: number
+}
+
 export interface TodoTask extends Task {
   listId: string | null
   /**
@@ -548,6 +591,8 @@ export interface TodoTask extends Task {
   blocks: TaskRef[]
   starred: boolean
   repeat: RepeatRule | null
+  /** The next occurrence this completion already filed, or null when it has not filed one. */
+  spawnedNextId?: string | null
   /**
    * When the task may be begun, as an absolute instant, or null when the reader named no start.
    *
@@ -556,6 +601,10 @@ export interface TodoTask extends Task {
    * when the task never named one.
    */
   startAt?: number | null
+  /** True when `dueAt` names a calendar day rather than a wall-clock instant. */
+  dueAllDay?: boolean
+  /** The authoritative account-zone `YYYY-MM-DD` for an all-day due date. */
+  dueOn?: string | null
   /**
    * The task's pending reminders, as absolute instants in ascending order. Up to
    * `MAX_REMINDERS_PER_TASK`; fired ones are delivery history and are not listed.
@@ -1077,6 +1126,36 @@ export function nthWeekdayOfMonth(year: number, month: number, weekday: number, 
   return day <= daysInMonth(year, month) ? day : day - 7
 }
 
+function workdayKey(parts: { year: number; month: number; day: number }): string {
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`
+}
+
+function nextWorkday(parts: { year: number; month: number; day: number }, interval: number): { year: number; month: number; day: number } {
+  let cursor = parts
+  let found = 0
+  for (let step = 0; step < 370 * interval; step += 1) {
+    cursor = shiftDays(cursor.year, cursor.month, cursor.day, 1)
+    const holiday = holidayDay(workdayKey(cursor))
+    const weekday = weekdayOf(cursor.year, cursor.month, cursor.day)
+    if (!holiday.makeup && (holiday.off || weekday === 0 || weekday === 6)) continue
+    found += 1
+    if (found === interval) return cursor
+  }
+  return cursor
+}
+
+function nextLunarYear(parts: { year: number; month: number; day: number }, interval: number): { year: number; month: number; day: number } {
+  const lunar = solar2lunar(parts.year, parts.month, parts.day)
+  if (!lunar) return shiftMonths(parts.year, parts.month, parts.day, interval * 12)
+  const year = lunar.year + interval
+  if (year > LUNAR_RANGE_END) return shiftMonths(parts.year, parts.month, parts.day, interval * 12)
+  const hasLeapMonth = lunar2solar({ year, month: lunar.month, day: 1, isLeap: true }) !== null
+  const isLeap = lunar.isLeap && hasLeapMonth
+  const days = isLeap ? leapDays(year) : monthDays(year, lunar.month)
+  const converted = lunar2solar({ year, month: lunar.month, day: Math.min(lunar.day, days), isLeap })
+  return converted ?? shiftMonths(parts.year, parts.month, parts.day, interval * 12)
+}
+
 /**
  * The due time of the next occurrence, in the reader's own calendar.
  *
@@ -1094,6 +1173,10 @@ export function nextOccurrence(dueAt: number, rule: RepeatRule, timeZone: string
   let next: { year: number; month: number; day: number }
   if (rule.freq === 'daily') {
     next = shiftDays(parts.year, parts.month, parts.day, interval)
+  } else if (rule.freq === 'workday') {
+    next = nextWorkday(parts, interval)
+  } else if (rule.freq === 'lunar') {
+    next = nextLunarYear(parts, interval)
   } else if (rule.freq === 'weekly') {
     next = rule.weekdays?.length
       ? nextWeekdayOn(parts, interval, rule.weekdays)
@@ -1172,7 +1255,6 @@ export function advanceRepeat(
   for (let skips = 0; excluded && excluded.has(zonedDay(candidate, opts.timeZone)); skips += 1) {
     if (skips >= MAX_REPEAT_SKIPS) return { dueAt: null, stopped: 'until', rule }
     candidate = nextOccurrence(candidate, rule, opts.timeZone)
-    if (rule.count != null && produced + skips + 1 >= rule.count) return { dueAt: null, stopped: 'count', rule }
   }
   if (rule.untilAt != null && candidate > rule.untilAt) return { dueAt: null, stopped: 'until', rule }
   return { dueAt: candidate, rule: { ...rule, produced: produced + 1 } }
@@ -1202,7 +1284,7 @@ export function normalizeReminderTimes(values: readonly number[]): number[] {
  * case, so `Work` and `work` are one tag. Order is kept, because the list is also what the reader
  * sees on the task.
  */
-export function normalizeTagNames(input: unknown): string[] {
+export function normalizeTagNames(input: unknown, limit = MAX_TAGS_PER_TASK): string[] {
   const source = Array.isArray(input)
     ? input
     : typeof input === 'string' ? input.split(',') : []
@@ -1216,7 +1298,7 @@ export function normalizeTagNames(input: unknown): string[] {
     if (seen.has(key)) continue
     seen.add(key)
     out.push(name)
-    if (out.length >= MAX_TAGS_PER_TASK) break
+    if (out.length >= limit) break
   }
   return out
 }
@@ -1500,7 +1582,21 @@ export interface CounterTick {
 /** A stopped run: the habit as it now stands, and the day its seconds landed on — or none. */
 export interface CounterStop {
   counter: TodoCounter
+  /**
+   * The day the run began on and what it put there, or null when nothing was written.
+   *
+   * A run that crossed the account's midnight is filed in two days — see `days` — so this is the
+   * first of them rather than the whole of what the stop wrote.
+   */
   filed: CounterDay | null
+  /**
+   * Every day a stopped run added to, in order.
+   *
+   * A night shift is two days' work, and filing it whole against the day it started is the mistake the
+   * task timer's own midnight split exists to prevent. Absent from an answer written before a run could
+   * cross a midnight, which is why it is optional rather than always present.
+   */
+  days?: CounterDay[]
 }
 
 /**

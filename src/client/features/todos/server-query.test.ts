@@ -24,7 +24,12 @@ interface ListParams {
   tag?: string
   q?: string
   status?: string
+  priority?: string
   starred?: string
+  dueFrom?: string
+  dueTo?: string
+  completedFrom?: string
+  completedTo?: string
   sort?: string
   limit?: number
   offset?: number
@@ -36,22 +41,31 @@ const service = vi.hoisted(() => ({
   rows: [] as TodoTask[],
   /** The table one with search terms answers from, as the server's LIKE would pick it. */
   hits: [] as TodoTask[],
+  /** One delayed page, used to move the view while the second page is still on the wire. */
+  holdOffset: null as number | null,
+  releaseHeld: null as (() => void) | null,
   counts: {
     inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0,
     byList: { inbox: { open: 0, done: 0 }, L1: { open: 0, done: 0 } }, byTag: {},
   },
-  answer(params: Record<string, unknown>): Record<string, unknown> {
+  async answer(params: Record<string, unknown>): Promise<Record<string, unknown>> {
     service.requests.push(params)
     const matched = params.q ? service.hits : service.rows
     const limit = Number(params.limit ?? 0)
     const offset = Number(params.offset ?? 0)
-    return {
+    // Cut the answer before waiting: changing the table for the next view must not change which old
+    // page is eventually released, or a stale response that appends nothing could pass the test.
+    const answer = {
       tasks: matched.slice(offset, offset + limit),
       total: matched.length,
       counts: service.counts,
       dayEnd: Date.now() + 3_600_000,
       timezone: 'UTC',
     }
+    if (service.holdOffset === offset) {
+      await new Promise<void>((resolve) => { service.releaseHeld = resolve })
+    }
+    return answer
   },
 }))
 
@@ -62,12 +76,13 @@ vi.mock('../../lib/api', () => ({
       lists: async () => ({ lists: [{ id: 'L1', name: 'Work', icon: null, color: null, position: 0, createdAt: 0, updatedAt: 0, openCount: 0, doneCount: 0 }] }),
       tags: async () => ({ tags: [] }),
       get: async () => ({ task: null, steps: [] }),
+      counts: async () => ({ counts: service.counts, dayEnd: Date.now() + 3_600_000, timezone: 'UTC' }),
     },
   },
 }))
 
 import { TodosApp } from './TodosApp'
-import { useTodos } from './store'
+import { applyTodoSync, useTodos } from './store'
 
 const PAGE_SIZE = 100
 
@@ -149,6 +164,8 @@ beforeEach(async () => {
   service.requests.length = 0
   service.rows = rows(3)
   service.hits = []
+  service.holdOffset = null
+  service.releaseHeld = null
   useTodos.setState(original, true)
 })
 
@@ -274,6 +291,34 @@ describe('reading past the first page', () => {
     expect(container.querySelector('button[data-todo-more]'), 'it still offers a page that has been read').toBeNull()
   })
 
+  it('drops a delayed second page when the reader has switched to another view', async () => {
+    stubBreakpoint(true)
+    service.rows = rows(130)
+    await mount('/todo?list=L1')
+
+    service.holdOffset = PAGE_SIZE
+    let pending!: Promise<void>
+    act(() => { pending = useTodos.getState().loadMore() })
+    await vi.waitFor(() => expect(service.releaseHeld).toBeTypeOf('function'))
+    const release = service.releaseHeld!
+    service.holdOffset = null
+    service.rows = [task('new-view', 'Only in the new view')]
+
+    await act(async () => { useTodos.getState().setView('tag', { tagId: 'T1' }) })
+    await settle()
+    expect(useTodos.getState().tasks.map((entry) => entry.id)).toEqual(['new-view'])
+    expect(useTodos.getState().fetched).toBe(1)
+    expect(useTodos.getState().total).toBe(1)
+
+    await act(async () => { release(); await pending })
+
+    expect(useTodos.getState().tasks.map((entry) => entry.id), 'the old page appended after the view moved')
+      .toEqual(['new-view'])
+    expect(useTodos.getState().fetched).toBe(1)
+    expect(useTodos.getState().total).toBe(1)
+    expect(useTodos.getState().loadingMore).toBe(false)
+  })
+
   it('offers nothing when the page already is the answer', async () => {
     stubBreakpoint(true)
     service.rows = rows(3)
@@ -301,6 +346,91 @@ describe('reading past the first page', () => {
     expect(useTodos.getState().completed).toHaveLength(130)
     expect(useTodos.getState().completed[0]!.id).toBe('t0')
     expect(useTodos.getState().completed[129]!.id).toBe('t129')
+  })
+})
+
+describe('what a task delta may add to the current listing', () => {
+  it('does not insert another list’s new row into L1, and asks for L1 again', () => {
+    const load = vi.fn(async () => {})
+    useTodos.setState({
+      view: 'list', listId: 'L1', tagId: null, query: '', sort: null,
+      dueFrom: null, dueTo: null, completedFrom: null, completedTo: null,
+      lists: [], tags: [], directoryKnown: false,
+      tasks: [task('l1-row', 'Already in L1')], completed: [], total: 1, fetched: 1,
+      completedTotal: 0, status: 'ready', load,
+    })
+
+    applyTodoSync({ todos: [task('l2-row', 'Created in L2', { listId: 'L2' })], deleted: [] })
+
+    expect(useTodos.getState().tasks.map((entry) => entry.id)).toEqual(['l1-row'])
+    expect(useTodos.getState().total).toBe(1)
+    expect(useTodos.getState().fetched).toBe(1)
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('inserts only new rows that match the current search and priority', () => {
+    const load = vi.fn(async () => {})
+    useTodos.setState({
+      view: 'board', listId: null, tagId: null, query: 'p:1 report', sort: null,
+      dueFrom: null, dueTo: null, completedFrom: null, completedTo: null,
+      tasks: [], completed: [], total: 0, fetched: 0, completedTotal: 0, status: 'ready', load,
+    })
+
+    applyTodoSync({
+      todos: [
+        task('match', 'Write the report', { priority: 'low' }),
+        task('wrong-priority', 'Write the report', { priority: 'high' }),
+        task('wrong-query', 'Water the plants', { priority: 'low' }),
+      ],
+      deleted: [],
+    })
+
+    expect(useTodos.getState().tasks.map((entry) => entry.id)).toEqual(['match'])
+    expect(useTodos.getState().total).toBe(1)
+    expect(useTodos.getState().fetched).toBe(1)
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('applies the completed window as half-open account-zone days', () => {
+    const load = vi.fn(async () => {})
+    useTodos.setState({
+      view: 'completed', listId: null, tagId: null, query: '', sort: null,
+      dueFrom: null, dueTo: null, completedFrom: '2026-10-01', completedTo: '2026-11-01',
+      timezone: 'UTC', tasks: [], completed: [], total: 0, fetched: 0,
+      completedTotal: 0, status: 'ready', load,
+    })
+    const done = (id: string, completedAt: number | null): TodoTask => task(id, id, {
+      status: 'done', completedAt,
+    })
+
+    applyTodoSync({
+      todos: [
+        done('from', Date.parse('2026-10-01T00:00:00Z')),
+        done('inside', Date.parse('2026-10-31T23:59:59Z')),
+        done('to', Date.parse('2026-11-01T00:00:00Z')),
+        done('undated', null),
+      ],
+      deleted: [],
+    })
+
+    expect(useTodos.getState().completed.map((entry) => entry.id).sort()).toEqual(['from', 'inside'])
+    expect(useTodos.getState().completedTotal).toBe(2)
+    expect(useTodos.getState().fetched).toBe(2)
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('moves total and fetched together when a delta deletes a row from the active listing', () => {
+    useTodos.setState({
+      view: 'board', listId: null, tagId: null, query: '',
+      tasks: [task('gone', 'Gone')], completed: [], total: 1, fetched: 1,
+      completedTotal: 0, status: 'ready',
+    })
+
+    applyTodoSync({ todos: [], deleted: ['gone'] })
+
+    expect(useTodos.getState().tasks).toEqual([])
+    expect(useTodos.getState().total).toBe(0)
+    expect(useTodos.getState().fetched).toBe(0)
   })
 })
 

@@ -4,6 +4,7 @@ import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { assertMemberAllowed, parsePath, resolveMount } from './lib'
+import { createSnapshot, snapshotView } from './snapshots'
 
 export const clouddriveSyncRoutes = new Hono<AppBindings>()
 
@@ -159,6 +160,15 @@ clouddriveSyncRoutes.get('/sync/remote', async (c) => {
       return path ? [{ path, kind: row.kind, size: row.size, modifiedAt: row.modified_at }] : []
     }),
   })
+})
+
+/** A server-side checkpoint taken before the browser starts changing the mirrored folder. */
+clouddriveSyncRoutes.post('/sync/targets/:id/prepare', async (c) => {
+  await assertMemberAllowed(c.env.DB, userIdOf(c), c.get('user')?.role, 'syncAllowMemberSync')
+  const row = await targetById(c, c.req.param('id'))
+  if (!row) throw ApiError.notFound('Sync target not found')
+  const snapshot = await createSnapshot(c.env, userIdOf(c), `Before sync: ${row.name} ${new Date().toISOString()}`)
+  return c.json({ snapshot: snapshotView(snapshot) }, 201)
 })
 
 clouddriveSyncRoutes.post('/sync/targets/:id/report', async (c) => {

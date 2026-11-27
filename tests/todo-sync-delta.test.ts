@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { syncRoutes } from '../src/worker/routes/sync'
 import { SyncStore } from '../src/worker/sync/store'
@@ -13,11 +13,39 @@ import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 import { applyTodoSync, useTodos, type TaskListEntry } from '../src/client/features/todos/store'
 
+/**
+ * The store's own client, with the counts door answered.
+ *
+ * A delta that lands folds in a throttled counts refresh behind it, and this file has no server to
+ * answer that read: the failed fetch becomes an error toast, and a toast in a node environment reaches
+ * for a `window` the environment does not have — an unhandled rejection after the last case has
+ * finished. Everything else stays the real client, so the directory-reload case below still watches
+ * the paths the store asks for.
+ */
+vi.mock('../src/client/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/client/lib/api')>()
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      todos: {
+        ...actual.api.todos,
+        counts: async () => ({
+          counts: { inbox: 0, today: 0, upcoming: 0, overdue: 0, all: 0, completed: 0, starred: 0, byList: {}, byTag: {} },
+          dayEnd: Date.now() + 3_600_000,
+          timezone: 'UTC',
+        }),
+      },
+    },
+  }
+})
+
 const USER = 'user-a'
 const OTHER = 'user-b'
 
 let sqlite: DatabaseSync
 let db: D1Database
+let env: Env
 let app: Hono<AppBindings>
 
 function insertTask(id: string, title: string, extra: {
@@ -101,10 +129,16 @@ function listEntry(id: string, name: string): TaskListEntry {
   }
 }
 
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+})
+
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   db = makeD1(sqlite)
+  env = testBindings(db)
   app = new Hono<AppBindings>()
   app.use('*', async (c, next) => {
     c.set('userId', USER)
@@ -163,6 +197,42 @@ describe('the task delta', () => {
     expect(next.todos.map((task) => [task.id, task.title])).toEqual([['t1', 'New title']])
     expect(next.deleted).toEqual(['t2'])
     expect(next.cursor).toBe(past + 6_000)
+  })
+
+  it('does not lose a write that shares the snapshot millisecond', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1000)
+    insertTask('t1', 'Old title', { updatedAt: 1000 })
+    const first = await get('/api/sync/todos?since=0') as TodosSyncResponse
+    expect(first.cursor).toBe(1000)
+
+    await new AssistantStore(db, USER, env).updateTask('t1', { title: 'New title' })
+    const next = await get('/api/sync/todos?since=1000') as TodosSyncResponse
+
+    expect(next.todos.map((task) => task.title)).toEqual(['New title'])
+  })
+
+  it('touches the parent row for step and tag changes', async () => {
+    insertTask('t1', 'Task with children', { updatedAt: 1 })
+    insertTag('t1', 'tag-1', 'old')
+    const store = new AssistantStore(db, USER, env)
+    const first = await get('/api/sync/todos?since=0') as TodosSyncResponse
+
+    const step = await store.addStep('t1', 'one')
+    expect(step).not.toBeNull()
+    const afterAdd = await get(`/api/sync/todos?since=${first.cursor}`) as TodosSyncResponse
+    expect(afterAdd.todos[0]?.stepTotal).toBe(1)
+
+    await store.updateStep('t1', step!.id, { done: true })
+    const afterCheck = await get(`/api/sync/todos?since=${afterAdd.cursor}`) as TodosSyncResponse
+    expect(afterCheck.todos[0]?.stepDone).toBe(1)
+
+    await store.updateTaskTag('tag-1', { name: 'new' })
+    const afterRename = await get(`/api/sync/todos?since=${afterCheck.cursor}`) as TodosSyncResponse
+    expect(afterRename.todos[0]?.tags[0]?.name).toBe('new')
+
+    await store.deleteStep('t1', step!.id)
+    const afterDelete = await get(`/api/sync/todos?since=${afterRename.cursor}`) as TodosSyncResponse
+    expect(afterDelete.todos[0]?.stepTotal).toBe(0)
   })
 
   it('never carries another account’s task', async () => {

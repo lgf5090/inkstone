@@ -51,7 +51,13 @@ export interface MusicRouteDeps {
  * code and the provider's own English sentence. Bodies stay in the worker.
  */
 export function musicProviderErrorToApiError(error: unknown): unknown {
-  if (!(error instanceof MusicProviderError)) return error
+  if (!(error instanceof MusicProviderError)) {
+    return new ApiError(
+      502,
+      'music_provider_unavailable',
+      error instanceof Error && error.message ? error.message : 'The music provider failed',
+    )
+  }
   const message = error.message || 'The music provider failed'
   if (error.code === 'source_unavailable') {
     return new ApiError(502, 'music_source_unavailable', message)
@@ -143,8 +149,8 @@ musicRoutes.get('/library/lyrics/:trackId', async (c) => {
     throw new ApiError(404, 'music_lyrics_unavailable', 'No lyrics are available for this track')
   }
 
-  const provider = await providerFor(c)
   try {
+    const provider = await providerFor(c)
     const payload = await provider.lyrics(track.providerId)
     if (!payload.lyric) throw new ApiError(404, 'music_lyrics_unavailable', 'No lyrics are available for this track')
     const settings = await store.getSettings()

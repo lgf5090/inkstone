@@ -29,8 +29,10 @@ import {
   REMIND_OFFSETS,
   REPEAT_FREQUENCIES,
   REPEAT_MONTHLY_MODES,
+  MAX_COUNTER_DAY_AMOUNT,
+  MAX_SINGLE_TIME_ENTRY_MS,
+  MAX_TIME_ESTIMATE_MS,
   SNOOZE_MINUTES,
-  UPCOMING_DAYS,
   isSnoozeMinutes,
   parseRepeatRule,
   remindAtFor,
@@ -42,10 +44,18 @@ import {
   type TaskTag,
   type TodoTask,
 } from '@shared/todos/model'
+import {
+  DEFAULT_PLAN_TODAY_SUGGESTIONS,
+  MAX_PLAN_TODAY_CANDIDATES,
+  MAX_PLAN_TODAY_SUGGESTIONS,
+  planSuggestions,
+} from '@shared/todos/plan-suggestions'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { EMAIL_BATCH_ACTIONS } from '@shared/email/model'
 import { parseNoteCheckboxes } from '@shared/todos/note-parse'
 import { isTaskDone } from '@shared/todos/status'
+import { addCounterTick, getCounter, listCounters, loadCounterReadings } from '../todos/counters'
+import type { TodoCounter } from '@shared/todos/model'
 import { MEMORY_CATEGORIES_FOR_TOOLS } from './memory-service'
 import { localDate, parseLocalTime, toLocalMinute } from '@shared/assistant-time'
 import { addDays, isStatsDay, loadTodoStats } from '../todos/stats'
@@ -477,6 +487,10 @@ function presentTask(task: TodoTask): Record<string, unknown> {
     due_at: task.dueAt,
     starred: task.starred,
     list_id: task.listId,
+    // The row's own face: a tool that sets one has to be able to see it landed, and a task that wears
+    // its list's answers null for both, which is what the columns hold.
+    ...(task.icon !== undefined ? { icon: task.icon } : {}),
+    ...(task.color !== undefined ? { color: task.color } : {}),
     ...(task.reminders?.length ? { reminders: task.reminders } : {}),
     ...(task.tags.length ? { tags: task.tags.map((tag) => tag.name) } : {}),
     ...(task.repeat ? { repeat: task.repeat.interval > 1 ? `${task.repeat.freq} x${task.repeat.interval}` : task.repeat.freq } : {}),
@@ -594,6 +608,27 @@ async function resolveTagOrThrow(ref: unknown, ctx: ToolContext): Promise<TaskTa
  * Two matches are refused rather than resolved by order: the model said "write", and ticking or
  * deleting the wrong half of a task is a silent edit the reader never asked for.
  */
+/**
+ * The habit a name or id points at.
+ *
+ * A habit is not a task, so it has its own table and its own resolver: by id first, then by the one
+ * title that matches exactly. Two habits with the same name are refused rather than resolved by order,
+ * because ticking the wrong one is a silent edit the reader never asked for.
+ */
+async function findHabit(ctx: ToolContext, ref: string): Promise<TodoCounter> {
+  const wanted = ref.trim().slice(0, MAX_LIST_NAME_CHARS)
+  const direct = await getCounter(ctx.env.DB, ctx.store.userId, wanted)
+  if (direct) return direct
+  const named = await listCounters(ctx.env.DB, ctx.store.userId)
+  const matches = named.filter((counter) => counter.title.toLowerCase() === wanted.toLowerCase())
+  if (matches.length !== 1) {
+    throw new ToolError(matches.length
+      ? `Several habits are called "${wanted.slice(0, 60)}". Name the one you mean more fully.`
+      : `No habit is called "${wanted.slice(0, 60)}". Call list_habits to see the ones this account has.`)
+  }
+  return matches[0]!
+}
+
 async function resolveStepOrThrow(task: TodoTask, ref: unknown, ctx: ToolContext): Promise<TaskStep> {
   const steps = await ctx.store.listSteps(task.id)
   const needle = String(ref).trim().toLowerCase()
@@ -722,36 +757,6 @@ export const MAX_TASKS_FROM_NOTE = 50
  */
 function taskTitleKey(title: string): string {
   return title.trim().replace(/\s+/g, ' ').toLowerCase()
-}
-
-/**
- * The most suggestions one `plan_today` call answers with.
- *
- * A day holds a handful of tasks, not a page of them, and a suggestion list longer than the screen
- * would make the reader pick through advice rather than accept it. The field's own ceiling is this
- * number, so a model asking for more is clamped by the declaration the provider schema advertises.
- */
-export const MAX_PLAN_TODAY_SUGGESTIONS = 8
-
-/**
- * The most open tasks one planning sweep reads before choosing.
- *
- * The candidates are a view of the shelf, not the whole shelf: an account with thousands of open rows
- * still answers from one page, and the page is ordered the way the to-do list is (due date first,
- * then priority), so a cut takes the least urgent tail rather than an arbitrary sample.
- */
-export const MAX_PLAN_TODAY_CANDIDATES = 200
-
-/** How many suggestions a call returns when the model does not say. */
-const DEFAULT_PLAN_TODAY_SUGGESTIONS = 5
-
-/** Why a task is on the plan. The screen prints the reader's words for the code. */
-type PlanTodayReason = 'overdue' | 'starred_due' | 'unscheduled'
-
-interface PlanTodaySuggestion {
-  id: string
-  title: string
-  reason: PlanTodayReason
 }
 
 export const TASK_TOOLS: ToolDefinition[] = [
@@ -1455,44 +1460,19 @@ export const TASK_TOOLS: ToolDefinition[] = [
     async run(args, ctx) {
       const now = Date.now()
       const today = localDate(now, ctx.timezone)
-      const upcomingEnd = ctx.dayEnd + UPCOMING_DAYS * 24 * 60 * 60 * 1000
-      // One page, read in the order the list itself is read. The three passes below run over the same
-      // page rather than three queries, so a candidate that qualifies twice — starred and overdue — is
-      // named once, under the more urgent reason.
+      // One page, read in the order the list itself is read, and one rule — the same one the Today
+      // screen runs, in `shared/todos/plan-suggestions`. The tool used to carry its own copy of the
+      // three passes, with a comment promising the two agreed and nothing making them.
       const pool = await ctx.store.listTasks({
         status: 'open',
         view: 'open',
         limit: MAX_PLAN_TODAY_CANDIDATES,
       })
-      const suggestions: PlanTodaySuggestion[] = []
-      const taken = new Set<string>()
-      const offer = (task: TodoTask, reason: PlanTodayReason): void => {
-        if (taken.has(task.id)) return
-        taken.add(task.id)
-        suggestions.push({ id: task.id, title: task.title, reason })
-      }
-      for (const task of pool) {
-        if (task.dueAt !== null && task.dueAt < now) offer(task, 'overdue')
-      }
-      for (const task of pool) {
-        // The coming week, starting after today: a starred task due today is already on the screen.
-        if (task.starred && task.dueAt !== null && task.dueAt >= ctx.dayEnd && task.dueAt < upcomingEnd) {
-          if (task.plannedFor !== today) offer(task, 'starred_due')
-        }
-      }
-      for (const task of pool) {
-        const plannedAhead = task.plannedFor !== null && task.plannedFor >= today
-        const dueToday = task.dueAt !== null && task.dueAt < ctx.dayEnd
-        // The server counts an in-progress task with no date as today, so the plan does not offer it.
-        const inProgressToday = task.dueAt === null && task.status === 'in_progress'
-        if (plannedAhead || dueToday || inProgressToday) continue
-        offer(task, 'unscheduled')
-      }
       const asked = typeof args.limit === 'number' ? args.limit : DEFAULT_PLAN_TODAY_SUGGESTIONS
       return {
         draft: true,
         today,
-        suggestions: suggestions.slice(0, asked),
+        suggestions: planSuggestions(pool, { today, dayEnd: ctx.dayEnd, now, limit: asked }),
         note: 'Nothing was saved. The reason is a code: overdue, starred_due or unscheduled. The reader accepts these in the Today screen; do not call update_task or complete_task for them.',
       }
     },
@@ -1555,6 +1535,187 @@ export const TASK_TOOLS: ToolDefinition[] = [
         by_list: stats.distributions.byList,
         note: 'These are the Statistics screen\'s own numbers; base the review on them rather than recounting the list. The range is the reader\'s calendar, so say which days it covers.',
       }
+    },
+  }),
+  tool({
+    name: 'set_task_face',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Give a task its own icon and colour, or clear them so it wears its list\'s. The icon is one emoji or an icon name; the colour is one of the palette. An unusable value is answered as null with the reason rather than written.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+      icon: { type: 'string', description: 'One emoji or an icon name; null clears it.', maxLength: 40, optional: true, nullable: true },
+      color: { type: 'string', description: 'A colour from the palette; null clears it.', maxLength: 40, optional: true, nullable: true },
+    },
+    async run(args, ctx) {
+      if (args.icon === undefined && args.color === undefined) {
+        throw new ToolError('Name an icon, a colour, or both.')
+      }
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const updated = await ctx.store.updateTask(task.id, {
+        ...(args.icon !== undefined ? { icon: args.icon as string | null } : {}),
+        ...(args.color !== undefined ? { color: args.color as string | null } : {}),
+      })
+      if (!updated) throw new ToolError('This task no longer exists.')
+      // The row could not carry what was asked of it: say which half was lost rather than promising a
+      // face the reader will not see.
+      if (updated.droppedFace?.length) {
+        // The fields the row could not carry, in the shape the guards named them, so the answer says
+        // what to send instead rather than a sentence a caller has to parse.
+        return { task: presentTask(updated), dropped: updated.droppedFace }
+      }
+      return { task: presentTask(updated) }
+    },
+  }),
+  tool({
+    name: 'set_time_estimate',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Say how long a task is expected to take, in milliseconds, or clear the estimate with null. "No estimate" and "an estimate of none" are different answers, so null is a real value.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+      ms: {
+        type: 'integer',
+        minimum: 0,
+        maximum: MAX_TIME_ESTIMATE_MS,
+        description: `Whole milliseconds between 0 and ${MAX_TIME_ESTIMATE_MS} (about 10 days); null clears it.`,
+        optional: true,
+        nullable: true,
+      },
+    },
+    async run(args, ctx) {
+      if (args.ms === undefined) throw new ToolError('Name an estimate in milliseconds, or null to clear it.')
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const updated = await ctx.store.updateTask(task.id, {
+        timeEstimateMs: args.ms === null ? null : Number(args.ms),
+      })
+      if (!updated) throw new ToolError('This task no longer exists.')
+      return { task: presentTask(updated), time_estimate_ms: updated.timeEstimateMs }
+    },
+  }),
+  tool({
+    name: 'archive_task',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Put a task on the shelf, or take it back down with false. Archiving is not deleting: the row, its hours and its place in the statistics stay, and it simply leaves every list the reader browses.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+      archived: { type: 'boolean', description: 'True shelves it, false brings it back.', optional: true },
+    },
+    async run(args, ctx) {
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const shelf = args.archived === undefined ? true : args.archived === true
+      const updated = await ctx.store.updateTask(task.id, {
+        archivedAt: shelf ? Date.now() : null,
+      })
+      if (!updated) throw new ToolError('This task no longer exists.')
+      return { task: presentTask(updated), archived: updated.archivedAt !== null }
+    },
+  }),
+  tool({
+    name: 'start_task_timer',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Start the account\'s one running interval on this task. The task also moves to in_progress, because "am I working on this" has to have one answer. Starting another task\'s timer closes this one first.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+    },
+    async run(args, ctx) {
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      if (!isTaskDone(task.status) && task.status !== 'in_progress') {
+        const moved = await ctx.store.updateTask(task.id, { status: 'in_progress' })
+        if (!moved) throw new ToolError('This task no longer exists.')
+      }
+      const entry = await ctx.store.openTimeEntry(task.id, Date.now())
+      if (!entry) throw new ToolError('This task no longer exists.')
+      return { entry, running: true }
+    },
+  }),
+  tool({
+    name: 'stop_task_timer',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Stop this task\'s running interval. The row keeps whatever status it had: putting a task down is not finishing it.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+    },
+    async run(args, ctx) {
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const entries = await ctx.store.closeTimeEntry(task.id, Date.now())
+      if (!entries) throw new ToolError('No timer is running for this task.')
+      const ms = entries.reduce((total, entry) => total + ((entry.endAt ?? 0) - entry.startAt), 0)
+      return { entries, stopped: true, minutes: Math.round(ms / 60_000) }
+    },
+  }),
+  tool({
+    name: 'log_task_time',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Record a span of work that was never timed, in the reader\'s own clock. The span is refused past four hours rather than trimmed, and the account\'s own day ceiling still applies.',
+    fields: {
+      task: { type: 'string', description: 'Task id, or a title that matches exactly one task.', minLength: 1, maxLength: 300 },
+      start: localDateField('When the work began.'),
+      end: localDateField('When it finished.'),
+    },
+    async run(args, ctx) {
+      const startAt = dueMillis(args.start, ctx)
+      const endAt = dueMillis(args.end, ctx)
+      if (startAt == null || endAt == null) throw new ToolError('Name both ends of the span.')
+      if (endAt <= startAt) throw new ToolError('The span ends before it begins.')
+      if (endAt - startAt > MAX_SINGLE_TIME_ENTRY_MS) {
+        throw new ToolError(`One span cannot be longer than ${MAX_SINGLE_TIME_ENTRY_MS / 3_600_000} hours — log it in shorter pieces.`)
+      }
+      const task = await resolveTaskOrThrow(args.task, ctx)
+      const entries = await ctx.store.addManualTime(task.id, startAt, endAt)
+      if (!entries) throw new ToolError('This task no longer exists.')
+      const ms = entries.reduce((total, entry) => total + ((entry.endAt ?? 0) - entry.startAt), 0)
+      return { entries, minutes: Math.round(ms / 60_000) }
+    },
+  }),
+  tool({
+    name: 'list_habits',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'List the reader\'s habits with their target, their kind and how much of today is already done.',
+    fields: {},
+    async run(_args, ctx) {
+      const today = localDate(Date.now(), ctx.timezone)
+      const readings = await loadCounterReadings(ctx.env.DB, ctx.store.userId, today)
+      return {
+        today,
+        habits: readings.map((reading) => ({
+          id: reading.counter.id,
+          title: reading.counter.title,
+          kind: reading.counter.kind,
+          goal: reading.counter.goal,
+          // The day's own amount, read off the window the screen reads rather than counted again here.
+          today: reading.days.find((day) => day.day === today)?.amount ?? 0,
+        })),
+      }
+    },
+  }),
+  tool({
+    name: 'tick_habit',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Record one press of a habit, adding to or taking back from today\'s amount. A habit that counts seconds is not a stopwatch: use the timer tools on a task for that.',
+    fields: {
+      habit: { type: 'string', description: 'Habit id, or a title that matches exactly one habit.', minLength: 1, maxLength: 60 },
+      delta: {
+        type: 'integer',
+        minimum: -MAX_COUNTER_DAY_AMOUNT,
+        maximum: MAX_COUNTER_DAY_AMOUNT,
+        description: 'How much to add (or take back with a negative number). Zero changes nothing.',
+      },
+    },
+    async run(args, ctx) {
+      if (!Number.isInteger(args.delta) || args.delta === 0) {
+        throw new ToolError('A tick is a whole number of the habit\'s own unit, and zero changes nothing.')
+      }
+      const today = localDate(Date.now(), ctx.timezone)
+      const counter = await findHabit(ctx, String(args.habit))
+      const amount = await addCounterTick(ctx.env.DB, ctx.store.userId, counter.id, today, args.delta as number)
+      return { habit: counter.title, day: today, amount }
     },
   }),
 ]

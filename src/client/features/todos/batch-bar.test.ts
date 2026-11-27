@@ -227,6 +227,32 @@ describe('entering selection', () => {
     expect(bar!.querySelector('[aria-live="polite"]')?.textContent).toContain('1')
   })
 
+  it('keeps the count and the exit in place while the actions scroll', async () => {
+    stubBreakpoint(false)
+    await render()
+    act(() => {
+      titleButton(view!.container, 'First').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }),
+      )
+    })
+
+    const bar = batchBar(view!.container)
+    const actions = bar!.querySelector<HTMLElement>('[data-todo-batch-actions]')
+    expect(actions, 'the bar has no scrollable action strip').not.toBeNull()
+    // Seven controls wrapping at 360px took three or four rows and left the listing a slit; scrolling
+    // the whole bar instead would have carried the way out of the mode off the right edge.
+    expect(bar!.classList.contains('flex-wrap')).toBe(false)
+    expect(actions!.classList.contains('overflow-x-auto')).toBe(true)
+    expect(actions!.querySelectorAll('button')).toHaveLength(7)
+    for (const button of actions!.querySelectorAll('button')) {
+      expect(button.classList.contains('shrink-0'), `${button.textContent} can shrink`).toBe(true)
+    }
+    // The count is the bar's first child and the exit its last, both outside the strip.
+    expect(bar!.firstElementChild?.getAttribute('aria-live')).toBe('polite')
+    expect(bar!.lastElementChild?.tagName).toBe('BUTTON')
+    expect(bar!.lastElementChild?.getAttribute('aria-label')).toBe(t('todo.batch.exit'))
+  })
+
   it('clears the mode with Escape without opening a task', async () => {
     stubBreakpoint(true)
     await render()

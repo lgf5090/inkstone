@@ -165,6 +165,26 @@ describe('the encrypted attachment columns spend a number each', () => {
   })
 })
 
+describe('the CloudDrive remediation columns spend a number each', () => {
+  it('preserves the commenting capability of ACL grants created before roles', () => {
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 428)).toMatchObject({
+      skipIfColumnExists: { table: 'CloudDrive_acl', column: 'role' },
+      statements: ['ALTER TABLE CloudDrive_acl ADD COLUMN role TEXT NOT NULL DEFAULT \'commenter\''],
+    })
+  })
+
+  it('upgrades existing upload sessions and folder metadata without replaying fresh columns', () => {
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 432)).toMatchObject({
+      skipIfColumnExists: { table: 'CloudDrive_upload_sessions', column: 'sha256' },
+      statements: ['ALTER TABLE CloudDrive_upload_sessions ADD COLUMN sha256 TEXT'],
+    })
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 433)).toMatchObject({
+      skipIfColumnExists: { table: 'CloudDrive_meta', column: 'vault' },
+      statements: ['ALTER TABLE CloudDrive_meta ADD COLUMN vault INTEGER NOT NULL DEFAULT 0'],
+    })
+  })
+})
+
 describe('the email access switch', () => {
   it('arrives off, under its own guarded number', () => {
     expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 156)).toMatchObject({

@@ -180,6 +180,6 @@ describe('a listing that could not be read', () => {
     useTodos.setState({ status: 'ready', error: null })
     const container = mount(createElement(BoardView, { onOpenList: () => {} }))
     expect(retryButton(container)).toBeUndefined()
-    expect(container.querySelector('[role="list"][aria-label]')).not.toBeNull()
+    expect(container.querySelector('[role="group"][aria-label]')).not.toBeNull()
   })
 })

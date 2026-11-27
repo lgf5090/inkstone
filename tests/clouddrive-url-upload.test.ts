@@ -5,6 +5,7 @@ import { hashToken } from '../src/worker/lib/session-store'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 import type { Env } from '../src/worker/env'
+import { probeRemote, REMOTE_PROBE_TIMEOUT_MS, REMOTE_TRANSFER_TIMEOUT_MS } from '../src/worker/clouddrive/remote'
 
 const USER_A = 'user-a'
 const USER_B = 'user-b'
@@ -90,6 +91,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   h.sqlite.close()
 })
@@ -189,6 +191,59 @@ describe('clouddrive URL upload', () => {
     }))
     expect(response.status).toBe(400)
     expect((await response.json() as { error: { message: string } }).error.message).toMatch(/size/)
+  })
+
+  it('times out a remote probe whose headers never arrive', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+    })))
+
+    const pending = probeRemote('https://example.com/stall.bin')
+    const rejected = expect(pending).rejects.toMatchObject({ status: 502 })
+    await vi.advanceTimersByTimeAsync(REMOTE_PROBE_TIMEOUT_MS + 1)
+    await rejected
+  })
+
+  it('times out a transfer body that stalls after its headers', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(new Uint8Array([1]), {
+        status: 206,
+        headers: { 'Content-Length': '1', 'Content-Range': 'bytes 0-0/4', 'Content-Type': 'text/plain' },
+      }))
+      .mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(new Uint8Array([1])) },
+      }), { status: 200, headers: { 'Content-Length': '4', 'Content-Type': 'text/plain' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const pending = request(h, 'POST', '/api/clouddrive/uploads/url', jsonBody({ url: 'https://example.com/stall.txt' }))
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(REMOTE_TRANSFER_TIMEOUT_MS + 1)
+    expect((await pending).status).toBe(202)
+    const task = h.sqlite.prepare('SELECT status, error FROM CloudDrive_tasks WHERE user_id = ?').get(USER_A) as { status: string; error: string | null }
+    expect(task.status).toBe('failed')
+    expect(task.error).toMatch(/timed out/i)
+    expect(h.sqlite.prepare('SELECT id FROM CloudDrive_files WHERE user_id = ?').get(USER_A)).toBeUndefined()
+  })
+
+  it('rejects a transfer body that grows beyond its inspected length', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(new Uint8Array([1]), {
+        status: 206,
+        headers: { 'Content-Length': '1', 'Content-Range': 'bytes 0-0/4', 'Content-Type': 'text/plain' },
+      }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3, 4, 5]), {
+        status: 200,
+        headers: { 'Content-Length': '4', 'Content-Type': 'text/plain' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect((await request(h, 'POST', '/api/clouddrive/uploads/url', jsonBody({ url: 'https://example.com/grew.txt' }))).status).toBe(202)
+    const task = h.sqlite.prepare('SELECT status, error FROM CloudDrive_tasks WHERE user_id = ?').get(USER_A) as { status: string; error: string | null }
+    expect(task.status).toBe('failed')
+    expect(task.error).toMatch(/exceeded|grew|larger/i)
+    expect(h.sqlite.prepare('SELECT id FROM CloudDrive_files WHERE user_id = ?').get(USER_A)).toBeUndefined()
   })
 
   it('honours a rename conflict when the destination already holds the name', async () => {

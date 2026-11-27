@@ -35,7 +35,7 @@ import {
   TODO_WORKDAY_ESTIMATE_RANGE,
 } from '@shared/constants'
 import { REMIND_OFFSETS, type RemindOffset } from '@shared/todos/model'
-import type { SavedTodoFilter, TodoFocusSettings, TodoFocusStrategy, TodoWorkdaySettings } from '@shared/types'
+import type { SavedTodoFilter, TodoFocusSettings, TodoFocusStrategy, TodoTemplate, TodoWorkdaySettings } from '@shared/types'
 import { t, translateApiError } from '../../lib/i18n'
 import { api, ApiError } from '../../lib/api'
 import { randomLocalId } from '../../lib/random-id'
@@ -44,6 +44,7 @@ import { commitOnEnter, Input, Select, SettingRow, Switch } from '../../componen
 import { LoadingBlock } from '../../components/feedback'
 import { useSession } from '../../store/session'
 import { FeedSettings } from './FeedSettings'
+import { MailToTaskSettings } from './MailToTaskSettings'
 
 /** The hour a daily plan starts at before the reader picks one: the same default the chat's editor offers. */
 const DEFAULT_DIGEST_TIME = '09:00'
@@ -455,8 +456,12 @@ export function TodoSettings() {
         />
       </SettingRow>
       <SavedFiltersRow />
+      <TodoTemplatesRow />
       <FeedSettings />
+      <MailToTaskSettings />
       <TodoImportRow />
+      <TodoJsonImportRow />
+      <TodoShareTargetRow />
     </div>
   )
 }
@@ -545,6 +550,9 @@ function CountField({ label, value, min, max, onChange }: {
 
 /** The empty list a settings object without the field reads as; one instance, so the selector is stable. */
 const NO_SAVED_FILTERS: SavedTodoFilter[] = []
+
+/** The same for the kept task shapes, for the same reason. */
+const NO_TEMPLATES: TodoTemplate[] = []
 
 /**
  * The saved filter lines: a name, the line itself, and what is already kept.
@@ -639,6 +647,48 @@ function SavedFiltersRow() {
 }
 
 /**
+ * The task shapes the account has kept.
+ *
+ * Saving one happens where the task is — the editor's footer — because that is where the shape is on
+ * screen. This row is the other half: a template nobody can delete is a menu that only grows, so the
+ * list is shown here with the one action that keeps it honest. There is no "add" field: a template is a
+ * task, and typing one here would be a second way to describe a task that the editor already describes.
+ */
+function TodoTemplatesRow() {
+  const templates = useSession((state) => state.settings.todo.templates) ?? NO_TEMPLATES
+  const updateSettings = useSession((state) => state.updateSettings)
+  const remove = (id: string): void => {
+    updateSettings({ todo: { templates: templates.filter((entry) => entry.id !== id) } })
+  }
+  return (
+    <SettingRow
+      title={t('settings.todo_templates')}
+      description={t('settings.todo_templates_hint')}
+    >
+      {templates.length === 0 ? (
+        <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('settings.todo_templates_empty')}</p>
+      ) : (
+        <ul aria-label={t('settings.todo_templates')} className="flex w-full max-w-[460px] flex-col gap-1">
+          {templates.map((entry) => (
+            <li key={entry.id} className="flex min-h-8 items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2">
+              <span className="min-w-0 shrink-0 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{entry.name}</span>
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">{entry.title}</span>
+              <IconButton
+                label={t('todo.template.delete', { name: entry.name })}
+                size="xs"
+                onClick={() => remove(entry.id)}
+              >
+                <X size={12} />
+              </IconButton>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SettingRow>
+  )
+}
+
+/**
  * The CSV import row.
  *
  * The worker already answers with what happened row by row; this row only chooses the document and the one
@@ -652,6 +702,7 @@ function TodoImportRow() {
   const [busy, setBusy] = useState(false)
   const [answer, setAnswer] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  const [progress, setProgress] = useState<{ processed: number, total: number } | null>(null)
 
   const run = async (): Promise<void> => {
     if (!file) {
@@ -660,16 +711,22 @@ function TodoImportRow() {
     }
     setBusy(true)
     setProblem(null)
+    setAnswer(null)
+    setProgress(null)
     try {
-      const result = await api.todos.importCsv(file, conflict)
+      const result = await api.todos.importCsv(file, conflict, (processed, total) => setProgress({ processed, total }))
       setAnswer(t('settings.todo_import_result', { created: result.created, updated: result.updated, skipped: result.skipped }))
       setFile(null)
     } catch (cause) {
       setProblem(describeError(cause))
     } finally {
       setBusy(false)
+      setProgress(null)
     }
   }
+
+  // While a slice is running the row counts rows rather than claiming an answer it does not have yet.
+  const status = problem ?? (busy && progress ? `${progress.processed} / ${progress.total}` : answer)
 
   return (
     <SettingRow
@@ -677,8 +734,8 @@ function TodoImportRow() {
       description={(
         <div className="flex flex-col gap-1">
           <span id={fileId}>{t('settings.todo_import_hint')}</span>
-          {(answer || problem) && (
-            <span role="status" className={problem ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)]'}>{problem ?? answer}</span>
+          {status && (
+            <span role="status" className={problem ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)]'}>{status}</span>
           )}
         </div>
       )}
@@ -709,6 +766,99 @@ function TodoImportRow() {
           <option value="duplicate">{t('settings.todo_import_conflict_duplicate')}</option>
         </Select>
         <Button size="sm" disabled={busy} onClick={() => void run()}>{t('settings.todo_import_action')}</Button>
+      </div>
+    </SettingRow>
+  )
+}
+
+function TodoShareTargetRow() {
+  const address = `${window.location.origin}/share-target?target=todo`
+  return (
+    <SettingRow title={t('settings.todo_share_target')} description={t('settings.todo_share_target_hint')}>
+      <Input readOnly value={address} aria-label={t('settings.todo_share_target')} className="max-w-[360px]" />
+    </SettingRow>
+  )
+}
+
+function TodoJsonImportRow() {
+  const fileId = useId()
+  const [file, setFile] = useState<File | null>(null)
+  const [operationKey, setOperationKey] = useState('')
+  const [conflict, setConflict] = useState<'skip' | 'duplicate'>('skip')
+  const [busy, setBusy] = useState(false)
+  const [answer, setAnswer] = useState<Awaited<ReturnType<typeof api.todos.importJson>> | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  const run = async (): Promise<void> => {
+    if (!file) {
+      setProblem(t('settings.todo_import_json_choose'))
+      return
+    }
+    setBusy(true)
+    setProblem(null)
+    setAnswer(null)
+    try {
+      const result = await api.todos.importJson(file, conflict, operationKey)
+      setAnswer(result)
+      setFile(null)
+      setOperationKey('')
+    } catch (cause) {
+      setProblem(describeError(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <SettingRow
+      title={t('settings.todo_import_json')}
+      description={(
+        <div className="flex flex-col gap-1">
+          <span id={fileId}>{t('settings.todo_import_json_hint')}</span>
+          {problem && <span role="alert" className="text-[var(--danger)]">{problem}</span>}
+          {answer && (
+            <>
+              <span role="status" className="text-[var(--text-secondary)]">
+                {t('settings.todo_import_json_result', { created: answer.created, skipped: answer.skipped, failed: answer.failed })}
+              </span>
+              <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+                {[...answer.errors, ...answer.warnings].map((entry) => (
+                  <li key={`${entry.row}-${entry.reason}`} className="break-words text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                    {t('settings.todo_import_json_row', { row: entry.row, reason: entry.reason })}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+      controlId={fileId}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          id={fileId}
+          type="file"
+          accept=".json,application/json"
+          disabled={busy}
+          onChange={(event) => {
+            setFile(event.target.files?.[0] ?? null)
+            setOperationKey(`todo-json-${randomLocalId()}`)
+            setAnswer(null)
+            setProblem(null)
+          }}
+          className="min-h-9 max-w-[240px] text-[length:var(--text-11-5)] text-[var(--text-secondary)] file:mr-2 file:rounded-[var(--r-sm)] file:border-0 file:bg-[var(--bg-hover)] file:px-2 file:py-1 file:text-[var(--text-secondary)]"
+        />
+        <Select
+          aria-label={t('settings.todo_import_conflict')}
+          value={conflict}
+          disabled={busy}
+          onChange={(event) => setConflict(event.target.value as 'skip' | 'duplicate')}
+          className="max-w-[170px]"
+        >
+          <option value="skip">{t('settings.todo_import_conflict_skip')}</option>
+          <option value="duplicate">{t('settings.todo_import_conflict_duplicate')}</option>
+        </Select>
+        <Button size="sm" loading={busy} disabled={busy} onClick={() => void run()}>{t('settings.todo_import_action')}</Button>
       </div>
     </SettingRow>
   )

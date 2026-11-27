@@ -8,6 +8,7 @@ import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 import { isTaskDone, isTaskOpen } from '../src/shared/todos/status'
+import { MAX_STEPS_PER_TASK } from '../src/shared/todos/model'
 
 const USER = 'user-alice'
 const OTHER = 'user-bob'
@@ -75,6 +76,23 @@ describe('writing a task', () => {
     expect(steps.every((step) => !step.done)).toBe(true)
   })
 
+  it('enforces the step ceiling under concurrent inserts', async () => {
+    const task = await store.createTask({ title: 'Many steps' })
+    const results = await Promise.all(Array.from({ length: MAX_STEPS_PER_TASK + 10 }, (_, index) =>
+      store.addStep(task.id, `Step ${index}`)))
+
+    expect(results.filter((step) => step !== null)).toHaveLength(MAX_STEPS_PER_TASK)
+    expect(await store.listSteps(task.id)).toHaveLength(MAX_STEPS_PER_TASK)
+  })
+
+  it('returns the same list and tag when concurrent creates race on a name', async () => {
+    const lists = await Promise.all(Array.from({ length: 10 }, () => store.createTaskList({ name: 'Raced list' })))
+    const tags = await Promise.all(Array.from({ length: 10 }, () => store.createTaskTag({ name: 'Raced tag' })))
+
+    expect(new Set(lists.map((list) => list.id)).size).toBe(1)
+    expect(new Set(tags.map((tag) => tag.id)).size).toBe(1)
+  })
+
   it('does not clear the columns a patch did not name', async () => {
     const list = await store.createTaskList({ name: 'Work' })
     const task = await store.createTask({
@@ -86,6 +104,19 @@ describe('writing a task', () => {
     expect(updated).toMatchObject({ priority: 'urgent', listId: list.id, starred: true })
     expect(updated?.tags.map((tag) => tag.name)).toEqual(['Tax'])
     expect(updated?.repeat).toEqual({ freq: 'weekly', interval: 1 })
+  })
+
+  it('does not write a status event when a stale revision is refused', async () => {
+    const task = await store.createTask({ title: 'Guarded status' })
+    await store.updateTask(task.id, { priority: 'high' })
+
+    await expect(store.updateTask(task.id, { status: 'in_progress' }, 'UTC', task.rev))
+      .rejects.toMatchObject({ status: 409 })
+
+    const events = sqlite.prepare(
+      `SELECT COUNT(*) AS n FROM todos_task_events WHERE user_id = ?1 AND task_id = ?2 AND kind = 'status'`,
+    ).get(USER, task.id) as { n: number }
+    expect(events.n).toBe(0)
   })
 
   it('moves a reminder with its due date', async () => {
@@ -413,6 +444,24 @@ describe('completing a task', () => {
     expect(unpicked).toMatchObject({ plannedFor: null, archivedAt: expect.any(Number) })
   })
 
+  it('keeps due_on only on all-day occurrences', async () => {
+    const timed = await store.createTask({
+      title: 'Timed workday',
+      dueAt: Date.parse('2026-11-06T09:00:00Z'),
+      repeat: { freq: 'workday', interval: 1 },
+    })
+    expect((await store.completeTask(timed.id, 'UTC'))?.next).toMatchObject({ dueAllDay: false, dueOn: null })
+
+    const allDay = await store.createTask({
+      title: 'All-day workday',
+      dueAt: Date.parse('2026-11-06T23:59:00Z'),
+      dueAllDay: true,
+      dueOn: '2026-11-06',
+      repeat: { freq: 'workday', interval: 1 },
+    })
+    expect((await store.completeTask(allDay.id, 'UTC'))?.next).toMatchObject({ dueAllDay: true, dueOn: '2026-11-09' })
+  })
+
   it('is idempotent: completing a finished task does not clone it again', async () => {
     const task = await store.createTask({ title: 'Weekly', dueAt: Date.parse('2026-10-19T09:00:00Z'), repeat: { freq: 'weekly', interval: 1 } })
     await store.completeTask(task.id, 'UTC')
@@ -435,6 +484,20 @@ describe('deleting a task', () => {
     expect(steps.n).toBe(1)
     expect(links.n).toBe(1)
     expect(await store.listTaskTags()).toHaveLength(1)
+  })
+})
+
+describe('list counts follow task visibility', () => {
+  it('does not count work hidden by an archived list', async () => {
+    const list = await store.createTaskList({ name: 'Archived list' })
+    await store.createTask({ title: 'Hidden by list', listId: list.id })
+    await store.updateTaskList(list.id, { archivedAt: Date.now() })
+
+    expect(await store.listTaskLists()).toEqual([])
+    expect(await store.getTaskList(list.id)).toMatchObject({ openCount: 0, doneCount: 0 })
+    expect((await store.listTaskLists({ archived: true })).find((entry) => entry.id === list.id))
+      .toMatchObject({ openCount: 0, doneCount: 0 })
+    expect(await store.listTasks({ listId: list.id })).toEqual([])
   })
 })
 

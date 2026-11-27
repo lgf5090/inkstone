@@ -62,21 +62,21 @@ beforeEach(() => {
 
 describe('the calendar tables', () => {
   it('ships the snooze occurrence column as an idempotent migration', () => {
-    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 428)).toEqual({
-      version: 428,
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 436)).toEqual({
+      version: 436,
       skipIfColumnExists: { table: 'calendar_reminder_snoozes', column: 'occurrence_start_ms' },
       statements: ['ALTER TABLE calendar_reminder_snoozes ADD COLUMN occurrence_start_ms INTEGER'],
     })
   })
   it('ships the provider sync token column as an idempotent migration', () => {
-    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 430)).toEqual({
-      version: 430,
+    expect(SCHEMA_MIGRATIONS.find((migration) => migration.version === 438)).toEqual({
+      version: 438,
       skipIfColumnExists: { table: 'calendar_provider_calendars', column: 'sync_token' },
       statements: ['ALTER TABLE calendar_provider_calendars ADD COLUMN sync_token TEXT'],
     })
   })
   it('migrates legacy attendees once while preferring existing table rows', () => {
-    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 431)!
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 439)!
     insertEvent('user-alice', 'legacy-empty')
     insertEvent('user-alice', 'table-wins')
     insertEvent('user-alice', 'already-empty')
@@ -117,7 +117,7 @@ describe('the calendar tables', () => {
     await initializeDatabase({ DB: makeD1(sqlite) } as Env)
     insertEvent('user-alice', 'existing-event')
     sqlite.exec('DROP TRIGGER calendar_events_fts_update; DROP TRIGGER calendar_events_fts_delete; DROP TRIGGER calendar_events_fts_insert; DROP TABLE calendar_events_fts')
-    sqlite.prepare('DELETE FROM schema_migrations WHERE version = 429').run()
+    sqlite.prepare('DELETE FROM schema_migrations WHERE version = 437').run()
     sqlite.prepare("DELETE FROM app_meta WHERE key = 'database-state-v1'").run()
     await initializeDatabase({ DB: makeD1(sqlite) } as Env)
     expect(tables().has('calendar_events_fts')).toBe(true)

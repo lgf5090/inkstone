@@ -645,6 +645,10 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       // The shelf travels, unlike the trash: work the reader put away is still theirs, and a restore
       // that lost the stamp would refill today's board with the days they have already closed.
       archived_at: numberOrNull(task.archived_at),
+      // The manual order, which nothing else in the row can rebuild: the reader set it by dragging, and
+      // a restore that dropped it handed the account back sorted by whatever the query read first.
+      // Nullable, so a file written before the column travelled lands an unplaced row rather than none.
+      position: numberOrNull(task.position),
     }
     // A task the reader has checked off or edited here since the file was written stays theirs.
     const localAt = localTaskAt.get(id) ?? null

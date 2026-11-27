@@ -1,6 +1,6 @@
 /** Read-only browsing and byte reads for the external storage drivers. */
 import { AwsClient } from 'aws4fetch'
-import { categoryFor, extensionOf, type CloudDriveEntry } from '@shared/clouddrive/model'
+import { categoryFor, extensionOf, filenameOf, foldedName, parentPathOf, type CloudDriveEntry } from '@shared/clouddrive/model'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { decryptCloudDriveCredentials, encryptCloudDriveCredentials } from '../lib/crypto'
@@ -1249,6 +1249,33 @@ async function webdavWriteRequest(url: string, init: RequestInit): Promise<Respo
   return await fetch(target.toString(), { ...init, redirect: 'manual' })
 }
 
+async function resolveExternalWritePath(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  path: string,
+  conflict: 'rename' | 'skip' | 'overwrite',
+): Promise<{ path: string; skipped: boolean }> {
+  if (conflict === 'overwrite') return { path, skipped: false }
+  const parent = parentPathOf(path)
+  const name = filenameOf(path)
+  const listing = await listExternal(env, db, mount, parent)
+  const names = [...listing.folders, ...listing.files]
+  const exists = names.some((entry) => foldedName(entry.name) === foldedName(name))
+  if (!exists) return { path, skipped: false }
+  if (conflict === 'skip') return { path, skipped: true }
+  for (let attempt = 1; attempt <= 100; attempt++) {
+    const dot = name.lastIndexOf('.')
+    const base = dot > 0 ? name.slice(0, dot) : name
+    const extension = dot > 0 ? name.slice(dot) : ''
+    const candidate = `${base} (${attempt})${extension}`
+    if (!names.some((entry) => foldedName(entry.name) === foldedName(candidate))) {
+      return { path: parent === '/' ? `/${candidate}` : `${parent}/${candidate}`, skipped: false }
+    }
+  }
+  throw ApiError.conflict('Too many files share this name')
+}
+
 export async function writeExternalFile(
   env: Env,
   db: D1Database,
@@ -1256,30 +1283,33 @@ export async function writeExternalFile(
   path: string,
   bytes: Uint8Array,
   contentType: string,
-): Promise<void> {
+  conflict: 'rename' | 'skip' | 'overwrite' = 'overwrite',
+): Promise<{ path: string; skipped: boolean }> {
+  const target = await resolveExternalWritePath(env, db, mount, path, conflict)
+  if (target.skipped) return target
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
   const driver = await createStorageDriver(env, storage, driverMountContext(mount))
   if (driver) {
     try {
-      await driver.upload(path, bytes, { size: bytes.byteLength, contentType })
-      return
+      await driver.upload(target.path, bytes, { size: bytes.byteLength, contentType })
+      return target
     } catch (error) {
       rethrowDriver(error)
     }
   }
   if (storage.type === 's3') {
     const config = configOf(storage)
-    const key = joinPath(String(config.rootPath ?? ''), path)
+    const key = joinPath(String(config.rootPath ?? ''), target.path)
     await putS3Key(env, db, mount, key, bytes, contentType)
-    return
+    return target
   }
   if (storage.type === 'webdav') {
     const headers = await webdavHeaders(env, storage)
-    const response = await webdavWriteRequest(webdavUrl(storage, path), { method: 'PUT', headers: { ...headers, 'Content-Type': contentType }, body: bytes })
+    const response = await webdavWriteRequest(webdavUrl(storage, target.path), { method: 'PUT', headers: { ...headers, 'Content-Type': contentType }, body: bytes })
     await discard(response)
     if (!response.ok) throw new ApiError(502, 'clouddrive_mount_unavailable', `WebDAV write failed (${response.status})`)
-    return
+    return target
   }
   throw new ApiError(403, 'clouddrive_read_only', 'This storage type does not support writes')
 }
@@ -1464,13 +1494,16 @@ export async function moveExternalPath(
   mount: CloudDriveMountInfo,
   from: string,
   to: string,
+  conflict: 'rename' | 'skip' | 'overwrite' = 'overwrite',
 ): Promise<void> {
+  const target = await resolveExternalWritePath(env, db, mount, to, conflict)
+  if (target.skipped) return
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
   const driver = await createStorageDriver(env, storage, driverMountContext(mount))
   if (driver) {
     try {
-      await driver.move(from, to)
+      await driver.move(from, target.path)
       return
     } catch (error) {
       rethrowDriver(error)
@@ -1480,25 +1513,42 @@ export async function moveExternalPath(
     const config = configOf(storage)
     const root = String(config.rootPath ?? '')
     const fromKey = joinPath(root, from)
-    const toKey = joinPath(root, to)
+    const toKey = joinPath(root, target.path)
     const children = fromKey ? await listS3Keys(env, storage, `${fromKey}/`) : []
-    for (const child of children) {
-      const suffix = child.slice(fromKey.length)
-      await copyS3Object(env, db, mount, child, `${toKey}${suffix}`)
+    const copied: string[] = []
+    try {
+      for (const child of children) {
+        const suffix = child.slice(fromKey.length)
+        const destination = `${toKey}${suffix}`
+        await copyS3Object(env, db, mount, child, destination)
+        copied.push(destination)
+      }
+      await copyS3Object(env, db, mount, fromKey, toKey)
+      copied.push(toKey)
+      for (const child of children) {
+        await deleteS3Key(env, db, mount, child)
+        copied.splice(copied.indexOf(`${toKey}${child.slice(fromKey.length)}`), 1)
+      }
+      await deleteS3Key(env, db, mount, fromKey)
+      copied.splice(copied.indexOf(toKey), 1)
+    } catch (error) {
+      for (const key of copied.reverse()) {
+        try { await deleteS3Key(env, db, mount, key) } catch (cleanupError) {
+          console.warn('[inkstone] CloudDrive could not roll back an S3 move copy:', key, cleanupError)
+        }
+      }
+      throw error
     }
-    await copyS3Object(env, db, mount, fromKey, toKey)
-    for (const child of children) await deleteS3Key(env, db, mount, child)
-    await deleteS3Key(env, db, mount, fromKey)
     return
   }
   if (storage.type === 'webdav') {
     const headers = await webdavHeaders(env, storage)
-    const response = await webdavWriteRequest(webdavUrl(storage, from), { method: 'MOVE', headers: { ...headers, Destination: webdavUrl(storage, to), Overwrite: 'T' } })
+    const response = await webdavWriteRequest(webdavUrl(storage, from), { method: 'MOVE', headers: { ...headers, Destination: webdavUrl(storage, target.path), Overwrite: 'T' } })
     await discard(response)
     if (!response.ok) throw new ApiError(502, 'clouddrive_mount_unavailable', `WebDAV move failed (${response.status})`)
     return
   }
-  throw new ApiError(403, 'clouddrive_read_only', 'This storage type does not support writes')
+  throw new ApiError(403, 'clouddrive_read_only', 'This storage type does not support moves')
 }
 
 function encodeKey(key: string): string {

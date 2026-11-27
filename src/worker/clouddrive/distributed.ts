@@ -1,6 +1,8 @@
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
+import { knownLengthByteStream, readBoundedBytes } from '../lib/body-stream'
 import { resolveMount, type CloudDriveMountInfo } from './lib'
+import { DriverError } from './drivers/contract'
 import { deleteExternalObject, readExternalObject, writeExternalObject } from './external'
 
 export interface PartMount {
@@ -128,14 +130,26 @@ export async function writePartObject(
   userId: string,
   mountId: string,
   key: string,
-  bytes: Uint8Array,
+  body: Uint8Array | ReadableStream,
   contentType: string,
+  expectedSize: number,
 ): Promise<string | null> {
+  const limits = {
+    maxBytes: expectedSize,
+    expectedBytes: expectedSize,
+    tooLarge: () => DriverError.invalid('The upload part is larger than its declared size'),
+    mismatched: () => DriverError.invalid('The upload part does not match its declared size'),
+  }
   if (mountId === 'primary') {
     if (!env.FILES) throw new ApiError(503, 'clouddrive_mount_unavailable', 'Object storage is not bound')
-    const object = await env.FILES.put(key, bytes, { httpMetadata: { contentType } })
-    return object?.etag ?? null
+    const { stream, completed } = knownLengthByteStream(body, limits, expectedSize)
+    const object = (await Promise.all([
+      env.FILES.put(key, stream, { httpMetadata: { contentType } }),
+      completed,
+    ]))[0]!
+    return object.etag ?? null
   }
+  const bytes = await readBoundedBytes(body, limits)
   const mount = await mountFor(db, userId, mountId)
   return await writeExternalObject(env, db, mount, key, bytes, contentType)
 }

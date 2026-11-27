@@ -10,19 +10,21 @@
  * runner would, with the arguments a model would send, and reads the payload the model would see.
  */
 import { DatabaseSync } from 'node:sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { AssistantStore } from '../src/worker/assistant/store'
+import { createCounter } from '../src/worker/todos/counters'
 import { DEFAULT_ASSISTANT_SETTINGS } from '../src/shared/assistant'
 import { localDate } from '../src/shared/assistant-time'
 import { addDays, loadTodoStats } from '../src/worker/todos/stats'
 import {
-  MAX_PLAN_TODAY_SUGGESTIONS,
   MAX_TASKS_FROM_NOTE,
   ToolExecutor,
   runApprovedAction,
   type ToolContext,
 } from '../src/worker/assistant/tools'
+import { MAX_PLAN_TODAY_SUGGESTIONS } from '../src/shared/todos/plan-suggestions'
+import { MAX_TIME_ESTIMATE_MS } from '../src/shared/todos/model'
 import type { Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
@@ -37,13 +39,19 @@ const OTHER_NOTE = '01hzzzzzzzzzzzzzzzzzzzzz21'
 let sqlite: DatabaseSync
 let env: Env
 let store: AssistantStore
+let conversationId: string
 
-beforeEach(() => {
+beforeEach(async () => {
   sqlite = new DatabaseSync(':memory:')
   sqlite.exec('PRAGMA journal_mode = OFF')
   sqlite.exec(SCHEMA_STATEMENTS.join(';'))
   env = testBindings(makeD1(sqlite), { PUBLIC_URL: 'http://localhost' })
   store = new AssistantStore(env.DB as D1Database, USER, env)
+  conversationId = (await store.createConversation('Tool test conversation')).id
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 function context(over: Partial<ToolContext> = {}): ToolContext {
@@ -56,7 +64,7 @@ function context(over: Partial<ToolContext> = {}): ToolContext {
     timezone: 'Asia/Shanghai',
     dayEnd: Date.now() + DAY,
     mode: 'chat',
-    conversationId: 'c1',
+    conversationId,
     memoryHistory: {} as ToolContext['memoryHistory'],
     memoryScope: { projectId: null },
     automations: {} as ToolContext['automations'],
@@ -120,7 +128,7 @@ describe('create_task', () => {
 
   it('keeps the conversation the task was created in', async () => {
     const created = await executor().execute('create_task', { title: 'From chat' }, 'call-1') as { created: Record<string, unknown> }
-    expect(created.created.conversation_id).toBe('c1')
+    expect(created.created.conversation_id).toBe(conversationId)
   })
 })
 
@@ -608,6 +616,132 @@ function today(): string {
   return localDate(Date.now(), 'Asia/Shanghai')
 }
 
+describe('the face, the estimate, the shelf and the clock', () => {
+  it('gives a task its own face and reports the half the row could not carry', async () => {
+    const task = await store.createTask({ title: 'Design the poster' })
+
+    const faced = await executor().execute('set_task_face', {
+      task: task.id, icon: '🎨', color: 'chartreuse',
+    }, 'call-1') as { task: Record<string, unknown>, dropped?: string[] }
+
+    expect(faced.dropped).toEqual([{ field: 'color', reason: 'A colour is one of the palette names or a six-digit hex such as #2563eb.' }])
+    expect(faced.task.icon).toBe('🎨')
+    expect((await store.getTask(task.id))?.color).toBeNull()
+  })
+
+  it('clears a face back to the list\u2019s', async () => {
+    const list = await store.createTaskList({ name: 'Work', color: '#3b82f6' })
+    const task = await store.createTask({ title: 'Ship it', listId: list.id, color: '#3b82f6' })
+
+    await executor().execute('set_task_face', { task: task.id, color: null }, 'call-1')
+
+    expect((await store.getTask(task.id))?.color).toBeNull()
+  })
+
+  it('sets an estimate in milliseconds and clears it with null', async () => {
+    const task = await store.createTask({ title: 'Write the brief' })
+
+    const set = await executor().execute('set_time_estimate', { task: task.id, ms: 90 * 60 * 1000 }, 'call-1') as { time_estimate_ms: number }
+    expect(set.time_estimate_ms).toBe(90 * 60 * 1000)
+
+    const cleared = await executor().execute('set_time_estimate', { task: task.id, ms: null }, 'call-2') as { time_estimate_ms: number | null }
+    expect(cleared.time_estimate_ms).toBeNull()
+  })
+
+  it('clamps an estimate the model asked past the ceiling, as every numeric field here does', async () => {
+    const task = await store.createTask({ title: 'Write the brief' })
+
+    const clamped = await executor().execute('set_time_estimate', { task: task.id, ms: 99 * 24 * HOUR }, 'call-1') as { time_estimate_ms: number }
+
+    expect(clamped.time_estimate_ms).toBe(MAX_TIME_ESTIMATE_MS)
+  })
+
+  it('shelves a task and brings it back, leaving its status and hours alone', async () => {
+    const task = await store.createTask({ title: 'Old plan', dueAt: Date.now() - DAY })
+    await store.completeTask(task.id, 'UTC')
+
+    const shelved = await executor().execute('archive_task', { task: task.id }, 'call-1') as { archived: boolean }
+    expect(shelved.archived).toBe(true)
+    // The shelf hides the row from every listing, not from a read by name: the record and its finish
+    // stay where they were.
+    const row = await store.getTask(task.id)
+    expect(row?.status).toBe('done')
+    expect(row?.archivedAt).toBeTypeOf('number')
+    expect(await store.listTasks({ view: 'completed' })).toHaveLength(0)
+
+    const back = await executor().execute('archive_task', { task: task.id, archived: false }, 'call-2') as { archived: boolean }
+    expect(back.archived).toBe(false)
+    expect(await store.listTasks({ view: 'completed' })).toHaveLength(1)
+  })
+
+  it('starts a timer on a task and moves the row to in_progress', async () => {
+    const task = await store.createTask({ title: 'Deep work' })
+
+    const started = await executor().execute('start_task_timer', { task: task.id }, 'call-1') as { running: boolean }
+    expect(started.running).toBe(true)
+
+    const row = await store.getTask(task.id)
+    expect(row?.status).toBe('in_progress')
+    expect(row?.timeSpentMs).toBe(0)
+  })
+
+  it('stops a timer and answers with the minutes it ran', async () => {
+    const task = await store.createTask({ title: 'Deep work' })
+    await executor().execute('start_task_timer', { task: task.id }, 'call-1')
+
+    const stopped = await executor().execute('stop_task_timer', { task: task.id }, 'call-2') as { stopped: boolean, minutes: number }
+    expect(stopped.stopped).toBe(true)
+    expect(stopped.minutes).toBeGreaterThanOrEqual(0)
+  })
+
+  it('refuses to stop a timer that is not running', async () => {
+    const task = await store.createTask({ title: 'Nothing running' })
+    await expect(executor().execute('stop_task_timer', { task: task.id }, 'call-1'))
+      .rejects.toThrow(/No timer is running/)
+  })
+
+  it('logs a span that was never timed, and refuses one longer than the ceiling', async () => {
+    const task = await store.createTask({ title: 'Yesterday\u2019s work' })
+
+    const logged = await executor().execute('log_task_time', {
+      task: task.id,
+      start: '2026-10-23T09:00',
+      end: '2026-10-23T10:30',
+    }, 'call-1') as { minutes: number }
+    expect(logged.minutes).toBe(90)
+
+    await expect(executor().execute('log_task_time', {
+      task: task.id, start: '2026-10-23T09:00', end: '2026-10-23T14:00',
+    }, 'call-2')).rejects.toThrow(/hours/)
+  })
+})
+
+describe('habits', () => {
+  it('lists the habits with today\u2019s amount, and ticks one by name', async () => {
+    const counter = (await createCounter(env.DB as D1Database, USER, {
+      title: 'Read', kind: 'clicks', goal: 20,
+    }))!
+
+    const listed = await executor().execute('list_habits', {}, 'call-1') as { today: string, habits: { id: string, today: number }[] }
+    expect(listed.habits).toEqual([{ id: counter.id, title: 'Read', kind: 'clicks', goal: 20, today: 0 }])
+
+    const ticked = await executor().execute('tick_habit', { habit: 'Read', delta: 3 }, 'call-2') as { amount: number, day: string }
+    expect(ticked.amount).toBe(3)
+
+    const again = await executor().execute('list_habits', {}, 'call-3') as { habits: { today: number }[] }
+    expect(again.habits[0]!.today).toBe(3)
+  })
+
+  it('refuses a habit it cannot name, and a tick of nothing', async () => {
+    await expect(executor().execute('tick_habit', { habit: 'Meditate', delta: 1 }, 'call-1'))
+      .rejects.toThrow(/No habit is called/)
+
+    const counter = (await createCounter(env.DB as D1Database, USER, { title: 'Read', kind: 'clicks' }))!
+    await expect(executor().execute('tick_habit', { habit: counter.id, delta: 0 }, 'call-2'))
+      .rejects.toThrow(/zero changes nothing/)
+  })
+})
+
 describe('plan_today', () => {
   it('drafts the open candidates and writes no plan', async () => {
     const day = today()
@@ -856,9 +990,17 @@ describe('planning and repeat details', () => {
 
 describe('moving, trash and alarms', () => {
   it('moves a task before another and into a list', async () => {
+    // The listing's tie-break for rows made in the same millisecond is the id, and a new id is only
+    // time-prefixed: three creates fast enough to share a tick would order by their random tails.
+    // The move is what this case is about, so each row gets its own tick and the creation order is
+    // the order the listing reads.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-19T06:00:00.000Z'))
     const list = await store.createTaskList({ name: 'Work' })
     const first = await store.createTask({ title: 'First', listId: list.id })
+    vi.setSystemTime(new Date('2026-10-19T06:00:00.001Z'))
     await store.createTask({ title: 'Second', listId: list.id })
+    vi.setSystemTime(new Date('2026-10-19T06:00:00.002Z'))
     const third = await store.createTask({ title: 'Third', listId: list.id })
 
     await executor().execute('move_task', { task: third.id, before: first.id }, 'call-1')

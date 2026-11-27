@@ -61,6 +61,28 @@ function notificationCount(userId: string): number {
     .get(userId) as { n: number }).n)
 }
 
+function refusingNotificationInserts(inner: D1Database): D1Database {
+  const blocked = new WeakSet<object>()
+  return {
+    prepare(sql: string) {
+      const statement = inner.prepare(sql)
+      const wrapped = {
+        bind(...values: unknown[]) { statement.bind(...values); return wrapped },
+        async first<T>() { return statement.first<T>() },
+        async all<T>() { return statement.all<T>() },
+        async run<T>() { return statement.run<T>() },
+        async raw<T>() { return statement.raw<T>() },
+      }
+      if (sql.includes('INSERT INTO chat_notifications')) blocked.add(wrapped)
+      return wrapped
+    },
+    async batch(statements: never[]) {
+      if (statements.some((statement) => blocked.has(statement))) throw new Error('notification insert refused')
+      return inner.batch(statements)
+    },
+  } as unknown as D1Database
+}
+
 describe('sweepTaskReminders', () => {
   it('delivers a reminder that has come due, once', async () => {
     await reminderTask(ALICE)
@@ -76,6 +98,32 @@ describe('sweepTaskReminders', () => {
     const second = await sweepTaskReminders(env, NOW)
     expect(second).toMatchObject({ due: 0, sent: 0 })
     expect(await notificationsOf(ALICE)).toHaveLength(1)
+  })
+
+  it('keeps the reminder claim retryable when notification persistence fails', async () => {
+    await reminderTask(ALICE)
+    const failing = testBindings(refusingNotificationInserts(env.DB as D1Database), { PUBLIC_URL: 'http://localhost' })
+
+    expect(await sweepTaskReminders(failing, NOW)).toMatchObject({ due: 1, sent: 0, failed: 1 })
+    expect(notificationCount(ALICE)).toBe(0)
+    const pending = sqlite.prepare(`SELECT fired_at FROM todos_reminders WHERE user_id = ?1`).get(ALICE) as { fired_at: number | null }
+    expect(pending.fired_at).toBeNull()
+
+    expect(await sweepTaskReminders(env, NOW)).toMatchObject({ due: 1, sent: 1, failed: 0 })
+    expect(notificationCount(ALICE)).toBe(1)
+  })
+
+  it('does not duplicate a notification when two sweeps overlap', async () => {
+    await reminderTask(ALICE)
+
+    const [first, second] = await Promise.all([
+      sweepTaskReminders(env, NOW),
+      sweepTaskReminders(env, NOW),
+    ])
+
+    expect(first.sent + second.sent).toBe(1)
+    expect(first.claimed + second.claimed).toBe(1)
+    expect(notificationCount(ALICE)).toBe(1)
   })
 
   it('delivers each of a task\'s five reminders once, and only once', async () => {
@@ -173,6 +221,29 @@ describe('sweepTaskReminders', () => {
 
     await sweepTaskReminders(env, NOW)
     expect((await notificationsOf(ALICE))[0]!.title.startsWith(EN_US_TODO_NOTIFY.title)).toBe(true)
+  })
+
+  it('says a reminder is late when the tick that delivers it is more than an hour behind', async () => {
+    // A deployment that was down, or a cron that skipped: the sweep has no lower bound, so it delivers
+    // what it missed — but yesterday's nine o'clock arriving at two reads as fresh news unless it says
+    // otherwise. The reminder below came due an hour and a half before the fire.
+    const store = new AssistantStore(env.DB as D1Database, ALICE, env)
+    await store.saveSettings(normalizeAssistantSettings({ language: 'en-US' }))
+    await reminderTask(ALICE, { offsetMs: -90 * 60_000 })
+
+    await sweepTaskReminders(env, NOW)
+    expect((await notificationsOf(ALICE))[0]!.body).toContain(EN_US_TODO_NOTIFY.late)
+  })
+
+  it('does not call a reminder late for the ordinary minute of cron drift', async () => {
+    const store = new AssistantStore(env.DB as D1Database, ALICE, env)
+    await store.saveSettings(normalizeAssistantSettings({ language: 'en-US' }))
+    // Ten minutes late is the ordinary case on a cron that fires every minute and one that overlapped.
+    await reminderTask(ALICE, { offsetMs: -10 * 60_000 })
+
+    await sweepTaskReminders(env, NOW)
+    const body = (await notificationsOf(ALICE))[0]!.body
+    expect(body).not.toContain(EN_US_TODO_NOTIFY.late)
   })
 })
 

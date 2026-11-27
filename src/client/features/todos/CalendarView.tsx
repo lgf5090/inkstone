@@ -20,7 +20,7 @@ import { LoadingBlock } from '../../components/feedback'
 import { Button, IconButton } from '../../components/primitives'
 import { api } from '../../lib/api'
 import { cn } from '../../lib/cn'
-import { useMediaQuery } from '../../lib/hooks'
+import { useMediaQuery, useNow } from '../../lib/hooks'
 import { localeTag, t, useLocale } from '../../lib/i18n'
 import { useAlmanac, type AlmanacApi } from '../../lib/lunar/almanac-loader'
 import { resolveDisplay, resolveWeekStart, useCalendarDisplayPrefs, type CalendarDisplayView } from '../../lib/calendar-display-prefs'
@@ -69,6 +69,8 @@ const LANE_H = 18
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour)
 /** How far the pointer travels before a press on the axis counts as a drag rather than a click. */
 const DRAG_SLOP_PX = 4
+/** The minute the "now" line is drawn at is re-read on this clock, not frozen at the first render. */
+const NOW_TICK_MS = 60_000
 
 /** A box-select in progress: the column it started in, and where the pointer has got to. */
 interface DragState {
@@ -173,7 +175,9 @@ function SpanRow({ bar, color, weekStart, weekEnd, timezone, dragEnabled, onOpen
   onOpen: () => void
 }) {
   const start = bar.task.startAt != null ? localDate(bar.task.startAt, timezone) : null
-  const end = bar.task.dueAt != null ? localDate(bar.task.dueAt, timezone) : null
+  const end = bar.task.dueAt != null
+    ? bar.task.dueAllDay && bar.task.dueOn ? bar.task.dueOn : localDate(bar.task.dueAt, timezone)
+    : null
   // The rounded ends are the ends of the task, not of the week: a bar that continues past Sunday is
   // cut flat on that side so it reads as continuing.
   const openLeft = start !== null && start < weekStart
@@ -191,7 +195,7 @@ function SpanRow({ bar, color, weekStart, weekEnd, timezone, dragEnabled, onOpen
       data-calendar-span={bar.task.id}
       style={{ gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`, gridRow: `${bar.lane + 1}` }}
       className={cn(
-        'pointer-events-auto relative mx-0.5 flex h-4 min-w-0 items-center gap-1 px-1 text-left text-[length:var(--text-10)] leading-none',
+        'pointer-events-auto relative isolate mx-0.5 flex h-4 min-w-0 items-center gap-1 px-1 text-left text-[length:var(--text-10)] leading-none',
         'text-[var(--text-primary)] transition-colors hover:brightness-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
         openLeft ? 'rounded-l-none' : 'rounded-l-[var(--r-xs)]',
         openRight ? 'rounded-r-none' : 'rounded-r-[var(--r-xs)]',
@@ -202,8 +206,10 @@ function SpanRow({ bar, color, weekStart, weekEnd, timezone, dragEnabled, onOpen
         style={{ backgroundColor: `color-mix(in oklab, ${color} 18%, var(--bg-surface))` }}
         aria-hidden="true"
       />
-      <span className="relative z-10 size-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
-      <span className="relative z-10 truncate">{bar.task.title}</span>
+      {/* One step above the tint inside this bar's own stacking context — a local layer, not a tier
+          of the app's scale. */}
+      <span className="relative z-[var(--z-sticky)] size-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+      <span className="relative z-[var(--z-sticky)] truncate">{bar.task.title}</span>
     </button>
   )
 }
@@ -327,7 +333,10 @@ function MonthWeek({ cells, tasks, lists, timezone, compact, almanac, display, d
                   type="button"
                   aria-label={t('todo.calendar.add_on_day')}
                   onClick={() => onAdd(cell.key)}
-                  className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-[var(--r-xs)] text-[var(--text-quaternary)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] group-hover:opacity-100"
+                  /* A finger has no hover, so below `md` the plus is drawn rather than revealed — and
+                     at a thumb's size rather than a mouse's. The pseudo-element widens the target to
+                     44px without growing the glyph past the 26px date row it sits in. */
+                  className="absolute right-1 top-1 flex size-9 items-center justify-center rounded-[var(--r-xs)] text-[var(--text-quaternary)] before:absolute before:-inset-1 before:content-[''] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] md:size-5 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
                 >
                   <Plus size={11} />
                 </button>
@@ -484,8 +493,14 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
   }, [now, timezone])
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="grid shrink-0 grid-cols-[40px_repeat(7,minmax(0,1fr))] border-b border-[var(--border-subtle)]">
+    // The three bands of the week — the day row, the all-day strip and the hour axis — share one
+    // column template, so they have to scroll sideways together or a drop on Thursday would land on
+    // Friday. One scroller around all three, and a floor under each band's width: seven columns
+    // sharing 360px leaves about 45px per day once the hour gutter is taken, which is narrower than
+    // the time and the title a block has to hold. 560px is that floor (80px per day) rather than a
+    // width — a wider window still gets the whole row.
+    <div data-calendar-week="" className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-x-auto">
+      <div className="grid min-w-[560px] shrink-0 grid-cols-[40px_repeat(7,minmax(0,1fr))] border-b border-[var(--border-subtle)]">
         <span aria-hidden="true" />
         {week.map((day) => (
           <button
@@ -505,7 +520,7 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
           </button>
         ))}
       </div>
-      <div className="grid shrink-0 grid-cols-[40px_repeat(7,minmax(0,1fr))] border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]/40">
+      <div className="grid min-w-[560px] shrink-0 grid-cols-[40px_repeat(7,minmax(0,1fr))] border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]/40">
         <span className="py-1 pr-1 text-right text-[length:var(--text-8-5)] text-[var(--text-quaternary)]">{t('todo.calendar.all_day')}</span>
         {week.map((day) => {
           const allDay = allDayTasksForDay(tasks, day.key, timezone)
@@ -553,7 +568,7 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
           )
         })}
       </div>
-      <div ref={scroller} className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+      <div ref={scroller} className="no-scrollbar min-h-0 min-w-[560px] flex-1 overflow-y-auto">
         <div
           className="grid grid-cols-[40px_repeat(7,minmax(0,1fr))]"
           style={{ height: 24 * HOUR_H, '--slot-h': `${slotHeightFor(zoom)}px` } as React.CSSProperties}
@@ -587,7 +602,7 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
             return (
               <div
                 key={day.key}
-                className="relative border-l border-[var(--border-subtle)]"
+                className="relative isolate border-l border-[var(--border-subtle)]"
                 onPointerDown={startDrag}
                 onDragOver={(event) => {
                   if (!isTodoTaskDrag(event)) return
@@ -633,7 +648,7 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
                   />
                 )}
                 {day.key === todayKey && (
-                  <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 z-10" style={{ top: (nowMinute / 60) * HOUR_H }}>
+                  <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 z-[var(--z-sticky)]" style={{ top: (nowMinute / 60) * HOUR_H }}>
                     <span className="absolute -left-0.5 size-1.5 -translate-y-1/2 rounded-full bg-[var(--danger)]" />
                     <span className="block h-px bg-[var(--danger)]" />
                   </span>
@@ -650,7 +665,7 @@ function WeekTimeGrid({ week, tasks, lists, timezone, todayKey, now, dragEnabled
                     }}
                     onClick={() => onOpenTask(block.task)}
                     title={block.task.title}
-                    className="absolute z-10 flex flex-col overflow-hidden rounded-[var(--r-xs)] px-1 py-0.5 text-left text-[length:var(--text-10)] shadow-[var(--shadow-xs)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+                    className="absolute z-[var(--z-sticky)] flex flex-col overflow-hidden rounded-[var(--r-xs)] px-1 py-0.5 text-left text-[length:var(--text-10)] shadow-[var(--shadow-xs)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                     style={{
                       top: (block.startMin / 60) * HOUR_H,
                       height: Math.max(18, ((block.endMin - block.startMin) / 60) * HOUR_H - 2),
@@ -693,6 +708,13 @@ export function CalendarView() {
   const todayKey = useMemo(() => localDate(Date.now(), timezone), [timezone])
 
   const [mode, setMode] = useState<CalendarMode>('month')
+  /**
+   * The instant the "now" line is drawn at. A reading of the clock rather than a snapshot: a week
+   * left open through the afternoon used to keep the line where it was when the view mounted, and a
+   * line that does not move is worse than no line at all — it is a claim about the present that is
+   * quietly an hour old. One tick a minute is finer than the line is drawn.
+   */
+  const now = useNow(NOW_TICK_MS, mode === 'week')
   /**
    * How finely the week's hour axis is divided. A reading of the axis, not a setting: it is not
    * persisted and does not travel with the account, so switching a device cannot surprise the reader
@@ -928,7 +950,7 @@ export function CalendarView() {
               lists={lists}
               timezone={timezone}
               todayKey={todayKey}
-              now={Date.now()}
+              now={now}
               dragEnabled={finePointer}
               zoom={zoom}
               onOpenDay={openDay}
@@ -942,13 +964,19 @@ export function CalendarView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-todo-calendar={mode}>
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 px-3 pb-2 pt-3 md:px-5">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 pb-2 pt-3 md:px-5">
         <h2 className="min-w-0 truncate text-[length:var(--text-15)] font-semibold tracking-[-0.012em] text-[var(--text-primary)]">{title}</h2>
-        <div className="flex items-center gap-1.5">
+        {/* The control row takes a line of its own below `md` and scrolls sideways rather than being
+            clipped by the frame's `overflow-hidden`: a 360px window has no room for two segmented
+            controls, "today" and three 44px buttons beside a month name, and a control painted past
+            the edge is a control that cannot be pressed. From `md` up it sits back beside the title,
+            where it has always fitted. */}
+        <div data-calendar-controls="" className="no-scrollbar -mx-1 flex w-full min-w-0 items-center gap-1.5 overflow-x-auto px-1 md:mx-0 md:w-auto md:overflow-visible md:px-0">
           <Segmented
             value={mode}
             onChange={setMode}
             size="md"
+            className="shrink-0"
             label={t('todo.view.calendar')}
             options={[
               { value: 'month', label: t('preview.kanban_calendar_month') },
@@ -960,6 +988,7 @@ export function CalendarView() {
               value={zoom}
               onChange={setZoom}
               size="md"
+              className="shrink-0"
               label={t('todo.calendar.zoom')}
               options={[
                 { value: 'hour', label: t('todo.calendar.zoom_hour') },
@@ -967,14 +996,14 @@ export function CalendarView() {
               ]}
             />
           )}
-          <Button variant="secondary" onClick={goToday}>{t('preview.kanban_today')}</Button>
-          <IconButton label={t('todo.calendar.previous')} size="sm" className="size-11 md:size-7" onClick={() => move(-1)}>
+          <Button variant="secondary" className="shrink-0" onClick={goToday}>{t('preview.kanban_today')}</Button>
+          <IconButton label={t('todo.calendar.previous')} size="sm" className="size-11 shrink-0 md:size-7" onClick={() => move(-1)}>
             <ChevronLeft size={15} />
           </IconButton>
-          <IconButton label={t('todo.calendar.next')} size="sm" className="size-11 md:size-7" onClick={() => move(1)}>
+          <IconButton label={t('todo.calendar.next')} size="sm" className="size-11 shrink-0 md:size-7" onClick={() => move(1)}>
             <ChevronRight size={15} />
           </IconButton>
-          <IconButton label={t('todo.action.new_task')} size="sm" className="size-11 md:size-7" onClick={() => addOnDay(todayKey)}>
+          <IconButton label={t('todo.action.new_task')} size="sm" className="size-11 shrink-0 md:size-7" onClick={() => addOnDay(todayKey)}>
             <CalendarPlus size={15} />
           </IconButton>
         </div>

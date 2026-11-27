@@ -16,7 +16,7 @@
  * Files go one at a time. A hand of them fired together would race the hourly budget for the same
  * account and report a failure count nobody could tie to a file.
  */
-import { request } from '../../lib/api'
+import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { LIMITS } from '@shared/constants'
@@ -27,12 +27,7 @@ const MAX_MB = Math.round(LIMITS.attachmentMaxBytes / (1024 * 1024))
 
 /** Upload one file onto one task and hand back the row the server linked. */
 export async function uploadTaskFile(taskId: string, file: File): Promise<Attachment> {
-  const form = new FormData()
-  form.set('file', file)
-  const body = await request<{ attachment: Attachment }>(
-    `/api/todos/${encodeURIComponent(taskId)}/attachments`,
-    { method: 'POST', formData: form },
-  )
+  const body = await api.todos.uploadAttachment(taskId, file)
   return body.attachment
 }
 

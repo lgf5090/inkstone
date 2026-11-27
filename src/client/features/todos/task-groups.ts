@@ -119,7 +119,7 @@ export function groupToday(
     // today onto itself. A late hour is still shown: the row keeps its red time in the main list,
     // which sorts it to the front. The sidebar's overdue badge answers a different question — how many
     // rows are past the instant they named — and keeps the server's `due_at < now`, deliberately.
-    else if (task.dueAt !== null && localDate(task.dueAt, bounds.timezone) < bounds.today) groups.overdue.push(task)
+    else if (task.dueAt !== null && (task.dueAllDay && task.dueOn ? task.dueOn : localDate(task.dueAt, bounds.timezone)) < bounds.today) groups.overdue.push(task)
     else groups.today.push(task)
   }
   return (['planned', 'today', 'overdue'] as const)
@@ -141,6 +141,8 @@ export function groupToday(
  */
 function isLaterToday(task: TodoTask, bounds: { now: number; dayEnd: number; timezone: string }): boolean {
   if (task.dueAt === null || task.dueAt <= bounds.now || task.dueAt >= bounds.dayEnd) return false
+  if (task.dueAllDay === true) return false
+  if (task.dueAllDay === false) return true
   return !toLocalMinute(task.dueAt, bounds.timezone).endsWith(END_OF_DAY_MINUTE)
 }
 

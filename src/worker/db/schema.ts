@@ -96,6 +96,7 @@ import {
   YOUTUBE_SCHEMA_STATEMENTS,
 } from '../youtube/schema'
 import {
+  CLOUDDRIVE_FTS_SCHEMA_STATEMENTS,
   CLOUDDRIVE_REQUIRED_COLUMNS,
   CLOUDDRIVE_REQUIRED_INDEXES,
   CLOUDDRIVE_REQUIRED_TABLES,
@@ -4834,14 +4835,61 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // Before roles existed every grant could comment; preserve that capability for old rows.
     version: 428,
+    skipIfColumnExists: { table: 'CloudDrive_acl', column: 'role' },
+    statements: [`ALTER TABLE CloudDrive_acl ADD COLUMN role TEXT NOT NULL DEFAULT 'commenter'`],
+  },
+  {
+    version: 429,
+    skipIfColumnExists: { table: 'CloudDrive_acl', column: 'expires_at' },
+    statements: [`ALTER TABLE CloudDrive_acl ADD COLUMN expires_at INTEGER`],
+  },
+  {
+    version: 430,
+    statements: [`CREATE INDEX IF NOT EXISTS idx_clouddrive_acl_expiry ON CloudDrive_acl(owner_id, expires_at)`],
+  },
+  {
+    // Backfill once; later isolate boots create the table and triggers without rebuilding the index.
+    version: 431,
+    statements: [
+      ...CLOUDDRIVE_FTS_SCHEMA_STATEMENTS,
+      `INSERT INTO CloudDrive_files_fts(CloudDrive_files_fts) VALUES('rebuild')`,
+    ],
+  },
+  {
+    version: 432,
+    skipIfColumnExists: { table: 'CloudDrive_upload_sessions', column: 'sha256' },
+    statements: [`ALTER TABLE CloudDrive_upload_sessions ADD COLUMN sha256 TEXT`],
+  },
+  {
+    version: 433,
+    skipIfColumnExists: { table: 'CloudDrive_meta', column: 'vault' },
+    statements: [`ALTER TABLE CloudDrive_meta ADD COLUMN vault INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 434,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'due_all_day' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN due_all_day INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 435,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'due_on' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN due_on TEXT`,
+    ],
+  },
+  {
+    version: 436,
     skipIfColumnExists: { table: 'calendar_reminder_snoozes', column: 'occurrence_start_ms' },
     statements: [
       `ALTER TABLE calendar_reminder_snoozes ADD COLUMN occurrence_start_ms INTEGER`,
     ],
   },
   {
-    version: 429,
+    version: 437,
     statements: [
       `INSERT INTO calendar_events_fts(calendar_events_fts) VALUES ('rebuild')`,
     ],
@@ -4849,7 +4897,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     // Provider delta cursors belong to the mapped calendar, not event metadata. Existing rows start
     // with a full sync; fresh databases already carry the column and skip the ALTER.
-    version: 430,
+    version: 438,
     skipIfColumnExists: { table: 'calendar_provider_calendars', column: 'sync_token' },
     statements: [`ALTER TABLE calendar_provider_calendars ADD COLUMN sync_token TEXT`],
   },
@@ -4857,7 +4905,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // The attendee table is authoritative. Backfill only rows that never had table guests, then
     // remove the legacy JSON copy. The marker makes an intentionally empty guest list permanent if a
     // database is restored without this migration's ledger entry.
-    version: 431,
+    version: 439,
     statements: [
       `INSERT OR IGNORE INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
        SELECT user_id, event_id, email, name, status, created_at FROM (

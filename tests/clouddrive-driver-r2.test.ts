@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createR2Driver } from '../src/worker/clouddrive/drivers/r2'
 import type { DriverContext } from '../src/worker/clouddrive/drivers/contract'
+import { testR2Bucket } from './doubles/bindings'
 
 function context(overrides: Partial<DriverContext> = {}): DriverContext {
   const credentials: Record<string, string> = {
@@ -157,6 +158,36 @@ describe('R2 driver', () => {
     const link = await driver.directLink!('/a.txt')
     expect(new URL(link!).searchParams.get('X-Amz-Signature')).toBeTruthy()
     expect(new URL(link!).host).toBe('account-1.r2.cloudflarestorage.com')
+  })
+
+  it('streams binding uploads and validates their length in the stream', async () => {
+    const bucket = testR2Bucket()
+    const shapes: string[] = []
+    const put = bucket.put.bind(bucket)
+    bucket.put = async (key, value, options) => {
+      shapes.push(value instanceof ReadableStream ? 'stream' : 'buffered')
+      return await put(key, value, options)
+    }
+    const driver = createR2Driver(context({ config: { mode: 'binding' }, r2: bucket }))
+    const streamed = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('ab'))
+        controller.enqueue(new TextEncoder().encode('cd'))
+        controller.close()
+      },
+    })
+    await driver.upload('/a.txt', streamed, { size: 4, contentType: 'text/plain' })
+    expect(shapes).toEqual(['stream'])
+    expect(new TextDecoder().decode(bucket.objects.get('a.txt'))).toBe('abcd')
+
+    const short = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('abc'))
+        controller.close()
+      },
+    })
+    await expect(driver.upload('/short.txt', short, { size: 4 })).rejects.toMatchObject({ kind: 'invalid' })
+    expect(bucket.objects.has('short.txt')).toBe(false)
   })
 
   it('declares only real capabilities', () => {

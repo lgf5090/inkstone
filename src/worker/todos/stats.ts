@@ -184,6 +184,8 @@ export interface TodoStatsQuery {
   now: number
 }
 
+export const MAX_STATS_RANGE_DAYS = 366
+
 /** Whether a value is a real calendar date in the `YYYY-MM-DD` shape the day columns store. */
 export function isStatsDay(value: string): boolean {
   const match = LOCAL_DAY.exec(value)

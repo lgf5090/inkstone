@@ -18,7 +18,12 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import type { AppBindings, Env } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
 import { todoMailRoutes } from '../src/worker/routes/todo-mail'
-import { MAX_INBOUND_MAIL_BYTES } from '../src/worker/email/inbound'
+import {
+  handleInboundMail,
+  INBOUND_MAIL_HOURLY_BUDGET,
+  MAX_INBOUND_MAIL_BYTES,
+  type InboundMailResult,
+} from '../src/worker/email/inbound'
 import worker from '../src/worker/index'
 import { AssistantStore } from '../src/worker/assistant/store'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -70,6 +75,7 @@ interface MailOptions {
   contentType?: string
   raw?: string
   rawSize?: number
+  clientIp?: string
 }
 
 function rawMessage(options: MailOptions): string {
@@ -90,10 +96,12 @@ function mailMessage(options: MailOptions): ForwardableEmailMessage {
   const from = options.from ?? 'sender@example.com'
   const messageId = options.messageId === undefined ? '<m1@example.com>' : options.messageId
   const blob = new Blob([options.raw ?? rawMessage(options)])
+  const headers = new Headers(messageId ? { 'message-id': messageId } : {})
+  if (options.clientIp) headers.set('cf-connecting-ip', options.clientIp)
   return {
     from,
     to: options.to,
-    headers: new Headers(messageId ? { 'message-id': messageId } : {}),
+    headers,
     raw: blob.stream(),
     rawSize: options.rawSize ?? blob.size,
     setReject: () => {},
@@ -104,6 +112,10 @@ function mailMessage(options: MailOptions): ForwardableEmailMessage {
 
 async function deliver(message: ForwardableEmailMessage, target: Env = env): Promise<void> {
   await worker.email!(message, target, {} as ExecutionContext)
+}
+
+async function handle(message: ForwardableEmailMessage, target: Env = env): Promise<InboundMailResult> {
+  return handleInboundMail(message, target)
 }
 
 async function issueAddress(target: Env = env): Promise<string> {
@@ -201,13 +213,153 @@ describe('the inbound email handler', () => {
   it('turns a plain-text message into a task for the addressed account', async () => {
     const address = await issueAddress()
 
-    await deliver(mailMessage({ to: address }))
+    expect(await handle(mailMessage({ to: address }))).toBe('created')
 
     const [task] = await tasks()
     expect(task).toBeDefined()
     expect(task!.title).toBe('Buy milk')
     expect(task!.description).toBe('From: sender@example.com via email\n\nBring two bottles.')
     expect(messageRows()).toBe(1)
+    const budgetRows = sqlite.prepare("SELECT key FROM login_attempts WHERE key LIKE 'mail-todo-%'").all()
+    expect(budgetRows).toHaveLength(2)
+  })
+
+  it('drops a burst once the token hourly budget is exhausted', async () => {
+    const address = await issueAddress()
+    for (let index = 0; index < INBOUND_MAIL_HOURLY_BUDGET.token; index++) {
+      const result = await handle(mailMessage({
+        to: address,
+        from: `burst-${index}@example.net`,
+        subject: `Task ${index}`,
+        messageId: `<burst-${index}@example.com>`,
+      }))
+      expect(result).toBe('created')
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await handle(mailMessage({
+      to: address,
+      subject: 'Over budget',
+      body: 'This must not become a task.',
+      messageId: '<burst-over@example.com>',
+    }))
+
+    expect(result).toBe('ignored')
+    expect(await tasks()).toHaveLength(INBOUND_MAIL_HOURLY_BUDGET.token)
+    expect(messageRows()).toBe(INBOUND_MAIL_HOURLY_BUDGET.token)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('hourly attempt budget'))
+  })
+
+  it('keeps sender budgets independent and recognizes duplicates before spending budget', async () => {
+    const address = await issueAddress()
+    for (let index = 0; index < INBOUND_MAIL_HOURLY_BUDGET.sender; index++) {
+      expect(await handle(mailMessage({
+        to: address,
+        from: 'one@example.net',
+        messageId: `<one-${index}@example.net>`,
+      }))).toBe('created')
+    }
+
+    expect(await handle(mailMessage({
+      to: address,
+      from: 'one@example.net',
+      messageId: '<one-0@example.net>',
+    }))).toBe('duplicate')
+    expect(await handle(mailMessage({
+      to: address,
+      from: 'one@example.net',
+      messageId: '<one-over@example.net>',
+    }))).toBe('ignored')
+    expect(await handle(mailMessage({
+      to: address,
+      from: 'two@example.net',
+      messageId: '<two-0@example.net>',
+    }))).toBe('created')
+
+    expect(await tasks()).toHaveLength(INBOUND_MAIL_HOURLY_BUDGET.sender + 1)
+    expect(messageRows()).toBe(INBOUND_MAIL_HOURLY_BUDGET.sender + 1)
+  })
+
+  it('uses an IP budget only when the edge address is available', async () => {
+    const address = await issueAddress()
+    const clientIp = '203.0.113.8'
+    for (let index = 0; index < INBOUND_MAIL_HOURLY_BUDGET.ip; index++) {
+      expect(await handle(mailMessage({
+        to: address,
+        from: `sender-${index}@example.net`,
+        clientIp,
+        messageId: `<ip-${index}@example.net>`,
+      }))).toBe('created')
+    }
+
+    expect(await handle(mailMessage({
+      to: address,
+      from: 'new-sender@example.net',
+      clientIp,
+      messageId: '<ip-over@example.net>',
+    }))).toBe('ignored')
+    expect(await handle(mailMessage({
+      to: address,
+      from: 'new-sender@example.net',
+      clientIp: '198.51.100.9',
+      messageId: '<other-ip@example.net>',
+    }))).toBe('created')
+
+    expect(await tasks()).toHaveLength(INBOUND_MAIL_HOURLY_BUDGET.ip + 1)
+  })
+
+  it('redacts the token, sender, IP and message content from rate-limit logs and keys', async () => {
+    const address = await issueAddress()
+    const token = newToken(address)
+    const sender = 'private-sender@example.net'
+    const clientIp = '203.0.113.77'
+    const subject = 'Private subject marker'
+    const body = 'Private body marker'
+    const messageId = '<private-message@example.net>'
+    for (let index = 0; index < INBOUND_MAIL_HOURLY_BUDGET.sender; index++) {
+      expect(await handle(mailMessage({
+        to: address,
+        from: sender,
+        clientIp,
+        messageId: `<warmup-${index}@example.net>`,
+      }))).toBe('created')
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    expect(await handle(mailMessage({
+      to: address,
+      from: sender,
+      clientIp,
+      subject,
+      body,
+      messageId,
+    }))).toBe('ignored')
+
+    const logs = [...warn.mock.calls, ...error.mock.calls]
+      .map((call) => call.map((value) => String(value)).join(' '))
+      .join('\n')
+    for (const secret of [address, token, sender, clientIp, subject, body, messageId]) {
+      expect(logs).not.toContain(secret)
+    }
+    const keys = (sqlite.prepare("SELECT key FROM login_attempts WHERE key LIKE 'mail-todo-%'").all() as { key: string }[])
+      .map((row) => row.key)
+      .join('\n')
+    for (const secret of [token, sender, clientIp]) expect(keys).not.toContain(secret)
+    expect(await tasks()).toHaveLength(INBOUND_MAIL_HOURLY_BUDGET.sender)
+    expect(messageRows()).toBe(INBOUND_MAIL_HOURLY_BUDGET.sender)
+  })
+
+  it('releases the idempotency claim after a task failure so the same delivery can retry', async () => {
+    const address = await issueAddress()
+    const options = { to: address, messageId: '<retry@example.com>' }
+    vi.spyOn(AssistantStore.prototype, 'createTask').mockRejectedValueOnce(new Error('temporary task failure'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(handle(mailMessage(options))).rejects.toThrow('temporary task failure')
+    expect(messageRows()).toBe(0)
+    expect(await handle(mailMessage(options))).toBe('created')
+    expect(await tasks()).toHaveLength(1)
   })
 
   it('records the envelope sender rather than the forgeable From header', async () => {

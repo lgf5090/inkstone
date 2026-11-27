@@ -10,4 +10,5 @@ export function FilePreviewModal(props: FilePreviewModalProps): ReactElement | n
   return createElement(Suspense, { fallback: null }, createElement(LazyFilePreviewModal, props))
 }
 
+export { previewRendererFor } from './registry'
 export type { FilePreviewPolicy, FilePreviewTarget, FilePreviewModalProps } from './types'

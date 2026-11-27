@@ -57,6 +57,89 @@
   opacity: 0.5;
 }
 
+[data-clouddrive-files] .cd-toolbar-group {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+[data-clouddrive-files] .cd-toolbar-group--bounded {
+  border-inline-start: 1px solid var(--border-subtle);
+  padding-inline-start: var(--sp-2);
+}
+
+[data-clouddrive-files] .cd-search-strip {
+  display: flex;
+  min-height: 32px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  border-block-end: 1px solid var(--border-subtle);
+  background: var(--bg-sunken);
+  color: var(--text-tertiary);
+  font-size: var(--text-11);
+}
+
+[data-clouddrive-files] .cd-search-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: min(100%, 320px);
+  align-items: center;
+  gap: var(--sp-1);
+  padding-inline: var(--sp-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-full);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
+
+[data-clouddrive-files] .cd-search-chip > span:not(.cd-search-chip-icon) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-clouddrive-files] .cd-search-chip-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+[data-clouddrive-files] .cd-entry-badges {
+  display: inline-flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+[data-clouddrive-files] .cd-entry-badge {
+  max-inline-size: 100%;
+  gap: 2px;
+  padding: 0 var(--sp-1);
+  font-size: var(--text-10);
+  line-height: 1.5;
+}
+
+[data-clouddrive-files] .cd-entry-badge > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-clouddrive-files] .cd-col-status {
+  overflow: hidden;
+}
+
+[data-clouddrive-files] .cd-grid-badges,
+[data-clouddrive-files] .cd-gallery-badges {
+  justify-content: center;
+}
+
 [data-clouddrive-files] .cd-list {
   inline-size: 100%;
   border-collapse: separate;
@@ -295,15 +378,6 @@
 }
 
 @media (max-width: 767px) {
-  [data-clouddrive-files] .cd-inspector {
-    position: fixed;
-    inset-block: 0;
-    inset-inline-end: 0;
-    z-index: var(--z-drawer);
-    inline-size: min(320px, 88vw);
-    box-shadow: var(--shadow-modal);
-  }
-
   [data-clouddrive-files] .cd-col-modified,
   [data-clouddrive-files] .cd-col-kind,
   [data-clouddrive-files] .cd-col-tags {

@@ -185,16 +185,25 @@ describe('a habit\'s own stopwatch', () => {
     expect(again?.runningSince).toBe(1_000)
   })
 
-  it('files the run on the day it began, not on the day it was stopped', async () => {
+  it('splits a run that crossed the account\'s midnight across the two days', async () => {
     const habit = await newHabit('Meditate', { kind: 'stopwatch' })
-    // A run started at 23:45 and stopped half past midnight belongs to the evening it was begun in,
-    // in the account's zone: the same rule every other day column in this schema was fixed for.
+    // A run started at 23:45 and stopped half past midnight is two days' work, the same way a task
+    // interval is: the evening belongs to the day it began and the small hours to the day they were
+    // worked, and filing the whole span against the first would credit yesterday with today's habit.
     const began = Date.parse('2026-10-20T23:45:00Z')
     await startCounterTimer(db, USER, habit.id, began)
     const stopped = await stopCounterTimer(db, USER, habit.id, began + 30 * MINUTE, 'UTC')
     expect(stopped?.counter.runningSince).toBeNull()
-    expect(stopped?.filed).toEqual({ day: '2026-10-20', amount: 1_800 })
-    expect(tickRows(habit.id)).toEqual([{ day: '2026-10-20', amount: 1_800 }])
+    expect(stopped?.days).toEqual([
+      { day: '2026-10-20', amount: 900 },
+      { day: '2026-10-21', amount: 900 },
+    ])
+    // `filed` is the first of them, kept for the one caller that asks about a single day.
+    expect(stopped?.filed).toEqual({ day: '2026-10-20', amount: 900 })
+    expect(tickRows(habit.id)).toEqual([
+      { day: '2026-10-20', amount: 900 },
+      { day: '2026-10-21', amount: 900 },
+    ])
   })
 
   it('writes nothing when the clock went backwards between start and stop', async () => {

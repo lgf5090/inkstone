@@ -75,6 +75,22 @@ describe('the time representation', () => {
     expect(ics).toContain('PRODID:-//Inkstone//Todo Feed//EN')
   })
 
+  it('uses the task estimate for DTEND and keeps the named fallback when there is none', () => {
+    const dueAt = Date.parse('2026-03-02T09:30:00Z')
+    expect(property(buildIcsCalendar([task({ id: 'estimated', dueAt, timeEstimateMs: 90 * 60_000 })], options()), 'DTEND'))
+      .toEqual(['20260302T110000Z'])
+    expect(property(buildIcsCalendar([task({ id: 'unknown', dueAt, timeEstimateMs: null })], options()), 'DTEND'))
+      .toEqual(['20260302T100000Z'])
+  })
+
+  it('emits an all-day task as a date-valued event ending on the next day', () => {
+    const ics = buildIcsCalendar([task({
+      id: 'all-day', dueAt: Date.parse('2026-03-02T15:59:00Z'), dueAllDay: true, dueOn: '2026-03-02',
+    })], options())
+    expect(ics).toContain('DTSTART;VALUE=DATE:20260302')
+    expect(ics).toContain('DTEND;VALUE=DATE:20260303')
+  })
+
   it('keeps a UID stable for the same task instance across two fetches', () => {
     const one = property(buildIcsCalendar([task({ id: 'task-7', dueAt: Date.parse('2026-03-02T09:00:00Z') })], options()), 'UID')
     const two = property(
@@ -125,6 +141,15 @@ describe('recurring tasks', () => {
     expect(rruleFor(ordinary, options({ now: Date.parse('2028-03-29T00:00:00Z') }))).toBe('FREQ=YEARLY')
   })
 
+  it('degrades statutory-workday and lunar rules instead of inventing an RRULE', () => {
+    const due = Date.parse('2026-03-05T09:00:00Z')
+    for (const freq of ['workday', 'lunar'] as const) {
+      const row = task({ id: freq, dueAt: due, repeat: { freq, interval: 1 } })
+      expect(rruleFor(row, options())).toBeNull()
+      expect(buildIcsCalendar([row], options())).not.toContain('RRULE')
+    }
+  })
+
   it('refuses an RRULE whose UTC anchor would drift across a daylight-saving change', () => {
     // 2026-03-08 is the US spring-forward: a fixed 02:00Z weekly series is not the 20:00 local series
     // the app keeps, so the window stops being flat and only the held occurrence is exported.
@@ -144,7 +169,7 @@ describe('what the export refuses to carry', () => {
     })], options())
     // The document is assembled from a fixed set of keys; a column like `note_id`, `conversation_id`,
     // `project_id`, `list_id` or `password_hash` is structurally impossible to reach from here.
-    const allowedKeys = /^(BEGIN|END|VERSION|PRODID|CALSCALE|METHOD|UID|DTSTAMP|DTSTART|DTEND|SUMMARY|DESCRIPTION|STATUS|PRIORITY|RRULE)$/
+    const allowedKeys = /^(BEGIN|END|VERSION|PRODID|CALSCALE|METHOD|UID|DTSTAMP|DTSTART|DTEND|DTSTART;VALUE=DATE|DTEND;VALUE=DATE|SUMMARY|DESCRIPTION|STATUS|PRIORITY|RRULE)$/
     for (const line of unfold(ics)) expect(allowedKeys.test(line.split(':')[0]!)).toBe(true)
     for (const forbidden of ['note_id', 'conversation_id', 'project_id', 'list_id', 'password_hash', 'scrypt']) {
       expect(ics).not.toContain(forbidden)

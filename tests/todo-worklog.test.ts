@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { todoRoutes } from '../src/worker/routes/todos'
+import { addDays } from '../src/worker/todos/stats'
 import { AssistantStore } from '../src/worker/assistant/store'
 import type { Env } from '../src/worker/env'
 import type { Worklog } from '../src/shared/todos/model'
@@ -132,12 +133,15 @@ describe('the hours a window holds', () => {
 describe('the overrun reading', () => {
   // The window is deliberately the whole calendar: `completeTask` stamps the finish day from the real
   // clock, and the reading under test is about tasks that finished *in* the window, not about which
-  // window a fixed-date test happened to fall in.
-  const window = '?from=2000-01-01&to=2099-12-31'
+  // month the hours were worked in. It is asked of the account's own today rather than of a century,
+  // because the statistics read is capped at a year and a day — so "all of history" is no longer a
+  // question the server answers, and the rows these tests write are filed relative to today to match.
+  const today = new Date().toISOString().slice(0, 10)
+  const window = `?from=${addDays(today, -180)}&to=${today}`
 
   it('has no answer when nothing was planned', async () => {
     const task = await store.createTask({ title: 'No estimate' })
-    await track(task.id, '2026-03-02', 3)
+    await track(task.id, today, 3)
     await store.completeTask(task.id, 'UTC')
 
     // `0` would be the reference app's bug: an account that never types an estimate told it never
@@ -150,9 +154,9 @@ describe('the overrun reading', () => {
     const under = await store.createTask({ title: 'Under', timeEstimateMs: 2 * HOUR })
     const over = await store.createTask({ title: 'Over', timeEstimateMs: HOUR })
     const unplanned = await store.createTask({ title: 'Unplanned' })
-    await track(under.id, '2026-03-02', 1)
-    await track(over.id, '2026-03-02', 2)
-    await track(unplanned.id, '2026-03-02', 9)
+    await track(under.id, today, 1)
+    await track(over.id, today, 2)
+    await track(unplanned.id, today, 9)
     for (const task of [under, over, unplanned]) await store.completeTask(task.id, 'UTC')
 
     const answer = await worklog(window)
@@ -162,9 +166,8 @@ describe('the overrun reading', () => {
   })
 
   it('measures the hours spent inside the window, not the task’s lifetime total', async () => {
-    const today = new Date().toISOString().slice(0, 10)
     const task = await store.createTask({ title: 'Across months', timeEstimateMs: HOUR })
-    await track(task.id, '2025-11-02', 5)
+    await track(task.id, addDays(today, -60), 5)
     await track(task.id, today, 0.5)
     await store.completeTask(task.id, 'UTC')
 

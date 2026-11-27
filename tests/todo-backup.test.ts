@@ -65,6 +65,11 @@ beforeEach(() => {
 describe('a backup round trip', () => {
   it('restores lists, tags, steps and every task field', async () => {
     const list = await store.createTaskList({ name: 'Work', icon: 'Briefcase', color: '#2563eb' })
+    const conversation = await store.createConversation('Backup conversation')
+    sqlite.prepare(
+      `INSERT INTO notes (id, user_id, title, title_key, content, created_at, updated_at)
+       VALUES (?, ?, 'Backup note', 'backup note', 'Body', 1, 1)`,
+    ).run('aaaaaaaaaaaaaaaaaaaaaaaaaa', USER)
     const due = Date.parse('2026-10-20T09:00:00Z')
     const task = await store.createTask({
       title: 'File the return',
@@ -76,7 +81,7 @@ describe('a backup round trip', () => {
       repeat: { freq: 'monthly', interval: 2 },
       remindAt: due - 60 * 60 * 1000,
       noteId: 'aaaaaaaaaaaaaaaaaaaaaaaaaa',
-      conversationId: 'bbbbbbbbbbbbbbbbbbbbbbbbbb',
+      conversationId: conversation.id,
       tags: ['Tax', 'Urgent'],
       steps: ['Collect receipts', 'Fill the form'],
     })
@@ -101,7 +106,7 @@ describe('a backup round trip', () => {
       repeat: { freq: 'monthly', interval: 2 },
       remindAt: due - 60 * 60 * 1000,
       noteId: 'aaaaaaaaaaaaaaaaaaaaaaaaaa',
-      conversationId: 'bbbbbbbbbbbbbbbbbbbbbbbbbb',
+      conversationId: conversation.id,
       listId: list.id,
       stepTotal: 2,
       stepDone: 1,
@@ -222,6 +227,44 @@ describe('a backup round trip', () => {
     // fingerprint note says does not come back through.
     expect(taskDays(OTHER, task.id)).toEqual(taskDays(USER, task.id))
     expect(taskDays(OTHER, task.id).created_on).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('keeps the manual order the reader dragged into place', async () => {
+    // Nothing else in the row can rebuild this: a restore without `position` hands back the account
+    // sorted by whatever the query reads first, and the order the reader set by hand is simply gone.
+    const first = await store.createTask({ title: 'First' })
+    const second = await store.createTask({ title: 'Second' })
+    const place = sqlite.prepare('UPDATE todos_tasks SET position = ?3 WHERE user_id = ?1 AND id = ?2')
+    place.run(USER, first.id, 1024)
+    place.run(USER, second.id, 2048)
+
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, JSON.parse(JSON.stringify(await exportAssistant(store))))
+
+    const positions = sqlite.prepare(
+      'SELECT id, position FROM todos_tasks WHERE user_id = ?1 ORDER BY position',
+    ).all(OTHER) as { id: string, position: number }[]
+    expect(positions.map((row) => [row.id, row.position])).toEqual([
+      [first.id, 1024],
+      [second.id, 2048],
+    ])
+  })
+
+  it('still restores a file written before the order travelled', async () => {
+    // The column is nullable and the import writes only the keys a row names, so a file from before it
+    // was carried lands unplaced rather than being refused.
+    const task = await store.createTask({ title: 'Old file' })
+    const file = JSON.parse(JSON.stringify(await exportAssistant(store))) as { data: { tasks: Record<string, unknown>[] } }
+    const row = file.data.tasks.find((entry) => entry.id === task.id)!
+    delete row.position
+
+    const target = new AssistantStore(env.DB as D1Database, OTHER, env)
+    await importAssistant(target, file)
+
+    expect((await target.getTask(task.id))?.title).toBe('Old file')
+    const restored = sqlite.prepare('SELECT position FROM todos_tasks WHERE user_id = ?1 AND id = ?2')
+      .get(OTHER, task.id) as { position: number | null }
+    expect(restored.position).toBeNull()
   })
 
   it('refuses a day the file spells wrong rather than filing the task under it', async () => {

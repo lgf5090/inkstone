@@ -5,13 +5,14 @@ import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
 import { createUsersTable } from './doubles/users-table'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
-import { clouddriveDavRoutes } from '../src/worker/clouddrive/routes-dav'
+import { clouddriveDavRoutes, WEBDAV_AUTH_CACHE_TTL_MS } from '../src/worker/clouddrive/routes-dav'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
 import { createLoginAttemptsTable } from './doubles/login-attempts'
 import { testBindings, testR2Bucket } from './doubles/bindings'
 import { lockCovers, presentedLockTokens, type DavLock } from '../src/worker/clouddrive/dav-locks'
+import * as password from '../src/worker/lib/password'
 
 const USER = '0123456789abcdefghjkmnpqrs'
 const CLOCK = Date.UTC(2026, 10, 3, 12, 0, 0)
@@ -99,6 +100,46 @@ async function setupWebdav() {
 async function put(path: string, body = 'bytes') {
   return dav('PUT', path, { 'content-type': 'text/plain' }, body)
 }
+
+describe('cloud drive WebDAV credential cache', () => {
+  it('reuses a successful password check without the per-PROPFIND throttle write', async () => {
+    await setupWebdav()
+    const verify = vi.spyOn(password, 'verifyPassword')
+    expect((await put('/Docs/cached.txt')).status).toBe(201)
+    const prepare = vi.spyOn(db, 'prepare')
+
+    expect((await dav('PROPFIND', '/Docs')).status).toBe(207)
+    expect((await dav('PROPFIND', '/Docs/cached.txt', { Depth: '0' })).status).toBe(207)
+
+    expect(verify).toHaveBeenCalledTimes(1)
+    expect(prepare.mock.calls.some(([sql]) => sql.includes('DELETE FROM login_attempts'))).toBe(false)
+  })
+
+  it('rejects the previous password immediately after rotation and accepts the new one', async () => {
+    await setupWebdav()
+    expect((await put('/Docs/rotated.txt')).status).toBe(201)
+    expect((await call('PATCH', '/api/clouddrive/settings', { webdavPassword: 'newdavpass' })).status).toBe(200)
+
+    expect((await dav('PROPFIND', '/Docs/rotated.txt', { Depth: '0' })).status).toBe(401)
+    const current = await dav('PROPFIND', '/Docs/rotated.txt', {
+      Depth: '0',
+      Authorization: `Basic ${btoa('owner:newdavpass')}`,
+    })
+    expect(current.status).toBe(207)
+  })
+
+  it('expires an idle cached session and verifies the password again', async () => {
+    await setupWebdav()
+    const verify = vi.spyOn(password, 'verifyPassword')
+    expect((await put('/Docs/expiring.txt')).status).toBe(201)
+    expect((await dav('PROPFIND', '/Docs/expiring.txt', { Depth: '0' })).status).toBe(207)
+    expect(verify).toHaveBeenCalledTimes(1)
+
+    setClock(CLOCK + WEBDAV_AUTH_CACHE_TTL_MS + 1)
+    expect((await dav('PROPFIND', '/Docs/expiring.txt', { Depth: '0' })).status).toBe(207)
+    expect(verify).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('cloud drive WebDAV write locks', () => {
   it('holds a lock over a second client and lets the holder through', async () => {
@@ -232,6 +273,62 @@ describe('cloud drive WebDAV write locks', () => {
     expect((await dav('UNLOCK', '/Docs/a.txt', { 'Lock-Token': stranger })).status).toBe(409)
     expect((await dav('UNLOCK', '/Docs', { 'Lock-Token': locked.token! })).status).toBe(409)
     expect((await dav('UNLOCK', '/Docs/a.txt', { 'Lock-Token': locked.token! })).status).toBe(204)
+  })
+
+  it('keeps file identity, tags, stars, ACL and shares when PUT overwrites content', async () => {
+    await setupWebdav()
+    expect((await put('/Docs/stable.txt', 'old')).status).toBe(201)
+    const before = sqlite.prepare(
+      "SELECT id, storage_key FROM CloudDrive_files WHERE user_id = ? AND path = '/Docs/stable.txt' AND deleted_at IS NULL",
+    ).get(USER) as { id: string; storage_key: string }
+    expect((await call('PATCH', `/api/clouddrive/files/${before.id}`, { starred: true })).status).toBe(200)
+    expect((await call('POST', `/api/clouddrive/files/${before.id}/tags`, { tag: 'important', color: '#ff0000' })).status).toBe(200)
+    const share = await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: before.id, mountId: 'primary', path: '/Docs/stable.txt', allowDownload: true,
+    })
+    expect(share.status).toBe(200)
+    sqlite.prepare(
+      'INSERT INTO CloudDrive_acl (owner_id, file_id, grantee_id, created_at, revoked_at) VALUES (?, ?, ?, ?, NULL)',
+    ).run(USER, before.id, 'grantee-user', Date.now())
+
+    expect((await put('/Docs/stable.txt', 'replacement')).status).toBe(204)
+    const after = sqlite.prepare(
+      "SELECT id, storage_key, size, deleted_at, starred_at FROM CloudDrive_files WHERE user_id = ? AND path = '/Docs/stable.txt' AND deleted_at IS NULL",
+    ).get(USER) as { id: string; storage_key: string; size: number; deleted_at: null; starred_at: number }
+    expect(after).toMatchObject({ id: before.id, size: 11, deleted_at: null })
+    expect(after.starred_at).not.toBeNull()
+    expect(after.storage_key).not.toBe(before.storage_key)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM CloudDrive_file_tags WHERE user_id = ? AND file_id = ?').get(USER, before.id)).toEqual({ count: 1 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM CloudDrive_acl WHERE owner_id = ? AND file_id = ? AND revoked_at IS NULL').get(USER, before.id)).toEqual({ count: 1 })
+    expect(sqlite.prepare('SELECT size, revoked_at FROM CloudDrive_shares WHERE user_id = ? AND file_id = ?').get(USER, before.id)).toEqual({ size: 11, revoked_at: null })
+    expect(sqlite.prepare('SELECT version, storage_key FROM CloudDrive_file_versions WHERE user_id = ? AND file_id = ?').get(USER, before.id)).toEqual({ version: 1, storage_key: before.storage_key })
+    expect(await (await dav('GET', '/Docs/stable.txt')).text).toBe('replacement')
+    const historical = await app().fetch(new Request(`http://localhost/api/clouddrive/files/${before.id}/versions/1/content`), env)
+    expect(historical.status).toBe(200)
+    expect(await historical.text()).toBe('old')
+  })
+
+  it('explicitly refuses COPY of a distributed file instead of creating an unreadable row', async () => {
+    await setupWebdav()
+    expect((await put('/Docs/dist.bin', 'parts')).status).toBe(201)
+    sqlite.prepare(
+      "UPDATE CloudDrive_files SET storage_kind = 'distributed', storage_key = NULL WHERE user_id = ? AND path = '/Docs/dist.bin'",
+    ).run(USER)
+    const copied = await dav('COPY', '/Docs/dist.bin', {
+      Destination: 'http://localhost/clouddrive/dav/Docs/copy.bin',
+    })
+    expect(copied.status).toBe(501)
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM CloudDrive_files WHERE user_id = ? AND path = '/Docs/copy.bin'").get(USER)).toEqual({ count: 0 })
+
+    expect((await put('/Docs/tree/leaf.bin', 'parts')).status).toBe(201)
+    sqlite.prepare(
+      "UPDATE CloudDrive_files SET storage_kind = 'distributed', storage_key = NULL WHERE user_id = ? AND path = '/Docs/tree/leaf.bin'",
+    ).run(USER)
+    const folderCopy = await dav('COPY', '/Docs/tree', {
+      Destination: 'http://localhost/clouddrive/dav/Docs/tree-copy',
+    })
+    expect(folderCopy.status).toBe(501)
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM CloudDrive_files WHERE user_id = ? AND path = '/Docs/tree-copy'").get(USER)).toEqual({ count: 0 })
   })
 
   it('covers paths the way a lock claims them', () => {

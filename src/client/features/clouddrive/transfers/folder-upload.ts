@@ -64,7 +64,11 @@ export async function createFolderTree(
   const resolved = new Map<string, string>([['', rootPath]])
   for (const directory of plan.directories) {
     const segments = directory.split('/')
-    const parent = resolved.get(segments.slice(0, -1).join('/')) ?? rootPath
+    const parentKey = segments.slice(0, -1).join('/')
+    const parent = parentKey === '' ? rootPath : resolved.get(parentKey)
+    // A failed parent invalidates its whole descendant subtree. Falling back to the root here used
+    // to flatten those children into a different folder and upload files the reader never approved.
+    if (!parent) continue
     try {
       await api.mkdir({ mountId, parentPath: parent, name: segments[segments.length - 1], conflict: 'reuse' })
       resolved.set(directory, `${parent === '/' ? '' : parent}/${segments[segments.length - 1]}`)

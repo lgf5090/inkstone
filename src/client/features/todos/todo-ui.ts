@@ -37,26 +37,33 @@ export function priorityDot(priority: TaskPriority): string {
 /**
  * A due date as a card shows it: the time when it is today, the day otherwise.
  *
- * A date with no time is stored as the end of that day, so it is shown as a day and never as
- * "23:59" — the minute is an implementation detail of "due by then", not something the reader wrote.
+ * An explicit all-day flag keeps a real 23:59 task distinct from a calendar-day task. Older rows that
+ * predate the flag keep their end-of-day reading, so existing date-only tasks do not grow a clock time.
  *
  * Every reading of the instant — the day it is filed under, the minute it prints, the day it prints —
  * is the account's zone's, because the groups the row sits in are cut by that same zone. Print it in
  * the machine's zone and a task correctly grouped under "today" arrives wearing tomorrow's date.
  */
-export function dueLabel(dueAt: number | null, bounds: { dayEnd: number; now: number }, timezone: string): { text: string; overdue: boolean } | null {
+export function dueLabel(
+  dueAt: number | null,
+  bounds: { dayEnd: number; now: number },
+  timezone: string,
+  options: { allDay?: boolean; dueOn?: string | null } = {},
+): { text: string; overdue: boolean } | null {
   if (dueAt === null) return null
   const locale = getLocale()
   const today = localDate(bounds.now, timezone)
-  const day = localDate(dueAt, timezone)
   const minute = toLocalMinute(dueAt, timezone)
-  const hasTime = !minute.endsWith('T23:59')
-  const overdue = dueAt < bounds.now
+  const allDay = options.allDay === true || (options.allDay === undefined && minute.endsWith('T23:59'))
+  const day = allDay ? options.dueOn ?? minute.slice(0, 10) : localDate(dueAt, timezone)
+  const hasTime = !allDay
+  const overdue = allDay ? day < today : dueAt < bounds.now
   if (day === today) {
     if (!hasTime) return { text: t('todo.smart.today'), overdue }
     return { text: minute.slice(11), overdue }
   }
-  const formatted = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', timeZone: timezone }).format(new Date(dueAt))
+  const formatted = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' })
+    .format(new Date(`${day}T12:00:00Z`))
   return { text: formatted, overdue }
 }
 

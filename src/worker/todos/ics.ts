@@ -17,10 +17,11 @@
  *
  * ## The time representation
  *
- * Every value is emitted in UTC (`Z`): `DTSTAMP` because RFC 5545 requires it to be UTC, and
+ * Timed values are emitted in UTC (`Z`): `DTSTAMP` because RFC 5545 requires it to be UTC, and
  * `DTSTART`/`DTEND` because a UTC instant is unambiguous without a `VTIMEZONE` block this module
- * would otherwise have to compute and keep correct. A task has no duration of its own, so `DTEND` is
- * `DTSTART` plus a fixed, named span — the event is a reminder window, not a meeting room booking.
+ * would otherwise have to compute and keep correct. An explicit all-day task uses `VALUE=DATE` and an
+ * exclusive next-day `DTEND`. A timed task with an estimate spans that duration; one without uses a
+ * fixed, named reminder window rather than pretending to be a meeting room booking.
  *
  * ## Which recurrences become an `RRULE`, and which degrade
  *
@@ -53,6 +54,12 @@ export interface IcsTask {
   priority: TaskPriority
   /** The current occurrence's due instant, in UTC milliseconds. */
   dueAt: number
+  /** The reader's estimated duration, or null when no duration is known. */
+  timeEstimateMs?: number | null
+  /** True when the due date is a whole calendar day. */
+  dueAllDay?: boolean
+  /** The authoritative account-zone day for an all-day task. */
+  dueOn?: string | null
   /** The already-parsed rule, or null when the task does not repeat. */
   repeat: RepeatRule | null
 }
@@ -87,7 +94,7 @@ const UID_DOMAIN = 'todo.inkstone'
 /** RFC 5545 `PRIORITY` runs 1 (highest) to 9 (lowest); this maps the app's four words onto it. */
 const PRIORITY_TO_IC: Record<TaskPriority, number> = { urgent: 1, high: 3, medium: 5, low: 9 }
 
-const FREQ_TO_IC: Record<RepeatRule['freq'], string> = {
+const FREQ_TO_IC: Partial<Record<RepeatRule['freq'], string>> = {
   daily: 'DAILY',
   weekly: 'WEEKLY',
   monthly: 'MONTHLY',
@@ -176,21 +183,33 @@ export function rruleFor(task: IcsTask, options: IcsCalendarOptions): string | n
   if (!rule) return null
   if (!offsetStableAcrossWindow(task.dueAt, options.horizonMs, options.timezone)) return null
   if (!clampsAcrossPeriods(rule, task.dueAt, options.timezone)) return null
+  const frequency = FREQ_TO_IC[rule.freq]
+  if (!frequency) return null
   const interval = rule.interval > 1 ? `;INTERVAL=${rule.interval}` : ''
-  return `FREQ=${FREQ_TO_IC[rule.freq]}${interval}`
+  return `FREQ=${frequency}${interval}`
 }
 
 function eventLines(task: IcsTask, options: IcsCalendarOptions): string[] {
   const uid = `${task.id}@${UID_DOMAIN}`
   const stamp = toIcsUtc(options.now)
   const start = toIcsUtc(task.dueAt)
-  const end = toIcsUtc(task.dueAt + ICS_EVENT_DURATION_MS)
+  const duration = task.timeEstimateMs != null && task.timeEstimateMs > 0
+    ? task.timeEstimateMs
+    : ICS_EVENT_DURATION_MS
+  const end = toIcsUtc(task.dueAt + duration)
+  const allDay = task.dueAllDay === true && task.dueOn !== null && task.dueOn !== undefined
+  const dayAfter = allDay
+    ? new Date(`${task.dueOn}T00:00:00Z`)
+    : null
+  if (dayAfter) dayAfter.setUTCDate(dayAfter.getUTCDate() + 1)
+  const dateStart = allDay ? `DTSTART;VALUE=DATE:${task.dueOn!.replaceAll('-', '')}` : `DTSTART:${start}`
+  const dateEnd = allDay ? `DTEND;VALUE=DATE:${dayAfter!.toISOString().slice(0, 10).replaceAll('-', '')}` : `DTEND:${end}`
   const lines = [
     'BEGIN:VEVENT',
     `UID:${uid}`,
     `DTSTAMP:${stamp}`,
-    `DTSTART:${start}`,
-    `DTEND:${end}`,
+    dateStart,
+    dateEnd,
     `SUMMARY:${escapeIcsText(task.title)}`,
     `STATUS:CONFIRMED`,
     `PRIORITY:${PRIORITY_TO_IC[task.priority]}`,

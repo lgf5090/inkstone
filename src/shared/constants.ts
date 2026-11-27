@@ -32,12 +32,14 @@ import type {
   TemplaterSettings,
   TodoFocusSettings,
   TodoSettings,
+  TodoTemplate,
   TodoWorkdaySettings,
   UserSettings,
   ViewKind,
 } from './types'
 import { COVER_POSITIONS, COVER_SHAPES } from './property-decorations'
 import { isRemindOffset } from './todos/reminders'
+import { TASK_PRIORITIES } from './assistant'
 import { DEFAULT_LINTER_SETTINGS, normalizeLinterSettings } from './linter'
 import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
 import { version as packageVersion } from '../../package.json'
@@ -639,6 +641,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     dailyGoal: null,
     weeklyGoal: null,
     savedFilters: [],
+    templates: [],
     focus: DEFAULT_TODO_FOCUS,
     workday: DEFAULT_TODO_WORKDAY,
   },
@@ -685,6 +688,21 @@ export const NOTE_SAVED_SEARCH_NAME_MAX = 60
 export const NOTE_SAVED_SEARCH_QUERY_MAX = 200
 export const OFFLINE_NOTES_MAX = 200
 export const NOTE_WEBHOOK_EVENTS = ['note.created', 'note.updated', 'note.deleted'] as const
+
+/**
+ * The task templates one account may keep, and how much of a task one may carry.
+ *
+ * A template is a shape, not an archive: twenty is more than a menu can offer without becoming a second
+ * task list. The title and note ceilings are the task's own (`TITLE_MAX` / `DESCRIPTION_MAX` on the
+ * route), repeated here because the settings blob is written by a different door and has to hold the
+ * same line. Tags and steps keep the task's own counts for the same reason.
+ */
+export const TODO_TEMPLATE_MAX = 20
+export const TODO_TEMPLATE_NAME_MAX = 60
+export const TODO_TEMPLATE_TITLE_MAX = 300
+export const TODO_TEMPLATE_DESCRIPTION_MAX = 2_000
+export const TODO_TEMPLATE_STEP_MAX = 50
+export const TODO_TEMPLATE_TAG_MAX = 8
 
 /**
  * The range a daily or weekly goal may name, in whole tasks.
@@ -1114,6 +1132,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.todo.dailyGoal = todoGoal(todo.dailyGoal)
   base.todo.weeklyGoal = todoGoal(todo.weeklyGoal)
   base.todo.savedFilters = savedTodoFilters(todo.savedFilters)
+  base.todo.templates = todoTemplates(todo.templates)
   // Each subgroup is rebuilt from the stored blob rather than trusted as it arrived, and this is the
   // only place that says so: a key left out here reads back as its default no matter what the panel
   // wrote, with no error anywhere to say it happened.
@@ -1797,6 +1816,54 @@ function savedNoteSearches(value: unknown): SavedNoteSearch[] {
   return out
 }
 
+/** The kept task shapes, rebuilt from the stored blob. */
+function todoTemplates(value: unknown): TodoTemplate[] {
+  if (!Array.isArray(value)) return []
+  const out: TodoTemplate[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const record = asRecord(item)
+    const name = trimmedText(record.name, TODO_TEMPLATE_NAME_MAX)
+    const title = trimmedText(record.title, TODO_TEMPLATE_TITLE_MAX)
+    if (!name || !title) continue
+    const id = /^[a-z0-9][a-z0-9-]{3,63}$/i.test(String(record.id ?? '')) ? String(record.id).toLowerCase() : ''
+    const key = id || `${name}\u0000${title}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({
+      id: key,
+      name,
+      title,
+      description: trimmedText(record.description, TODO_TEMPLATE_DESCRIPTION_MAX),
+      priority: enumValue(record.priority, TASK_PRIORITIES, 'medium'),
+      listId: typeof record.listId === 'string' && record.listId.trim() ? record.listId.trim().slice(0, 64) : null,
+      tags: stringList(record.tags, TODO_TEMPLATE_TAG_MAX, 40),
+      steps: stringList(record.steps, TODO_TEMPLATE_STEP_MAX, 200),
+      timeEstimate: typeof record.timeEstimate === 'number' && Number.isFinite(record.timeEstimate) && record.timeEstimate > 0
+        ? record.timeEstimate
+        : null,
+    })
+    if (out.length >= TODO_TEMPLATE_MAX) break
+  }
+  return out
+}
+
+function stringList(value: unknown, max: number, maxLength: number): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const text = trimmedText(item, maxLength)
+    if (!text) continue
+    const key = text.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(text)
+    if (out.length >= max) break
+  }
+  return out
+}
+
 function offlineNoteIds(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   const out: string[] = []
@@ -2238,6 +2305,7 @@ function cloneDefaultSettings(): UserSettings {
     todo: {
       ...DEFAULT_SETTINGS.todo,
       savedFilters: [],
+      templates: [],
       // A nested subgroup needs its own copy: a shallow spread would hand every clone the same
       // `pomodoro` object, and one reader's edit would show up in the next one's defaults.
       focus: {

@@ -94,28 +94,67 @@ export async function buildFolderZip(
   }
   const rootName = rootPath === '/' ? mount.name : rootPath.slice(rootPath.lastIndexOf('/') + 1)
   const prefix = rootPath === '/' ? '' : `${rootName}/`
-  const sources: ZipSource[] = []
-  for (const row of visible) {
-    // A ZIP entry may not start with `/`: that would name an absolute path rather than a member of the
-    // archive, and the root of the drive has no directory of its own to name.
-    const relative = row.path.slice(rootPath === '/' ? 1 : rootPath.length + 1)
-    const name = `${prefix}${relative}`
-    if (row.kind === 'folder') {
-      sources.push({ name: `${name}/`, lastModified: row.modified_at, input: new Uint8Array(0) })
-      continue
-    }
-    sources.push({ name, lastModified: row.modified_at, input: await openRow(env, db, userId, row) })
-  }
-  if (files.length === 0) {
-    // An empty folder still has to answer with something a reader can open, not a 404.
-    sources.push({ name: `${rootName}/`, lastModified: Date.now(), input: new Uint8Array(0) })
-  }
   return {
     filename: `${rootName || 'download'}.zip`,
     items: files.length,
     bytes,
-    stream: makeZip(sources, { buffersAreUTF8: true }),
+    stream: makeZip(openSources(env, db, userId, visible, rootPath, prefix, rootName, files.length === 0), { buffersAreUTF8: true }),
   }
+}
+
+const ZIP_OPEN_PREFETCH = 8
+
+async function* openSources(
+  env: Env,
+  db: D1Database,
+  userId: string,
+  rows: readonly ZipRow[],
+  rootPath: string,
+  prefix: string,
+  rootName: string,
+  empty: boolean,
+): AsyncGenerator<ZipSource> {
+  if (empty) {
+    yield { name: `${rootName}/`, lastModified: Date.now(), input: new Uint8Array(0) }
+    return
+  }
+  const pending: Array<{ row: ZipRow; source: Promise<ZipSource> }> = []
+  let next = 0
+  const fill = () => {
+    while (pending.length < ZIP_OPEN_PREFETCH && next < rows.length) {
+      const row = rows[next++]!
+      pending.push({ row, source: sourceFor(env, db, userId, row, rootPath, prefix) })
+    }
+  }
+  try {
+    fill()
+    while (pending.length) {
+      const entry = pending.shift()!
+      yield await entry.source
+      fill()
+    }
+  } finally {
+    // A cancelled ZIP must not leave prefetched object reads as unhandled rejections.
+    for (const entry of pending) entry.source.catch((error) => {
+      console.warn('[inkstone] CloudDrive could not finish a prefetched ZIP read:', error)
+    })
+  }
+}
+
+async function sourceFor(
+  env: Env,
+  db: D1Database,
+  userId: string,
+  row: ZipRow,
+  rootPath: string,
+  prefix: string,
+): Promise<ZipSource> {
+  // A ZIP entry may not start with `/`: that would name an absolute path rather than a member of the
+  // archive, and the root of the drive has no directory of its own to name.
+  const relative = row.path.slice(rootPath === '/' ? 1 : rootPath.length + 1)
+  const name = `${prefix}${relative}`
+  if (row.kind === 'folder') return { name: `${name}/`, lastModified: row.modified_at, input: new Uint8Array(0) }
+  return { name, lastModified: row.modified_at, input: await openRow(env, db, userId, row) }
 }
 
 async function openRow(
