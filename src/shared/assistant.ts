@@ -8,7 +8,8 @@
  */
 
 import { assertRelayableEndpoint } from './ai-proxy-guard'
-import { isValidTimeZone, parseScheduleSpec, type ScheduleSpec } from './assistant-schedule'
+import { isValidTimeZone } from './time-zone'
+import { parseScheduleSpec, type ScheduleSpec } from './assistant-schedule'
 import { DEFAULT_WEB_SEARCH_ENGINE_ID, webSearchEngineFor, webSearchEngineValue } from './web-search-engines'
 import type { MessageKey } from './locales/en-US'
 
@@ -995,7 +996,7 @@ export type AssistantToolMode = (typeof ASSISTANT_TOOL_MODES)[number]
  * The kind is what the reader is really deciding about, not the individual tool: "ask before writing to
  * my notes" and "never delete anything" are policies about classes of action, and a reader who wanted to
  * enumerate thirty-five tools by hand would be doing the registry's job for it. The defaults are what
- * this app has always done — reads and writes run, deletions wait for a press.
+ * this app has always done — reads and most writes run; deletions and calendar writes wait for a press.
  */
 export type AssistantToolModes = Record<ToolPermission, AssistantToolMode>
 
@@ -1072,8 +1073,8 @@ export interface AssistantSettings {
   /** Ask the model to double-check an ambiguous conflict. One request per check. */
   aiConflictCheck: boolean
   /**
-   * What the assistant may do without asking, by kind of tool. Reads and writes run unattended by
-   * default; a deletion waits for the reader's press. The composer's own chip is the same setting, seen
+   * What the assistant may do without asking, by kind of tool. Reads and most writes run unattended by
+   * default; deletions and calendar writes wait for the reader's press. The composer's own chip is the same setting, seen
    * one class at a time, so there is one answer to "may it delete this?" rather than two that can drift.
    */
   toolModes: AssistantToolModes
@@ -2496,9 +2497,10 @@ export type ToolPermission = (typeof ASSISTANT_TOOL_PERMISSIONS)[number]
 export interface AssistantToolSpec {
   name: string
   labelKey: MessageKey
-  /** Only a destructive tool has one: the approval card names what will be removed. */
+  /** The approval card's action-specific question. */
   approvalKey?: MessageKey
   permission: ToolPermission
+  approvalByDefault?: boolean
   /** Optional override; the manager derives it from the name when absent. */
   category?: AssistantToolCategory
 }
@@ -3000,9 +3002,9 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'calendar_list_calendars', labelKey: 'assistant.tool.calendar_list_calendars', permission: 'read' },
   { name: 'calendar_list_events', labelKey: 'assistant.tool.calendar_list_events', permission: 'read' },
   { name: 'calendar_search', labelKey: 'assistant.tool.calendar_search', permission: 'read' },
-  { name: 'calendar_create_event', labelKey: 'assistant.tool.calendar_create_event', permission: 'write' },
-  { name: 'calendar_update_event', labelKey: 'assistant.tool.calendar_update_event', permission: 'write' },
-  { name: 'calendar_move_event', labelKey: 'assistant.tool.calendar_move_event', permission: 'write' },
+  { name: 'calendar_create_event', labelKey: 'assistant.tool.calendar_create_event', approvalKey: 'assistant.approval.calendar_create_event', approvalByDefault: true, permission: 'write' },
+  { name: 'calendar_update_event', labelKey: 'assistant.tool.calendar_update_event', approvalKey: 'assistant.approval.calendar_update_event', approvalByDefault: true, permission: 'write' },
+  { name: 'calendar_move_event', labelKey: 'assistant.tool.calendar_move_event', approvalKey: 'assistant.approval.calendar_move_event', approvalByDefault: true, permission: 'write' },
   { name: 'calendar_free_busy', labelKey: 'assistant.tool.calendar_free_busy', permission: 'read' },
   { name: 'calendar_find_slot', labelKey: 'assistant.tool.calendar_find_slot', permission: 'read' },
   { name: 'calendar_delete_event', labelKey: 'assistant.tool.calendar_delete_event', approvalKey: 'assistant.approval.calendar_delete_event', permission: 'destructive' },

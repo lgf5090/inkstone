@@ -49,7 +49,12 @@ export function ToolManagerSection() {
       : { enabled, ...(mode ? { mode } : current.mode ? { mode: current.mode } : {}) }
     void saveSettings({ toolSettings: { ...settings.toolSettings, [name]: merged } })
   }
-  const modeValue = (name: string): ModeChoice => entryFor(name).mode ?? 'inherit'
+  const modeValue = (name: string): ModeChoice => {
+    const configured = entryFor(name).mode
+    if (configured) return configured
+    const spec = ASSISTANT_TOOL_SPECS.find(entry => entry.name === name)
+    return spec?.approvalByDefault && settings.toolModes[spec.permission] === 'auto' ? 'ask' : 'inherit'
+  }
   return (
     <div className="space-y-2">
       <SettingRow title={t('assistant.tools.disclosure')} description={t('assistant.tools.disclosure_hint')} controlId="assistant-tool-disclosure">

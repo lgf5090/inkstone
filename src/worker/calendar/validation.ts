@@ -12,7 +12,7 @@
  */
 
 import { Temporal } from 'temporal-polyfill'
-import { isValidTimeZone } from '@shared/assistant-schedule'
+import { isValidTimeZone } from '@shared/time-zone'
 import {
   CALENDAR_EVENT_TRIGGERS,
   CALENDAR_REMINDER_MINUTES,

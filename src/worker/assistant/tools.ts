@@ -308,6 +308,7 @@ interface BaseTool {
   name: string
   description: string
   permission: 'read' | 'write' | 'destructive'
+  approvalByDefault?: boolean
   fields: Record<string, FieldSpec>
   maxCallsPerTurn?: number
   /**
@@ -5123,6 +5124,9 @@ export function assertToolsMatchSpecs(): void {
     if (spec.permission !== definition.permission) {
       throw new Error(`assistant tool permission disagrees for ${definition.name}`)
     }
+    if (Boolean(spec.approvalByDefault) !== Boolean(definition.approvalByDefault)) {
+      throw new Error(`assistant tool approval default disagrees for ${definition.name}`)
+    }
   }
   for (const spec of ASSISTANT_TOOL_SPECS) {
     if (!names.has(spec.name)) throw new Error(`assistant tool spec has no implementation: ${spec.name}`)
@@ -5366,10 +5370,11 @@ export class ToolExecutor {
     // never stored for one. A grant that somehow predates that rule must not be honoured either: the
     // third party's call is held for a press every time, whatever the local settings say.
     const grant = definition.external ? undefined : this.ctx.settings.toolGrants[definition.name]
+    const classMode = toolModeFor(this.ctx.settings, definition.permission)
     return this.ctx.projectToolOverrides?.[definition.name]
       ?? this.ctx.settings.toolSettings[definition.name]?.mode
       ?? grant
-      ?? toolModeFor(this.ctx.settings, definition.permission)
+      ?? (definition.approvalByDefault && classMode === 'auto' ? 'ask' : classMode)
   }
 
   find(name: string): ToolDefinition | undefined {
@@ -5458,7 +5463,14 @@ export class ToolExecutor {
     // was shown, which is the same promise the deletion path keeps by remembering its target.
     const prepared = definition.permission === 'destructive'
       ? await definition.prepare(args, this.contextFor(callId))
-      : { targetId: '', targetLabel: '' }
+      : {
+          targetId: '',
+          targetLabel: typeof args.title === 'string'
+            ? args.title
+            : typeof args.query === 'string'
+              ? args.query
+              : typeof args.id === 'string' ? args.id : '',
+        }
     const action = await this.ctx.store.createPendingAction({
       conversationId: this.ctx.conversationId,
       tool: definition.name,

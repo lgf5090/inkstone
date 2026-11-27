@@ -1,5 +1,5 @@
 /** Defines the idempotent final D1 schema initialized by every Worker isolate. */
-import { isValidTimeZone } from '@shared/assistant-schedule'
+import { isValidTimeZone } from '@shared/time-zone'
 import { localDate } from '@shared/assistant-time'
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'

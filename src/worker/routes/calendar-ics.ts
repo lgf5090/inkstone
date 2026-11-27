@@ -21,7 +21,7 @@ import {
   isCalendarAttendeeStatus,
   isCalendarEntityId,
 } from '@shared/calendar/model'
-import { isValidTimeZone } from '@shared/assistant-schedule'
+import { isValidTimeZone } from '@shared/time-zone'
 import type { CalendarAttendeeDto, CalendarEventDto } from '@shared/calendar/model'
 
 const IMPORT_BODY_LIMIT = MAX_ICS_BYTES * 2 + 64 * 1024

@@ -20,7 +20,7 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import type { AssistantSettings, Automation } from '@shared/assistant'
-import { isValidTimeZone } from '@shared/assistant-schedule'
+import { isValidTimeZone } from '@shared/time-zone'
 import {
   DEFAULT_TODO_FOCUS,
   DEFAULT_TODO_WORKDAY,

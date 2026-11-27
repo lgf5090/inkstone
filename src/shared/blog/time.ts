@@ -1,5 +1,6 @@
 /** Calendar-day helpers for the blog's archive, always in the site's zone rather than UTC. */
-import { getZonedParts, isValidTimeZone, zonedTimeToUtc } from '../assistant-schedule'
+import { getZonedParts, zonedTimeToUtc } from '../assistant-schedule'
+import { isValidTimeZone } from '../time-zone'
 
 /** The zone a blog uses when its stored setting is absent or not an IANA name. */
 export const BLOG_DEFAULT_TIME_ZONE = 'UTC'

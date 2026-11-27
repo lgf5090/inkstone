@@ -598,6 +598,7 @@ export const CALENDAR_TOOLS: readonly ToolDefinition[] = [
     name: 'calendar_create_event',
     description: 'Create a real calendar event (or task) in D1. Give the title and a local start; a missing end defaults to one hour. A date without a time makes an all-day event. Location is stored on the event meta and shows in the calendar.',
     permission: 'write',
+    approvalByDefault: true,
     fields: {
       title: { type: 'string', description: 'Event title.', minLength: 1, maxLength: 300 },
       start: localDateField('Start, local to the reader.', false),
@@ -643,6 +644,7 @@ export const CALENDAR_TOOLS: readonly ToolDefinition[] = [
     name: 'calendar_update_event',
     description: 'Edit an existing event: title, description, location, times, recurrence rule or calendars. Pass the event id from a list/search, or a distinct query. Repeating series: pass the series id to edit all of it, or an occurrence id to edit only that occurrence.',
     permission: 'write',
+    approvalByDefault: true,
     fields: {
       id: { type: 'string', description: 'Event id from calendar_list_events or calendar_search.', maxLength: 96, optional: true },
       query: { type: 'string', description: 'Title words when the id is unknown. Must match exactly one event.', maxLength: 200, optional: true },
@@ -722,6 +724,7 @@ export const CALENDAR_TOOLS: readonly ToolDefinition[] = [
     name: 'calendar_move_event',
     description: 'Move an event to a new start while keeping its length, or give it a new length too. This is the tool for "move Friday\'s review to Monday at 10". Pass an occurrence id to move only that occurrence of a series.',
     permission: 'write',
+    approvalByDefault: true,
     fields: {
       id: { type: 'string', description: 'Event id from calendar_list_events or calendar_search.', maxLength: 96, optional: true },
       query: { type: 'string', description: 'Title words when the id is unknown. Must match exactly one event.', maxLength: 200, optional: true },

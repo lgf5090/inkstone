@@ -1,6 +1,6 @@
 import { Temporal } from 'temporal-polyfill'
 
-import { isValidTimeZone } from '../assistant-schedule'
+import { isValidTimeZone } from '../time-zone'
 
 /** Synthetic ids for calendars another account shares with this one; never stored in D1. */
 export const SHARED_CALENDAR_PREFIX = 'shared:'
@@ -392,6 +392,7 @@ export interface CalendarConnectionDto {
   id: string
   kind: CalendarConnectionKind
   label: string
+  baseUrl: string
   calendarHomeUrl: string | null
   scope: 'read' | 'write'
   writable: boolean
@@ -491,15 +492,7 @@ export function temporalToEpochMs(value: CalendarTemporal, fallbackTimeZone: str
   if (value instanceof Temporal.PlainDateTime) {
     return value.toZonedDateTime(fallbackTimeZone).epochMilliseconds
   }
-  return Temporal.ZonedDateTime.from({
-    timeZone: fallbackTimeZone,
-    year: value.year,
-    month: value.month,
-    day: value.day,
-    hour: 0,
-    minute: 0,
-    second: 0,
-  }).epochMilliseconds
+  return value.toZonedDateTime(fallbackTimeZone).epochMilliseconds
 }
 
 export function temporalValueToEpochMs(input: TemporalValue, fallbackTimeZone: string): number {
