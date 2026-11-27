@@ -8,7 +8,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { shortSince } from '../../lib/time'
-import { channelCachedSince, channelCacheLine, feedCacheLine } from './cacheLine'
+import { channelCachedSince, feedCacheLine } from './cacheLine'
 import type { RssCacheMeta } from './store'
 
 const HOUR = 60 * 60 * 1000
@@ -36,17 +36,6 @@ describe('one feed line', () => {
     // Five years back, so the wording of the date cannot change between the two calls to it.
     const fetchedAt = Date.now() - 5 * 365 * HOUR * 24
     expect(feedCacheLine({ fetchedAt, bytes: 100 })).toBe(t('rss.last_updated', { time: shortSince(fetchedAt) }))
-  })
-})
-
-describe('a channel line', () => {
-  it('totals the counts only when every feed has been measured', () => {
-    expect(channelCacheLine([meta({ count: 3 }), meta({ count: 4 })])).toContain(t('rss.storage.articles_n', { n: 7 }))
-    expect(channelCacheLine([meta({ count: 3 }), meta({ count: undefined })])).not.toContain(t('rss.storage.articles_n', { n: 3 }))
-  })
-
-  it('falls back to never fetched for a channel nothing has been stored for', () => {
-    expect(channelCacheLine([undefined, undefined])).toBe(t('rss.never_fetched'))
   })
 })
 

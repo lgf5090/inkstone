@@ -312,22 +312,6 @@ export function selectEntries(
   return query.filter === 'starred' || query.filter === 'later' ? byNewest(matched) : matched
 }
 
-export interface FeedBadge {
-  total: number
-  unread: number
-  starred: number
-}
-
-export function badgeFor(entries: RssEntry[], read: Set<string>, starred: Set<string>): FeedBadge {
-  let unread = 0
-  let isStarred = 0
-  for (const entry of entries) {
-    if (!read.has(entry.id)) unread++
-    if (starred.has(entry.id)) isStarred++
-  }
-  return { total: entries.length, unread, starred: isStarred }
-}
-
 /**
  * Unread counts per feed, per folder and per tag, in one pass over what the device holds.
  *
@@ -429,8 +413,6 @@ export function groupIdFor(name: string, parentId: string | null = null): string
   return parentId ? `g${rssHash(`${parentId}\u0000${folded}`).slice(0, 16)}` : `g${folded}`
 }
 
-/** The refresh ceiling: five minutes, matching the reference's "stale after" window. */
-export const FEED_STALE_MS = 5 * 60 * 1000
 const BACKOFF_BASE_MS = 5 * 60 * 1000
 const BACKOFF_CAP_MS = 60 * 60 * 1000
 
@@ -438,12 +420,6 @@ const BACKOFF_CAP_MS = 60 * 60 * 1000
 export function refreshBackoffMs(errorCount: number): number {
   if (errorCount <= 0) return 0
   return Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** Math.min(errorCount - 1, 6))
-}
-
-export function feedIsDue(feed: RssFeed, now: number, staleMs = FEED_STALE_MS): boolean {
-  if (feed.paused) return false
-  if (feed.errorCount > 0 && now - feed.lastErrorAt < refreshBackoffMs(feed.errorCount)) return false
-  return now - Math.max(feed.updatedAt, feed.lastAttemptAt) >= staleMs
 }
 
 /**
@@ -465,15 +441,6 @@ export function orderByStaleness(feeds: RssFeed[]): RssFeed[] {
     if (failing) return failing
     return Math.max(a.updatedAt, a.lastAttemptAt) - Math.max(b.updatedAt, b.lastAttemptAt)
   })
-}
-
-export interface RefreshSummary {
-  refreshed: number
-  changed: number
-  unchanged: number
-  failed: number
-  skipped: number
-  elapsedMs: number
 }
 
 /** The next/previous step through a list, which must not jump when a read mark lands. */

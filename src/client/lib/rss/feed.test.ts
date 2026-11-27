@@ -8,7 +8,7 @@ import {
   parseOpml,
   plainText,
 } from './feed'
-import { canonicalFeedUrl, entryIdFor, feedIdFor, newFeed, parseFeedCache, parseRssLibrary, RSS_LIMITS, trimLibrary } from '@shared/rss/model'
+import { canonicalFeedUrl, entryIdFor, feedIdFor, newFeed, parseFeedCache, parseRssLibrary, RSS_LIMITS } from '@shared/rss/model'
 
 const parser = new DOMParser()
 
@@ -376,12 +376,4 @@ describe('parseRssLibrary', () => {
     expect(data!.readIds).toHaveLength(RSS_LIMITS.readIds)
   })
 
-  it('trims marks that a hand-edited library smuggled past the parse', () => {
-    const data = parseRssLibrary(libraryFixture()).data!
-    data.readIds = Array.from({ length: RSS_LIMITS.readIds + 10 }, (_, index) => `x${index}`)
-    data.favorites = Array.from({ length: RSS_LIMITS.favorites + 10 }, (_, index) => `f${index}`)
-    trimLibrary(data)
-    expect(data.readIds).toHaveLength(RSS_LIMITS.readIds)
-    expect(data.favorites).toHaveLength(RSS_LIMITS.favorites)
-  })
 })

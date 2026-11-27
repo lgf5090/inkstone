@@ -224,19 +224,3 @@ export async function appendToDailyNote(entry: RssEntry, feed: RssFeed | undefin
   if (outcome === 'missing') return 'missing'
   return changed ? 'added' : 'already'
 }
-
-/** Free text a reader selected in the article, appended under a heading of its own. */
-export async function excerptToNote(text: string): Promise<AppendOutcome> {
-  const pattern = useSession.getState().settings.rss.dailyNoteTitle
-  if (!pattern.trim()) return 'off'
-  const title = dailyNoteTitle(pattern)
-  const body = text.trim()
-  if (!body) return 'off'
-  const existing = findNoteByTitle(title)
-  if (!existing) {
-    const noteId = await useNotes.getState().createNote({ title, content: `# ${title}\n\n${body}\n`, open: false })
-    return noteId ? 'added' : 'missing'
-  }
-  const outcome = await useNotes.getState().editRemoteContent(existing.id, current => `${current.replace(/\s+$/, '')}\n\n${body}\n`)
-  return outcome === 'written' ? 'added' : outcome === 'conflict' ? 'conflict' : 'missing'
-}

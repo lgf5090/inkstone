@@ -478,34 +478,6 @@ export function parseRssLibrary(value: unknown): RssParseResult {
   return { data, dropped, truncated }
 }
 
-export function libraryFromStored(raw: string | null | undefined): RssLibrary | null {
-  if (typeof raw !== 'string' || raw === '') return null
-  try {
-    return parseRssLibrary(JSON.parse(raw)).data
-  }
-  catch {
-    return null
-  }
-}
-
-/** Trim the reading marks to their ceilings, oldest first, so a long-lived library cannot grow. */
-export function trimLibrary(library: RssLibrary): RssLibrary {
-  library.readIds = library.readIds.slice(0, RSS_LIMITS.readIds)
-  library.favorites = library.favorites.slice(0, RSS_LIMITS.favorites)
-  library.readLater = library.readLater.slice(0, RSS_LIMITS.readLater)
-  const openedKeys = Object.keys(library.opened)
-  if (openedKeys.length > RSS_LIMITS.openedRecords) {
-    for (const key of openedKeys.sort((a, b) => library.opened[a] - library.opened[b]).slice(0, openedKeys.length - RSS_LIMITS.openedRecords)) {
-      delete library.opened[key]
-    }
-  }
-  const savedKeys = Object.keys(library.savedNotes)
-  if (savedKeys.length > RSS_LIMITS.savedNotes) {
-    for (const key of savedKeys.slice(0, savedKeys.length - RSS_LIMITS.savedNotes)) delete library.savedNotes[key]
-  }
-  return library
-}
-
 export function savedNoteKey(entryId: string, kind: string): string {
   return `${entryId}|${kind}`
 }

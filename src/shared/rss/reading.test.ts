@@ -5,7 +5,6 @@ import {
   channelEntries,
   descendantGroupIds,
   channelKey,
-  feedIsDue,
   feedShelfOrder,
   feedWantsRefresh,
   findEntry,
@@ -176,22 +175,6 @@ describe('refresh scheduling', () => {
     expect(refreshBackoffMs(12)).toBe(60 * 60_000)
   })
 
-  it('waits out the ceiling, respects a pause and honours a backoff', () => {
-    const now = 10_000_000
-    const feed = newFeed('fa', 'https://a.example.com/feed', 'Alpha', 0)
-    feed.updatedAt = now - 4 * 60_000
-    expect(feedIsDue(feed, now)).toBe(false)
-    feed.updatedAt = now - 6 * 60_000
-    expect(feedIsDue(feed, now)).toBe(true)
-    feed.paused = true
-    expect(feedIsDue(feed, now)).toBe(false)
-    feed.paused = false
-    feed.errorCount = 2
-    feed.lastErrorAt = now - 11 * 60_000
-    expect(feedIsDue(feed, now)).toBe(true)
-    feed.lastErrorAt = now - 60_000
-    expect(feedIsDue(feed, now)).toBe(false)
-  })
 
   it('paints stale feeds first and failing ones last', () => {
     const fresh = newFeed('f1', 'https://1.example.com/feed', 'one', 0)

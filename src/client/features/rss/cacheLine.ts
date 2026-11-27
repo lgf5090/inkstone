@@ -20,16 +20,6 @@ export function feedCacheLine(meta: RssCacheMeta | undefined): string {
   return parts.join(' · ')
 }
 
-/** One line for a channel of several feeds: how many articles, and the oldest fetch among them. */
-export function channelCacheLine(metas: Array<RssCacheMeta | undefined>): string {
-  const held = metas.filter((meta): meta is RssCacheMeta => !!meta)
-  if (!held.length) return t('rss.never_fetched')
-  const counts = held.map(meta => meta.count).filter((count): count is number => count !== undefined)
-  const parts = [t('rss.last_updated', { time: shortSince(Math.min(...held.map(meta => meta.fetchedAt))) })]
-  if (counts.length === held.length) parts.unshift(t('rss.storage.articles_n', { n: counts.reduce((sum, count) => sum + count, 0) }))
-  return parts.join(' · ')
-}
-
 /**
  * The moment the newest article on screen was fetched, when that moment is a long time ago.
  *

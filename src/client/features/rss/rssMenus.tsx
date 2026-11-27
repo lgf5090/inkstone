@@ -14,7 +14,7 @@ import { useUi, type ToastInput } from '../../store/ui'
 import { appendToDailyNote, openSavedNote, savedNoteId, saveArticleAsNote } from './notes'
 import { useRss } from './store'
 import { Menu, prompt, submenuFor, type MenuItem } from '../../components/overlay'
-import { RSS_LIMITS, safeHttpUrl, type RssEntry, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
+import { safeHttpUrl, type RssEntry, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
 import { descendantGroupIds, findFeed } from '@shared/rss/reading'
 import { tagKey } from '@shared/markdown-utils'
 
@@ -143,8 +143,6 @@ export function tagsItem(feed: RssFeed, library: RssLibrary, onToggle: (tag: str
     subItems: choices,
   }
 }
-
-export const RSS_TAG_LIMIT = RSS_LIMITS.tagsPerFeed
 
 /**
  * The row that puts a subscription's own address on the clipboard.
