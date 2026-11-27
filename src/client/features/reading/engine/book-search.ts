@@ -57,7 +57,7 @@ export async function chapterText(handle: EpubHandle, slot: number): Promise<str
 }
 
 export function normalizeForSearch(value: string): string {
-  return value.toLowerCase()
+  return value.normalize('NFKC').toLowerCase()
 }
 
 /**
