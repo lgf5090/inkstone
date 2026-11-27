@@ -56,6 +56,10 @@ export interface RssEntry {
   summary: string
   /** Feed HTML, already run through the sanitizer. Empty means the source only offers a summary. */
   content: string
+  /** The server released this body to stay inside a feed budget; the summary remains readable. */
+  contentReleased?: boolean
+  /** When the server stored the article, preserved by full backups. */
+  fetchedAt?: number
   imageUrl: string
   audioUrl: string
   /** Podcast episode length in seconds, when the feed declares it. */
@@ -304,6 +308,8 @@ export function normaliseEntry(value: unknown, feedId: string): RssEntry | null 
     publishedTs: typeof value.publishedTs === 'number' && Number.isFinite(value.publishedTs) ? Math.trunc(value.publishedTs) : null,
     summary: text(value.summary, RSS_LIMITS.summaryChars),
     content: text(value.content, RSS_LIMITS.contentChars),
+    ...(typeof value.contentReleased === 'boolean' ? { contentReleased: value.contentReleased } : {}),
+    ...(typeof value.fetchedAt === 'number' && Number.isFinite(value.fetchedAt) ? { fetchedAt: Math.trunc(value.fetchedAt) } : {}),
     imageUrl: text(value.imageUrl, RSS_LIMITS.urlChars),
     audioUrl: text(value.audioUrl, RSS_LIMITS.urlChars),
     duration: typeof value.duration === 'number' && Number.isFinite(value.duration) ? Math.max(0, Math.trunc(value.duration)) : undefined,

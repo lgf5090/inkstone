@@ -15,6 +15,7 @@
 import { emptyLibrary, normaliseEntry, parseRssLibrary, RSS_LIMITS, type RssEntry, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
 import { libraryMarkRows, marksIntoLibrary, RSS_LIST_MARK_KINDS, type RssMarkKind } from '@shared/rss/marks'
 import type { RssPatch } from '@shared/rss/patch'
+import { RSS_ARTICLE_WEBHOOK_TRIGGER } from '../db/schema'
 
 /** D1 binds at most 100 variables per statement; stay under it the way `routes/tags.ts` does. */
 const PARAM_BUDGET = 90
@@ -51,7 +52,7 @@ const TAG_ROW: RowSpec = { table: 'rss_feed_tag', columns: ['feed_id', 'tag'], k
 const MARK_ROW: RowSpec = { table: 'rss_mark', columns: ['kind', 'entry_id', 'value', 'at'], key: ['kind', 'entry_id'] }
 const ARTICLE_ROW: RowSpec = {
   table: 'rss_article',
-  columns: ['entry_id', 'feed_id', 'title', 'link', 'author', 'published_ts', 'summary', 'content', 'image_url', 'audio_url', 'duration', 'episode', 'season', 'fetched_at'],
+  columns: ['entry_id', 'feed_id', 'title', 'link', 'author', 'published_ts', 'summary', 'content', 'content_released', 'image_url', 'audio_url', 'duration', 'episode', 'season', 'fetched_at'],
   key: ['entry_id'],
 }
 
@@ -570,6 +571,7 @@ interface ArticleRow {
   published_ts: number | null
   summary: string
   content: string
+  content_released: number
   image_url: string
   audio_url: string
   duration: number | null
@@ -581,8 +583,8 @@ interface ArticleRow {
 function articleValues(entry: RssEntry, fetchedAt: number): SqlValue[] {
   return [
     entry.id, entry.feedId, entry.title, entry.link, entry.author, entry.publishedTs,
-    entry.summary, entry.content, entry.imageUrl, entry.audioUrl, entry.duration ?? null,
-    entry.episode ?? null, entry.season ?? null, fetchedAt,
+    entry.summary, entry.content, entry.contentReleased ? 1 : 0, entry.imageUrl, entry.audioUrl, entry.duration ?? null,
+    entry.episode ?? null, entry.season ?? null, entry.fetchedAt ?? fetchedAt,
   ]
 }
 
@@ -593,13 +595,60 @@ export async function saveServerRssArticles(db: D1Database, userId: string, feed
     {
       sql: `DELETE FROM rss_article WHERE rowid IN (
         SELECT rowid FROM (
-          SELECT rowid, ROW_NUMBER() OVER (ORDER BY published_ts DESC, fetched_at DESC, entry_id) AS rank,
-                 SUM(length(content) + length(summary) + length(title)) OVER
-                   (ORDER BY published_ts DESC, fetched_at DESC, entry_id ROWS UNBOUNDED PRECEDING) AS chars
-            FROM rss_article WHERE user_id = ?1 AND feed_id = ?2
-        ) WHERE rank > ?3 OR chars > ?4
+          SELECT rowid, protected, ROW_NUMBER() OVER (
+            ORDER BY protected DESC, published_ts DESC, fetched_at DESC, entry_id ASC
+          ) AS rank
+            FROM (
+              SELECT a.rowid, a.published_ts, a.fetched_at, a.entry_id,
+                     CASE WHEN EXISTS (
+                       SELECT 1 FROM rss_mark m
+                        WHERE m.user_id = a.user_id AND m.entry_id = a.entry_id AND m.kind IN ('star', 'later')
+                     ) THEN 1 ELSE 0 END AS protected
+                FROM rss_article a WHERE a.user_id = ?1 AND a.feed_id = ?2
+            )
+        ) WHERE rank > ?3
       )`,
-      params: [userId, feedId, RSS_LIMITS.entriesPerFeed, RSS_LIMITS.feedBytes],
+      params: [userId, feedId, RSS_LIMITS.entriesPerFeed],
+    },
+    {
+      sql: `UPDATE rss_article SET content = '', content_released = 1
+        WHERE rowid IN (
+          SELECT rowid FROM (
+            SELECT rowid, SUM(row_bytes) OVER (
+              ORDER BY published_ts DESC, fetched_at DESC, entry_id ASC ROWS UNBOUNDED PRECEDING
+            ) AS chars
+              FROM (
+                SELECT rowid, published_ts, fetched_at, entry_id,
+                       length(CAST(content AS BLOB)) + length(CAST(summary AS BLOB)) + length(CAST(title AS BLOB)) AS row_bytes
+                  FROM rss_article
+                 WHERE user_id = ?1 AND feed_id = ?2
+                   AND EXISTS (
+                     SELECT 1 FROM rss_mark m
+                      WHERE m.user_id = rss_article.user_id AND m.entry_id = rss_article.entry_id AND m.kind IN ('star', 'later')
+                   )
+              )
+          ) WHERE chars > ?3
+        )`,
+      params: [userId, feedId, RSS_LIMITS.feedBytes],
+    },
+    {
+      sql: `DELETE FROM rss_article WHERE rowid IN (
+        SELECT rowid FROM (
+          SELECT rowid, protected, SUM(row_bytes) OVER (
+            ORDER BY protected DESC, published_ts DESC, fetched_at DESC, entry_id ASC ROWS UNBOUNDED PRECEDING
+          ) AS chars
+            FROM (
+              SELECT a.rowid, a.published_ts, a.fetched_at, a.entry_id,
+                     CASE WHEN EXISTS (
+                       SELECT 1 FROM rss_mark m
+                        WHERE m.user_id = a.user_id AND m.entry_id = a.entry_id AND m.kind IN ('star', 'later')
+                     ) THEN 1 ELSE 0 END AS protected,
+                     length(CAST(a.content AS BLOB)) + length(CAST(a.summary AS BLOB)) + length(CAST(a.title AS BLOB)) AS row_bytes
+                FROM rss_article a WHERE a.user_id = ?1 AND a.feed_id = ?2
+            )
+        ) WHERE protected = 0 AND chars > ?3
+      )`,
+      params: [userId, feedId, RSS_LIMITS.feedBytes],
     },
   ]
   await db.batch(statements.map(statement => db.prepare(statement.sql).bind(...statement.params)))
@@ -617,6 +666,8 @@ function articleFromRow(row: ArticleRow): RssEntry | null {
     publishedTs: row.published_ts,
     summary: row.summary,
     content: row.content,
+    contentReleased: Number(row.content_released) === 1,
+    fetchedAt: row.fetched_at,
     imageUrl: row.image_url,
     audioUrl: row.audio_url,
     duration: row.duration,
@@ -627,11 +678,57 @@ function articleFromRow(row: ArticleRow): RssEntry | null {
 
 export async function loadServerRssArticles(db: D1Database, userId: string, feedId: string): Promise<RssEntry[]> {
   const { results } = await db.prepare(
-    `SELECT feed_id, entry_id, title, link, author, published_ts, summary, content, image_url, audio_url, duration, episode, season, fetched_at
+    `SELECT feed_id, entry_id, title, link, author, published_ts, summary, content, content_released, image_url, audio_url, duration, episode, season, fetched_at
        FROM rss_article WHERE user_id = ?1 AND feed_id = ?2
       ORDER BY published_ts DESC, fetched_at DESC, entry_id ASC LIMIT ?3`,
-  ).bind(userId, feedId, RSS_LIMITS.entriesPerFeed).all<ArticleRow>()
+  ).bind(userId, feedId, RSS_LIMITS.entriesPerFeed + RSS_LIMITS.favorites + RSS_LIMITS.readLater).all<ArticleRow>()
   return results.map(articleFromRow).filter((entry): entry is RssEntry => entry !== null)
+}
+
+export async function loadServerRssArticleBackup(
+  db: D1Database,
+  userId: string,
+  includeContent: boolean,
+  feedId = '',
+): Promise<RssEntry[]> {
+  const content = includeContent ? 'content' : "'' AS content"
+  const scope = feedId ? 'AND a.feed_id = ?2' : ''
+  const { results } = await db.prepare(
+    `SELECT a.feed_id, a.entry_id, a.title, a.link, a.author, a.published_ts, a.summary,
+            ${content}, a.content_released, a.image_url, a.audio_url, a.duration, a.episode, a.season, a.fetched_at
+       FROM rss_article a
+       JOIN rss_feed f ON f.user_id = a.user_id AND f.id = a.feed_id
+      WHERE a.user_id = ?1 ${scope}
+      ORDER BY a.feed_id ASC, a.published_ts DESC, a.fetched_at DESC, a.entry_id ASC
+      LIMIT ${RSS_LIMITS.feeds * RSS_LIMITS.entriesPerFeed + 1}`,
+  ).bind(...(feedId ? [userId, feedId] : [userId])).all<ArticleRow>()
+  return results.map(articleFromRow).filter((entry): entry is RssEntry => entry !== null)
+}
+
+/** Replace one account's articles without publishing restore rows as new-article webhooks. */
+export async function restoreServerRssArticles(db: D1Database, userId: string, entries: readonly RssEntry[]): Promise<number> {
+  const carried = JSON.stringify(entries)
+  await db.batch([
+    db.prepare('DROP TRIGGER IF EXISTS rss_article_webhook'),
+    db.prepare('DELETE FROM rss_article WHERE user_id = ?1').bind(userId),
+    db.prepare(
+      `INSERT INTO rss_article
+         (user_id, feed_id, entry_id, title, link, author, published_ts, summary, content,
+          content_released, image_url, audio_url, duration, episode, season, fetched_at)
+       SELECT ?1,
+              json_extract(value, '$.feedId'), json_extract(value, '$.id'),
+              json_extract(value, '$.title'), json_extract(value, '$.link'),
+              json_extract(value, '$.author'), json_extract(value, '$.publishedTs'),
+              json_extract(value, '$.summary'), json_extract(value, '$.content'),
+              COALESCE(json_extract(value, '$.contentReleased'), 0),
+              json_extract(value, '$.imageUrl'), json_extract(value, '$.audioUrl'),
+              json_extract(value, '$.duration'), json_extract(value, '$.episode'),
+              json_extract(value, '$.season'), COALESCE(json_extract(value, '$.fetchedAt'), 0)
+         FROM json_each(?2)`,
+    ).bind(userId, carried),
+    db.prepare(RSS_ARTICLE_WEBHOOK_TRIGGER),
+  ])
+  return entries.length
 }
 
 export type RssArticleField = 'any' | 'title' | 'summary' | 'content' | 'author'
@@ -653,7 +750,7 @@ export interface RssArticlePage {
   total: number
 }
 
-const ARTICLE_COLUMNS = 'feed_id, entry_id, title, link, author, published_ts, summary, content, image_url, audio_url, duration, episode, season, fetched_at'
+const ARTICLE_COLUMNS = 'feed_id, entry_id, title, link, author, published_ts, summary, content, content_released, image_url, audio_url, duration, episode, season, fetched_at'
 const ARTICLE_FIELDS: Record<RssArticleField, string> = {
   any: "(instr(title, ?) > 0 OR instr(summary, ?) > 0 OR instr(content, ?) > 0 OR instr(author, ?) > 0)",
   title: 'instr(title, ?) > 0',

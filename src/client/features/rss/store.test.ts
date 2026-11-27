@@ -113,6 +113,11 @@ vi.mock('../../lib/api', () => ({
         cache.set('library', applyLibraryPatch(base, patch as never))
         return Promise.resolve({ savedAt: Date.now(), rows: 1 })
       },
+      restoreBackup: async (backup: import('@shared/rss/backup').RssBackup) => {
+        calls.push({ path: 'restore-backup', body: backup })
+        cache.set('library', structuredClone(backup.library))
+        return { ok: true, articles: backup.articles.length }
+      },
       fetch: async (requests: Array<{ url: string, etag?: string, lastModified?: string }>) => {
         calls.push({ path: 'fetch', body: requests })
         fetchActive++
@@ -784,7 +789,10 @@ describe('saving', () => {
     const restored = emptyLibrary()
     restored.feeds.push({ ...newFeed('f2', 'https://example.com/restored', 'Restored', 0), readBefore: 123 })
     restored.favorites = ['saved']
-    await useRss.getState().restoreLibrary(restored)
+    await useRss.getState().restoreBackup({
+      type: 'inkstone-rss-library', version: 2, exportedAt: new Date().toISOString(),
+      library: restored, articles: [], includesContent: false,
+    })
     expect(useRss.getState().library.feeds.map(item => item.id)).toEqual(['f2'])
     expect(useRss.getState().library.favorites).toEqual(['saved'])
     const server = parseRssLibrary(cache.get('library')).data

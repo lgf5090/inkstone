@@ -32968,6 +32968,7 @@ const allowed = new Map([
     "/** The hand-written notebook, absent from a backup taken before it existed. */",
     "/** Missing on backups written before locked notes existed; treated as false. */",
     "/** Present together only for a note-lock-v1 envelope; ordinary attachments leave all four absent. */",
+    "/** RSS subscriptions, reading marks and bounded server-side articles. */",
   ]],
   ["src/shared/blog/model.ts", [
     "/** Blog records, public projections and the render snapshot contract shared by every surface. */",
@@ -34386,6 +34387,8 @@ const allowed = new Map([
     "/** A reader-supplied title survives source refreshes. */",
     "/** Articles at or before this timestamp stay read even after their individual ids are evicted. */",
     "/** The final address after validated redirects. */",
+    "/** The server released this body to stay inside a feed budget; the summary remains readable. */",
+    "/** When the server stored the article, preserved by full backups. */",
   ]],
   ["src/shared/rss/patch.test.ts", [
     "/** The same account as another device left it: a different star, a feed this one has never seen. */",
@@ -42642,6 +42645,7 @@ const allowed = new Map([
     "// No state row means either a new account or a legacy library that still needs its one-time split.",
     "/** Server-side article storage: metadata and bounded bodies in D1 for cross-device reading. */",
     "/**\n * The reading library as rows.\n *\n * The account used to keep this as one JSON column, so starring an article sent the whole library\n * and a second device's newer save quietly replaced subscriptions it had never touched. Rows let one\n * change stay one change: a write is diffed against what is stored and only the rows that moved are\n * touched. Article rows live separately from the library: the scheduler stores bounded article text\n * for cross-device reading, while this module keeps subscriptions and the decisions made about them.\n *\n * The legacy column doubles as the migration marker, which is what separates an empty library from\n * an unmigrated one: rows are only authoritative once the account has an `rss_state` row, and the\n * column is set to NULL the moment it has been split. A reader who deleted every subscription keeps\n * the state row and an empty table set, and never re-runs the split.\n */",
+    "/** Replace one account's articles without publishing restore rows as new-article webhooks. */",
   ]],
   ["src/worker/lib/security-headers.ts", [
     "// The OAuth provider and the MCP handler answer their own responses, so the app",
@@ -53835,7 +53839,7 @@ const allowed = new Map([
   ]],
   ["tests/webssh-schema.test.ts", [
     "// The project tables append 385–396 after this lane's own block; later migrations add assistant,",
-    "// email, query indexes, properties, webhooks, task reminders, attachment encryption, CloudDrive remediation, all-day to-dos, calendar reliability and server-side RSS reading through 447.",
+    "// email, query indexes, properties, webhooks, task reminders, attachment encryption, CloudDrive remediation, all-day to-dos, calendar reliability and server-side RSS reading through 448.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",

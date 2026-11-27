@@ -191,6 +191,7 @@ export async function restoreShardedBackupFiles(
       ['templates', manifest.templates],
       ['automation', manifest.automation],
       ['subscriptions', manifest.subscriptions],
+      ['rss', manifest.rss],
       ['todos', manifest.todos],
       ['music', manifest.music],
       ['calendar', manifest.calendar],

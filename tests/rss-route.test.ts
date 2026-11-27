@@ -391,6 +391,29 @@ describe('article search', () => {
   })
 })
 
+describe('RSS backups', () => {
+  it('exports metadata or bodies explicitly and restores without publishing webhooks', async () => {
+    await request('/library', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ library: libraryWith(1) }) })
+    await saveServerRssArticles(db, USER, 'f0', [
+      { id: 'e1', feedId: 'f0', title: 'One', link: 'https://example.com/1', author: '', publishedTs: 1, summary: 'Summary', content: 'Body', imageUrl: '', audioUrl: '' },
+    ], 1)
+    sqlite.prepare(`INSERT INTO note_webhooks (id, user_id, title, url, secret_ciphertext, events, enabled, created_at, updated_at)
+      VALUES ('hook-rss', ?1, 'RSS', 'https://hooks.example/rss', 'cipher', '["rss.article.new"]', 1, 1, 1)`).run(USER)
+    const metadata = await (await request('/backup')).json() as { articles: Array<{ content: string }>, includesContent: boolean }
+    expect(metadata.includesContent).toBe(false)
+    expect(metadata.articles[0]?.content).toBe('')
+    const full = await (await request('/backup?includeContent=1')).json() as { articles: Array<{ content: string }>, includesContent: boolean }
+    expect(full.includesContent).toBe(true)
+    expect(full.articles[0]?.content).toBe('Body')
+    const before = sqlite.prepare('SELECT COUNT(*) AS count FROM note_webhook_deliveries').get() as { count: number }
+    const restored = await request('/backup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(full) })
+    expect(restored.status).toBe(200)
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM note_webhook_deliveries').get()).toEqual(before)
+    expect((await request('/backup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status).toBe(400)
+    expect((await request('/backup', undefined, 'other')).status).toBe(404)
+  })
+})
+
 describe('the feed relay', () => {
   it('refuses an address inside the deployment', async () => {
     stubFetch(() => response('<rss/>'))

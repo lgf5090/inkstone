@@ -1448,6 +1448,10 @@ export const api = {
       request<{ rule: { id: string, feedId: string, keyword: string, enabled: boolean, createdAt: number } }>('/api/rss/rules', { method: 'POST', body: { keyword, feedId } }),
     deleteRule: (id: string) => request<{ ok: true }>(`/api/rss/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     stats: () => request<{ total: number, read: number, unread: number, favorites: number, later: number, feeds: Array<{ feedId: string, total: number, read: number }>, daily: Array<{ date: string, count: number }> }>('/api/rss/stats'),
+    exportBackup: (includeContent = false) =>
+      request<import('@shared/rss/backup').RssBackup>(`/api/rss/backup${toQuery({ includeContent: includeContent ? '1' : '0' })}`),
+    restoreBackup: (backup: import('@shared/rss/backup').RssBackup) =>
+      request<{ ok: true, articles: number }>('/api/rss/backup', { method: 'POST', body: backup }),
     /** The same-origin address an article image or an episode enclosure loads from. */
     relayUrl: (url: string) => `/api/rss/relay?url=${encodeURIComponent(url)}`,
   },

@@ -18,7 +18,24 @@ describe('RSS library backup', () => {
     library.hiddenIds = ['e4']
     library.opened = { e1: 10 }
     library.savedNotes = { 'e1|note': 'n1' }
-    expect(parseRssLibraryBackup(exportRssLibraryBackup(library))).toEqual(library)
+    expect(parseRssLibraryBackup(exportRssLibraryBackup(library))?.library).toEqual(library)
+  })
+
+  it('carries article metadata and makes body export explicit', () => {
+    const library = emptyLibrary()
+    library.feeds.push(newFeed('f1', 'https://example.com/feed', 'Example', 0))
+    const entry = { id: 'e1', feedId: 'f1', title: 'One', link: 'https://example.com/1', author: '', publishedTs: 1, summary: 'Summary', content: 'Body', imageUrl: '', audioUrl: '' }
+    const metadata = parseRssLibraryBackup(exportRssLibraryBackup(library, [entry]))!
+    expect(metadata.articles[0]).toMatchObject({ id: 'e1', summary: 'Summary', content: '' })
+    expect(metadata.includesContent).toBe(false)
+    const full = parseRssLibraryBackup(exportRssLibraryBackup(library, [entry], { includeContent: true }))!
+    expect(full.articles[0]?.content).toBe('Body')
+    expect(full.includesContent).toBe(true)
+  })
+
+  it('reads the original library-only version without inventing articles', () => {
+    const value = { type: 'inkstone-rss-library', version: 1, exportedAt: new Date().toISOString(), library: emptyLibrary() }
+    expect(parseRssLibraryBackup(JSON.stringify(value))).toMatchObject({ version: 1, articles: [], includesContent: false })
   })
 
   it('rejects another format, a wrong version and a library that would be trimmed', () => {

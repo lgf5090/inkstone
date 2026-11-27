@@ -36,6 +36,7 @@ import {
 } from '@shared/rss/model'
 import { channelKey, descendantGroupIds, feedsForChannel, feedShelfOrder, feedWantsRefresh, groupKey, migrateEntryMarks, orderByStaleness, parseChannelKey, refreshBackoffMs, remoteContentKey, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
 import { diffLibrary, patchChars, patchIsEmpty } from '@shared/rss/patch'
+import type { RssBackup } from '@shared/rss/backup'
 import { FeedParseError, parseFeed, type ParsedFeed } from '../../lib/rss/feed'
 import type { LinkPlatform } from '@shared/rss/platform'
 import type { RssAiKind } from './ai'
@@ -163,7 +164,7 @@ export interface RssState {
   refresh: (feedIds?: string[], options?: { force?: boolean, staleMs?: number }) => Promise<RssRefreshSummary>
   addFeed: (url: string, groupId?: string) => Promise<RssAddResult>
   importFeeds: (inputs: Array<{ url: string, title: string, group: string, groupPath?: string[] }>) => Promise<number>
-  restoreLibrary: (library: RssLibrary) => Promise<void>
+  restoreBackup: (backup: RssBackup) => Promise<void>
   removeFeed: (feedId: string) => void
   renameFeed: (feedId: string, title: string) => void
   moveFeed: (feedId: string, groupId: string) => void
@@ -417,8 +418,7 @@ export const useRss = create<RssState>((set, get) => {
     publishCache()
   }
 
-  async function storeArticles(feedId: string, entries: RssEntry[]): Promise<void> {
-    const fetched = Date.now()
+  async function storeArticles(feedId: string, entries: RssEntry[], fetched = Date.now()): Promise<void> {
     index = { ...index, articles: { ...index.articles, [feedId]: cacheMeta(entries, fetched) } }
     await localDb.saveRssArticles({ feedId, fetchedAt: fetched, entries })
     // The index is what a later load asks before it goes to the network: which feeds this device
@@ -1144,12 +1144,16 @@ export const useRss = create<RssState>((set, get) => {
       return additions.length
     },
 
-    async restoreLibrary(library) {
-      const restored = structuredClone(library)
+    async restoreBackup(backup) {
+      await api.rss.restoreBackup(backup)
+      const restored = structuredClone(backup.library)
       const keep = new Set(restored.feeds.map(feed => feed.id))
       const removed = Object.keys(get().articles).filter(feedId => !keep.has(feedId))
       saveGeneration++
-      sent = null
+      if (saveTimer) window.clearTimeout(saveTimer)
+      saveTimer = 0
+      dirty = false
+      sent = structuredClone(restored)
       set((state) => {
         const articles = Object.fromEntries(Object.entries(state.articles).filter(([feedId]) => keep.has(feedId)))
         const fetchedAt = Object.fromEntries(Object.entries(state.fetchedAt).filter(([feedId]) => keep.has(feedId)))
@@ -1163,9 +1167,16 @@ export const useRss = create<RssState>((set, get) => {
         }
       })
       index = { ...index, articles: Object.fromEntries(Object.entries(index.articles).filter(([feedId]) => keep.has(feedId))) }
-      for (const feedId of removed) void localDb.dropRssArticles(feedId)
-      scheduleSave()
-      await flushSave()
+      for (const feedId of removed) await localDb.dropRssArticles(feedId)
+      const byFeed = new Map<string, RssEntry[]>()
+      for (const entry of backup.articles) {
+        const list = byFeed.get(entry.feedId) ?? []
+        list.push(entry)
+        byFeed.set(entry.feedId, list)
+      }
+      for (const [feedId, entries] of byFeed) {
+        if (entries.length) await storeArticles(feedId, entries, Math.max(...entries.map(entry => entry.fetchedAt ?? 0)) || Date.now())
+      }
       writeIndex()
       await prepare(restored.lastChannel ? parseChannelKey(restored.lastChannel) : { kind: 'all' })
     },

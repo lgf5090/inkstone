@@ -321,7 +321,7 @@ const RSS_RULE_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_rss_rule_feed ON rss_rule(user_id, feed_id, enabled)`,
 ]
 
-const RSS_ARTICLE_WEBHOOK_TRIGGER = `CREATE TRIGGER IF NOT EXISTS rss_article_webhook AFTER INSERT ON rss_article
+export const RSS_ARTICLE_WEBHOOK_TRIGGER = `CREATE TRIGGER IF NOT EXISTS rss_article_webhook AFTER INSERT ON rss_article
 BEGIN
   INSERT INTO note_webhook_deliveries
     (id, webhook_id, user_id, event, payload, attempts, next_attempt_at, status, last_error, created_at)
@@ -347,6 +347,7 @@ const RSS_ARTICLE_STATEMENTS = [
     published_ts INTEGER,
     summary TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
+    content_released INTEGER NOT NULL DEFAULT 0,
     image_url TEXT NOT NULL DEFAULT '',
     audio_url TEXT NOT NULL DEFAULT '',
     duration INTEGER,
@@ -5088,6 +5089,11 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       RSS_USER_DELETE_TRIGGER,
     ],
   },
+  {
+    version: 448,
+    skipIfColumnExists: { table: 'rss_article', column: 'content_released' },
+    statements: [`ALTER TABLE rss_article ADD COLUMN content_released INTEGER NOT NULL DEFAULT 0`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -5153,7 +5159,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   rss_group: ['user_id', 'id', 'parent_id', 'name', 'position', 'collapsed', 'icon', 'color', 'created_at', 'updated_at'],
   rss_mark: ['user_id', 'kind', 'entry_id', 'value', 'at'],
   rss_state: ['user_id', 'last_channel', 'saved_at'],
-  rss_article: ['user_id', 'feed_id', 'entry_id', 'title', 'link', 'author', 'published_ts', 'summary', 'content', 'image_url', 'audio_url', 'duration', 'episode', 'season', 'fetched_at'],
+  rss_article: ['user_id', 'feed_id', 'entry_id', 'title', 'link', 'author', 'published_ts', 'summary', 'content', 'content_released', 'image_url', 'audio_url', 'duration', 'episode', 'season', 'fetched_at'],
   rss_rule: ['user_id', 'id', 'feed_id', 'keyword', 'enabled', 'created_at'],
   ...ASSISTANT_REQUIRED_COLUMNS,
   ...DEVELOPMENT_CERTHUB_REQUIRED_COLUMNS,

@@ -35,6 +35,7 @@ interface BackupSelection {
   automation: { file: File; path: string } | null
   music: { file: File; path: string } | null
   subscriptions: { file: File; path: string } | null
+  rss: { file: File; path: string } | null
   todos: { file: File; path: string } | null
   calendar: { file: File; path: string } | null
   inknote: { file: File; path: string } | null
@@ -83,6 +84,7 @@ export async function restoreMarkdownBackupFolder(
   }
   for (const [selected, entry] of [
     [selection.subscriptions, selection.manifest.subscriptions],
+    [selection.rss, selection.manifest.rss],
     [selection.todos, selection.manifest.todos],
     [selection.calendar, selection.manifest.calendar],
     [selection.inknote, selection.manifest.inknote],
@@ -235,7 +237,7 @@ export async function restoreMarkdownBackupFolder(
       ),
     )
   }
-  for (const selected of [selection.subscriptions, selection.todos, selection.calendar, selection.inknote]) {
+  for (const selected of [selection.subscriptions, selection.rss, selection.todos, selection.calendar, selection.inknote]) {
     if (!selected) continue
     mergeResult(
       result,
@@ -360,6 +362,7 @@ async function selectLatestCompleteBackup(files: readonly File[]): Promise<Backu
       automation: resolveLibrary(manifest.automation),
       music: resolveLibrary(manifest.music),
       subscriptions: resolveLibrary(manifest.subscriptions),
+      rss: resolveLibrary(manifest.rss),
       todos: resolveLibrary(manifest.todos),
       calendar: resolveLibrary(manifest.calendar),
       inknote: resolveLibrary(manifest.inknote),

@@ -48,6 +48,8 @@ import { createBackupArchive } from '../backup/archive'
 import { applyBackupTemplates } from '../backup/templates'
 import { applyBackupQuickAdd } from '../backup/quickadd'
 import { applyBackupSubscriptions } from '../subscriptions/backup'
+import { parseRssBackup } from '@shared/rss/backup'
+import { restoreServerRssArticles, storeRssLibrary } from '../lib/rss-store'
 import { applyBackupTodos } from '../todos/backup'
 import { applyBackupMusic } from '../music/backup'
 import { applyBackupInknote } from '../inknote/backup'
@@ -298,6 +300,9 @@ transferRoutes.post('/import', async (c) => {
           if (backup.manifest.subscriptions) {
             expected.add(`${backup.rootPrefix}${backup.manifest.subscriptions.path}`.toLowerCase())
           }
+          if (backup.manifest.rss) {
+            expected.add(`${backup.rootPrefix}${backup.manifest.rss.path}`.toLowerCase())
+          }
           if (backup.manifest.todos) {
             expected.add(`${backup.rootPrefix}${backup.manifest.todos.path}`.toLowerCase())
           }
@@ -511,6 +516,7 @@ async function importBackupFileBatch(
   const templatesByPath = manifest.templates?.path.toLowerCase() ?? null
   const automationByPath = manifest.automation?.path.toLowerCase() ?? null
   const subscriptionsByPath = manifest.subscriptions?.path.toLowerCase() ?? null
+  const rssByPath = manifest.rss?.path.toLowerCase() ?? null
   const todosByPath = manifest.todos?.path.toLowerCase() ?? null
   const musicByPath = manifest.music?.path.toLowerCase() ?? null
   const calendarByPath = manifest.calendar?.path.toLowerCase() ?? null
@@ -569,6 +575,7 @@ async function importBackupFileBatch(
     const templates = templatesByPath !== null && key === templatesByPath
     const automation = automationByPath !== null && key === automationByPath
     const subscriptions = subscriptionsByPath !== null && key === subscriptionsByPath
+    const rss = rssByPath !== null && key === rssByPath
     const todos = todosByPath !== null && key === todosByPath
     const music = musicByPath !== null && key === musicByPath
     const calendar = calendarByPath !== null && key === calendarByPath
@@ -576,10 +583,10 @@ async function importBackupFileBatch(
     const email = emailByPath !== null && key === emailByPath
     const emailAttachment = emailAttachmentByPath.get(key) ?? null
     const emailRawMime = emailRawMimeByPath.get(key) ?? null
-    if (!note && !attachment && !templates && !automation && !subscriptions && !todos && !music && !calendar && !email && !emailAttachment && !emailRawMime && !inknote) {
+    if (!note && !attachment && !templates && !automation && !subscriptions && !rss && !todos && !music && !calendar && !email && !emailAttachment && !emailRawMime && !inknote) {
       throw new Error(`The file is not listed in the backup manifest: ${path}`)
     }
-    return { file, path, note, attachment, templates, automation, subscriptions, todos, music, calendar, email, emailAttachment, emailRawMime, inknote }
+    return { file, path, note, attachment, templates, automation, subscriptions, rss, todos, music, calendar, email, emailAttachment, emailRawMime, inknote }
   })
 
   const cachedBytes = new Map<string, Uint8Array>()
@@ -629,6 +636,7 @@ async function importBackupFileBatch(
       ?? (item.templates ? manifest.templates ?? null : null)
       ?? (item.automation ? manifest.automation ?? null : null)
       ?? (item.subscriptions ? manifest.subscriptions ?? null : null)
+      ?? (item.rss ? manifest.rss ?? null : null)
       ?? (item.todos ? manifest.todos ?? null : null)
       ?? (item.music ? manifest.music ?? null : null)
       ?? (item.calendar ? manifest.calendar ?? null : null)
@@ -645,6 +653,7 @@ async function importBackupFileBatch(
         : item.todos ? manifest.todos!.bytes
         : item.calendar ? manifest.calendar!.bytes
         : item.inknote ? manifest.inknote!.bytes
+        : item.rss ? manifest.rss!.bytes
         : manifest.subscriptions!.bytes,
       entry.sha256,
       entry.path,
@@ -662,7 +671,7 @@ async function importBackupFileBatch(
         }
       }
       noteTextByPath.set(item.path.toLowerCase(), text)
-    } else if (item.templates || item.automation || item.subscriptions || item.todos || item.music || item.calendar || item.inknote) {
+    } else if (item.templates || item.automation || item.subscriptions || item.rss || item.todos || item.music || item.calendar || item.inknote) {
       decodeBackupText(bytes, entry.path)
     }
   }
@@ -709,6 +718,16 @@ async function importBackupFileBatch(
       new Uint8Array(await subscriptionsItem.file.arrayBuffer()),
     )
     await applyBackupSubscriptions(c.env.DB, userId, text)
+  }
+  const rssItem = planned.find((item) => item.rss)
+  if (rssItem) {
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      new Uint8Array(await rssItem.file.arrayBuffer()),
+    )
+    const backup = parseRssBackup(text)
+    if (!backup) throw new Error('The RSS backup is invalid or exceeds its limits')
+    await storeRssLibrary(c.env.DB, userId, backup.library, Date.now())
+    await restoreServerRssArticles(c.env.DB, userId, backup.articles)
   }
   const todosItem = planned.find((item) => item.todos)
   if (todosItem) {

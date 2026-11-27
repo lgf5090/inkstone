@@ -17,7 +17,8 @@
 import { Hono } from 'hono'
 import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, safeHttpUrl, type RssFeed, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty, patchIsMarksOnly } from '@shared/rss/patch'
-import { accountExists, createRssRule, deleteRssRule, listRssRules, loadRssLibrary, loadRssReadingStats, loadServerRssArticles, queryServerRssArticles, rssFeedExists, rssMarkPatchFits, storeRssLibrary, storeRssPatch, type RssArticleField, type RssArticleMarkFilter, type RssRowPatch } from '../lib/rss-store'
+import { exportRssBackup, parseRssBackupValue, RSS_BACKUP_MAX_BYTES } from '@shared/rss/backup'
+import { accountExists, createRssRule, deleteRssRule, listRssRules, loadRssLibrary, loadRssReadingStats, loadServerRssArticleBackup, loadServerRssArticles, queryServerRssArticles, restoreServerRssArticles, rssFeedExists, rssMarkPatchFits, storeRssLibrary, storeRssPatch, type RssArticleField, type RssArticleMarkFilter, type RssRowPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -207,6 +208,33 @@ rssRoutes.get('/search', async (c) => {
     to: before ? Date.parse(`${before}T23:59:59.999Z`) : undefined,
   })
   return c.json({ articles: page.entries, total: page.total }, { headers: { 'Cache-Control': 'private, no-store' } })
+})
+
+rssRoutes.get('/backup', async (c) => {
+  const userId = c.get('userId')
+  const stored = await loadRssLibrary(c.env.DB, userId)
+  if (!stored.library) throw ApiError.notFound('No RSS library to export')
+  const includeContent = c.req.query('includeContent') === '1'
+  const articles = await loadServerRssArticleBackup(c.env.DB, userId, includeContent)
+  let body: string
+  try {
+    body = exportRssBackup(stored.library, articles, { includeContent })
+  }
+  catch (error) {
+    throw ApiError.tooLarge(error instanceof Error ? error.message : 'The RSS backup is too large')
+  }
+  return c.text(body, { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-store' } })
+})
+
+rssRoutes.post('/backup', async (c) => {
+  const userId = c.get('userId')
+  const body = await readJson<unknown>(c, RSS_BACKUP_MAX_BYTES)
+  const backup = parseRssBackupValue(body)
+  if (!backup) throw ApiError.badRequest('The RSS backup is invalid or exceeds its limits')
+  if (!(await accountExists(c.env.DB, userId))) throw ApiError.notFound('Account not found')
+  await storeRssLibrary(c.env.DB, userId, backup.library, Date.now())
+  const articles = await restoreServerRssArticles(c.env.DB, userId, backup.articles)
+  return c.json({ ok: true, articles })
 })
 
 rssRoutes.get('/library', async (c) => {

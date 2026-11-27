@@ -9,6 +9,7 @@ import {
   backupMusicPath,
   backupInknotePath,
   backupSubscriptionsPath,
+  backupRssPath,
   backupTemplatesPath,
   backupTodosPath,
   parseMarkdownBackupManifest,
@@ -20,6 +21,7 @@ import {
   MARKDOWN_BACKUP_VERSION,
 } from '@shared/backup-format'
 import { APP_VERSION, LIMITS, mergeSettings } from '@shared/constants'
+import { exportRssBackup } from '@shared/rss/backup'
 import { formatBytes } from '@shared/byte-format'
 import { extractAttachmentIds } from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
@@ -39,6 +41,7 @@ import { readBackupMusic } from '../music/backup'
 import { readBackupInknote } from '../inknote/backup'
 import { readBackupCalendar } from '../calendar/backup'
 import { readBackupEmail } from '../email/backup'
+import { loadRssLibrary, loadServerRssArticleBackup } from '../lib/rss-store'
 import { attachmentObjectKey } from '../attachments/keys'
 import { storedObject } from '../lib/json'
 import { NOTE_COLUMNS_FULL, NOTE_CONTENT_COLUMNS, toFolder, toNote, toTag, type FolderRow, type NoteRow, type TagRow } from '../db/rows'
@@ -47,7 +50,7 @@ import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { safeAttachmentMime } from '../lib/image'
 
-export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'todos' | 'music' | 'calendar' | 'email' | 'email-attachment' | 'email-raw-mime' | 'inknote'
+export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'rss' | 'todos' | 'music' | 'calendar' | 'email' | 'email-attachment' | 'email-raw-mime' | 'inknote'
 
 export interface BackupFile {
   path: string
@@ -340,6 +343,22 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
       'application/json; charset=utf-8',
       'subscriptions',
     )
+  let rssText: string | null = null
+  if (includeAuxiliary) {
+    const rss = await loadRssLibrary(env.DB, userId)
+    if (rss.library) {
+      const articles = await loadServerRssArticleBackup(env.DB, userId, false)
+      rssText = exportRssBackup(rss.library, articles)
+    }
+  }
+  const rssFile = rssText === null
+    ? null
+    : await staticFile(
+      backupRssPath(stamp),
+      rssText,
+      'application/json; charset=utf-8',
+      'rss',
+    )
   const todosText = includeAuxiliary ? await readBackupTodos(env.DB, userId) : null
   const todosFile = todosText === null
     ? null
@@ -406,6 +425,9 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
     subscriptions: subscriptionsFile
       ? { path: subscriptionsFile.path, bytes: subscriptionsFile.byteLength, sha256: subscriptionsFile.sha256 }
       : undefined,
+    rss: rssFile
+      ? { path: rssFile.path, bytes: rssFile.byteLength, sha256: rssFile.sha256 }
+      : undefined,
     todos: todosFile
       ? { path: todosFile.path, bytes: todosFile.byteLength, sha256: todosFile.sha256 }
       : undefined,
@@ -452,6 +474,7 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
     ...(templatesFile ? [templatesFile] : []),
     ...(automationFile ? [automationFile] : []),
     ...(subscriptionsFile ? [subscriptionsFile] : []),
+    ...(rssFile ? [rssFile] : []),
     ...(todosFile ? [todosFile] : []),
     ...(musicFile ? [musicFile] : []),
     ...(calendarFile ? [calendarFile] : []),

@@ -22,6 +22,8 @@ export const BACKUP_AUTOMATION_NAME = 'automation.json'
  */
 export const BACKUP_SUBSCRIPTIONS_NAME = 'subscriptions.json'
 
+export const BACKUP_RSS_NAME = 'rss.json'
+
 /** The music library's metadata, never its audio objects. */
 export const BACKUP_MUSIC_NAME = 'music.json'
 
@@ -94,6 +96,12 @@ export interface MarkdownBackupSubscriptionsEntry {
   sha256: string
 }
 
+export interface MarkdownBackupRssEntry {
+  path: string
+  bytes: number
+  sha256: string
+}
+
 export interface MarkdownBackupMusicEntry {
   path: string
   bytes: number
@@ -133,6 +141,8 @@ export interface MarkdownBackupManifest {
   automation?: MarkdownBackupAutomationEntry
   /** The subscription app's plans, receipts and reminder rules. */
   subscriptions?: MarkdownBackupSubscriptionsEntry
+  /** RSS subscriptions, reading marks and bounded server-side articles. */
+  rss?: MarkdownBackupRssEntry
   /** The to-do app's tasks, lists, tags, steps, alarms, worklog, habits and their history. */
   todos?: MarkdownBackupTodosEntry
   music?: MarkdownBackupMusicEntry
@@ -195,6 +205,15 @@ export function backupSubscriptionsPath(
   if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_SUBSCRIPTIONS_NAME}`
   if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
   return BACKUP_SUBSCRIPTIONS_NAME
+}
+
+export function backupRssPath(
+  stamp: string,
+  version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
+): string {
+  if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_RSS_NAME}`
+  if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
+  return BACKUP_RSS_NAME
 }
 
 export function backupTodosPath(
@@ -426,6 +445,20 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     subscriptions = { path: expectedPath, bytes: value.subscriptions.bytes, sha256: value.subscriptions.sha256 }
   }
 
+  let rss: MarkdownBackupRssEntry | undefined
+  if (value.rss !== undefined) {
+    if (!isRecord(value.rss)) return null
+    const expectedPath = backupRssPath(value.snapshot, value.version)
+    if (
+      value.rss.path !== expectedPath ||
+      !isSafeSize(value.rss.bytes) ||
+      value.rss.bytes > LIMITS.importUploadMaxBytes ||
+      typeof value.rss.sha256 !== 'string' ||
+      !HASH_RE.test(value.rss.sha256)
+    ) return null
+    rss = { path: expectedPath, bytes: value.rss.bytes, sha256: value.rss.sha256 }
+  }
+
   let todos: MarkdownBackupTodosEntry | undefined
   if (value.todos !== undefined) {
     if (!isRecord(value.todos)) return null
@@ -513,6 +546,7 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     templates,
     automation,
     subscriptions,
+    rss,
     todos,
     music,
     calendar,

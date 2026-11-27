@@ -1,20 +1,16 @@
-import { parseRssLibrary, type RssLibrary } from '@shared/rss/model'
+import type { RssEntry, RssLibrary } from '@shared/rss/model'
+import { exportRssBackup, parseRssBackup, type RssBackup, type RssBackupOptions } from '@shared/rss/backup'
 
-const BACKUP_TYPE = 'inkstone-rss-library'
-const BACKUP_VERSION = 1
+export { RSS_BACKUP_MAX_BYTES, RSS_BACKUP_VERSION, type RssBackup } from '@shared/rss/backup'
 
-export function exportRssLibraryBackup(library: RssLibrary): string {
-  return JSON.stringify({ type: BACKUP_TYPE, version: BACKUP_VERSION, exportedAt: new Date().toISOString(), library })
+export function exportRssLibraryBackup(
+  library: RssLibrary,
+  articles: readonly RssEntry[] = [],
+  options: RssBackupOptions = {},
+): string {
+  return exportRssBackup(library, articles, options)
 }
 
-export function parseRssLibraryBackup(text: string): RssLibrary | null {
-  try {
-    const value = JSON.parse(text) as { type?: unknown, version?: unknown, library?: unknown }
-    if (value.type !== BACKUP_TYPE || value.version !== BACKUP_VERSION) return null
-    const parsed = parseRssLibrary(value.library)
-    return parsed.data && parsed.dropped === 0 && !parsed.truncated ? parsed.data : null
-  }
-  catch {
-    return null
-  }
+export function parseRssLibraryBackup(text: string): RssBackup | null {
+  return parseRssBackup(text)
 }

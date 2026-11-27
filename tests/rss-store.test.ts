@@ -11,7 +11,7 @@ import {
 } from '../src/shared/rss/model'
 import { SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { diffLibrary } from '../src/shared/rss/patch'
-import { loadRssLibrary, queryServerRssArticles, rssFeedExists, rssMarkPatchFits, saveServerRssArticles, storeRssLibrary, storeRssPatch } from '../src/worker/lib/rss-store'
+import { loadRssLibrary, loadServerRssArticles, queryServerRssArticles, rssFeedExists, rssMarkPatchFits, saveServerRssArticles, storeRssLibrary, storeRssPatch } from '../src/worker/lib/rss-store'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'user-store'
@@ -335,5 +335,47 @@ describe('the server article store', () => {
     ])
     expect((await queryServerRssArticles(db, USER, { feedId: 'f1' })).entries.map(item => item.id)).toEqual(['a'])
     expect((await queryServerRssArticles(db, USER, { feedId: 'f2' })).entries.map(item => item.id)).toEqual(['b'])
+  })
+
+  it('keeps starred and later articles ahead of ordinary rows at the per-feed limit', async () => {
+    await storeRssLibrary(db, USER, library(), 1)
+    sqlite.prepare("INSERT INTO rss_mark (user_id, kind, entry_id, value, at) VALUES (?, 'star', 'old-star', '', 1)").run(USER)
+    sqlite.prepare("INSERT INTO rss_mark (user_id, kind, entry_id, value, at) VALUES (?, 'later', 'old-later', '', 1)").run(USER)
+    const ordinary = Array.from({ length: RSS_LIMITS.entriesPerFeed }, (_, index) => entry(`ordinary-${index}`, 'f1', index + 100))
+    await saveServerRssArticles(db, USER, 'f1', [entry('old-star', 'f1', 1), entry('old-later', 'f1', 2), ...ordinary], 3)
+    const stored = await loadServerRssArticles(db, USER, 'f1')
+    expect(stored).toHaveLength(RSS_LIMITS.entriesPerFeed)
+    expect(stored.map(item => item.id)).toContain('old-star')
+    expect(stored.map(item => item.id)).toContain('old-later')
+    expect(stored.map(item => item.id)).not.toContain('ordinary-0')
+  })
+
+  it('releases protected bodies over the byte budget while keeping their summaries', async () => {
+    await storeRssLibrary(db, USER, library(), 1)
+    for (const id of ['protected-a', 'protected-b', 'protected-c']) {
+      sqlite.prepare("INSERT INTO rss_mark (user_id, kind, entry_id, value, at) VALUES (?, 'star', ?, '', 1)").run(USER, id)
+    }
+    const body = 'x'.repeat(100_000)
+    await saveServerRssArticles(db, USER, 'f1', [
+      { ...entry('protected-a', 'f1', 3), content: body },
+      { ...entry('protected-b', 'f1', 2), content: body },
+      { ...entry('protected-c', 'f1', 1), content: body },
+    ], 4)
+    const stored = await loadServerRssArticles(db, USER, 'f1')
+    expect(stored.map(item => item.id)).toEqual(['protected-a', 'protected-b', 'protected-c'])
+    expect(stored[0]?.content).toHaveLength(100_000)
+    expect(stored[1]?.content).toHaveLength(100_000)
+    expect(stored[2]).toMatchObject({ content: '', contentReleased: true, summary: 'Summary protected-c' })
+  })
+
+  it('still evicts ordinary articles that exceed the byte budget', async () => {
+    await storeRssLibrary(db, USER, library(), 1)
+    const body = 'x'.repeat(100_000)
+    await saveServerRssArticles(db, USER, 'f1', [
+      { ...entry('large-a', 'f1', 3), content: body },
+      { ...entry('large-b', 'f1', 2), content: body },
+      { ...entry('large-c', 'f1', 1), content: body },
+    ], 4)
+    expect((await loadServerRssArticles(db, USER, 'f1')).map(item => item.id)).toEqual(['large-a', 'large-b'])
   })
 })
