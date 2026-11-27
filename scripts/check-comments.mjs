@@ -51309,11 +51309,11 @@ const allowed = new Map([
   ]],
   ["tests/policy-single-source.test.ts", [
     "// A re-forked floor would reintroduce a hard-coded length comparison.",
-    "// A caller that asked for every scope still gets only the two reads: what a client names is not the",
     "// same thing as what the account has switched on.",
     "// The sync guard decides whether a whole page is trusted. A status written out by hand there is a",
     "// page thrown away in silence — `cancelled` was added to the vocabulary and left this file behind,",
     "// so a task given up on one device never reached another.",
+    "// A caller that asked for every scope still gets only the read domains: what a client names is not the",
   ]],
   ["tests/price-periods.test.ts", [
     "/**\n * Price windows: what a stored schedule means, and which one a timestamp falls into.\n *\n * The two facts that are easy to get wrong live here: an overnight window belongs to the weekday it\n * started on, and the clock is the assistant's timezone rather than UTC or the browser's.\n */",

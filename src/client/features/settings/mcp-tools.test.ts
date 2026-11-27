@@ -125,7 +125,7 @@ describe('the MCP tool switches', () => {
 })
 
 /** The switches that decide what the next API key may do, by the permission they name. */
-const keyScopeSwitch = (scopeKey: 'settings.mcp_scope_write' | 'settings.mcp_scope_trash' | 'settings.mcp_scope_todo_read' | 'settings.mcp_scope_todo_write' | 'settings.mcp_scope_todo_danger') =>
+const keyScopeSwitch = (scopeKey: 'settings.mcp_scope_write' | 'settings.mcp_scope_trash' | 'settings.mcp_scope_todo_read' | 'settings.mcp_scope_todo_write' | 'settings.mcp_scope_todo_danger' | 'settings.mcp_scope_rss_read') =>
   document.body.querySelector<HTMLButtonElement>(
     `[role="switch"][aria-label="${t('settings.mcp_api_key_scope_toggle', { scope: t(scopeKey) })}"]`,
   )
