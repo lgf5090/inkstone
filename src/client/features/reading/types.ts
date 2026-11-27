@@ -1,4 +1,5 @@
 import type { BookPosition } from './position'
+import { LIMITS } from '@shared/constants'
 
 export type BookFormat = 'epub' | 'pdf' | 'cbz'
 
@@ -25,6 +26,8 @@ export interface BookRecord {
   coverUrl?: string | null
   /** The book's own contents, cached so the shelf, the note and the reader agree without a reparse. */
   toc: TocEntry[]
+  /** Older local imports may exceed the cloud limit; they remain readable but are never uploaded. */
+  localOnly?: boolean
 }
 
 export interface TocEntry {
@@ -95,4 +98,4 @@ export interface ImportFailure {
   reason: 'format' | 'size' | 'corrupt' | 'duplicate' | 'storage'
 }
 
-export const MAX_BOOK_BYTES = 200 * 1024 * 1024
+export const MAX_BOOK_BYTES = LIMITS.readerBookMaxBytes

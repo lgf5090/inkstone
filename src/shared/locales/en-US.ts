@@ -6921,6 +6921,7 @@ const CORE_MESSAGES_TAIL = {
     "reading.library_imported_highlights_value0": "{value0} marked passages in total",
     "reading.library_imported_value0": "Merged {value0} books",
     "reading.library_is_local_hint": "The shelf lives on this device; export your marks to carry them.",
+    "reading.local_only": "On this device only",
     "reading.line_height": "Line spacing",
     "reading.loading_library": "Loading your shelf…",
     "reading.location_marks": "Places",

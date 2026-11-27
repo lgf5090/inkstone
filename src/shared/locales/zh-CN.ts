@@ -6912,6 +6912,7 @@ console.log(\`Hello, \${name}!\`)
     "reading.library_imported_highlights_value0": "共 {value0} 条划线",
     "reading.library_imported_value0": "已合并 {value0} 本书",
     "reading.library_is_local_hint": "书架只存在本机；导出划线才能带走。",
+    "reading.local_only": "仅本机",
     "reading.line_height": "行距",
     "reading.loading_library": "正在载入书架…",
     "reading.location_marks": "位置标记",

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLibrary } from '../src/client/features/reading/store/library'
 import type { Highlight } from '../src/client/features/reading/types'
+import { LIMITS } from '../src/shared/constants'
 
 /**
  * The library store is exercised through its merge, not its persistence: the point of the check is what
@@ -46,6 +47,22 @@ describe('importing a library file', () => {
     ]))
     expect(useLibrary.getState().books.map((one) => one.id)).toEqual(['b5'])
     expect(useLibrary.getState().books[0]!.toc).toEqual([])
+  })
+
+  it('rejects a new file above the cloud limit before reading it', async () => {
+    const file = { name: 'large.epub', size: LIMITS.readerBookMaxBytes + 1, arrayBuffer: vi.fn() } as unknown as File
+    const result = await useLibrary.getState().addFiles([file])
+    expect(result.added).toEqual([])
+    expect(result.failed).toEqual([{ filename: 'large.epub', reason: 'size' }])
+    expect(file.arrayBuffer).not.toHaveBeenCalled()
+  })
+
+  it('keeps an older oversized import on this device without claiming it can sync', async () => {
+    const result = await useLibrary.getState().importLibrary(exportOf([
+      { id: 'old-large', format: 'epub', title: '旧书', author: '', language: '', publisher: '', filename: 'old.epub', size: LIMITS.readerBookMaxBytes + 1, addedAt: 2, unitCount: 3, coverPath: null, toc: [] },
+    ]))
+    expect(result.books).toBe(1)
+    expect(useLibrary.getState().books[0]?.localOnly).toBe(true)
   })
 
   it('merges highlights by id instead of doubling a re-imported list', async () => {

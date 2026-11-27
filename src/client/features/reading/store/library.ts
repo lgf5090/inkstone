@@ -56,6 +56,14 @@ function keyFor(user: string | null, suffix: string): string {
   return user ? `user:${user}:reading:${suffix}` : `reading:${suffix}`
 }
 
+function isLocalOnly(book: BookRecord): boolean {
+  return book.localOnly === true || book.size > LIMITS.readerBookMaxBytes
+}
+
+function cloudBooks(books: BookRecord[]): BookRecord[] {
+  return books.filter((book) => !isLocalOnly(book))
+}
+
 export interface LibraryState extends PersistedLibrary {
   status: 'idle' | 'loading' | 'ready'
   /** Blob URLs for covers, minted when the shelf loads and revoked when a book is deleted. */
@@ -180,7 +188,7 @@ async function loadLibrary(user: string | null): Promise<PersistedLibrary> {
   const stored = await idbGet<PersistedLibrary>(keyFor(user, 'library'), store)
   if (!stored || typeof stored !== 'object') return { ...EMPTY }
   return {
-    books: Array.isArray(stored.books) ? stored.books : [],
+    books: Array.isArray(stored.books) ? stored.books.map((book) => ({ ...book, localOnly: isLocalOnly(book) })) : [],
     progress: stored.progress ?? {},
     highlights: stored.highlights ?? {},
     marks: stored.marks ?? {},
@@ -280,7 +288,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
             failed.push({ filename: file.name, reason: 'duplicate' })
             continue
           }
-          const record = { ...imported.record, id }
+          const record = { ...imported.record, id, localOnly: false }
           known.add(id)
           await idbSet(keyFor(userId, `book:${id}`), new Blob([imported.bytes as unknown as BlobPart]), store)
           const coverBlob = imported.cover
@@ -299,7 +307,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
             try {
               const now = get()
               await pushLibrary({
-                books: now.books, progress: now.progress, highlights: now.highlights,
+                books: cloudBooks(now.books), progress: now.progress, highlights: now.highlights,
                 marks: now.marks, stats: now.stats, notes: now.notes, groups: now.groups,
               })
               await uploadBookBytes(record, new Blob([imported.bytes as unknown as BlobPart]), (sent, total) => {
@@ -505,7 +513,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       set({ sync: { ...state.sync, phase: 'pushing', message: null } })
       try {
         const answer = await pushLibrary({
-          books: state.books,
+          books: cloudBooks(state.books),
           progress: state.progress,
           highlights: state.highlights,
           marks: state.marks,
@@ -577,7 +585,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
         && typeof book.title === 'string'
         && ['epub', 'pdf', 'cbz'].includes(book.format as string)
         && typeof book.unitCount === 'number' && Number.isFinite(book.unitCount))
-        .map((book) => ({ ...book, toc: Array.isArray(book.toc) ? book.toc.filter(isRecord) : [] }))
+        .map((book) => ({ ...book, localOnly: typeof book.size === 'number' && book.size > LIMITS.readerBookMaxBytes, toc: Array.isArray(book.toc) ? book.toc.filter(isRecord) : [] }))
       const rejected = parsed.books.length - wanted.length
       parsed.books = wanted
       const state = get()
@@ -696,7 +704,7 @@ async function uploadMissingFiles(getState: () => LibraryState, bookIds: string[
   for (const id of bookIds) {
     const state = getState()
     const book = state.books.find((one) => one.id === id)
-    if (!book || !state.userId) continue
+    if (!book || !state.userId || isLocalOnly(book)) continue
     const blob = await idbGet<Blob>(keyFor(state.userId, `book:${id}`), store)
     if (!blob) continue
     setSync({ ...IDLE_SYNC, phase: 'uploading', bookId: id, total: book.size || blob.size })

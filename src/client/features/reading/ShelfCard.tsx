@@ -83,6 +83,11 @@ export function ShelfCard({
           style={{ width: `${finished ? 100 : percent}%`, opacity: fraction > 0 || finished ? 1 : 0 }}
           aria-hidden="true"
         />
+        {book.localOnly ? (
+          <span className="absolute top-1.5 right-1.5 rounded-[var(--r-sm)] bg-[var(--bg-overlay)] px-1.5 py-0.5 text-[length:var(--text-10)] font-medium text-[var(--text-secondary)] shadow-[var(--shadow-xs)]">
+            {t('reading.local_only')}
+          </span>
+        ) : null}
         {finished ? (
           <span className="absolute top-1.5 left-1.5 rounded-[var(--r-sm)] bg-[var(--bg-overlay)] px-1.5 py-0.5 text-[length:var(--text-10)] font-semibold text-[var(--success)] shadow-[var(--shadow-xs)]">
             {t('reading.finished')}
@@ -127,7 +132,7 @@ export function ShelfCard({
               <span className="tabular">{noteCount}</span>
             </span>
           ) : null}
-          <span className="truncate">{formatLastRead(lastReadAt) || book.format.toUpperCase()}</span>
+          <span className="truncate">{book.localOnly ? t('reading.local_only') : formatLastRead(lastReadAt) || book.format.toUpperCase()}</span>
         </p>
       </div>
 
