@@ -31,6 +31,7 @@ import { useRss } from './store'
 import { feedCacheLine } from './cacheLine'
 import { copyFeedUrlItem } from './rssMenus'
 import { filterSources, loadDiscovery, topTags, type DiscoveryCatalog, type DiscoverySource, type ShelfName } from './discovery'
+import { exportRssLibraryBackup, parseRssLibraryBackup } from './backup'
 
 type Tab = 'manage' | 'discover'
 
@@ -89,6 +90,7 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [importing, setImporting] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
+  const backupFileRef = useRef<HTMLInputElement | null>(null)
   const [showAdd, setShowAdd] = useState(adding)
   const pinyinVersion = usePinyinVersion()
   const compiled = useMemo(() => compileQuery(query), [query, pinyinVersion])
@@ -106,6 +108,45 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
       else next.add(id)
       return next
     })
+  }
+
+  const exportBackupFile = (): void => {
+    const json = exportRssLibraryBackup(library)
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `inkstone-rss-${new Date().toISOString().slice(0, 10)}.json`
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    useUi.getState().toast({ title: t('rss.backup_exported'), tone: 'success' })
+  }
+
+  const importBackup = async (file: File | undefined): Promise<void> => {
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) {
+      useUi.getState().toast({ title: t('rss.backup_too_large'), tone: 'danger' })
+      return
+    }
+    try {
+      const restored = parseRssLibraryBackup(await file.text())
+      if (!restored) {
+        useUi.getState().toast({ title: t('rss.backup_invalid'), tone: 'danger' })
+        return
+      }
+      if (!(await confirm({
+        title: t('rss.backup_restore'),
+        description: t('rss.backup_restore_confirm', { feeds: restored.feeds.length, marks: restored.readIds.length + restored.favorites.length + restored.readLater.length + restored.hiddenIds.length }),
+        tone: 'danger',
+        confirmLabel: t('rss.backup_restore'),
+      }))) return
+      await store.restoreLibrary(restored)
+      useUi.getState().toast({ title: t('rss.backup_restored'), tone: 'success' })
+      onAdded()
+    }
+    catch (error) {
+      console.warn('[inkstone] RSS backup could not be imported', error)
+      useUi.getState().toast({ title: t('rss.backup_invalid'), tone: 'danger' })
+    }
   }
 
   const exportOpmlFile = (): void => {
@@ -148,6 +189,9 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
         <Button size="sm" icon={<Plus size={13} />} onClick={() => setShowAdd(true)}>{t('rss.add_subscription')}</Button>
         <Button size="sm" icon={<Upload size={13} />} onClick={() => setImporting('')}>{t('rss.opml_import')}</Button>
         <Button size="sm" icon={<Download size={13} />} onClick={exportOpmlFile}>{t('rss.opml_export')}</Button>
+        <Button size="sm" icon={<Download size={13} />} onClick={exportBackupFile}>{t('rss.backup_export')}</Button>
+        <Button size="sm" icon={<Upload size={13} />} onClick={() => backupFileRef.current?.click()}>{t('rss.backup_import')}</Button>
+        <input ref={backupFileRef} type="file" hidden accept=".json,application/json" onChange={event => { void importBackup(event.target.files?.[0]); event.target.value = '' }} />
         <span className="ml-auto text-[length:var(--text-11)] text-[var(--text-quaternary)]">
           {t('rss.subscriptions_count', { n: library.feeds.length })}
           {library.feeds.length >= RSS_LIMITS.feeds ? ` · ${t('rss.error.feed_limit', { n: RSS_LIMITS.feeds })}` : ''}

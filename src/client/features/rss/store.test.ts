@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { channelEntries } from '@shared/rss/reading'
-import { emptyLibrary, newGroup, parseRssLibrary, RSS_LIMITS, type RssLibrary } from '@shared/rss/model'
+import { emptyLibrary, newFeed, newGroup, parseRssLibrary, RSS_LIMITS, type RssLibrary } from '@shared/rss/model'
 import { applyLibraryPatch } from '@shared/rss/patch'
 
 const feed = {
@@ -748,6 +748,20 @@ describe('saving', () => {
     expect(useRss.getState().library.favorites).toContain('e1')
     const server = parseRssLibrary(cache.get('library')).data
     expect(server?.favorites).toContain('e1')
+  })
+
+  it('restores a complete library backup and syncs it to the account', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    const restored = emptyLibrary()
+    restored.feeds.push({ ...newFeed('f2', 'https://example.com/restored', 'Restored', 0), readBefore: 123 })
+    restored.favorites = ['saved']
+    await useRss.getState().restoreLibrary(restored)
+    expect(useRss.getState().library.feeds.map(item => item.id)).toEqual(['f2'])
+    expect(useRss.getState().library.favorites).toEqual(['saved'])
+    const server = parseRssLibrary(cache.get('library')).data
+    expect(server?.feeds[0]?.id).toBe('f2')
+    expect(server?.feeds[0]?.readBefore).toBe(123)
   })
 
   it('resets the reader position for a new article and clears it on close', async () => {

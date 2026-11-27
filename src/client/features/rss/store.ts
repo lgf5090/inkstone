@@ -165,6 +165,7 @@ export interface RssState {
   refresh: (feedIds?: string[], options?: { force?: boolean, staleMs?: number }) => Promise<RssRefreshSummary>
   addFeed: (url: string, groupId?: string) => Promise<RssAddResult>
   importFeeds: (inputs: Array<{ url: string, title: string, group: string, groupPath?: string[] }>) => Promise<number>
+  restoreLibrary: (library: RssLibrary) => Promise<void>
   removeFeed: (feedId: string) => void
   renameFeed: (feedId: string, title: string) => void
   moveFeed: (feedId: string, groupId: string) => void
@@ -1187,6 +1188,32 @@ export const useRss = create<RssState>((set, get) => {
       scheduleSave()
       await flushSave()
       return additions.length
+    },
+
+    async restoreLibrary(library) {
+      const restored = structuredClone(library)
+      const keep = new Set(restored.feeds.map(feed => feed.id))
+      const removed = Object.keys(get().articles).filter(feedId => !keep.has(feedId))
+      saveGeneration++
+      sent = null
+      set((state) => {
+        const articles = Object.fromEntries(Object.entries(state.articles).filter(([feedId]) => keep.has(feedId)))
+        const fetchedAt = Object.fromEntries(Object.entries(state.fetchedAt).filter(([feedId]) => keep.has(feedId)))
+        return {
+          library: restored,
+          channel: parseChannelKey(restored.lastChannel),
+          articles,
+          fetchedAt,
+          allCached: null,
+          saveError: null,
+        }
+      })
+      index = { ...index, articles: Object.fromEntries(Object.entries(index.articles).filter(([feedId]) => keep.has(feedId))) }
+      for (const feedId of removed) void localDb.dropRssArticles(feedId)
+      scheduleSave()
+      await flushSave()
+      writeIndex()
+      await prepare(restored.lastChannel ? parseChannelKey(restored.lastChannel) : { kind: 'all' })
     },
 
     removeFeed(feedId) {
