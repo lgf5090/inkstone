@@ -321,6 +321,21 @@ const RSS_RULE_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_rss_rule_feed ON rss_rule(user_id, feed_id, enabled)`,
 ]
 
+const RSS_ARTICLE_WEBHOOK_TRIGGER = `CREATE TRIGGER IF NOT EXISTS rss_article_webhook AFTER INSERT ON rss_article
+BEGIN
+  INSERT INTO note_webhook_deliveries
+    (id, webhook_id, user_id, event, payload, attempts, next_attempt_at, status, last_error, created_at)
+  SELECT 'rwd_' || lower(hex(randomblob(16))), w.id, NEW.user_id, 'rss.article.new',
+         json_object('id', NEW.entry_id, 'event', 'rss.article.new',
+           'article', json_object('id', NEW.entry_id, 'feedId', NEW.feed_id, 'title', NEW.title,
+             'link', NEW.link, 'publishedTs', NEW.published_ts, 'summary', NEW.summary),
+           'at', NEW.fetched_at),
+         0, NEW.fetched_at, 'pending', '', NEW.fetched_at
+    FROM note_webhooks w
+   WHERE w.user_id = NEW.user_id AND w.enabled = 1
+     AND EXISTS (SELECT 1 FROM json_each(w.events) WHERE value = '*' OR value = 'rss.article.new');
+END`
+
 const RSS_ARTICLE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS rss_article (
     user_id TEXT NOT NULL,
@@ -342,6 +357,7 @@ const RSS_ARTICLE_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_rss_article_feed ON rss_article(user_id, feed_id, published_ts DESC, fetched_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_rss_article_recent ON rss_article(user_id, published_ts DESC, entry_id)`,
+  RSS_ARTICLE_WEBHOOK_TRIGGER,
 ]
 
 const RSS_USER_DELETE_TRIGGER = `CREATE TRIGGER IF NOT EXISTS rss_feed_user_delete AFTER DELETE ON users BEGIN
@@ -5053,6 +5069,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 445,
     statements: RSS_RULE_STATEMENTS,
+  },
+  {
+    version: 446,
+    statements: [RSS_ARTICLE_WEBHOOK_TRIGGER],
   },
 ]
 

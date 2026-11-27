@@ -13,6 +13,7 @@ const EVENT_LABEL_KEYS = {
   'note.created': 'notes.webhook_event_created',
   'note.updated': 'notes.webhook_event_updated',
   'note.deleted': 'notes.webhook_event_deleted',
+  'rss.article.new': 'notes.webhook_event_rss_article',
 } as const
 
 export function NotesWebhooksPanel({ onClose }: { onClose: () => void }) {

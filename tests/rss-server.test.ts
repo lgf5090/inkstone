@@ -53,6 +53,20 @@ describe('server feed parsing and storage', () => {
     expect(parsed.entries[0].content).toContain('Body')
   })
 
+  it('queues signed-webhook deliveries for new articles without exporting body text', async () => {
+    sqlite.prepare(`INSERT INTO note_webhooks (id, user_id, title, url, secret_ciphertext, events, enabled, created_at, updated_at)
+      VALUES ('hook-rss', ?1, 'RSS', 'https://hooks.example/rss', 'cipher', '["rss.article.new"]', 1, 1, 1)`).run(USER)
+    sqlite.prepare(`INSERT INTO note_webhooks (id, user_id, title, url, secret_ciphertext, events, enabled, created_at, updated_at)
+      VALUES ('hook-notes', ?1, 'Notes', 'https://hooks.example/notes', 'cipher', '["note.created"]', 1, 1, 1)`).run(USER)
+    const parsed = parseServerFeed(`<rss><channel><title>Hook</title><item><title>Public title</title><description>Private body ${'x'.repeat(1000)} Private tail</description></item></channel></rss>`, 'f1', 'https://example.com/feed')
+    await saveServerRssArticles(db, USER, 'f1', parsed.entries, 10)
+    const rows = sqlite.prepare('SELECT webhook_id, event, payload FROM note_webhook_deliveries ORDER BY webhook_id').all() as Array<{ webhook_id: string, event: string, payload: string }>
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ webhook_id: 'hook-rss', event: 'rss.article.new' })
+    expect(rows[0].payload).toContain('Public title')
+    expect(rows[0].payload).not.toContain('Private tail')
+  })
+
   it('summarizes reading state and recent opens', async () => {
     const feed = newFeed('f1', 'https://example.com/feed', 'Example', 0)
     const library = { ...emptyLibrary(), feeds: [feed], readIds: ['e1'], favorites: ['e1'], opened: { e1: Date.now() } }

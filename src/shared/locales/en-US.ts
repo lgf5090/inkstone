@@ -1702,6 +1702,7 @@ const CORE_MESSAGES = {
     "notes.webhook_event_created": "Note created",
     "notes.webhook_event_updated": "Note updated",
     "notes.webhook_event_deleted": "Note deleted",
+    "notes.webhook_event_rss_article": "New RSS article",
     "notes.webhook_pending": "{value0} pending deliveries",
     "notes.webhook_enabled": "Webhook enabled",
     "notes.webhook_delete_confirm": "Delete webhook “{value0}”?",

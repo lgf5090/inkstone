@@ -688,7 +688,7 @@ export const NOTE_SAVED_SEARCH_MAX = 20
 export const NOTE_SAVED_SEARCH_NAME_MAX = 60
 export const NOTE_SAVED_SEARCH_QUERY_MAX = 200
 export const OFFLINE_NOTES_MAX = 200
-export const NOTE_WEBHOOK_EVENTS = ['note.created', 'note.updated', 'note.deleted'] as const
+export const NOTE_WEBHOOK_EVENTS = ['note.created', 'note.updated', 'note.deleted', 'rss.article.new'] as const
 
 /**
  * The task templates one account may keep, and how much of a task one may carry.

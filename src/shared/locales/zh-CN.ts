@@ -1695,6 +1695,7 @@ const ZH_CORE_MESSAGES = {
     "notes.webhook_event_created": "笔记已创建",
     "notes.webhook_event_updated": "笔记已更新",
     "notes.webhook_event_deleted": "笔记已删除",
+    "notes.webhook_event_rss_article": "RSS 新文章",
     "notes.webhook_pending": "{value0} 条待交付",
     "notes.webhook_enabled": "Webhook 已启用",
     "notes.webhook_delete_confirm": "删除 Webhook“{value0}”？",
