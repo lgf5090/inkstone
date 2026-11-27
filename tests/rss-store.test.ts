@@ -125,7 +125,7 @@ describe('the row store', () => {
     await storeRssLibrary(db, USER, library(), 1)
     await saveRssReadingFeed(db, USER, 'f1', [{ id: 'e1', feedId: 'f1', title: 'One', link: 'https://example.com/1', author: '', content: 'Body', summary: '', publishedTs: 1, imageUrl: '', audioUrl: '' }], 1)
     sqlite.prepare('DELETE FROM users WHERE id = ?').run(USER)
-    for (const table of ['rss_feed', 'rss_feed_tag', 'rss_group', 'rss_mark', 'rss_state', 'rss_reading_entry']) {
+    for (const table of ['rss_feed', 'rss_feed_tag', 'rss_group', 'rss_mark', 'rss_state', 'rss_reading_entry', 'rss_article']) {
       expect(count(table, USER)).toBe(0)
     }
   })

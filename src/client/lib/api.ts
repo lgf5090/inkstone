@@ -1,4 +1,4 @@
-import type { RssFetchResult } from '@shared/rss/model'
+import type { RssEntry, RssFetchResult } from '@shared/rss/model'
 import { CLIENT_HEADER } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
 import type { ReaderUsage, NoteAttachmentEncryption } from '@shared/types'
@@ -1439,6 +1439,8 @@ export const api = {
       request<{ results: RssFetchResult[] }>('/api/rss/fetch', { method: 'POST', body: { requests } }),
     discover: (url: string) =>
       request<{ url: string; title: string; feeds: string[] }>(`/api/rss/discover?url=${encodeURIComponent(url)}`),
+    articles: (feedId: string) =>
+      request<{ feedId: string, articles: RssEntry[] }>(`/api/rss/articles?feedId=${encodeURIComponent(feedId)}`),
     /**
      * Hand one feed's articles to the account, so the assistant can read them.
      *

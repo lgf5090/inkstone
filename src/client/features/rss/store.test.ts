@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { channelEntries } from '@shared/rss/reading'
-import { emptyLibrary, newFeed, newGroup, parseRssLibrary, RSS_LIMITS, type RssLibrary } from '@shared/rss/model'
+import { emptyLibrary, newFeed, newGroup, parseRssLibrary, RSS_LIMITS, type RssEntry, type RssLibrary } from '@shared/rss/model'
 import { applyLibraryPatch } from '@shared/rss/patch'
 
 const feed = {
@@ -55,6 +55,7 @@ let fetchWait: Promise<void> | null = null
 let fetchActive = 0
 let fetchMaxActive = 0
 let failedArticleFeed = ''
+let serverArticles: RssEntry[] = []
 
 vi.mock('../../lib/db', () => ({
   localDb: {
@@ -124,6 +125,8 @@ vi.mock('../../lib/api', () => ({
           fetchActive--
         }
       },
+      discover: async () => ({ url: '', title: '', feeds: [] }),
+      articles: async (feedId: string) => ({ feedId, articles: serverArticles }),
       saveReading: (feedId: string, entries: unknown[]) => {
         calls.push({ path: 'reading', body: { feedId, entries } })
         return Promise.resolve({ capturedAt: Date.now(), entries: entries.length })
@@ -181,6 +184,7 @@ function reset(): void {
   fetchActive = 0
   fetchMaxActive = 0
   failedArticleFeed = ''
+  serverArticles = []
   RSS_SETTINGS.refreshIntervalMinutes = 0
   fetchResults = []
   cache.set('library', JSON.parse(JSON.stringify(saved)))
@@ -337,6 +341,13 @@ describe('keeping a subscription at the top', () => {
 })
 
 describe('loading on a device', () => {
+  it('loads server-stored articles when this device has no local blob', async () => {
+    serverArticles = [{ id: 'remote', feedId: 'f1', title: 'From another device', link: 'https://example.com/remote', author: '', publishedTs: 1, summary: '', content: '<p>Remote body</p>', imageUrl: '', audioUrl: '' }]
+    await useRss.getState().load()
+    expect(useRss.getState().articles.f1?.[0]?.title).toBe('From another device')
+    expect(cache.get('articles:f1')).toBeTruthy()
+  })
+
   it('asks a feed for its articles when this device holds none', async () => {
     fetchResults = [{ url: feed.url, status: 200, ok: true, xml: atom }]
     await boot()

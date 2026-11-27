@@ -490,6 +490,18 @@ export const useRss = create<RssState>((set, get) => {
     const run = (async () => {
       const cached = await localDb.loadRssArticles(feedId)
       if (!cached) {
+        if (navigator.onLine !== false) {
+          try {
+            const remote = await api.rss.articles(feedId)
+            if (remote.articles.length) {
+              await storeArticles(feedId, remote.articles)
+              return
+            }
+          }
+          catch (error) {
+            console.warn('[inkstone] RSS server articles could not be loaded', { feedId, error })
+          }
+        }
         // The index is what a refresh trusts to decide whether a validator is worth sending. An
         // entry whose blob is gone would vouch for a list this device does not have, and the feed
         // would answer `304` to a browser that has nothing to show.

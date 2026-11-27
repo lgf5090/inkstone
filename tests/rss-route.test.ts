@@ -9,7 +9,7 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { rssRoutes } from '../src/worker/routes/rss'
-import { loadRssReading, saveRssReadingFeed } from '../src/worker/lib/rss-store'
+import { loadRssReading, saveRssReadingFeed, saveServerRssArticles } from '../src/worker/lib/rss-store'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'user-rss'
@@ -190,6 +190,19 @@ describe('the library', () => {
     expect(body.library.favorites).toEqual(['e7'])
     expect(sqlite.prepare('SELECT rss FROM users WHERE id = ?1').get(USER)).toEqual({ rss: null })
     expect((sqlite.prepare('SELECT COUNT(*) AS n FROM rss_mark WHERE user_id = ?1').get(USER) as { n: number }).n).toBe(1)
+  })
+
+  it('serves stored server articles to another device', async () => {
+    await request('/library', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ library: libraryWith(1) }) })
+    await saveServerRssArticles(db, USER, 'f0', [{
+      id: 'e0', feedId: 'f0', title: 'Stored', link: 'https://example.com/0', author: '', publishedTs: 1,
+      summary: 'Summary', content: '<p>Body</p>', imageUrl: '', audioUrl: '',
+    }], 1)
+    const res = await request('/articles?feedId=f0')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('cache-control')).toContain('no-store')
+    const body = await res.json() as { articles: Array<{ title: string }> }
+    expect(body.articles[0]?.title).toBe('Stored')
   })
 
   it('keeps one account\'s library away from another', async () => {

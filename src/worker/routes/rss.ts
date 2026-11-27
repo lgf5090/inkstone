@@ -15,157 +15,25 @@
  * this file is the polite refusal on top of it.
  */
 import { Hono } from 'hono'
-import { isBlockedTarget } from '@shared/ai-proxy-guard'
-import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, safeHttpUrl, type RssFeed, type RssFetchReason, type RssFetchResult } from '@shared/rss/model'
+import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, safeHttpUrl, type RssFeed, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty, patchIsMarksOnly } from '@shared/rss/patch'
-import { accountExists, deleteRssReadingFeed, loadRssLibrary, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
+import { accountExists, deleteRssReadingFeed, loadRssLibrary, loadServerRssArticles, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 import { readJson, readStreamWithinLimit } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
+import { assertFeedUrl, FETCH_TIMEOUT_MS, fetchFeed, headerOnly, MAX_HOPS, READER_AGENT, type FeedRequestInput } from '../lib/rss-fetch'
 
 export const rssRoutes = new Hono<AppBindings>()
 
 rssRoutes.use('*', requireAuth)
 
-/** Bytes one feed document may occupy. A whole-archive feed is common; a 40 MB one is an attack. */
-const MAX_FEED_BYTES = 3 * 1024 * 1024
 const MAX_RELAY_BYTES = 24 * 1024 * 1024
-const FETCH_TIMEOUT_MS = 15_000
-const MAX_HOPS = 3
 const BATCH_CONCURRENCY = 5
 const MAX_BATCH = 25
 const MAX_DISCOVER_BYTES = 1024 * 1024
-
-const FEED_ACCEPT = 'application/rss+xml, application/atom+xml, application/xml, text/xml, rdf/xml, */*'
-const READER_AGENT = 'Inkstone RSS reader'
-
-interface FeedRequestInput {
-  url?: unknown
-  etag?: unknown
-  lastModified?: unknown
-}
-
-function assertFeedUrl(value: unknown): URL {
-  if (typeof value !== 'string') throw ApiError.badRequest('A feed address is required')
-  let url: URL
-  try {
-    url = new URL(value)
-  }
-  catch {
-    throw ApiError.badRequest('The feed address could not be read')
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw ApiError.badRequest('Feeds are fetched over http or https only')
-  if (url.username || url.password) throw ApiError.badRequest('A feed address may not carry credentials')
-  if (isBlockedTarget(url.hostname)) throw ApiError.badRequest('That address is not reachable from this deployment')
-  return url
-}
-
-function headerOnly(value: unknown, max: number): string {
-  if (typeof value !== 'string') return ''
-  // A validator header is copied into an outbound request, so anything a newline could smuggle
-  // has to go before it leaves.
-  return value.replace(/[\r\n\0]/g, '').slice(0, max)
-}
-
-/** The content types a feed document may arrive as. HTML means the address is a web page, not a feed. */
-function looksLikeFeed(contentType: string): boolean {
-  const type = contentType.toLowerCase()
-  if (!type) return true
-  if (/html|image\/|video\/|audio\/|pdf|zip|octet-stream/.test(type)) return false
-  return /xml|rss|atom|rdf|text\/|application\/json/.test(type)
-}
-
-function feedEncoding(bytes: Uint8Array, contentType: string): string {
-  const header = /charset\s*=\s*["']?([A-Za-z0-9._-]+)/i.exec(contentType)?.[1]
-  if (header) return header
-  if (bytes[0] === 0xff && bytes[1] === 0xfe) return 'utf-16le'
-  if (bytes[0] === 0xfe && bytes[1] === 0xff) return 'utf-16be'
-  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return 'utf-8'
-  const head = new TextDecoder('latin1').decode(bytes.subarray(0, 256))
-  return /^<\?xml[^>]*encoding\s*=\s*["']([^"']+)["']/i.exec(head)?.[1] ?? 'utf-8'
-}
-
-function decodeFeedDocument(bytes: Uint8Array, contentType: string): string | null {
-  try {
-    return new TextDecoder(feedEncoding(bytes, contentType)).decode(bytes)
-  }
-  catch {
-    return null
-  }
-}
-
-function feedFailure(url: string, status: number, reason: RssFetchReason): RssFetchResult {
-  console.warn('[inkstone] RSS fetch failed', { feed: rssHash(url), status, reason })
-  return { url, status, ok: false, reason }
-}
-
-/**
- * One feed, start to finish.
- *
- * Never throws: a batch is only useful if one dead host cannot take the other twenty-four answers
- * with it, so every failure comes back as a reason the reader can name.
- */
-async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
-  const requested = typeof input.url === 'string' ? input.url : ''
-  let url: URL
-  try {
-    url = assertFeedUrl(requested)
-  }
-  catch {
-    return feedFailure(requested, 0, 'blocked')
-  }
-  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
-  const etag = headerOnly(input.etag, 200)
-  const lastModified = headerOnly(input.lastModified, 200)
-  try {
-    for (let hop = 0; hop <= MAX_HOPS; hop++) {
-      const headers: Record<string, string> = { accept: FEED_ACCEPT, 'user-agent': READER_AGENT }
-      if (etag) headers['if-none-match'] = etag
-      if (lastModified) headers['if-modified-since'] = lastModified
-      const response = await fetch(url.href, { headers, redirect: NO_REDIRECT, signal })
-      // A 304 is a 3xx, so it has to be read before the redirect branch or an unchanged feed looks
-      // like a hop with nowhere to go.
-      if (response.status === 304) {
-        return { url: requested, finalUrl: url.href, status: 304, ok: true, etag: etag || undefined, lastModified: lastModified || undefined }
-      }
-      if (isRedirectResponse(response)) {
-        const location = response.headers.get('location')
-        if (!location || hop === MAX_HOPS) return feedFailure(requested, response.status, 'unreachable')
-        try {
-          url = assertFeedUrl(new URL(location, url).href)
-        }
-        catch {
-          return feedFailure(requested, response.status, 'blocked')
-        }
-        continue
-      }
-      if (!response.ok) return feedFailure(requested, response.status, 'http')
-      if (!looksLikeFeed(response.headers.get('content-type') || '')) {
-        return feedFailure(requested, response.status, 'not-a-feed')
-      }
-      const bytes = await readStreamWithinLimit(response.body, MAX_FEED_BYTES)
-      if (bytes === null) return feedFailure(requested, response.status, 'too-large')
-      const xml = decodeFeedDocument(bytes, response.headers.get('content-type') || '')
-      if (xml === null || !xml.trim()) return feedFailure(requested, response.status, 'not-a-feed')
-      return {
-        url: requested,
-        finalUrl: url.href,
-        status: response.status,
-        ok: true,
-        xml,
-        etag: headerOnly(response.headers.get('etag'), 200) || undefined,
-        lastModified: headerOnly(response.headers.get('last-modified'), 200) || undefined,
-      }
-    }
-    return feedFailure(requested, 0, 'unreachable')
-  }
-  catch {
-    return feedFailure(requested, 0, signal.aborted ? 'timeout' : 'unreachable')
-  }
-}
 
 /**
  * One budget per account per ten minutes.
@@ -280,6 +148,15 @@ rssRoutes.post('/fetch', async (c) => {
   }
   await Promise.all(Array.from({ length: Math.min(BATCH_CONCURRENCY, queue.length) }, worker))
   return c.json({ results })
+})
+
+rssRoutes.get('/articles', async (c) => {
+  const userId = c.get('userId')
+  const feedId = c.req.query('feedId')?.slice(0, 80) ?? ''
+  if (!feedId) throw ApiError.badRequest('A feed id is required')
+  if (!(await rssFeedExists(c.env.DB, userId, feedId))) throw ApiError.notFound('Subscription not found')
+  const articles = await loadServerRssArticles(c.env.DB, userId, feedId)
+  return c.json({ feedId, articles }, { headers: { 'Cache-Control': 'private, no-store' } })
 })
 
 rssRoutes.get('/library', async (c) => {

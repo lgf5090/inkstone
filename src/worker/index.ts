@@ -114,6 +114,11 @@ export default {
       // ICS feeds need a copy on the server whether or not the reader has the calendar tab open;
       // the sweep itself spaces successes and failures, so this fire only starts what is due.
       const calendarTick = refreshDueIcsSubscriptions(env, event.scheduledTime)
+      const { runRssSchedulerTick } = await import('./lib/rss-scheduler')
+      const rssTick = runRssSchedulerTick(env.DB, event.scheduledTime).catch((error) => {
+        console.warn('[inkstone] RSS scheduler tick failed:', (error as Error).message)
+        return { refreshed: 0, failed: 0 }
+      })
       const calendarReminderTick = sweepCalendarReminders(env, event.scheduledTime, (task) => { ctx.waitUntil(task) })
       const calendarProviderTick = syncDueProviderConnections(env, event.scheduledTime)
       // Task reminders ride the same every-fire cadence, for the same reason: the claim on the row is
@@ -189,7 +194,7 @@ export default {
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, noteTaskReminderTick, projectReminderTick, projectWebhookTick, noteWebhookTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
+        await Promise.all([assistantTick, subscriptionTick, rssTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, noteTaskReminderTick, projectReminderTick, projectWebhookTick, noteWebhookTick, projectRetentionTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -241,7 +246,7 @@ export default {
             })(),
           ]
         : []
-      await Promise.all([...drains, ...heavy, subscriptionTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, noteTaskReminderTick, projectReminderTick, projectWebhookTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, clouddriveTick])
+      await Promise.all([...drains, ...heavy, subscriptionTick, rssTick, certhubTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, noteTaskReminderTick, projectReminderTick, projectWebhookTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, clouddriveTick])
     })())
   },
 

@@ -308,9 +308,33 @@ const RSS_READING_ENTRY_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_rss_reading_entry_recent ON rss_reading_entry(user_id, published_ts DESC, captured_at DESC, entry_id)`,
 ]
 
+const RSS_ARTICLE_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS rss_article (
+    user_id TEXT NOT NULL,
+    feed_id TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    link TEXT NOT NULL DEFAULT '',
+    author TEXT NOT NULL DEFAULT '',
+    published_ts INTEGER,
+    summary TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    image_url TEXT NOT NULL DEFAULT '',
+    audio_url TEXT NOT NULL DEFAULT '',
+    duration INTEGER,
+    episode INTEGER,
+    season INTEGER,
+    fetched_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, entry_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_rss_article_feed ON rss_article(user_id, feed_id, published_ts DESC, fetched_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_rss_article_recent ON rss_article(user_id, published_ts DESC, entry_id)`,
+]
+
 const RSS_USER_DELETE_TRIGGER = `CREATE TRIGGER IF NOT EXISTS rss_feed_user_delete AFTER DELETE ON users BEGIN
   DELETE FROM rss_feed_tag WHERE user_id = OLD.id;
   DELETE FROM rss_reading_entry WHERE user_id = OLD.id;
+  DELETE FROM rss_article WHERE user_id = OLD.id;
   DELETE FROM rss_mark WHERE user_id = OLD.id;
   DELETE FROM rss_feed WHERE user_id = OLD.id;
   DELETE FROM rss_group WHERE user_id = OLD.id;
@@ -386,6 +410,7 @@ const RSS_LIBRARY_STATEMENTS: readonly string[] = [
     saved_at INTEGER NOT NULL DEFAULT 0
   )`,
   ...RSS_READING_ENTRY_STATEMENTS,
+  ...RSS_ARTICLE_STATEMENTS,
   RSS_USER_DELETE_TRIGGER,
 ]
 
@@ -5006,6 +5031,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 443,
     statements: [RSS_USER_DELETE_TRIGGER],
   },
+  {
+    version: 444,
+    statements: RSS_ARTICLE_STATEMENTS,
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -5072,6 +5101,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   rss_mark: ['user_id', 'kind', 'entry_id', 'value', 'at'],
   rss_state: ['user_id', 'last_channel', 'saved_at'],
   rss_reading_entry: ['user_id', 'feed_id', 'entry_id', 'title', 'link', 'author', 'content', 'summary', 'published_ts', 'image_url', 'audio_url', 'captured_at'],
+  rss_article: ['user_id', 'feed_id', 'entry_id', 'title', 'link', 'author', 'published_ts', 'summary', 'content', 'image_url', 'audio_url', 'duration', 'episode', 'season', 'fetched_at'],
   ...ASSISTANT_REQUIRED_COLUMNS,
   ...DEVELOPMENT_CERTHUB_REQUIRED_COLUMNS,
   ...TODOS_REQUIRED_COLUMNS,
@@ -5159,6 +5189,7 @@ export const REQUIRED_TABLES = [
   'rss_mark',
   'rss_state',
   'rss_reading_entry',
+  'rss_article',
   ...ASSISTANT_REQUIRED_TABLES,
   ...TODOS_REQUIRED_TABLES,
   ...SUBSCRIPTIONS_REQUIRED_TABLES,
@@ -5264,6 +5295,8 @@ export const REQUIRED_INDEXES = [
   'idx_rss_mark_recent',
   'idx_rss_reading_entry_feed',
   'idx_rss_reading_entry_recent',
+  'idx_rss_article_feed',
+  'idx_rss_article_recent',
   ...ASSISTANT_REQUIRED_INDEXES,
   ...TODOS_REQUIRED_INDEXES,
   ...SUBSCRIPTIONS_REQUIRED_INDEXES,

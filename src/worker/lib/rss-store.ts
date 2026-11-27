@@ -13,7 +13,7 @@
  * column is set to NULL the moment it has been split. A reader who deleted every subscription keeps
  * the state row and an empty table set, and never re-runs the split.
  */
-import { emptyLibrary, normaliseEntry, parseRssLibrary, RSS_LIMITS, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
+import { emptyLibrary, normaliseEntry, parseRssLibrary, RSS_LIMITS, type RssEntry, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
 import { libraryMarkRows, marksIntoLibrary, RSS_LIST_MARK_KINDS, type RssMarkKind } from '@shared/rss/marks'
 import type { RssPatch } from '@shared/rss/patch'
 
@@ -53,6 +53,12 @@ const MARK_ROW: RowSpec = { table: 'rss_mark', columns: ['kind', 'entry_id', 'va
 const READING_ENTRY_ROW: RowSpec = {
   table: 'rss_reading_entry',
   columns: ['entry_id', 'feed_id', 'title', 'link', 'author', 'content', 'summary', 'published_ts', 'image_url', 'audio_url', 'captured_at'],
+  key: ['entry_id'],
+}
+
+const ARTICLE_ROW: RowSpec = {
+  table: 'rss_article',
+  columns: ['entry_id', 'feed_id', 'title', 'link', 'author', 'published_ts', 'summary', 'content', 'image_url', 'audio_url', 'duration', 'episode', 'season', 'fetched_at'],
   key: ['entry_id'],
 }
 
@@ -490,6 +496,7 @@ export async function storeRssPatch(
     ...deletes(TAG_ROW, userId, patch.tags.remove.map(key => [key.feedId, key.tag])),
     ...upserts(TAG_ROW, userId, patch.tags.upsert.map(key => [key.feedId, key.tag])),
     ...deletes(FEED_ROW, userId, patch.feeds.remove.map(id => [id])),
+    ...patch.feeds.remove.map(id => ({ sql: 'DELETE FROM rss_article WHERE user_id = ?1 AND feed_id = ?2', params: [userId, id] })),
     ...deletes(GROUP_ROW, userId, patch.groups.remove.map(id => [id])),
     ...deletes(MARK_ROW, userId, patch.marks.remove.map(row => [row.kind, row.entryId])),
     ...upserts(MARK_ROW, userId, patch.marks.upsert.map(row => [row.kind, row.entryId, row.value, row.at])),
@@ -728,4 +735,73 @@ export async function saveRssReadingFeed(
   const kept = await db.prepare('SELECT COUNT(*) AS count FROM rss_reading_entry WHERE user_id = ?1 AND feed_id = ?2')
     .bind(userId, feedId).first<{ count: number }>()
   return { capturedAt, entries: Number(kept?.count ?? 0) }
+}
+
+interface ArticleRow {
+  feed_id: string
+  entry_id: string
+  title: string
+  link: string
+  author: string
+  published_ts: number | null
+  summary: string
+  content: string
+  image_url: string
+  audio_url: string
+  duration: number | null
+  episode: number | null
+  season: number | null
+  fetched_at: number
+}
+
+function articleValues(entry: RssEntry, fetchedAt: number): SqlValue[] {
+  return [
+    entry.id, entry.feedId, entry.title, entry.link, entry.author, entry.publishedTs,
+    entry.summary, entry.content, entry.imageUrl, entry.audioUrl, entry.duration ?? null,
+    entry.episode ?? null, entry.season ?? null, fetchedAt,
+  ]
+}
+
+/** Server-side article storage: metadata and bounded bodies in D1 for cross-device reading. */
+export async function saveServerRssArticles(db: D1Database, userId: string, feedId: string, entries: readonly RssEntry[], fetchedAt = Date.now()): Promise<number> {
+  const statements = [
+    ...upserts(ARTICLE_ROW, userId, entries.map(entry => articleValues({ ...entry, feedId }, fetchedAt))),
+    {
+      sql: `DELETE FROM rss_article WHERE rowid IN (
+        SELECT rowid FROM (
+          SELECT rowid, ROW_NUMBER() OVER (ORDER BY published_ts DESC, fetched_at DESC, entry_id) AS rank,
+                 SUM(length(content) + length(summary) + length(title)) OVER
+                   (ORDER BY published_ts DESC, fetched_at DESC, entry_id ROWS UNBOUNDED PRECEDING) AS chars
+            FROM rss_article WHERE user_id = ?1 AND feed_id = ?2
+        ) WHERE rank > ?3 OR chars > ?4
+      )`,
+      params: [userId, feedId, RSS_LIMITS.entriesPerFeed, RSS_LIMITS.feedBytes],
+    },
+  ]
+  await db.batch(statements.map(statement => db.prepare(statement.sql).bind(...statement.params)))
+  const kept = await db.prepare('SELECT COUNT(*) AS count FROM rss_article WHERE user_id = ?1 AND feed_id = ?2')
+    .bind(userId, feedId).first<{ count: number }>()
+  return Number(kept?.count ?? 0)
+}
+
+export async function loadServerRssArticles(db: D1Database, userId: string, feedId: string): Promise<RssEntry[]> {
+  const { results } = await db.prepare(
+    `SELECT feed_id, entry_id, title, link, author, published_ts, summary, content, image_url, audio_url, duration, episode, season, fetched_at
+       FROM rss_article WHERE user_id = ?1 AND feed_id = ?2
+      ORDER BY published_ts DESC, fetched_at DESC, entry_id ASC LIMIT ?3`,
+  ).bind(userId, feedId, RSS_LIMITS.entriesPerFeed).all<ArticleRow>()
+  return results.map(row => normaliseEntry({
+    id: row.entry_id,
+    title: row.title,
+    link: row.link,
+    author: row.author,
+    publishedTs: row.published_ts,
+    summary: row.summary,
+    content: row.content,
+    imageUrl: row.image_url,
+    audioUrl: row.audio_url,
+    duration: row.duration,
+    episode: row.episode,
+    season: row.season,
+  }, row.feed_id)).filter((entry): entry is RssEntry => entry !== null)
 }
