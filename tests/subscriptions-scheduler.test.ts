@@ -271,6 +271,21 @@ describe('the trash', () => {
    * silently spend money on the reader's behalf while they were deciding whether to restore it, and one
    * that kept notifying would make the trash the noisiest place in the app.
    */
+  it('stops selecting an account after its trial has converted', async () => {
+    await saveSettings(db, 'u1', { timezone: 'Asia/Shanghai', notificationHours: [], locale: 'zh-CN' })
+    const store = new SubscriptionsStore(db, 'u1')
+    const settings = { timezone: 'Asia/Shanghai', notificationHours: [], digest: 'off' as const, digestHour: 8, showLunar: false, paymentHistoryLimit: 100, locale: 'zh-CN' as const, baseCurrency: 'CNY' as const, budgetMonthly: null, budgetYearly: null, budgetCategories: {}, rateOverrides: {}, inboundTokenHint: '' }
+    const created = await store.create({
+      name: 'Converted trial', amount: 60, expiryDate: '2026-12-21', trialEndsAt: '2026-11-30',
+      periodValue: 1, periodUnit: 'month', reminderRules: [],
+    }, storeContext(settings, NOW))
+    sqlite.prepare(`DELETE FROM sub_reminder_rule WHERE subscription_id = ?`).run(created.item.id)
+    const later = Date.parse('2026-12-01T00:00:00Z')
+    expect(await store.autoRenew(created.item.id, { ...storeContext(settings, NOW), now: later })).not.toBeNull()
+    const result = await sweepSubscriptions(env(), later)
+    expect(result.accounts).toBe(0)
+  })
+
   it('does not scan an account whose only subscription is in the trash', async () => {
     const created = await seed('u1', { name: 'Gone', days: 7 })
     await new SubscriptionsStore(db, 'u1').trash(created.item.id, { timezone: 'Asia/Shanghai', paymentLimit: 100, now: NOW })

@@ -46,8 +46,13 @@ export async function sweepSubscriptions(env: Env, now = Date.now()): Promise<Sw
      WHERE i.deleted_at IS NULL AND i.is_active = 1
        AND (i.paused_until IS NULL OR i.paused_until <= ?1)
        AND (
-         (i.auto_renew = 1 AND (i.expiry_date <= ?1 OR (i.trial_ends_at IS NOT NULL AND i.trial_ends_at <= ?1)))
-         OR (i.trial_ends_at IS NOT NULL AND i.trial_ends_at <= ?1)
+         (i.auto_renew = 1 AND i.expiry_date <= ?1)
+         OR (i.trial_ends_at IS NOT NULL AND i.trial_ends_at <= ?1
+           AND NOT EXISTS (
+             SELECT 1 FROM sub_payment p
+              WHERE p.user_id = i.user_id AND p.subscription_id = i.id
+                AND p.id = 'trial:' || i.id || ':' || i.trial_ends_at
+           ))
          OR EXISTS (
            SELECT 1 FROM sub_reminder_rule r
             WHERE r.user_id = i.user_id AND r.subscription_id = i.id AND r.enabled = 1
