@@ -19,6 +19,7 @@ import { useReaderSettings } from '../store/reader-settings'
 
 export interface EpubHandle {
   kind: 'epub'
+  bookId: string
   archive: ZipArchive
   pkg: EpubPackage
   pool: ResourcePool
@@ -69,6 +70,7 @@ export function useEpubHandle(book: BookRecord | null): { handle: EpubHandle | n
         pool = created
         setHandle({
           kind: 'epub',
+          bookId: book.id,
           archive,
           pkg,
           pool: created,

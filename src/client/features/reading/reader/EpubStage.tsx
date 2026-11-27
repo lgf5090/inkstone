@@ -38,6 +38,8 @@ import { t } from '../../../lib/i18n'
 import type { ReaderSettings } from '../store/reader-settings'
 import { fontStackFor } from '../store/reader-settings'
 import { DEFAULT_HIGHLIGHT_PAINT, type ReaderTheme } from '../themes'
+import { chapterText } from '../engine/book-search'
+import { api } from '../../../lib/api'
 
 export interface StageSelection {
   start: number
@@ -68,7 +70,8 @@ export interface EpubStageHandle {
   chapterIndex(): number
   /** Re-run the layout pass, which is what a settings change or a font arriving needs. */
   relayout(): void
-  readAloud(): { text: string; offset: number; language: string } | null}
+  readAloud(): { text: string; offset: number; language: string } | null
+  indexBook(signal?: AbortSignal, onProgress?: (done: number, total: number) => void): Promise<{ pages: number; chunks: number }>}
 
 interface EpubStageProps {
   handle: EpubHandle
@@ -590,7 +593,11 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
       const offset = currentOffset()
       return { text: index.text.slice(offset), offset, language: handle.pkg.metadata.language || 'und' }
     },
-  }), [currentOffset, jump, jumpToFraction, relayout, slot, turnPage])
+    indexBook: async (signal, onProgress) => {
+      const { indexPdfPages } = await import('../engine/pdf-index')
+      return indexPdfPages(handle.pkg.spine.length, (slot) => chapterText(handle, slot - 1), (batch) => api.assistant.indexReaderBook(handle.bookId, batch), signal, onProgress)
+    },
+  }), [currentOffset, handle, jump, jumpToFraction, relayout, slot, turnPage])
 
   /**
    * A selection, converted to the chapter's own coordinates.

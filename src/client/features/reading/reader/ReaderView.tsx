@@ -696,41 +696,39 @@ export function ReaderView({ book }: { book: BookRecord }) {
           <IconButton label={t('reading.open_note')} size="sm" onClick={() => void openNote()} className={narrow ? 'hidden' : undefined}>
             <FileText size={15} />
           </IconButton>
-          {isFixed ? (
-            <IconButton
-              label={indexProgress ? t('reading.indexing_value0_value1', { value0: indexProgress.done, value1: indexProgress.total }) : t('reading.index_book')}
-              size="sm"
-              onClick={() => {
-                if (indexProgress) {
-                  indexAbort.current?.abort()
+          <IconButton
+            label={indexProgress ? t('reading.indexing_value0_value1', { value0: indexProgress.done, value1: indexProgress.total }) : t('reading.index_book')}
+            size="sm"
+            onClick={() => {
+              if (indexProgress) {
+                indexAbort.current?.abort()
+                return
+              }
+              const controller = new AbortController()
+              indexAbort.current = controller
+              setIndexProgress({ done: 0, total: book.unitCount })
+              void activeStage.current?.indexBook(controller.signal, (done, total) => setIndexProgress({ done, total })).then((result) => {
+                useUi.getState().toast({ title: t('reading.index_book_done', { pages: result.pages, chunks: result.chunks }), tone: 'success' })
+              }).catch((error: unknown) => {
+                if (error instanceof DOMException && error.name === 'AbortError') {
+                  useUi.getState().toast({ title: t('reading.index_cancelled'), tone: 'warning' })
                   return
                 }
-                const controller = new AbortController()
-                indexAbort.current = controller
-                setIndexProgress({ done: 0, total: book.unitCount })
-                void fixedStage.current?.indexBook(controller.signal, (done, total) => setIndexProgress({ done, total })).then((result) => {
-                  useUi.getState().toast({ title: t('reading.index_book_done', { pages: result.pages, chunks: result.chunks }), tone: 'success' })
-                }).catch((error: unknown) => {
-                  if (error instanceof DOMException && error.name === 'AbortError') {
-                    useUi.getState().toast({ title: t('reading.index_cancelled'), tone: 'warning' })
-                    return
-                  }
-                  useUi.getState().toast({
-                    title: t('reading.index_book_failed'),
-                    description: error instanceof ApiError ? error.serverMessage : error instanceof Error ? error.message : undefined,
-                    tone: 'danger',
-                  })
-                }).finally(() => {
-                  if (indexAbort.current === controller) {
-                    indexAbort.current = null
-                    setIndexProgress(null)
-                  }
+                useUi.getState().toast({
+                  title: t('reading.index_book_failed'),
+                  description: error instanceof ApiError ? error.serverMessage : error instanceof Error ? error.message : undefined,
+                  tone: 'danger',
                 })
-              }}
-            >
-              <Database size={15} />
-            </IconButton>
-          ) : null}
+              }).finally(() => {
+                if (indexAbort.current === controller) {
+                  indexAbort.current = null
+                  setIndexProgress(null)
+                }
+              })
+            }}
+          >
+            <Database size={15} />
+          </IconButton>
           <span className={narrow ? 'hidden' : 'contents'}>
             <IconButton label={t('reading.search_book')} size="sm" active={panel === 'search'} onClick={() => setPanel(panel === 'search' ? null : 'search')}>
               <Search size={15} />
