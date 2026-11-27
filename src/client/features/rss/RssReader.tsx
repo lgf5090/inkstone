@@ -136,6 +136,14 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
     if (host) host.scrollTop = view.readerTop
   }, [entry?.id, key, view.readerTop])
 
+  useEffect(() => {
+    if (settings.aiEnabled) return
+    abortRef.current?.()
+    abortRef.current = null
+    setAi(null)
+    if (view.version !== 'original') setVersion('original')
+  }, [settings.aiEnabled, setVersion, view.version])
+
   const display = useMemo(() => (entry
     ? articleDisplayHtml(entry.content, {
       images: imagesOn ? 'relay' : settings.images,
@@ -149,11 +157,13 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   }, [entries, index, openEntry])
 
   const ask = async (kind: RssAiKind): Promise<void> => {
-    if (!entry) return
+    if (!entry || !settings.aiEnabled) return
+    const askedId = entry.id
     // The model is the account's, read when the button is pressed rather than when the pane mounted:
     // a reader who configured one in the assistant a moment ago expects this button to work on the
     // next click. The bootstrap is idempotent, so a dock already open makes this a no-op.
     await useAssistant.getState().bootstrap()
+    if (!settings.aiEnabled || useRss.getState().view().entryId !== askedId) return
     if (!useAssistant.getState().settings?.activeModelId) {
       useUi.getState().toast({ title: t('rss.ai.not_configured'), tone: 'danger' })
       return
