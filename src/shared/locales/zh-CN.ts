@@ -6843,7 +6843,7 @@ console.log(\`Hello, \${name}!\`)
     "reading.book_count_value0": "{value0} 本书",
     "reading.book_failed": "这本书打不开",
     "reading.book_missing_hint": "本机没有这个文件。重新添加后可继续读，划线和位置都还在。",
-    "reading.book_unsupported_hint": "当前版本可读 EPUB、PDF 与 CBZ。参考项目支持的其他格式需要先转换。",
+    "reading.book_unsupported_hint": "当前版本可读 EPUB、PDF、CBZ 与 TXT。参考项目支持的其他格式需要先转换。",
     "reading.books_added_value0": "已加入 {value0} 本书",
     "reading.chapter_missing": "文件里没有这一章。",
     "reading.chapter_value0": "第 {value0} 章",

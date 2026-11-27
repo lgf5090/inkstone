@@ -46,7 +46,7 @@ const FAILURE_KEYS = {
   storage: 'reading.error_storage',
 } as const
 
-const ACCEPT = '.epub,.pdf,.cbz,application/epub+zip,application/pdf'
+const ACCEPT = '.epub,.pdf,.cbz,.txt,application/epub+zip,application/pdf,text/plain'
 
 /** The four shelf layouts, in the order the toolbar offers them. */
 const SHELF_VIEW_ICONS: Record<ShelfViewMode, React.ReactNode> = {

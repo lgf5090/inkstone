@@ -6852,7 +6852,7 @@ const CORE_MESSAGES_TAIL = {
     "reading.book_count_value0": "{value0} books",
     "reading.book_failed": "This book could not be opened",
     "reading.book_missing_hint": "The file is not on this device. Add it again to keep your highlights and continue where you stopped.",
-    "reading.book_unsupported_hint": "This build reads EPUB, PDF and CBZ. The other formats the reference reader supports need a converter before they can be laid out.",
+    "reading.book_unsupported_hint": "This build reads EPUB, PDF, CBZ and TXT. The other formats the reference reader supports need a converter before they can be laid out.",
     "reading.books_added_value0": "Added {value0} books",
     "reading.chapter_missing": "This chapter is not in the file.",
     "reading.chapter_value0": "Chapter {value0}",

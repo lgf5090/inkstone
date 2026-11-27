@@ -12,6 +12,7 @@ import { parseEpubPackage, spineIndexFor, type EpubPackage } from './epub-packag
 import type { BookRecord, TocEntry } from '../types'
 import { MAX_BOOK_BYTES } from '../types'
 import { randomLocalId } from '../../../lib/random-id'
+import { textFileToEpub } from './txt-import'
 
 export class ImportRejected extends Error {
   constructor(readonly reason: 'format' | 'size' | 'corrupt' | 'storage', message?: string) {
@@ -60,7 +61,7 @@ export function coverMediaType(cover: Uint8Array | null, name: string | null): s
 
 /** Cheap enough to run on every dropped file before the bytes are read. */
 export function hasBookExtension(filename: string): boolean {
-  return /\.(epub|pdf|cbz)$/i.test(filename)
+  return /\.(epub|pdf|cbz|txt)$/i.test(filename)
 }
 
 /** Strip the extension a reader named a file with, which is the fallback title's only source. */
@@ -217,6 +218,13 @@ function withRealCover(imported: ImportedImage): ImportedImage {
 /** Read one file into a shelf record, a cover and the bytes to keep. */
 export async function importBook(file: File): Promise<ImportedImage> {
   if (file.size > MAX_BOOK_BYTES) throw new ImportRejected('size')
+  if (/\.txt$/i.test(file.name) || file.type === 'text/plain') {
+    try {
+      return await importBook(await textFileToEpub(file))
+    } catch (error) {
+      throw new ImportRejected('corrupt', error instanceof Error ? error.message : undefined)
+    }
+  }
   const bytes = new Uint8Array(await file.arrayBuffer())
   if (!bytes.byteLength) throw new ImportRejected('corrupt')
   if (startsWith(bytes, PDF_MAGIC)) {
