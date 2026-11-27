@@ -1,6 +1,21 @@
 /* The reader's own surface. The article body is `.ink-prose` first and this second, so only the
    things a feed can contain and a note cannot are stated here. */
 
+:root {
+  --rss-theme-light-bg: #ffffff;
+  --rss-theme-light-ink: #1c1c1c;
+  --rss-theme-paper-bg: #f7f1e3;
+  --rss-theme-paper-ink: #33291d;
+  --rss-theme-sage-bg: #eef3ea;
+  --rss-theme-sage-ink: #26332a;
+  --rss-theme-mist-bg: #eaeef4;
+  --rss-theme-mist-ink: #262d38;
+  --rss-theme-dark-bg: #17181a;
+  --rss-theme-dark-ink: #d6d3cd;
+  --rss-theme-black-bg: #000000;
+  --rss-theme-black-ink: #c9c9c9;
+}
+
 .ink-prose[data-font='mono'] {
   font-family: var(--font-mono);
   letter-spacing: 0;
@@ -64,9 +79,9 @@
 }
 
 .rss-scroll[data-theme='light'] {
-  --bg-base: #ffffff;
+  --bg-base: var(--rss-theme-light-bg);
   --bg-hover: #f2f2f2;
-  --text-primary: #1c1c1c;
+  --text-primary: var(--rss-theme-light-ink);
   --text-secondary: #3f3f3f;
   --text-tertiary: #6b6b6b;
   --text-quaternary: #9a9a9a;
@@ -74,9 +89,9 @@
 }
 
 .rss-scroll[data-theme='paper'] {
-  --bg-base: #f7f1e3;
+  --bg-base: var(--rss-theme-paper-bg);
   --bg-hover: #efe6d3;
-  --text-primary: #33291d;
+  --text-primary: var(--rss-theme-paper-ink);
   --text-secondary: #4d4030;
   --text-tertiary: #6f6049;
   --text-quaternary: #94836a;
@@ -84,9 +99,9 @@
 }
 
 .rss-scroll[data-theme='sage'] {
-  --bg-base: #eef3ea;
+  --bg-base: var(--rss-theme-sage-bg);
   --bg-hover: #e2ebdd;
-  --text-primary: #26332a;
+  --text-primary: var(--rss-theme-sage-ink);
   --text-secondary: #3f5044;
   --text-tertiary: #5f7264;
   --text-quaternary: #85988a;
@@ -94,9 +109,9 @@
 }
 
 .rss-scroll[data-theme='mist'] {
-  --bg-base: #eaeef4;
+  --bg-base: var(--rss-theme-mist-bg);
   --bg-hover: #dee5ef;
-  --text-primary: #262d38;
+  --text-primary: var(--rss-theme-mist-ink);
   --text-secondary: #3d4757;
   --text-tertiary: #5c6a80;
   --text-quaternary: #8593a8;
@@ -104,9 +119,9 @@
 }
 
 .rss-scroll[data-theme='dark'] {
-  --bg-base: #17181a;
+  --bg-base: var(--rss-theme-dark-bg);
   --bg-hover: #232528;
-  --text-primary: #d6d3cd;
+  --text-primary: var(--rss-theme-dark-ink);
   --text-secondary: #b6b3ad;
   --text-tertiary: #8e8b86;
   --text-quaternary: #6e6c68;
@@ -114,9 +129,9 @@
 }
 
 .rss-scroll[data-theme='black'] {
-  --bg-base: #000000;
+  --bg-base: var(--rss-theme-black-bg);
   --bg-hover: #141414;
-  --text-primary: #c9c9c9;
+  --text-primary: var(--rss-theme-black-ink);
   --text-secondary: #a6a6a6;
   --text-tertiary: #828282;
   --text-quaternary: #5e5e5e;

@@ -69,12 +69,12 @@ const FONTS = ['ui', 'serif', 'sans', 'songti', 'kaiti', 'fangsong', 'mono', 'cu
 /** [id, paper, ink] — the sample a reader clicks is the colour the page will actually take. */
 const THEME_SWATCHES: Array<[RssReadingTheme, string, string]> = [
   ['auto', 'var(--bg-base)', 'var(--text-primary)'],
-  ['light', '#ffffff', '#1c1c1c'],
-  ['paper', '#f7f1e3', '#33291d'],
-  ['sage', '#eef3ea', '#26332a'],
-  ['mist', '#eaeef4', '#262d38'],
-  ['dark', '#17181a', '#d6d3cd'],
-  ['black', '#000000', '#c9c9c9'],
+  ['light', 'var(--rss-theme-light-bg)', 'var(--rss-theme-light-ink)'],
+  ['paper', 'var(--rss-theme-paper-bg)', 'var(--rss-theme-paper-ink)'],
+  ['sage', 'var(--rss-theme-sage-bg)', 'var(--rss-theme-sage-ink)'],
+  ['mist', 'var(--rss-theme-mist-bg)', 'var(--rss-theme-mist-ink)'],
+  ['dark', 'var(--rss-theme-dark-bg)', 'var(--rss-theme-dark-ink)'],
+  ['black', 'var(--rss-theme-black-bg)', 'var(--rss-theme-black-ink)'],
 ]
 
 export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => void, focus?: boolean, onToggleFocus?: () => void }) {
@@ -502,14 +502,9 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
           <ExternalLink size={13} aria-hidden="true" />
           {t('rss.open_original')}
         </a>
-        <button
-          type="button"
-          onClick={() => void copy()}
-          className="inline-flex h-9 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-        >
-          <Link2 size={13} aria-hidden="true" />
+        <Button size="sm" variant="ghost" icon={<Link2 size={13} aria-hidden="true" />} onClick={() => void copy()}>
           {t('rss.copy_link')}
-        </button>
+        </Button>
         <ToolButton label={t('rss.save_note_to')} icon={<FolderInput size={13} aria-hidden="true" />} onClick={() => setPicking(true)} />
         <ToolButton label={t('rss.save_another_note')} icon={<CopyPlus size={13} aria-hidden="true" />} onClick={() => void saveFresh()} />
         <Tooltip label={t('rss.print_hint')} side="top">
@@ -548,14 +543,9 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
 
 function ToolButton({ label, icon, onClick }: { label: string, icon: ReactNode, onClick: () => void }): ReactElement {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex h-9 items-center gap-1.5 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-    >
-      {icon}
+    <Button size="sm" variant="ghost" icon={icon} onClick={onClick}>
       {label}
-    </button>
+    </Button>
   )
 }
 
@@ -568,25 +558,26 @@ function TypographyPanel(): ReactElement {
       <Field label={t('rss.theme')}>
         <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('rss.theme')}>
           {THEME_SWATCHES.map(([id, paper, ink]) => (
-            <button
+            <Button
               key={id}
-              type="button"
+              size="sm"
+              variant="ghost"
               aria-label={t(`rss.theme_${id}` as MessageKey)}
               aria-pressed={rss.readingTheme === id}
               onClick={() => patch({ readingTheme: id })}
               className={cn(
-                'grid h-9 w-12 place-items-center rounded-[var(--r-md)] border transition-shadow',
+                'h-9 w-12 justify-center border p-0',
                 rss.readingTheme === id
                   ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]'
                   : 'border-[var(--border-subtle)] hover:border-[var(--border-default)]',
               )}
               style={{ background: paper }}
             >
-              <span aria-hidden="true" className="w-7 space-y-[3px]">
+              <span aria-hidden="true" className="block w-7 space-y-[3px]">
                 <span className="block h-[2px] rounded-full" style={{ background: ink }} />
                 <span className="block h-[2px] w-4/5 rounded-full" style={{ background: ink, opacity: 0.55 }} />
               </span>
-            </button>
+            </Button>
           ))}
         </div>
       </Field>

@@ -17,7 +17,7 @@ import { folderPath } from '../../lib/folders'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
-import { Checkbox, Field, Input, Segmented } from '../../components/form'
+import { Checkbox, Field, Input, Segmented, Textarea } from '../../components/form'
 import { Menu, Modal, confirm, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { FilterInput } from '../../components/FilterInput'
 import { compileQuery, queryKeeps } from '../../lib/query-match'
@@ -161,9 +161,7 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
           <span className="text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)]">{t('rss.selected_n', { n: selected.size })}</span>
           <Button size="sm" onClick={() => void bulkRefresh()}>{t('rss.refresh')}</Button>
           <Button size="sm" variant="danger" onClick={() => void bulkUnsubscribe()}>{t('rss.unsubscribe')}</Button>
-          <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-[length:var(--text-11-5)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
-            {t('rss.clear_selection')}
-          </button>
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setSelected(new Set())}>{t('rss.clear_selection')}</Button>
         </div>
       )}
 
@@ -188,20 +186,12 @@ function ManagePanel({ adding, onAdded }: { adding: boolean, onAdded: () => void
               </button>
               {group && (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => void renameGroup(group.id, group.name)}
-                    className="rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                  >
+                  <Button size="sm" variant="ghost" onClick={() => void renameGroup(group.id, group.name)} className="px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
                     {t('rss.rename_group')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void removeGroup(group.id, group.name)}
-                    className="rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--danger)]"
-                  >
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => void removeGroup(group.id, group.name)} className="px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:text-[var(--danger)]">
                     {t('rss.delete_group')}
-                  </button>
+                  </Button>
                 </>
               )}
             </div>
@@ -481,13 +471,13 @@ function OpmlImport({ initial, onClose, onFile }: { initial: string, onClose: ()
           <ChevronDown size={15} />
         </IconButton>
       </div>
-      <textarea
+      <Textarea
         value={text}
         onChange={event => setText(event.target.value)}
         rows={5}
         spellCheck={false}
         aria-label={t('rss.opml_paste')}
-        className="w-full rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-base)] p-2 font-mono text-[length:var(--text-11-5)] text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
+        className="w-full font-mono text-[length:var(--text-11-5)]"
       />
       {parsed && (
         <div className="mt-2 flex items-center gap-2">
