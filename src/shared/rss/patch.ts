@@ -159,6 +159,14 @@ export function patchIsEmpty(patch: RssPatch): boolean {
     && !patch.state
 }
 
+/** True when only reading marks change, so the Worker can validate ceilings without loading the library. */
+export function patchIsMarksOnly(patch: RssPatch): boolean {
+  return !patch.feeds.upsert.length && !patch.feeds.remove.length
+    && !patch.groups.upsert.length && !patch.groups.remove.length
+    && !patch.tags.upsert.length && !patch.tags.remove.length
+    && !patch.state
+}
+
 /**
  * A change set that arrived over the network, checked before anything is folded in.
  *

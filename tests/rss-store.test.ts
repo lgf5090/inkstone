@@ -11,7 +11,7 @@ import {
 } from '../src/shared/rss/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { diffLibrary } from '../src/shared/rss/patch'
-import { loadRssLibrary, loadRssReading, saveRssReadingFeed, storeRssLibrary, storeRssPatch } from '../src/worker/lib/rss-store'
+import { loadRssLibrary, loadRssReading, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, storeRssLibrary, storeRssPatch } from '../src/worker/lib/rss-store'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'user-store'
@@ -94,6 +94,23 @@ describe('the row store', () => {
     await storeRssPatch(db, USER, { ...second, feeds: { upsert: [], remove: [] } }, 3)
     const got = await loadRssLibrary(db, USER)
     expect(got.library?.favorites).toEqual(['e2', 'e1'])
+  })
+
+  it('checks marks-only ceilings from counts and touched keys', async () => {
+    const base = library()
+    base.favorites = Array.from({ length: RSS_LIMITS.favorites }, (_, index) => `e${index}`)
+    await storeRssLibrary(db, USER, base, 1)
+    const overflow = diffLibrary(base, { ...base, favorites: ['extra', ...base.favorites] }, () => 2)
+    expect(await rssMarkPatchFits(db, USER, overflow)).toBe(false)
+    const removal = diffLibrary(base, { ...base, favorites: base.favorites.slice(1) }, () => 3)
+    expect(await rssMarkPatchFits(db, USER, removal)).toBe(true)
+  })
+
+  it('finds one migrated feed without depending on a full library read', async () => {
+    const base = library()
+    await storeRssLibrary(db, USER, base, 1)
+    expect(await rssFeedExists(db, USER, 'f1')).toBe(true)
+    expect(await rssFeedExists(db, USER, 'missing')).toBe(false)
   })
 
   it('keeps one account inside its own rows', async () => {

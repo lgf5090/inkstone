@@ -17,8 +17,8 @@
 import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssFeed, type RssFetchResult } from '@shared/rss/model'
-import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty } from '@shared/rss/patch'
-import { accountExists, deleteRssReadingFeed, loadRssLibrary, saveRssReadingFeed, storeRssLibrary, storeRssPatch } from '../lib/rss-store'
+import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty, patchIsMarksOnly } from '@shared/rss/patch'
+import { accountExists, deleteRssReadingFeed, loadRssLibrary, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -262,6 +262,15 @@ rssRoutes.post('/patch', async (c) => {
   if (!patch) throw ApiError.badRequest('The change set could not be read')
   if (patchChars(patch) > RSS_LIMITS.payloadChars) throw ApiError.tooLarge('The change set is too large to store')
   if (!(await accountExists(c.env.DB, userId))) throw ApiError.notFound('Account not found')
+  if (patchIsMarksOnly(patch) && !patchIsEmpty(patch)) {
+    if (!(await rssMarkPatchFits(c.env.DB, userId, patch))) {
+      throw ApiError.badRequest('The RSS library holds entries that cannot be stored')
+    }
+    const savedAt = Date.now()
+    const rowPatch: RssRowPatch = { ...patch, feeds: { upsert: [], remove: [] } }
+    const report = await storeRssPatch(c.env.DB, userId, rowPatch, savedAt)
+    return c.json({ savedAt, rows: report.rows })
+  }
   const stored = await loadRssLibrary(c.env.DB, userId)
   if (patchIsEmpty(patch)) return c.json({ savedAt: stored.savedAt, rows: 0 })
   const merged = applyLibraryPatch(stored.library ?? emptyLibrary(), patch)
@@ -305,8 +314,7 @@ rssRoutes.put('/reading', async (c) => {
   const feedId = typeof body.feedId === 'string' ? body.feedId.slice(0, 80) : ''
   if (!feedId) throw ApiError.badRequest('A feed id is required')
   if (!Array.isArray(body.entries)) throw ApiError.badRequest('The reading snapshot must be a list of articles')
-  const stored = await loadRssLibrary(c.env.DB, userId)
-  if (!stored.library?.feeds.some((feed) => feed.id === feedId)) {
+  if (!(await rssFeedExists(c.env.DB, userId, feedId))) {
     throw ApiError.badRequest('That subscription is not in this account')
   }
   const saved = await saveRssReadingFeed(c.env.DB, userId, feedId, body.entries.slice(0, MAX_READING_ENTRIES))

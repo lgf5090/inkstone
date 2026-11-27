@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptyLibrary, newFeed, newGroup, parseRssLibrary, RSS_LIMITS, type RssLibrary } from './model'
-import { applyLibraryPatch, diffLibrary, patchChars, patchIsEmpty, parseRssPatch } from './patch'
+import { applyLibraryPatch, diffLibrary, patchChars, patchIsEmpty, patchIsMarksOnly, parseRssPatch } from './patch'
 
 const NOW = 1_700_000_000_000
 const clock = () => NOW
@@ -30,6 +30,15 @@ function otherDevice(): RssLibrary {
 }
 
 describe('the change set', () => {
+  it('recognises a marks-only change set', () => {
+    const base = library()
+    const next = structuredClone(base)
+    next.favorites = ['e2']
+    expect(patchIsMarksOnly(diffLibrary(base, next, clock))).toBe(true)
+    next.feeds[0]!.title = 'Renamed'
+    expect(patchIsMarksOnly(diffLibrary(base, next, clock))).toBe(false)
+  })
+
   it('says nothing when nothing moved', () => {
     const base = library()
     expect(patchIsEmpty(diffLibrary(base, structuredClone(base), clock))).toBe(true)

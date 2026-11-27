@@ -13,7 +13,7 @@
  * column is set to NULL the moment it has been split. A reader who deleted every subscription keeps
  * the state row and an empty table set, and never re-runs the split.
  */
-import { emptyLibrary, normaliseEntry, parseRssLibrary, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
+import { emptyLibrary, normaliseEntry, parseRssLibrary, RSS_LIMITS, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
 import { libraryMarkRows, marksIntoLibrary, RSS_LIST_MARK_KINDS, type RssMarkKind } from '@shared/rss/marks'
 import type { RssPatch } from '@shared/rss/patch'
 
@@ -430,7 +430,49 @@ export async function storeRssLibrary(
   return storeRssLibraryRows(db, await readLibraryRows(db, userId), userId, library, savedAt)
 }
 
-type RssRowPatch = Omit<RssPatch, 'feeds'> & { feeds: { upsert: RssFeed[], remove: string[] } }
+export type RssRowPatch = Omit<RssPatch, 'feeds'> & { feeds: { upsert: RssFeed[], remove: string[] } }
+
+const MARK_CEILINGS: Record<RssMarkKind, number> = {
+  read: RSS_LIMITS.readIds,
+  star: RSS_LIMITS.favorites,
+  later: RSS_LIMITS.readLater,
+  hidden: RSS_LIMITS.hiddenIds,
+  opened: RSS_LIMITS.openedRecords,
+  note: RSS_LIMITS.savedNotes,
+  copy: RSS_LIMITS.savedNotes,
+}
+
+/** Validate a marks-only change set with counts and touched keys, without reading every feed and mark. */
+export async function rssMarkPatchFits(db: D1Database, userId: string, patch: RssPatch): Promise<boolean> {
+  const state = await db.prepare('SELECT 1 FROM rss_state WHERE user_id = ?1').bind(userId).first()
+  if (!state) await loadRssLibrary(db, userId)
+  const counts = await db.prepare('SELECT kind, COUNT(*) AS count FROM rss_mark WHERE user_id = ?1 GROUP BY kind').bind(userId).all<{ kind: RssMarkKind, count: number }>()
+  const current = new Map<RssMarkKind, number>(counts.results.map(row => [row.kind, Number(row.count)]))
+  const touched = new Map<string, { remove: boolean, upsert: boolean }>()
+  for (const row of patch.marks.remove) touched.set(`${row.kind}\u0000${row.entryId}`, { remove: true, upsert: false })
+  for (const row of patch.marks.upsert) touched.set(`${row.kind}\u0000${row.entryId}`, { remove: false, upsert: true })
+  const ids = [...new Set([...patch.marks.remove, ...patch.marks.upsert].map(row => row.entryId))]
+  const existing = new Set<string>()
+  for (let offset = 0; offset < ids.length; offset += 80) {
+    const chunk = ids.slice(offset, offset + 80)
+    const placeholders = chunk.map((_, index) => `?${index + 2}`).join(',')
+    const rows = await db.prepare(`SELECT kind, entry_id FROM rss_mark WHERE user_id = ?1 AND entry_id IN (${placeholders})`)
+      .bind(userId, ...chunk).all<{ kind: RssMarkKind, entry_id: string }>()
+    for (const row of rows.results) existing.add(`${row.kind}\u0000${row.entry_id}`)
+  }
+  const projected = new Map(current)
+  for (const [key, change] of touched) {
+    const kind = key.slice(0, key.indexOf('\u0000')) as RssMarkKind
+    const before = existing.has(key) ? 1 : 0
+    const after = change.upsert ? 1 : 0
+    projected.set(kind, (projected.get(kind) ?? 0) + after - before)
+  }
+  for (const [kind, count] of projected) {
+    if (count > MARK_CEILINGS[kind]) return false
+  }
+  const savedNotes = (projected.get('note') ?? 0) + (projected.get('copy') ?? 0)
+  return savedNotes <= RSS_LIMITS.savedNotes
+}
 
 /** Apply only the rows a change set names, so concurrent devices cannot delete each other's additions. */
 export async function storeRssPatch(
@@ -448,14 +490,17 @@ export async function storeRssPatch(
     ...deletes(GROUP_ROW, userId, patch.groups.remove.map(id => [id])),
     ...deletes(MARK_ROW, userId, patch.marks.remove.map(row => [row.kind, row.entryId])),
     ...upserts(MARK_ROW, userId, patch.marks.upsert.map(row => [row.kind, row.entryId, row.value, row.at])),
-    ...(patch.state ? upserts(STATE_ROW, userId, [[patch.state.lastChannel, savedAt]]) : []),
+    ...(patch.state ? upserts(STATE_ROW, userId, [[patch.state.lastChannel, savedAt]]) : [
+      { sql: 'UPDATE rss_state SET saved_at = ?1 WHERE user_id = ?2', params: [savedAt, userId] },
+      { sql: 'INSERT OR IGNORE INTO rss_state (user_id, last_channel, saved_at) VALUES (?1, ?, ?2)', params: [userId, savedAt] },
+    ]),
   ]
   await runBatches(db, statements)
   const rows = patch.groups.upsert.length + patch.feeds.upsert.length
     + patch.tags.remove.length + patch.tags.upsert.length
     + patch.feeds.remove.length + patch.groups.remove.length
     + patch.marks.remove.length + patch.marks.upsert.length
-    + (patch.state ? 1 : 0)
+    + 1
   return { rows }
 }
 
@@ -500,6 +545,17 @@ export async function loadRssLibrary(db: D1Database, userId: string): Promise<Rs
 export async function accountExists(db: D1Database, userId: string): Promise<boolean> {
   const account = await db.prepare('SELECT id FROM users WHERE id = ?1').bind(userId).first()
   return account !== null
+}
+
+/** The common migrated-account check for a reading upload: one feed row, not the whole library. */
+export async function rssFeedExists(db: D1Database, userId: string, feedId: string): Promise<boolean> {
+  const feed = await db.prepare('SELECT 1 FROM rss_feed WHERE user_id = ?1 AND id = ?2').bind(userId, feedId).first()
+  if (feed) return true
+  const state = await db.prepare('SELECT 1 FROM rss_state WHERE user_id = ?1').bind(userId).first()
+  if (state) return false
+  // No state row means either a new account or a legacy library that still needs its one-time split.
+  const stored = await loadRssLibrary(db, userId)
+  return Boolean(stored.library?.feeds.some(item => item.id === feedId))
 }
 
 /**
