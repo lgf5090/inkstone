@@ -58,7 +58,7 @@ export function CommentCard({ ids, rect, bookId, onClose, onEdit, onRemove }: Co
       role="dialog"
       aria-label={t('reading.highlight')}
       tabIndex={-1}
-      className="app-viewport-fixed fixed z-[7] flex flex-col gap-2 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2.5 shadow-[var(--shadow-pop)] outline-none"
+      className="app-viewport-fixed fixed z-[var(--z-popover)] flex flex-col gap-2 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2.5 shadow-[var(--shadow-pop)] outline-none"
       style={{ left, top, width }}
     >
       {cards.map((card) => (

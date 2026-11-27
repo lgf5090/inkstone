@@ -43,8 +43,8 @@ export function HighlightsPanel({ book, list, positionFor, onJump, onRemove, onC
                 <span className="min-w-0 flex-1">
                   <button
                     type="button"
-                    className="block w-full border-s-2 ps-2 text-start text-[length:var(--text-12-5)] leading-snug"
-                    style={{ borderInlineStartWidth: 2, borderInlineStartColor: DEFAULT_HIGHLIGHT_PAINT[highlight.color] }}
+                    className="reader-highlight-button block w-full border-s-2 ps-2 text-start text-[length:var(--text-12-5)] leading-snug"
+                    style={{ borderInlineStartColor: DEFAULT_HIGHLIGHT_PAINT[highlight.color] }}
                     onClick={() => onJump(positionFor(highlight.chapter, highlight.start))}
                   >
                     {highlight.quote}

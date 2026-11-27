@@ -51,7 +51,7 @@ export function LookupCard({ rect, pending, outcome, error, onClose, onCollect, 
       role="status"
       aria-live="polite"
       tabIndex={-1}
-      className="app-viewport-fixed fixed z-[8] flex flex-col gap-1.5 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2.5 shadow-[var(--shadow-pop)]"
+      className="app-viewport-fixed fixed z-[var(--z-popover)] flex flex-col gap-1.5 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2.5 shadow-[var(--shadow-pop)]"
       style={{ left, top, width }}
     >
       <div className="flex items-start gap-2">

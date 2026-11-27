@@ -45,7 +45,7 @@ export function ReaderPanel({ name, title, theme, onClose, children }: ReaderPan
       aria-label={title}
       tabIndex={-1}
       data-reader-panel={name}
-      className="absolute top-[60px] bottom-[60px] right-2 z-[6] flex w-[340px] max-w-[calc(100%_-_16px)] flex-col overflow-hidden rounded-[var(--r-lg)] border shadow-[var(--shadow-pop)] outline-none"
+      className="absolute top-[60px] bottom-[60px] right-2 z-[var(--z-popover)] flex w-[340px] max-w-[calc(100%_-_16px)] flex-col overflow-hidden rounded-[var(--r-lg)] border shadow-[var(--shadow-pop)] outline-none"
       style={{
         // The panel is painted with the page's colours, and the app's own controls inside it read
         // theirs from these variables — so re-declaring them here is what lets a slider or a switch

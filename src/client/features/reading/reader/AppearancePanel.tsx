@@ -290,9 +290,9 @@ function ThemeSwatch({ name, label, current, onPick }: {
         borderColor: current === name ? 'var(--accent)' : 'color-mix(in oklab, currentColor 18%, transparent)',
       }}
     >
-      <span className="absolute inset-x-1.5 top-2 block h-px" style={{ background: name === 'auto' ? page.foreground : page.foreground, opacity: 0.5 }} />
-      <span className="absolute inset-x-1.5 top-[15px] block h-px" style={{ background: page.foreground, opacity: 0.35 }} />
-      <span className="absolute inset-x-1.5 top-[22px] block h-px" style={{ background: page.foreground, opacity: 0.22 }} />
+      <span className="reader-theme-line reader-theme-line-strong absolute inset-x-1.5 top-2 block h-px" style={{ background: page.foreground }} />
+      <span className="reader-theme-line reader-theme-line-medium absolute inset-x-1.5 top-[15px] block h-px" style={{ background: page.foreground }} />
+      <span className="reader-theme-line reader-theme-line-weak absolute inset-x-1.5 top-[22px] block h-px" style={{ background: page.foreground }} />
     </button>
     </Tooltip>
   )

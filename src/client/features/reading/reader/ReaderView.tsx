@@ -56,7 +56,6 @@ let legacyAiKeyNoticeShown = false
 export function ReaderView({ book }: { book: BookRecord }) {
   const settings = useReaderSettings()
   const appTheme = useUi((state) => state.theme)
-  const accentless = useUi((state) => state.background)
   const toast = useUi((state) => state.toast)
   const assistantOpen = useUi((state) => state.assistantDockOpen)
   const toggleAssistant = useUi((state) => state.toggleAssistantDock)
@@ -155,7 +154,6 @@ export function ReaderView({ book }: { book: BookRecord }) {
     return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
   }, [appTheme])
   const theme = resolveReaderTheme(settings.theme as ReaderThemeName, appDark)
-  void accentless
 
   const busy = Boolean(panel || selection || comment) || hudPinned
 

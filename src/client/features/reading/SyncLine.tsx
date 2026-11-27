@@ -11,18 +11,7 @@ import { t } from '../../lib/i18n'
 import { formatPercent } from './position'
 import { useLibrary } from './store/library'
 import { formatSyncTime } from './format-time'
-
-/** Bytes in the unit a reader compares against their own library, not the unit the API counts in. */
-function formatBytes(bytes: number): string {
-  const units = ['B', 'kB', 'MB', 'GB', 'TB']
-  let value = Math.max(0, bytes)
-  let at = 0
-  while (value >= 1024 && at < units.length - 1) {
-    value /= 1024
-    at += 1
-  }
-  return `${at === 0 ? value : value.toFixed(1)} ${units[at]}`
-}
+import { formatBytes } from '@shared/byte-format'
 
 export function SyncLine() {
   const sync = useLibrary((state) => state.sync)
