@@ -132,6 +132,15 @@ describe('the sweep', () => {
     expect(schedules('u1')[0]!.status).toBe('skipped')
   })
 
+  it('sends a before-expiry rule once across different local hours', async () => {
+    await seed('u1', { days: 7 })
+    await enableGotify('u1')
+    await sweepSubscriptions(env(), NOW)
+    const second = await sweepSubscriptions(env(), NOW + 60 * 60_000)
+    expect(deliveries).toHaveLength(1)
+    expect(second.deduped).toBeGreaterThan(0)
+  })
+
   it('stays quiet outside the notification window but still renews', async () => {
     const created = await seed('u1', { days: -3, hours: ['23'] })
     sqlite.prepare(`UPDATE sub_item SET expiry_date = ? WHERE id = ?`).run(NOW - 3 * DAY, created.item.id)

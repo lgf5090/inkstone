@@ -15,7 +15,7 @@
 import type { ReminderRule, SubscriptionItem, SubscriptionSettings } from '@shared/subscriptions/model'
 import { hourIsOpen } from '@shared/subscriptions/model'
 import { shouldFire } from '@shared/subscriptions/reminder-engine'
-import { MS_PER_HOUR, getDaysBetween, getNowInTimezone, localHourKey } from '@shared/subscriptions/time'
+import { MS_PER_HOUR, getDaysBetween, getNowInTimezone, localDayKey, localHourKey } from '@shared/subscriptions/time'
 import type { Env } from '../env'
 import { dispatch } from './channels'
 import { buildNotificationBody, subjectOf, type NotifySubject } from './notify-content'
@@ -84,7 +84,7 @@ interface AccountTally {
 async function sweepAccount(env: Env, userId: string, now: number): Promise<AccountTally> {
   const settings = await loadSettings(env.DB, userId)
   const store = new SubscriptionsStore(env.DB, userId)
-  const context: StoreContext = { timezone: settings.timezone, paymentLimit: settings.paymentHistoryLimit, now }
+  const context: StoreContext = { timezone: settings.timezone, notificationHours: settings.notificationHours, paymentLimit: settings.paymentHistoryLimit, now }
 
   const items = await store.list(context)
   let renewed = 0
@@ -156,11 +156,11 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
     return { renewed, matched, deduped: 0, sent: 0, failed: 0 }
   }
 
-  const hourKey = localHourKey(settings.timezone, nowDate)
   const ready: Candidate[] = []
   let deduped = 0
   for (const candidate of candidates) {
-    const claimed = await claim(env.DB, userId, candidate, hourKey, now)
+    const key = candidate.rule.type === 'after_expiry' ? localHourKey(settings.timezone, nowDate) : localDayKey(settings.timezone, nowDate)
+    const claimed = await claim(env.DB, userId, candidate, key, now)
     if (claimed) ready.push(candidate)
     else deduped++
   }

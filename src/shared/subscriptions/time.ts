@@ -272,7 +272,13 @@ export function formatTimezoneOffset(timezone = 'UTC'): string {
   return `UTC${sign}${Number.isInteger(absolute) ? absolute : absolute.toFixed(1)}`
 }
 
-/** `YYYYMMDDHH` in a zone: the key a delivery is deduplicated on, one message per local hour. */
+/** `YYYYMMDD` in a zone: the key a one-shot daily delivery is deduplicated on. */
+export function localDayKey(timezone = 'UTC', now?: Date): string {
+  const parts = getNowInTimezone(timezone, now).parts
+  return `${parts.year}${String(parts.month).padStart(2, '0')}${String(parts.day).padStart(2, '0')}`
+}
+
+/** `YYYYMMDDHH` in a zone: the key an hourly delivery is deduplicated on. */
 export function localHourKey(timezone = 'UTC', now?: Date): string {
   const parts = getNowInTimezone(timezone, now).parts
   return `${parts.year}${String(parts.month).padStart(2, '0')}${String(parts.day).padStart(2, '0')}${String(parts.hour).padStart(2, '0')}`

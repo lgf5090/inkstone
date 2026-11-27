@@ -41,6 +41,7 @@ const PURGE_CHUNK = 80
 /** The account's own context, which every date calculation needs and no row carries. */
 export interface StoreContext {
   timezone: string
+  notificationHours?: readonly string[]
   paymentLimit: number
   now?: number
 }
@@ -298,9 +299,9 @@ export class SubscriptionsStore {
         amount: payment.amount,
         currency: payment.currency as SpendingInput['currency'],
       })), context.timezone),
-      nextReminder: soonestFire(mapped, expiryIso, nowIso),
+      nextReminder: soonestFire(mapped, expiryIso, nowIso, { timezone: context.timezone, notificationHours: context.notificationHours ?? [] }),
       upcoming: mapped
-        .map((rule) => ({ rule, at: getNextFireTime(rule, expiryIso, nowIso) }))
+        .map((rule) => ({ rule, at: getNextFireTime(rule, expiryIso, nowIso, { timezone: context.timezone, notificationHours: context.notificationHours ?? [] }) }))
         .filter((entry): entry is { rule: ReminderRule; at: string } => entry.at !== null)
         .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
         .map((entry) => ({
@@ -1020,7 +1021,7 @@ export class SubscriptionsStore {
       (getTimezoneMidnightTimestamp(expiry, context.timezone) - getTimezoneMidnightTimestamp(now, context.timezone)) / 86_400_000,
     )
     const next = rules.length > 0
-      ? soonestFire(rules, new Date(expiry).toISOString(), new Date(now).toISOString())
+      ? soonestFire(rules, new Date(expiry).toISOString(), new Date(now).toISOString(), { timezone: context.timezone, notificationHours: context.notificationHours ?? [] })
       : null
     return {
       id: row.id,
@@ -1152,5 +1153,5 @@ export class SubscriptionsStore {
 
 /** The context a store needs, read off an account's settings row. */
 export function storeContext(settings: SubscriptionSettings, now?: number): StoreContext {
-  return { timezone: settings.timezone, paymentLimit: settings.paymentHistoryLimit, now }
+  return { timezone: settings.timezone, notificationHours: settings.notificationHours, paymentLimit: settings.paymentHistoryLimit, now }
 }

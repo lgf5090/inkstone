@@ -783,9 +783,23 @@ export const DEFAULT_SETTINGS: SubscriptionSettings = {
  * The hours a reminder may be sent in, as the scheduler compares them.
  *
  * Three spellings mean "any hour" and all three normalise to `['*']`: an empty list, a literal `*`,
- * and the word `ALL`. A number is clamped and padded, because `8` and `08` are the same hour and a
- * comparison against `'08'` would miss the former.
+ * and the word `ALL`. A number from 0 through 23 is padded, because `8` and `08` are the same hour and a
+ * comparison against `'08'` would miss the former. Invalid stored values are ignored; new input is
+ * rejected by `areValidNotificationHours` before it reaches this normaliser.
  */
+export function areValidNotificationHours(input: unknown): boolean {
+  const raw = Array.isArray(input)
+    ? input
+    : typeof input === 'string' ? input.split(',') : []
+  return raw.every((entry) => {
+    const value = String(entry).trim()
+    if (!value) return true
+    const upper = value.toUpperCase()
+    if (upper === '*' || upper === 'ALL') return true
+    return /^\d{1,2}$/.test(value) && Number(value) >= 0 && Number(value) <= 23
+  })
+}
+
 export function normalizeNotificationHours(input: unknown): string[] {
   const raw = Array.isArray(input)
     ? input
@@ -799,13 +813,13 @@ export function normalizeNotificationHours(input: unknown): string[] {
       if (!out.includes('*')) out.push('*')
       continue
     }
-    if (/^\d+$/.test(value)) {
-      const hour = Math.min(23, Math.max(0, Math.floor(Number(value))))
+    if (/^\d{1,2}$/.test(value)) {
+      const hour = Number(value)
+      if (hour < 0 || hour > 23) continue
       const padded = String(hour).padStart(2, '0')
       if (!out.includes(padded)) out.push(padded)
       continue
     }
-    if (!out.includes(upper)) out.push(upper)
   }
   return out
 }

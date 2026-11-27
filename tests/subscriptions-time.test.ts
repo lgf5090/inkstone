@@ -8,6 +8,7 @@ import {
   getTimezoneDateParts,
   getTimezoneMidnightTimestamp,
   isValidTimezone,
+  localDayKey,
   localHourKey,
   parseDateInputInTimezone,
 } from '../src/shared/subscriptions/time'
@@ -72,6 +73,10 @@ describe('formatting', () => {
     expect(formatLocalDate('2026-05-24T15:30:00Z', SHANGHAI, 'date')).toBe('2026-05-24')
     expect(formatLocalDate('2026-05-24T15:30:00Z', SHANGHAI, 'datetime')).toBe('2026-05-24 23:30:00')
     expect(formatLocalDate('2026-05-24T15:30:00Z', SHANGHAI, 'full')).toBe('2026-05-24 23:30')
+  })
+
+  it('builds the dedupe key from the local day', () => {
+    expect(localDayKey(SHANGHAI, new Date('2026-05-24T16:30:00Z'))).toBe('20260525')
   })
 
   it('builds the dedupe key from the local hour', () => {

@@ -11,6 +11,7 @@ import { channelHint, channelDefinition } from '@shared/subscriptions/channels'
 import {
   DEFAULT_SETTINGS,
   LABEL_MAX,
+  areValidNotificationHours,
   clampPaymentLimit,
   isCurrencyCode,
   isRateValue,
@@ -74,8 +75,7 @@ function parseHours(raw: string): string[] {
     const value = JSON.parse(raw) as unknown
     return normalizeNotificationHours(value)
   } catch {
-    // Text that is not a list is a window nobody set, which is the same answer as an empty one: every hour
-    // stays open rather than the reader's reminders falling silent over one corrupt cell.
+    console.warn('[inkstone] Subscription notification window could not be read; using all hours.')
     return []
   }
 }
@@ -165,6 +165,9 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
   const notificationHours = patch.notificationHours === undefined
     ? current.notificationHours
     : normalizeNotificationHours(patch.notificationHours)
+  if (patch.notificationHours !== undefined && !areValidNotificationHours(patch.notificationHours)) {
+    throw new Error('invalid_notification_hours')
+  }
   const showLunar = patch.showLunar === undefined ? current.showLunar : patch.showLunar === true
   const limit = patch.paymentHistoryLimit === undefined
     ? current.paymentHistoryLimit

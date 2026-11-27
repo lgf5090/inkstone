@@ -321,6 +321,11 @@ describe('settings', () => {
     expect(answer.settings.notificationHours).toEqual(['08', '20'])
   })
 
+  it('refuses notification hours that cannot match the scheduler', async () => {
+    const response = await send('PUT', '/settings', { notificationHours: ['08:00'] })
+    expect(response.status).toBe(400)
+  })
+
   it('refuses a time zone that does not exist', async () => {
     expect((await send('PUT', '/settings', { timezone: 'Mars/Olympus' })).status).toBe(400)
   })
