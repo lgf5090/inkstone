@@ -214,13 +214,21 @@ describe('the legacy column', () => {
     expect(count('rss_state')).toBe(1)
   })
 
-  it('reads a corrupt blob as nothing stored, once', async () => {
+  it('preserves a corrupt blob and reports that it could not be migrated', async () => {
     seed('{ not json')
-    const got = await loadRssLibrary(db, USER)
-    expect(got.savedAt).toBe(0)
-    expect(got.library).toEqual(emptyLibrary())
-    expect(sqlite.prepare('SELECT rss FROM users WHERE id = ?').get(USER)).toEqual({ rss: null })
-    expect(await loadRssLibrary(db, USER)).toEqual({ savedAt: 0, library: emptyLibrary() })
+    await expect(loadRssLibrary(db, USER)).rejects.toThrow(/legacy data was left untouched/)
+    expect(sqlite.prepare('SELECT rss FROM users WHERE id = ?').get(USER)).toEqual({ rss: '{ not json' })
+    expect(count('rss_state')).toBe(0)
+  })
+
+  it('preserves a legacy library that would lose data during migration', async () => {
+    const old = library()
+    old.favorites = Array.from({ length: RSS_LIMITS.favorites + 1 }, (_, index) => `saved-${index}`)
+    const raw = JSON.stringify({ savedAt: 1, version: 2, library: old })
+    seed(raw)
+    await expect(loadRssLibrary(db, USER)).rejects.toThrow(/without losing data/)
+    expect(sqlite.prepare('SELECT rss FROM users WHERE id = ?').get(USER)).toEqual({ rss: raw })
+    expect(count('rss_state')).toBe(0)
   })
 
   it('leaves an account that never had a blob alone', async () => {

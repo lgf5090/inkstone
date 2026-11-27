@@ -439,8 +439,13 @@ export async function loadRssLibrary(db: D1Database, userId: string): Promise<Rs
   if (!raw) return { savedAt: 0, library: null }
 
   const envelope = readRssEnvelope(raw)
-  const library = envelope ? parseRssLibrary(envelope.library).data ?? emptyLibrary() : emptyLibrary()
-  const savedAt = envelope?.savedAt ?? 0
+  if (!envelope) throw new Error('Stored RSS library is unreadable; legacy data was left untouched')
+  const parsed = parseRssLibrary(envelope.library)
+  if (!parsed.data || parsed.dropped > 0 || parsed.truncated) {
+    throw new Error('Stored RSS library could not be migrated without losing data')
+  }
+  const library = parsed.data
+  const savedAt = envelope.savedAt
   await runBatches(db, diffRows(rows, userId, library, savedAt).pending)
   await db.prepare('UPDATE users SET rss = NULL WHERE id = ?1').bind(userId).run()
   return { savedAt, library }
