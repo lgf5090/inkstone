@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CalendarAttachmentDto, CalendarDto, CalendarEventDto } from '../src/shared/calendar/model'
-import { MAX_ATTACHMENTS_PER_EVENT } from '../src/shared/calendar/model'
+import { MAX_ATTACHMENTS_PER_EVENT, sharedCalendarId } from '../src/shared/calendar/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import { calendarRoutes } from '../src/worker/routes/calendar'
@@ -112,6 +112,36 @@ beforeEach(() => {
   bucket = testR2Bucket()
   env = testBindings(makeD1(sqlite), { FILES: bucket })
   mocks.userId = ALICE
+})
+
+describe('shared event attachments', () => {
+  it('applies reader and writer access through the owner file namespace', async () => {
+    const calendar = await newCalendar('Shared trips')
+    const event = await newEvent(calendar.id)
+    const { attachment } = await json<{ attachment: CalendarAttachmentDto }>(await upload(event.id, 'owner.txt'))
+    sqlite.prepare(
+      `INSERT INTO calendar_members (owner_user_id, calendar_id, member_user_id, role, status, created_at, updated_at)
+       VALUES (?, ?, ?, 'reader', 'accepted', 1, 1)`,
+    ).run(ALICE, calendar.id, BOB)
+    const sharedId = sharedCalendarId(ALICE, event.id)
+
+    const listed = await json<{ attachments: CalendarAttachmentDto[] }>(await call('GET', `/events/${sharedId}/attachments`, undefined, BOB))
+    expect(listed.attachments.map(item => item.id)).toEqual([attachment.id])
+    const downloaded = await download(attachment.id, BOB)
+    expect(downloaded.status).toBe(200)
+    expect(downloaded.headers.get('cache-control')).toBe('private, no-store')
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(new Uint8Array([104, 105]))
+    expect((await upload(sharedId, 'reader.txt', 'text/plain', [104], BOB)).status).toBe(403)
+    expect((await call('DELETE', `/events/${sharedId}/attachments/${attachment.id}`, undefined, BOB)).status).toBe(403)
+
+    sqlite.prepare("UPDATE calendar_members SET role = 'writer' WHERE member_user_id = ?").run(BOB)
+    const written = await json<{ attachment: CalendarAttachmentDto }>(await upload(sharedId, 'writer.txt', 'text/plain', [119], BOB))
+    expect(written.attachment.id).toBeTruthy()
+    expect(count('SELECT COUNT(*) AS n FROM attachments WHERE id = ? AND user_id = ?', written.attachment.id, ALICE)).toBe(1)
+    expect((await call('DELETE', `/events/${sharedId}/attachments/${attachment.id}`, undefined, BOB)).status).toBe(204)
+    expect(count('SELECT COUNT(*) AS n FROM attachments WHERE id = ?', attachment.id)).toBe(0)
+    expect((await download(attachment.id, BOB)).status).toBe(404)
+  })
 })
 
 describe('an event attachment', () => {

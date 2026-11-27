@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import type { ExecutionContext } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MAX_CALENDARS, MAX_EVENTS_PER_QUERY, type CalendarDto, type CalendarEventDto, type CalendarMetaDto } from '../src/shared/calendar/model'
+import { MAX_CALENDARS, MAX_EVENTS_PER_QUERY, sharedCalendarId, type CalendarDto, type CalendarEventDto, type CalendarMetaDto } from '../src/shared/calendar/model'
 import { MAX_RECURRENCE_OCCURRENCES } from '../src/worker/calendar/ics'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -174,6 +174,49 @@ describe('account sharing', () => {
     user = ALICE
     const ownerEvent = await json<{ event: CalendarEventDto }>(await call('GET', `/api/calendar/events/${created.event.id.split(':').at(-1)}`))
     expect(ownerEvent.event.title).toBe('Bob edited')
+  })
+
+  it('shares extras reads and routes snooze and delete through the owner event', async () => {
+    const calendar = await defaultCalendar()
+    await invite(calendar.id, 'bob', 'writer')
+    await invite(calendar.id, 'carol', 'reader')
+    user = CAROL
+    expect((await call('GET', `/api/calendar/events/${sharedCalendarId(ALICE, 'missing')}/extras`)).status).toBe(404)
+    user = BOB
+    await accept(ALICE, calendar.id)
+    const sharedCalendar = (await json<CalendarMetaDto>(await call('GET', '/api/calendar/meta'))).calendars.find(entry => entry.id.startsWith('shared:'))!
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/api/calendar/events', {
+      ...eventBody(sharedCalendar.id),
+      title: 'Shared extras',
+    }))
+    const id = created.event.id
+    const rawId = id.split(':').at(-1)!
+    const reminded = await json<{ event: CalendarEventDto }>(await call('PUT', `/api/calendar/events/${id}/reminders`, {
+      minutes: [15], rev: created.event.rev,
+    }))
+    const attended = await json<{ event: CalendarEventDto }>(await call('PUT', `/api/calendar/events/${id}/attendees`, {
+      attendees: [{ email: 'guest@example.com', name: 'Guest', status: 'accepted' }], rev: reminded.event.rev,
+    }))
+    expect((await call('POST', `/api/calendar/events/${id}/snooze`, { minutes: 5 })).status).toBe(200)
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM calendar_reminder_snoozes WHERE user_id = ? AND event_id = ?')
+      .get(ALICE, rawId)).toEqual({ n: 1 })
+
+    user = CAROL
+    await accept(ALICE, calendar.id)
+    expect((await call('GET', `/api/calendar/events/${id}/reminders`)).status).toBe(200)
+    expect(await (await call('GET', `/api/calendar/events/${id}/reminders`)).json()).toEqual({ minutes: [15] })
+    expect(await (await call('GET', `/api/calendar/events/${id}/attendees`)).json()).toEqual({
+      attendees: [{ email: 'guest@example.com', name: 'Guest', status: 'accepted' }],
+    })
+    const extras = await json<{ reminders: number[]; attendees: unknown[] }>(await call('GET', `/api/calendar/events/${id}/extras`))
+    expect(extras.reminders).toEqual([15])
+    expect(extras.attendees).toHaveLength(1)
+    expect((await call('POST', `/api/calendar/events/${id}/snooze`, { minutes: 5 })).status).toBe(403)
+
+    user = BOB
+    expect((await call('DELETE', `/api/calendar/events/${id}?rev=${attended.event.rev}`)).status).toBe(204)
+    user = ALICE
+    expect((await call('GET', `/api/calendar/events/${rawId}`)).status).toBe(404)
   })
 
   it('routes a shared series edit through the owner store and answers the shared id', async () => {

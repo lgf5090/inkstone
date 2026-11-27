@@ -30,7 +30,7 @@ import {
   linkEventAttachment,
   listEventAttachments,
 } from '../calendar/attachments'
-import { parseEntityId } from '../calendar/validation'
+import { calendarPathId, sharedEventTarget } from '../calendar/shared-access'
 
 export const calendarAttachmentRoutes = new Hono<AppBindings>()
 
@@ -38,13 +38,15 @@ calendarAttachmentRoutes.use('*', requireAuth)
 
 calendarAttachmentRoutes.post('/events/:id/attachments', async (c) => {
   const userId = c.get('userId')
-  const eventId = parseEntityId(c.req.param('id'), 'id')
   const store = new CalendarStore(c.env.DB, userId)
-  // Proven before the body is read: an event this account cannot see, or cannot write, is refused even
-  // when the caller brought a 25 MB upload with them.
-  if (!(await store.getEvent(eventId))) throw ApiError.notFound('Event not found')
-  await store.assertEventWritable(eventId)
-  if (await countEventAttachments(c.env.DB, userId, eventId) >= MAX_ATTACHMENTS_PER_EVENT) {
+  const id = calendarPathId(c)
+  const target = await sharedEventTarget(c, id)
+  if (!target && !(await store.getEvent(id))) throw ApiError.notFound('Event not found')
+  const ownerId = target?.ownerId ?? userId
+  const eventId = target?.eventId ?? id
+  if (target) await target.store.assertEventWritable(eventId)
+  else await store.assertEventWritable(eventId)
+  if (await countEventAttachments(c.env.DB, ownerId, eventId) >= MAX_ATTACHMENTS_PER_EVENT) {
     throw ApiError.conflict('That event already holds the maximum number of files')
   }
 
@@ -63,11 +65,11 @@ calendarAttachmentRoutes.post('/events/:id/attachments', async (c) => {
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer())
-  const id = newId()
+  const attachmentId = newId()
   const now = Date.now()
   const stored = await persistAttachmentWithinQuota(c.env, {
-    id,
-    userId,
+    id: attachmentId,
+    userId: ownerId,
     scope: 'calendar',
     noteId: null,
     filename: file.name || 'file',
@@ -75,15 +77,15 @@ calendarAttachmentRoutes.post('/events/:id/attachments', async (c) => {
     bytes,
     createdAt: now,
     objectKey: calendarAttachmentObjectKey({
-      user_id: userId,
-      id,
+      user_id: ownerId,
+      id: attachmentId,
       mime: file.type || 'application/octet-stream',
       filename: file.name || 'file',
     }),
   })
 
   try {
-    if (!(await linkEventAttachment(c.env.DB, userId, eventId, id, now))) {
+    if (!(await linkEventAttachment(c.env.DB, ownerId, eventId, attachmentId, now))) {
       throw ApiError.notFound('Event not found')
     }
   } catch (error) {
@@ -99,24 +101,28 @@ calendarAttachmentRoutes.post('/events/:id/attachments', async (c) => {
 
 calendarAttachmentRoutes.get('/events/:id/attachments', async (c) => {
   const userId = c.get('userId')
-  const eventId = parseEntityId(c.req.param('id'), 'id')
-  if (!(await new CalendarStore(c.env.DB, userId).getEvent(eventId))) {
-    throw ApiError.notFound('Event not found')
+  const id = calendarPathId(c)
+  const store = new CalendarStore(c.env.DB, userId)
+  const shared = await store.sharedEvent(id)
+  if (shared) {
+    return c.json({ attachments: await listEventAttachments(c.env.DB, shared.ownerId, shared.eventId) })
   }
-  return c.json({ attachments: await listEventAttachments(c.env.DB, userId, eventId) })
+  if (!(await store.getEvent(id))) throw ApiError.notFound('Event not found')
+  return c.json({ attachments: await listEventAttachments(c.env.DB, userId, id) })
 })
 
 calendarAttachmentRoutes.delete('/events/:id/attachments/:attachmentId', async (c) => {
   const userId = c.get('userId')
-  const eventId = parseEntityId(c.req.param('id'), 'id')
+  const id = calendarPathId(c)
   const attachmentId = c.req.param('attachmentId')
   if (!isValidId(attachmentId)) throw ApiError.notFound('Attachment not found')
   const store = new CalendarStore(c.env.DB, userId)
-  if (!(await store.getEvent(eventId))) {
-    throw ApiError.notFound('Event not found')
-  }
-  await store.assertEventWritable(eventId)
-  if (!(await deleteEventAttachment(c.env.DB, userId, eventId, attachmentId))) {
+  const target = await sharedEventTarget(c, id)
+  if (!target && !(await store.getEvent(id))) throw ApiError.notFound('Event not found')
+  const ownerId = target?.ownerId ?? userId
+  const eventId = target?.eventId ?? id
+  await (target?.store ?? store).assertEventWritable(eventId)
+  if (!(await deleteEventAttachment(c.env.DB, ownerId, eventId, attachmentId))) {
     throw ApiError.notFound('Attachment not found')
   }
   return c.body(null, 204)

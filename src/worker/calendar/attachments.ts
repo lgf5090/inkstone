@@ -79,6 +79,24 @@ export async function countEventAttachments(
   return Number(row?.n ?? 0)
 }
 
+export async function canReadCalendarAttachment(
+  db: AppBindings['Bindings']['DB'],
+  userId: string,
+  attachmentId: string,
+): Promise<boolean> {
+  const row = await db.prepare(
+    `SELECT 1 AS allowed
+       FROM calendar_event_attachments l
+       JOIN calendar_event_calendars ec
+         ON ec.user_id = l.user_id AND ec.event_id = l.event_id
+       JOIN calendar_members mem
+         ON mem.owner_user_id = l.user_id AND mem.calendar_id = ec.calendar_id
+      WHERE l.attachment_id = ? AND mem.member_user_id = ? AND mem.status = 'accepted'
+      LIMIT 1`,
+  ).bind(attachmentId, userId).first<{ allowed: number }>()
+  return Boolean(row)
+}
+
 /** True when the link was written; false means the event or the file is not this account's. */
 export async function linkEventAttachment(
   db: AppBindings['Bindings']['DB'],
