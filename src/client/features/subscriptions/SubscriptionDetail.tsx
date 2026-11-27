@@ -36,6 +36,7 @@ export interface DetailCallbacks {
   onAcknowledgeRule: (rule: ReminderRule) => void
   onEditPayment: (payment: PaymentRecord) => void
   onDeletePayment: (payment: PaymentRecord) => void
+  onRefund: () => void
 }
 
 export function SubscriptionDetail({
@@ -204,7 +205,10 @@ export function SubscriptionDetail({
       <section className="border-t border-[var(--border-subtle)] px-3 py-3">
         <div className="flex items-center justify-between">
           <SectionLabel>{t('subscriptions.payments.title')}</SectionLabel>
-          <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{item.paymentCount}</span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{item.paymentCount}</span>
+            <Button size="sm" variant="ghost" onClick={callbacks.onRefund}>{t('subscriptions.payments.refund')}</Button>
+          </span>
         </div>
         {detail.yearlySpend.length > 0 && (
           <ul className="mt-2 flex flex-wrap gap-x-1.5 gap-y-1" data-yearly-spend="">
@@ -233,11 +237,13 @@ export function SubscriptionDetail({
                         'absolute -left-[17px] top-1.5 size-1.5 rounded-full border',
                         payment.kind === 'initial'
                           ? 'border-[var(--text-tertiary)] bg-[var(--bg-surface)]'
-                          : 'border-[var(--accent)] bg-[var(--accent)]',
+                          : payment.kind === 'refund'
+                            ? 'border-[var(--success)] bg-[var(--success)]'
+                            : 'border-[var(--accent)] bg-[var(--accent)]',
                       )}
                     />
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-[length:var(--text-12)] tabular-nums text-[var(--text-primary)]">
+                      <span className={cn('text-[length:var(--text-12)] tabular-nums', payment.kind === 'refund' ? 'text-[var(--success)]' : 'text-[var(--text-primary)]')}>
                         {formatAmount(payment.amount, payment.currency)}{(payment.periodCount ?? 1) > 1 ? ` ×${payment.periodCount}` : ''}
                       </span>
                       <span className="flex items-center gap-1">
@@ -271,6 +277,7 @@ const PAYMENT_KIND: Record<PaymentRecord['kind'], Parameters<typeof t>[0]> = {
   initial: 'subscriptions.payments.kind_initial',
   manual: 'subscriptions.payments.kind_manual',
   auto: 'subscriptions.payments.kind_auto',
+  refund: 'subscriptions.payments.kind_refund',
 }
 
 /**

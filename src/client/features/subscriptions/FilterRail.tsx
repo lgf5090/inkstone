@@ -7,7 +7,7 @@
  * before they have to open the settings.
  */
 import type { ReactElement } from 'react'
-import { AlertTriangle, CalendarClock, CircleSlash, LayoutDashboard, List, Tag, Trash2 } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CalendarDays, CircleSlash, LayoutDashboard, List, Tag, Trash2 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { SectionLabel } from '../../components/primitives'
@@ -55,6 +55,12 @@ export function FilterRail({
         label={t('subscriptions.rail.overview')}
         active={view === 'overview'}
         onClick={() => onView('overview')}
+      />
+      <RailRow
+        icon={<CalendarDays size={15} />}
+        label={t('subscriptions.rail.calendar')}
+        active={view === 'calendar'}
+        onClick={() => onView('calendar')}
       />
       <RailRow
         icon={<List size={15} />}

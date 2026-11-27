@@ -24,7 +24,7 @@ import {
   yearlyBudgetOf,
   type PaymentSample,
 } from '../src/shared/subscriptions/currency'
-import { formatPaid } from '../src/shared/subscriptions/format'
+import { formatAmount, formatPaid } from '../src/shared/subscriptions/format'
 import { normalizeBudgetCategories } from '../src/shared/subscriptions/model'
 import type { SubscriptionItem } from '../src/shared/subscriptions/model'
 
@@ -88,7 +88,23 @@ describe('conversion', () => {
     expect(convertToBase(10, 'USD', FALLBACK_RATES)).toBeCloseTo(69.8, 6)
     expect(convertToBase(100, 'JPY', FALLBACK_RATES)).toBeCloseTo(4.4, 6)
     expect(convertToBase(0, 'USD', FALLBACK_RATES)).toBe(0)
-    expect(convertToBase(-5, 'USD', FALLBACK_RATES)).toBe(0)
+    expect(convertToBase(-5, 'USD', FALLBACK_RATES)).toBeCloseTo(-34.9, 6)
+  })
+
+  it('places a refund sign before the currency symbol', () => {
+    expect(formatAmount(-1, 'CNY')).toBe('-¥1.00')
+    expect(formatAmount(-12.5, 'USD', { decimals: false })).toBe('-$13')
+  })
+
+  it('subtracts refunds from net spending without treating them as prices', () => {
+    const payments = [payment({ amount: 60 }), payment({ amount: -20, paidAt: Date.parse('2026-05-20T00:00:00Z') })]
+    expect(calculateMonthlyExpense(payments, SHANGHAI, FALLBACK_RATES, NOW).amount).toBe(40)
+    expect(calculateYearlyExpense(payments, SHANGHAI, FALLBACK_RATES, NOW).amount).toBe(40)
+    expect(expenseByMonth(payments, SHANGHAI, FALLBACK_RATES, NOW).at(-1)?.amount).toBe(40)
+    expect(getExpenseByCategory([item()], payments, SHANGHAI, FALLBACK_RATES, NOW)[0]?.amount).toBe(40)
+    expect(getRecentPayments([item()], payments, SHANGHAI, NOW, 30).map((entry) => entry.amount)).toEqual([-20, 60])
+    expect(findPriceChanges([item()], payments)).toEqual([])
+    expect(priceHistory(payments, 'CNY').map((point) => point.amount)).toEqual([60])
   })
 
   it('counts nothing at all for a code the table cannot price', () => {

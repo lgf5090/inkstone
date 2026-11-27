@@ -2810,6 +2810,8 @@ export const api = {
       }),
     testNotify: (id: string) =>
       request<{ result: DispatchSummary }>(`/api/subscriptions/${encodeURIComponent(id)}/test-notify`, { method: 'POST' }),
+    refund: (id: string, input: { date: string; amount: number; currency: CurrencyCode; note: string }) =>
+      request<SubscriptionDetail>(`/api/subscriptions/${encodeURIComponent(id)}/refunds`, { method: 'POST', body: input }),
     updatePayment: (id: string, paymentId: string, patch: PaymentPatch) =>
       request<SubscriptionDetail>(
         `/api/subscriptions/${encodeURIComponent(id)}/payments/${encodeURIComponent(paymentId)}`,

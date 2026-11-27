@@ -60,7 +60,9 @@ export function formatAmount(amount: number | null | undefined, currency: string
   const value = Number(amount)
   if (!Number.isFinite(value)) return ''
   const symbol = currencySymbol(currency)
-  return options.decimals === false ? `${symbol}${Math.round(value)}` : `${symbol}${value.toFixed(2)}`
+  const sign = value < 0 ? '-' : ''
+  const absolute = Math.abs(value)
+  return options.decimals === false ? `${sign}${symbol}${Math.round(absolute)}` : `${sign}${symbol}${absolute.toFixed(2)}`
 }
 
 /**

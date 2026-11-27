@@ -28,7 +28,7 @@ const NO_CALLBACKS: DetailCallbacks = {
   onEdit: () => {}, onRenew: () => {}, onToggle: () => {}, onTrash: () => {},
   onAddRule: () => {}, onPresetRules: () => {},
   onUpdateRule: () => {}, onDeleteRule: () => {}, onAcknowledgeRule: () => {},
-  onEditPayment: () => {}, onDeletePayment: () => {},
+  onEditPayment: () => {}, onDeletePayment: () => {}, onRefund: () => {},
 }
 
 function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {

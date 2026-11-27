@@ -39,6 +39,7 @@ import { useLabelSuggestions } from './label-identity'
 import type { PaymentRecord, SubscriptionDetail as Detail, SubscriptionItem } from '@shared/subscriptions/model'
 
 const OverviewView = lazy(() => import('./OverviewView').then((module) => ({ default: module.OverviewView })))
+const SubscriptionCalendar = lazy(() => import('./SubscriptionCalendar').then((module) => ({ default: module.SubscriptionCalendar })))
 const LogsView = lazy(() => import('./LogsView').then((module) => ({ default: module.LogsView })))
 const SubscriptionForm = lazy(() => import('./SubscriptionForm').then((module) => ({ default: module.SubscriptionForm })))
 const RenewDialog = lazy(() => import('./RenewDialog').then((module) => ({ default: module.RenewDialog })))
@@ -89,6 +90,7 @@ export function SubscriptionsApp(): ReactElement {
   const [formOpen, setFormOpen] = useState(false)
   const [renewTarget, setRenewTarget] = useState<Detail | null>(null)
   const [paymentTarget, setPaymentTarget] = useState<PaymentRecord | null>(null)
+  const [refundTarget, setRefundTarget] = useState<Detail | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [keysOpen, setKeysOpen] = useState(false)
@@ -353,6 +355,7 @@ export function SubscriptionsApp(): ReactElement {
         onAcknowledgeRule: (rule) => { if (detail) void useSubscriptions.getState().acknowledgeRule(detail.item.id, rule.id) },
         onEditPayment: (payment) => setPaymentTarget(payment),
         onDeletePayment: (payment) => void onDeletePayment(payment),
+        onRefund: () => { if (detail) setRefundTarget(detail) },
       }}
     />
   )
@@ -403,6 +406,11 @@ export function SubscriptionsApp(): ReactElement {
                 onOpenLogs={() => { useSubscriptions.getState().setView('logs') }}
                 onAdd={() => setFormOpen(true)}
               />
+            </Suspense>
+          )}
+          {view === 'calendar' && (
+            <Suspense fallback={<LoadingBlock />}>
+              <SubscriptionCalendar items={items} timezone={settings?.timezone ?? 'Asia/Shanghai'} onOpenItem={openDetail} />
             </Suspense>
           )}
           {view === 'list' && (
@@ -545,6 +553,22 @@ export function SubscriptionsApp(): ReactElement {
             onClose={() => setPaymentTarget(null)}
             onSubmit={async (patch) => {
               const result = await useSubscriptions.getState().updatePayment(detail.item.id, paymentTarget.id, patch)
+              return result !== null
+            }}
+          />
+        </Suspense>
+      )}
+
+      {refundTarget && (
+        <Suspense fallback={<LoadingBlock />}>
+          <PaymentDialog
+            payment={null}
+            refund
+            timezone={settings?.timezone ?? 'Asia/Shanghai'}
+            saving={saving}
+            onClose={() => setRefundTarget(null)}
+            onSubmit={async (patch) => {
+              const result = await useSubscriptions.getState().addRefund(refundTarget.item.id, patch)
               return result !== null
             }}
           />

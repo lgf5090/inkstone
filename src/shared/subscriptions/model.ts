@@ -63,7 +63,7 @@ export const CHANNEL_KINDS = [
 ] as const
 export type ChannelKind = (typeof CHANNEL_KINDS)[number]
 
-export const PAYMENT_KINDS = ['initial', 'manual', 'auto'] as const
+export const PAYMENT_KINDS = ['initial', 'manual', 'auto', 'refund'] as const
 export type PaymentKind = (typeof PAYMENT_KINDS)[number]
 
 /**

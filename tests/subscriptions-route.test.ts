@@ -581,6 +581,23 @@ describe('what has been paid on one plan', () => {
    * The case a single total got wrong: a reader who pays one bill in dollars and the next in yuan has
    * paid two things, and `¥120` or `$120` would each be a number the account never spent.
    */
+  it('records a refund as negative income without moving the expiry', async () => {
+    const created = await create({ amount: 60 })
+    const expiry = created.item.expiryDate
+    const response = await send('POST', `/${created.item.id}/refunds`, { date: '2026-11-26', amount: 20, note: 'partial refund' })
+    expect(response.status).toBe(201)
+    const detail = await json<any>(response)
+    expect(detail.payments.find((payment: { kind: string }) => payment.kind === 'refund')).toMatchObject({ kind: 'refund', amount: -20, currency: 'CNY' })
+    expect(detail.item.expiryDate).toBe(expiry)
+    expect(detail.item.paidByCurrency).toEqual([{ currency: 'CNY', amount: 40 }])
+    expect(detail.yearlySpend[0].amount).toBe(40)
+  })
+
+  it('refuses a refund without a positive amount', async () => {
+    const created = await create()
+    expect((await send('POST', `/${created.item.id}/refunds`, { date: '2026-11-26', amount: 0 })).status).toBe(400)
+  })
+
   it('keeps receipts in different currencies apart rather than adding them', async () => {
     const created = await create({ amount: 60, currency: 'CNY' })
     await send('PUT', `/${created.item.id}/payments/${created.payments[0].id}`, { currency: 'USD' })

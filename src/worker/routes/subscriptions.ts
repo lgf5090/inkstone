@@ -101,6 +101,7 @@ function fail(error: unknown): never {
   if (message.startsWith('missing:')) throw ApiError.badRequest(`The ${message.slice(8)} field is required`)
   if (message.startsWith('invalid_url:')) throw ApiError.badRequest(`The ${message.slice(12)} field is not a valid address`)
   if (message.startsWith('invalid_json:')) throw ApiError.badRequest(`The ${message.slice(13)} field is not valid JSON`)
+  if (message === 'invalid_refund') throw ApiError.badRequest('A refund amount above zero is required')
   if (message === 'invalid_expiry') throw ApiError.badRequest('An expiry date is required')
   if (message === 'invalid_day') throw ApiError.badRequest('Use a calendar day like 2026-11-04')
   if (message === 'invalid_limit') throw ApiError.badRequest(`Limit must be a whole number from 1 to ${SUBSCRIPTION_EXPIRY_LIMIT}`)
@@ -601,6 +602,26 @@ subscriptionRoutes.get('/:id/payments', async (c) => {
   const detail = await store.get(c.req.param('id'), context)
   if (!detail) throw ApiError.notFound('That subscription does not exist')
   return c.json({ payments: detail.payments })
+})
+
+subscriptionRoutes.post('/:id/refunds', async (c) => {
+  const raw = await readJson<{ date?: unknown; amount?: unknown; currency?: unknown; note?: unknown }>(c, 8192)
+  if (raw.currency !== undefined && !isCurrencyCode(raw.currency)) throw ApiError.badRequest('That currency is not supported')
+  const amount = amountOf(raw.amount)
+  if (!amount || amount <= 0) throw ApiError.badRequest('A refund amount above zero is required')
+  const { store, context } = await contextOf(c)
+  try {
+    const detail = await store.addRefund(c.req.param('id'), {
+      date: requireDate(raw.date, 'Refund date'),
+      amount,
+      currency: raw.currency as string | undefined,
+      note: optionalText(raw.note, PAYMENT_NOTE_MAX, 'Note') ?? '',
+    }, context)
+    if (!detail) throw ApiError.notFound('That subscription does not exist')
+    return c.json(detail, 201)
+  } catch (error) {
+    fail(error)
+  }
 })
 
 subscriptionRoutes.put('/:id/payments/:paymentId', async (c) => {

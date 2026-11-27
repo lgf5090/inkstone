@@ -69,6 +69,7 @@ function RatesStrip({ rates, timezone, refreshing, onRefresh }: {
     <div className="mt-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
         <span>{t(rates.source === 'feed' ? 'subscriptions.overview.rates_feed' : 'subscriptions.overview.rates_approximate')}</span>
+        <span>{t('subscriptions.overview.rates_historical')}</span>
         {rates.at !== null && (
           <span>{t('subscriptions.overview.rates_taken', { when: formatLocalDate(rates.at, timezone, 'date') })}</span>
         )}
@@ -518,14 +519,14 @@ function SpendHeatmap({ daily, currency, weeks }: {
   weeks: number
 }): ReactElement {
   const locale = useLocale()
-  const amounts = useMemo(() => new Map(daily.map((day) => [day.date, day.amount])), [daily])
+  const amounts = useMemo(() => new Map(daily.map((day) => [day.date, Math.max(0, day.amount)])), [daily])
   const grid = useMemo(() => {
     const end = new Date()
     const start = new Date(end.getTime() - (weeks * 7 - 1) * MS_PER_DAY)
     return buildStripWeeks(amounts, { range: { start, end }, weekStart: weekStartFor(locale) })
   }, [amounts, weeks, locale])
   const total = roundMoney(daily.reduce((sum, day) => sum + day.amount, 0))
-  const busiest = daily.reduce<DayExpense | null>((top, day) => (!top || day.amount > top.amount ? day : top), null)
+  const busiest = daily.filter((day) => day.amount > 0).reduce<DayExpense | null>((top, day) => (!top || day.amount > top.amount ? day : top), null)
   return (
     <div className="mt-2">
       <div className="flex gap-[var(--sp-0-5)] overflow-x-auto no-scrollbar" aria-hidden="true" data-heat-grid="">
@@ -605,7 +606,8 @@ function ShareDoughnut({ shares, currency, kind, label }: {
   label: string
 }): ReactElement {
   const identityOf = useLabelIdentity()
-  const faces = shares.map((share) => shareFace(identityOf, kind, share.label))
+  const positive = shares.filter((share) => share.amount > 0)
+  const faces = positive.map((share) => shareFace(identityOf, kind, share.label))
   // The chart rebuilds when a number or a colour moves, not when the dashboard re-renders: a fresh
   // `build` each render would tear the canvas down on every keystroke elsewhere on the page.
   const signature = `${kind}|${shares.map((share, index) => `${share.label}:${share.amount}:${faces[index]!.color}`).join('|')}`
@@ -614,7 +616,7 @@ function ShareDoughnut({ shares, currency, kind, label }: {
     data: {
       labels: faces.map((face) => face.name),
       datasets: [{
-        data: shares.map((share) => share.amount),
+        data: positive.map((share) => share.amount),
         // A label with no colour of its own — the two sentinels — takes the accent, which is entry zero
         // of the same palette the list row resolves `var(--accent)` from.
         backgroundColor: faces.map((face) => face.color || colors.palette[0]),
@@ -682,7 +684,7 @@ function ShareBars({
                 <span className="shrink-0 tabular-nums text-[var(--text-tertiary)]">{formatAmount(share.amount, currency)} · {share.percentage}%</span>
               </div>
               <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-[var(--bg-inset)]">
-                <div className="h-full rounded-full" style={{ width: `${Math.max(2, share.percentage)}%`, background: color }} />
+                <div className="h-full rounded-full" style={{ width: `${share.amount > 0 ? Math.max(2, share.percentage) : 0}%`, background: color }} />
               </div>
             </li>
           )

@@ -151,7 +151,7 @@ export async function applyBackupSubscriptions(
       paid_at: numberOrNull(row.paid_at) ?? Date.now(),
       amount: numberOrNull(row.amount) ?? 0,
       currency: isCurrencyCode(row.currency) ? row.currency : 'CNY',
-      kind: ['initial', 'manual', 'auto'].includes(String(row.kind)) ? row.kind : 'manual',
+      kind: ['initial', 'manual', 'auto', 'refund'].includes(String(row.kind)) ? row.kind : 'manual',
       note: bounded(String(row.note ?? ''), 200),
       period_start: numberOrNull(row.period_start),
       period_end: numberOrNull(row.period_end),

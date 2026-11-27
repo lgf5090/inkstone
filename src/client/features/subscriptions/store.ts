@@ -33,7 +33,7 @@ import type {
   SubscriptionSettings,
 } from '@shared/subscriptions/model'
 
-export type SubscriptionsView = 'overview' | 'list' | 'grid' | 'logs' | 'trash'
+export type SubscriptionsView = 'overview' | 'calendar' | 'list' | 'grid' | 'logs' | 'trash'
 
 export type StatusFilter = 'all' | 'soon' | 'expired' | 'disabled'
 
@@ -114,6 +114,7 @@ interface SubscriptionsState {
   deleteRule: (id: string, ruleId: string) => Promise<boolean>
   acknowledgeRule: (id: string, ruleId: string) => Promise<boolean>
 
+  addRefund: (id: string, input: { date: string; amount: number; currency: SubscriptionItem['currency']; note: string }) => Promise<SubscriptionDetail | null>
   updatePayment: (id: string, paymentId: string, patch: PaymentPatch) => Promise<SubscriptionDetail | null>
   deletePayment: (id: string, paymentId: string) => Promise<SubscriptionDetail | null>
 
@@ -477,6 +478,18 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
     } catch (error) {
       report(error, 'subscriptions.error.save')
       return false
+    }
+  },
+
+  async addRefund(id, input) {
+    try {
+      const detail = await api.subscriptions.refund(id, input)
+      set({ detail })
+      await get().refresh()
+      return detail
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return null
     }
   },
 

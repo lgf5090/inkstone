@@ -724,6 +724,19 @@ export class SubscriptionsStore {
     return grouped
   }
 
+  async addRefund(id: string, input: { date: string; amount: number; currency?: string; note: string }, context: StoreContext): Promise<SubscriptionDetail | null> {
+    const existing = await this.itemRow(id)
+    if (!existing) return null
+    const paidAt = toMs(input.date, context.timezone)
+    if (paidAt === null || !Number.isFinite(input.amount) || input.amount <= 0) throw new Error('invalid_refund')
+    await this.db.prepare(
+      `INSERT INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'refund', ?7, NULL, NULL, 1, ?8)`,
+    ).bind(this.userId, newId(), id, paidAt, -roundMoney(input.amount), input.currency ?? existing.currency, input.note, context.now ?? Date.now()).run()
+    await this.db.prepare(`UPDATE sub_item SET last_payment_date = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?2`)
+      .bind(this.userId, id, paidAt, context.now ?? Date.now()).run()
+    return this.get(id, context)
+  }
+
   async updatePayment(
     id: string,
     paymentId: string,
@@ -746,7 +759,9 @@ export class SubscriptionsStore {
       id,
       paymentId,
       paidAt,
-      patch.amount === undefined ? payment.amount : roundMoney(patch.amount),
+      payment.kind === 'refund'
+        ? -Math.abs(patch.amount === undefined ? payment.amount : roundMoney(patch.amount))
+        : patch.amount === undefined ? payment.amount : roundMoney(patch.amount),
       patch.currency ?? payment.currency,
       patch.note ?? payment.note,
     ).run()
@@ -780,14 +795,15 @@ export class SubscriptionsStore {
       .run()
 
     const remaining = await this.paymentRows(id)
+    const receipts = remaining.filter((entry) => entry.kind !== 'refund')
     let expiry = existing.expiry_date
     let lastPaid: number | null = existing.last_payment_date
-    if (remaining.length > 0) {
-      const byPeriodEnd = remaining.toSorted((left, right) => (right.period_end ?? 0) - (left.period_end ?? 0))
+    if (receipts.length > 0) {
+      const byPeriodEnd = receipts.toSorted((left, right) => (right.period_end ?? 0) - (left.period_end ?? 0))
       if (byPeriodEnd[0]?.period_end) expiry = byPeriodEnd[0].period_end
-      const byDate = remaining.toSorted((left, right) => right.paid_at - left.paid_at)
+      const byDate = receipts.toSorted((left, right) => right.paid_at - left.paid_at)
       lastPaid = byDate[0]?.paid_at ?? null
-    } else {
+    } else if (payment.kind !== 'refund') {
       if (payment.period_start) expiry = payment.period_start
       lastPaid = existing.start_date ?? existing.created_at ?? expiry
     }
@@ -1002,7 +1018,7 @@ export class SubscriptionsStore {
   async allPayments(): Promise<Array<{ subscriptionId: string; paidAt: number; amount: number; currency: string; note: string; periodCount: number }>> {
     const { results } = await this.db.prepare(
       `SELECT subscription_id, paid_at, amount, currency, note, period_count FROM sub_payment
-        WHERE user_id = ?1 AND amount > 0 ORDER BY paid_at DESC`,
+        WHERE user_id = ?1 AND amount != 0 ORDER BY paid_at DESC`,
     ).bind(this.userId).all<{ subscription_id: string; paid_at: number; amount: number; currency: string; note: string; period_count: number }>()
     return results.map((row) => ({
       subscriptionId: row.subscription_id,

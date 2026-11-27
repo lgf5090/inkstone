@@ -54,7 +54,7 @@ export function hasRate(code: string | undefined, rates: RateTable): boolean {
 }
 
 export function convertToBase(amount: number, currency: string | undefined, rates: RateTable): number {
-  if (!Number.isFinite(amount) || amount <= 0) return 0
+  if (!Number.isFinite(amount) || amount === 0) return 0
   const rate = rates[currency || 'CNY']
   // Nothing to multiply by is not a licence to add the money in unchanged: a hundred Singapore dollars
   // counted as a hundred yuan is a made-up number, while leaving it out only makes the total small.
@@ -154,7 +154,7 @@ export function calculateMonthlyExpense(
   let amount = 0
   let lastAmount = 0
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     if (parts.year === current.year && parts.month === current.month) {
       amount += convertToBase(payment.amount, payment.currency, rates)
@@ -191,7 +191,7 @@ export function calculateYearlyExpense(
   const current = getTimezoneDateParts(now, timezone)
   let amount = 0
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     if (parts.year === current.year) amount += convertToBase(payment.amount, payment.currency, rates)
   }
@@ -209,7 +209,7 @@ export function getRecentPayments(
   const since = now.getTime() - days * MS_PER_DAY
   const byId = new Map(items.map((item) => [item.id, item]))
   return payments
-    .filter((payment) => payment.amount > 0 && payment.paidAt >= since && payment.paidAt <= now.getTime())
+    .filter((payment) => payment.amount !== 0 && payment.paidAt >= since && payment.paidAt <= now.getTime())
     .sort((left, right) => right.paidAt - left.paidAt)
     .map((payment) => {
       const item = byId.get(payment.subscriptionId)
@@ -264,7 +264,7 @@ export function getExpenseByType(
   const totals = new Map<string, number>()
   let total = 0
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     if (parts.year !== current.year) continue
     const label = byId.get(payment.subscriptionId)?.customType?.trim() || ''
@@ -301,7 +301,7 @@ export function getExpenseByCategory(
   const totals = new Map<string, number>()
   let total = 0
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     if (parts.year !== current.year) continue
     const item = byId.get(payment.subscriptionId)
@@ -349,7 +349,7 @@ export function expenseByMonth(
     buckets.push({ month: key, amount: 0 })
   }
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     const key = `${parts.year}-${String(parts.month).padStart(2, '0')}`
     const slot = index.get(key)
@@ -429,7 +429,7 @@ export function dailySpend(
   const endStamp = Date.UTC(end.year, end.month - 1, end.day)
   const totals = new Map<string, number>()
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     const age = Math.round((endStamp - Date.UTC(parts.year, parts.month - 1, parts.day)) / MS_PER_DAY)
     if (age < 0 || age >= days) continue
