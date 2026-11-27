@@ -17,7 +17,7 @@
 import { Hono } from 'hono'
 import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, safeHttpUrl, type RssFeed, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty, patchIsMarksOnly } from '@shared/rss/patch'
-import { accountExists, createRssRule, deleteRssRule, listRssRules, loadRssLibrary, loadRssReadingStats, loadServerRssArticles, rssFeedExists, rssMarkPatchFits, searchServerRssArticles, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
+import { accountExists, createRssRule, deleteRssRule, listRssRules, loadRssLibrary, loadRssReadingStats, loadServerRssArticles, queryServerRssArticles, rssFeedExists, rssMarkPatchFits, storeRssLibrary, storeRssPatch, type RssArticleField, type RssArticleMarkFilter, type RssRowPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -182,11 +182,31 @@ rssRoutes.get('/articles', async (c) => {
 rssRoutes.get('/search', async (c) => {
   const userId = c.get('userId')
   const query = c.req.query('q')?.trim().slice(0, 200) ?? ''
-  if (!query) throw ApiError.badRequest('A search query is required')
+  const author = c.req.query('author')?.trim().slice(0, 120) ?? ''
+  const after = c.req.query('after') ?? ''
+  const before = c.req.query('before') ?? ''
+  const rawField = c.req.query('field') ?? 'any'
+  const field: RssArticleField = rawField === 'title' || rawField === 'summary' || rawField === 'content' || rawField === 'author' ? rawField : 'any'
+  const rawMark = c.req.query('is') ?? ''
+  const mark: RssArticleMarkFilter | undefined = rawMark === 'unread' || rawMark === 'starred' || rawMark === 'later' ? rawMark : undefined
+  if (!query && !author && !after && !before && !mark) throw ApiError.badRequest('A search query is required')
+  for (const value of [after, before]) {
+    if (!value) continue
+    const parsed = Date.parse(`${value}T00:00:00Z`)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 10) !== value) {
+      throw ApiError.badRequest('Search dates must be real YYYY-MM-DD dates')
+    }
+  }
+  if (after && before && after > before) throw ApiError.badRequest('The search date range is reversed')
   const feedId = c.req.query('feedId')?.slice(0, 80) ?? ''
   if (feedId && !(await rssFeedExists(c.env.DB, userId, feedId))) throw ApiError.notFound('Subscription not found')
-  const articles = await searchServerRssArticles(c.env.DB, userId, query, feedId)
-  return c.json({ articles }, { headers: { 'Cache-Control': 'private, no-store' } })
+  const limit = Math.min(100, Math.max(1, Number(c.req.query('limit')) || 50))
+  const page = await queryServerRssArticles(c.env.DB, userId, {
+    query, field, author, feedId, mark, limit,
+    from: after ? Date.parse(`${after}T00:00:00Z`) : undefined,
+    to: before ? Date.parse(`${before}T23:59:59.999Z`) : undefined,
+  })
+  return c.json({ articles: page.entries, total: page.total }, { headers: { 'Cache-Control': 'private, no-store' } })
 })
 
 rssRoutes.get('/library', async (c) => {

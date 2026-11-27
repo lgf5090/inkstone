@@ -14,6 +14,7 @@ import { usePinyinVersion } from '../../lib/pinyin'
 import { FilterInput } from '../../components/FilterInput'
 import { Modal } from '../../components/overlay'
 import type { RssEntry } from '@shared/rss/model'
+import { parseRssSearchQuery, rssEntryMatchesAdvancedQuery } from '@shared/rss/query'
 import { searchEntries, type ScoredEntry } from './search'
 import { api } from '../../lib/api'
 import { useRss } from './store'
@@ -29,7 +30,9 @@ export function RssSearchPanel({ open, onClose, onPick }: {
   const loadAllCached = useRss(state => state.loadAllCached)
   const index = useRss(state => state.allCached)
   const pinyinVersion = usePinyinVersion()
-  const query = useMemo(() => compileQuery(term), [term, pinyinVersion])
+  const advanced = useMemo(() => parseRssSearchQuery(term), [term])
+  const query = useMemo(() => compileQuery(advanced.text), [advanced.text, pinyinVersion])
+  const searching = Boolean(advanced.text || advanced.author || advanced.after || advanced.before || advanced.mark)
 
   useEffect(() => {
     if (!open || index) return
@@ -37,10 +40,16 @@ export function RssSearchPanel({ open, onClose, onPick }: {
   }, [open, index, loadAllCached])
 
   useEffect(() => {
-    if (!open || !query.text || query.error) return
+    if (!open || !searching || advanced.error || query.error) return
     let active = true
     const timer = window.setTimeout(() => {
-      void api.rss.search(query.text).then(result => {
+      void api.rss.search(advanced.text, '', {
+        field: advanced.field,
+        author: advanced.author,
+        after: advanced.after,
+        before: advanced.before,
+        is: advanced.mark ?? '',
+      }).then(result => {
         if (active) setRemote(result.articles)
       }).catch((error: unknown) => {
         if (!active) return
@@ -52,16 +61,24 @@ export function RssSearchPanel({ open, onClose, onPick }: {
       active = false
       window.clearTimeout(timer)
     }
-  }, [open, query.text, query.error])
+  }, [open, searching, advanced, query.error])
 
   const results = useMemo(() => {
-    if (!query.text || query.error) return []
+    if (!searching || advanced.error || query.error) return []
     const names = new Map(library.feeds.map(feed => [feed.id, feed.title]))
-    const local: ScoredEntry[] = index ? searchEntries(index, query, names).slice(0, 100) : []
+    const matches: ScoredEntry[] = index
+      ? query.text ? searchEntries(index, query, names).slice(0, 100) : index.map(entry => ({ entry, ranges: [] }))
+      : []
+    const marks = {
+      read: new Set(library.readIds),
+      starred: new Set(library.favorites),
+      later: new Set(library.readLater),
+    }
+    const local = matches.filter(item => rssEntryMatchesAdvancedQuery(item.entry, advanced, marks))
     const merged = new Map<string, ScoredEntry>(remote.map(entry => [entry.id, { entry, ranges: [] }]))
     for (const item of local) if (!merged.has(item.entry.id)) merged.set(item.entry.id, item)
     return [...merged.values()].slice(0, 100)
-  }, [index, query, library.feeds, pinyinVersion, remote])
+  }, [index, query, library, pinyinVersion, remote, searching, advanced])
 
   return (
     <Modal open={open} onClose={onClose} title={t('rss.search_all')} width={620}>
@@ -77,12 +94,14 @@ export function RssSearchPanel({ open, onClose, onPick }: {
           label={t('rss.search_all')}
           placeholder={t('rss.search_all_placeholder')}
         />
-        {!query.text && !query.error && (
+        <p className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('rss.search_advanced_hint')}</p>
+        {!searching && !query.error && (
           <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {index === null ? t('rss.search_indexing') : t('rss.search_idle', { n: index.length })}
           </p>
         )}
-        {query.text && !query.error && (
+        {advanced.error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{t('rss.search_invalid')}</p>}
+        {searching && !advanced.error && !query.error && (
           <ul className="max-h-[52vh] min-h-0 space-y-1 overflow-y-auto">
             {results.map(({ entry }) => (
               <li key={entry.id}>

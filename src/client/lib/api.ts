@@ -1441,8 +1441,8 @@ export const api = {
       request<{ url: string; title: string; feeds: string[] }>(`/api/rss/discover?url=${encodeURIComponent(url)}`),
     articles: (feedId: string) =>
       request<{ feedId: string, articles: RssEntry[] }>(`/api/rss/articles?feedId=${encodeURIComponent(feedId)}`),
-    search: (query: string, feedId = '') =>
-      request<{ articles: RssEntry[] }>(`/api/rss/search?q=${encodeURIComponent(query)}${feedId ? `&feedId=${encodeURIComponent(feedId)}` : ''}`),
+    search: (query: string, feedId = '', options: { field?: string, author?: string, after?: string, before?: string, is?: string } = {}) =>
+      request<{ articles: RssEntry[], total: number }>(`/api/rss/search${toQuery({ q: query, feedId, ...options })}`),
     rules: () => request<{ rules: Array<{ id: string, feedId: string, keyword: string, enabled: boolean, createdAt: number }> }>('/api/rss/rules'),
     addRule: (keyword: string, feedId = '') =>
       request<{ rule: { id: string, feedId: string, keyword: string, enabled: boolean, createdAt: number } }>('/api/rss/rules', { method: 'POST', body: { keyword, feedId } }),

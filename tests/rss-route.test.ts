@@ -370,6 +370,27 @@ describe('feed discovery', () => {
   })
 })
 
+describe('article search', () => {
+  it('accepts field, author, date and mark filters and rejects invalid ranges', async () => {
+    await request('/library', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ library: libraryWith(1) }) })
+    await saveServerRssArticles(db, USER, 'f0', [
+      { id: 'e1', feedId: 'f0', title: 'Alpha', link: 'https://example.com/1', author: 'Rae', publishedTs: Date.parse('2026-11-03T02:00:00Z'), summary: '', content: 'Needle', imageUrl: '', audioUrl: '' },
+      { id: 'e2', feedId: 'f0', title: 'Beta', link: 'https://example.com/2', author: 'Rae', publishedTs: Date.parse('2026-11-03T03:00:00Z'), summary: '', content: 'Needle', imageUrl: '', audioUrl: '' },
+    ], 1)
+    sqlite.prepare(`INSERT INTO rss_mark (user_id, kind, entry_id, value, at) VALUES (?, 'read', 'e2', '', 1)`).run(USER)
+    const response = await request('/search?field=author&author=Rae&after=2026-11-01&before=2026-11-04&is=unread')
+    expect(response.status).toBe(200)
+    const body = await response.json() as { articles: Array<{ id: string }>, total: number }
+    expect(body.total).toBe(1)
+    expect(body.articles.map(entry => entry.id)).toEqual(['e1'])
+    expect((await request('/search?after=2026-02-30')).status).toBe(400)
+    expect((await request('/search?after=2026-11-04&before=2026-11-01')).status).toBe(400)
+    expect((await request('/search')).status).toBe(400)
+    const other = await request('/search?q=Needle', undefined, 'other')
+    expect(await other.json()).toEqual({ articles: [], total: 0 })
+  })
+})
+
 describe('the feed relay', () => {
   it('refuses an address inside the deployment', async () => {
     stubFetch(() => response('<rss/>'))

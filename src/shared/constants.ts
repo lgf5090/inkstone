@@ -19,6 +19,7 @@ import type {
   PropertyColorChoice,
   PropertyFormatChoice,
   PropertyProgressChoice,
+  RssSavedView,
   SavedDataviewQuery,
   SavedNoteSearch,
   SavedTodoFilter,
@@ -620,6 +621,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     dailyNoteTitle: 'YYYY-MM-DD',
     aiEnabled: false,
     aiLanguage: 'interface',
+    savedViews: [],
   },
   templater: {
     syntaxHighlighting: true,
@@ -1607,6 +1609,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.rss.dailyNoteTitle = trimmedText(rss.dailyNoteTitle, 60) || DEFAULT_SETTINGS.rss.dailyNoteTitle
   base.rss.aiEnabled = booleanValue(rss.aiEnabled, DEFAULT_SETTINGS.rss.aiEnabled)
   base.rss.aiLanguage = enumValue(rss.aiLanguage, RSS_AI_LANGUAGES, DEFAULT_SETTINGS.rss.aiLanguage)
+  base.rss.savedViews = rssSavedViews(rss.savedViews)
 
   base.templater = normalizeTemplaterSettings(src.templater)
 
@@ -1814,6 +1817,27 @@ function savedNoteSearches(value: unknown): SavedNoteSearch[] {
     seen.add(key)
     out.push({ id: key, name, query })
     if (out.length >= NOTE_SAVED_SEARCH_MAX) break
+  }
+  return out
+}
+
+function rssSavedViews(value: unknown): RssSavedView[] {
+  if (!Array.isArray(value)) return []
+  const out: RssSavedView[] = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    const record = asRecord(item)
+    const name = trimmedText(record.name, 80)
+    const channel = typeof record.channel === 'string' ? record.channel : ''
+    const query = typeof record.query === 'string' ? record.query.trim().slice(0, 200) : ''
+    const sort = enumValue(record.sort, RSS_SORT_ORDERS, DEFAULT_SETTINGS.rss.sortOrder)
+    if (!name || !/^(?:all|unread|starred|later|recent|hidden|feed:.{1,80}|group:.{1,80}|tag:.{1,120}|vault:.{1,80})$/.test(channel)) continue
+    const id = /^[a-z0-9][a-z0-9-]{3,63}$/i.test(String(record.id ?? '')) ? String(record.id).toLowerCase() : ''
+    const key = id || `${name}\u0000${channel}\u0000${query}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ id: key, name, channel, query, sort })
+    if (out.length >= 20) break
   }
   return out
 }
@@ -2295,7 +2319,7 @@ function cloneDefaultSettings(): UserSettings {
       statuses: [],
       defaultHiddenFields: [],
     },
-    rss: { ...DEFAULT_SETTINGS.rss },
+    rss: { ...DEFAULT_SETTINGS.rss, savedViews: [] },
     templater: {
       ...DEFAULT_SETTINGS.templater,
       folderTemplates: [],

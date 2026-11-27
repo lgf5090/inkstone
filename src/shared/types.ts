@@ -801,6 +801,14 @@ export type RssDefaultFilter = 'all' | 'unread' | 'starred'
 /** How a saved article's language is chosen when the model is asked to summarise it. */
 export type RssAiLanguage = 'source' | 'interface'
 
+export interface RssSavedView {
+  id: string
+  name: string
+  channel: string
+  query: string
+  sort: RssSortOrder
+}
+
 /**
  * The reading preferences, as one section of the account settings.
  *
@@ -839,6 +847,7 @@ export interface RssSettings {
   dailyNoteTitle: string
   aiEnabled: boolean
   aiLanguage: RssAiLanguage
+  savedViews: RssSavedView[]
 }
 
 /** How a duration renders in a result cell. */

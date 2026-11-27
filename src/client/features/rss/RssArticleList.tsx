@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { CheckCheck, Eye, RefreshCw, Settings2 } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { compileQuery } from '../../lib/query-match'
+import { parseRssSearchQuery, rssEntryMatchesAdvancedQuery } from '@shared/rss/query'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { useSession } from '../../store/session'
 import { Button, IconButton } from '../../components/primitives'
@@ -65,7 +66,8 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
   const [preview, setPreview] = useState<{ entry: RssEntry, feed?: RssFeed, rect: DOMRect } | null>(null)
   const view = state.view()
   const pinyinVersion = usePinyinVersion()
-  const query = useMemo(() => compileQuery(view.query), [view.query, pinyinVersion])
+  const advanced = useMemo(() => parseRssSearchQuery(view.query), [view.query])
+  const query = useMemo(() => compileQuery(advanced.text), [advanced.text, pinyinVersion])
   // A note folder read as a channel: the rows are the folder's notes, newest first, and the filters
   // that only mean something for articles (unread, starred, later) are not offered for them.
   const vaultFolderId = state.channel.kind === 'vault' ? state.channel.folderId : ''
@@ -75,21 +77,6 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
     () => (vaultFolderId ? vaultEntries(Object.values(noteList), noteFolders, vaultFolderId) : []),
     [vaultFolderId, noteList, noteFolders],
   )
-
-  const listed = useMemo(() => {
-    const all = vaultFolderId ? vaultRows : channelEntries({ library: state.library, articles: state.articles }, state.channel)
-    const ordered = sortEntries(all, view.sort, state.library.feeds)
-    const filtered = vaultFolderId
-      ? ordered
-      : selectEntries(ordered, { filter: view.filter }, { library: state.library, articles: state.articles })
-    if (!query.text || query.error) return filtered
-    const names = new Map(state.library.feeds.map(feed => [feed.id, feed.title]))
-    for (const folder of noteFolders) names.set(vaultFeedId(folder.id), folder.name)
-    return searchEntries(filtered, query, names).map(item => item.entry)
-  }, [state.library, state.articles, state.channel, view.filter, view.sort, query, pinyinVersion, vaultFolderId, vaultRows, noteFolders])
-  // The counts are taken before the platform filter, so choosing one never hides the others away.
-  const platforms = useMemo(() => platformCounts(listed), [listed])
-  const entries = useMemo(() => filterByPlatform(listed, view.platform), [listed, view.platform])
 
   const readIds = useMemo(() => {
     const read = new Set(state.library.readIds)
@@ -101,6 +88,30 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
     }
     return read
   }, [state.library.readIds, state.library.feeds, state.articles])
+
+  const listed = useMemo(() => {
+    const all = vaultFolderId ? vaultRows : channelEntries({ library: state.library, articles: state.articles }, state.channel)
+    const ordered = sortEntries(all, view.sort, state.library.feeds)
+    const filtered = vaultFolderId
+      ? ordered
+      : selectEntries(ordered, { filter: view.filter }, { library: state.library, articles: state.articles })
+    if (vaultFolderId) return filtered
+    if (advanced.error) return []
+    const hasAdvanced = Boolean(advanced.author || advanced.after || advanced.before || advanced.mark || advanced.field !== 'any')
+    if (!query.text && !hasAdvanced) return filtered
+    const names = new Map(state.library.feeds.map(feed => [feed.id, feed.title]))
+    for (const folder of noteFolders) names.set(vaultFeedId(folder.id), folder.name)
+    const matches = query.text ? searchEntries(filtered, query, names) : filtered.map(entry => ({ entry, ranges: [] }))
+    const marks = {
+      read: readIds,
+      starred: new Set(state.library.favorites),
+      later: new Set(state.library.readLater),
+    }
+    return matches.filter(item => rssEntryMatchesAdvancedQuery(item.entry, advanced, marks)).map(item => item.entry)
+  }, [state.library, state.articles, state.channel, view.filter, view.sort, query, advanced, readIds, pinyinVersion, vaultFolderId, vaultRows, noteFolders])
+  // The counts are taken before the platform filter, so choosing one never hides the others away.
+  const platforms = useMemo(() => platformCounts(listed), [listed])
+  const entries = useMemo(() => filterByPlatform(listed, view.platform), [listed, view.platform])
   const starred = useMemo(() => new Set(state.library.favorites), [state.library.favorites])
   const shown = entries.slice(0, limit)
   const selected = view.entryId

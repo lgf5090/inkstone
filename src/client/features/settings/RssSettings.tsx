@@ -35,6 +35,7 @@ import { useRss } from '../rss/store'
 import { SourceHealth } from '../rss/SourceHealth'
 import { RssRules } from '../rss/RssRules'
 import { RssStats } from '../rss/RssStats'
+import { RssSavedViews } from '../rss/RssSavedViews'
 
 export function RssSettings({ onClose }: { onClose?: () => void }): ReactElement {
   const rss = useSession(state => state.settings.rss)
@@ -329,6 +330,7 @@ export function RssSettings({ onClose }: { onClose?: () => void }): ReactElement
 
       <RssRules />
       <RssStats />
+      <RssSavedViews onClose={onClose} />
       <section>
         <SettingRow title={t('notes.webhooks_title')} description={t('notes.webhooks_desc')}>
           <Button size="sm" onClick={() => {
