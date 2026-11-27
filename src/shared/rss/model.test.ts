@@ -86,6 +86,24 @@ describe('parsing a library with folders and tags', () => {
     expect(data?.hiddenIds).toEqual(['e1', 'e2'])
   })
 
+  it('reports every capped collection instead of silently trimming it', () => {
+    const lists = [
+      ['readIds', RSS_LIMITS.readIds],
+      ['favorites', RSS_LIMITS.favorites],
+      ['readLater', RSS_LIMITS.readLater],
+      ['hiddenIds', RSS_LIMITS.hiddenIds],
+    ] as const
+    for (const [field, limit] of lists) {
+      const result = parseRssLibrary(library({ [field]: Array.from({ length: limit + 1 }, (_, index) => `e${index}`) }))
+      expect(result.truncated, field).toBe(true)
+      expect(result.data?.[field], field).toHaveLength(limit)
+    }
+    const opened = Object.fromEntries(Array.from({ length: RSS_LIMITS.openedRecords + 1 }, (_, index) => [`e${index}`, index]))
+    const savedNotes = Object.fromEntries(Array.from({ length: RSS_LIMITS.savedNotes + 1 }, (_, index) => [`e${index}|note`, `n${index}`]))
+    expect(parseRssLibrary(library({ opened })).truncated).toBe(true)
+    expect(parseRssLibrary(library({ savedNotes })).truncated).toBe(true)
+  })
+
   it('still refuses a payload that is not a library at all', () => {
     expect(parseRssLibrary({}).data).toBeNull()
     expect(parseRssLibrary(null).data).toBeNull()

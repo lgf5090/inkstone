@@ -449,8 +449,13 @@ export function parseRssLibrary(value: unknown): RssParseResult {
   const readIds = idList(value.readIds, RSS_LIMITS.readIds)
   if (Array.isArray(value.readIds) && value.readIds.length > RSS_LIMITS.readIds) truncated = true
   const favorites = idList(value.favorites, RSS_LIMITS.favorites)
+  if (Array.isArray(value.favorites) && value.favorites.length > RSS_LIMITS.favorites) truncated = true
   const readLater = idList(value.readLater, RSS_LIMITS.readLater)
+  if (Array.isArray(value.readLater) && value.readLater.length > RSS_LIMITS.readLater) truncated = true
   const hiddenIds = idList(value.hiddenIds, RSS_LIMITS.hiddenIds)
+  if (Array.isArray(value.hiddenIds) && value.hiddenIds.length > RSS_LIMITS.hiddenIds) truncated = true
+  if (isRecord(value.opened) && Object.keys(value.opened).length > RSS_LIMITS.openedRecords) truncated = true
+  if (isRecord(value.savedNotes) && Object.keys(value.savedNotes).length > RSS_LIMITS.savedNotes) truncated = true
 
   const data: RssLibrary = {
     version: RSS_LIBRARY_VERSION,

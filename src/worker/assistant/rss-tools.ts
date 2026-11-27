@@ -149,8 +149,8 @@ function matchFeed(library: RssLibrary | null, args: Record<string, unknown>): s
 
 async function saveLibrary(ctx: ToolContext, library: RssLibrary, patch: RssPatch): Promise<void> {
   const merged = applyLibraryPatch(library, patch)
-  const { data } = parseRssLibrary(merged)
-  if (!data) throw new ToolError('The reading library could not be updated.')
+  const { data, dropped, truncated } = parseRssLibrary(merged)
+  if (!data || dropped > 0 || truncated) throw new ToolError('The reading library could not be updated without losing data.')
   await ask(() => storeRssLibrary(ctx.env.DB, ctx.store.userId, data, Date.now()))
 }
 

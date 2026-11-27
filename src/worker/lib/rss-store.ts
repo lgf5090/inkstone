@@ -205,12 +205,16 @@ function rowsToLibrary(rows: LibraryRows): RssLibrary | null {
     value: mark.value,
     at: mark.at,
   }))
-  return parseRssLibrary(marksIntoLibrary(marks, {
+  const parsed = parseRssLibrary(marksIntoLibrary(marks, {
     ...emptyLibrary(),
     feeds: rows.feeds.map(feed => feedFromRow(feed, tagsByFeed.get(feed.id) ?? [])),
     groups: rows.groups.map(groupFromRow),
     lastChannel: rows.state.last_channel,
-  })).data
+  }))
+  if (!parsed.data || parsed.dropped > 0 || parsed.truncated) {
+    throw new Error('Stored RSS library could not be read without losing data')
+  }
+  return parsed.data
 }
 
 export interface RssStatement {

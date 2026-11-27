@@ -11,7 +11,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_ASSISTANT_SETTINGS, type AssistantConversation } from '../src/shared/assistant'
-import { emptyLibrary, newFeed, type RssLibrary } from '../src/shared/rss/model'
+import { emptyLibrary, newFeed, RSS_LIMITS, type RssLibrary } from '../src/shared/rss/model'
 import { initializeDatabase } from '../src/worker/db/schema'
 import { AssistantStore } from '../src/worker/assistant/store'
 import { ToolExecutor, ToolError, type ToolContext } from '../src/worker/assistant/tools'
@@ -198,6 +198,16 @@ describe('marking an article', () => {
       entries: Array<{ id: string }>
     }
     expect(unread.entries.map((entry) => entry.id)).not.toContain(AI_ENTRY.id)
+  })
+
+  it('refuses a mark that would silently trim a full list', async () => {
+    const full = { ...libraryWith([aiFeed, designFeed]), favorites: Array.from({ length: RSS_LIMITS.favorites }, (_, index) => `saved-${index}`) }
+    await storeRssLibrary(env.DB, USER, full, Date.now())
+    await expect(executor().execute('rss_mark', { id: AI_ENTRY.id, state: 'star' }, 'star-overflow'))
+      .rejects.toBeInstanceOf(ToolError)
+    const stored = await loadRssLibrary(env.DB, USER)
+    expect(stored.library?.favorites).toHaveLength(RSS_LIMITS.favorites)
+    expect(stored.library?.favorites).not.toContain(AI_ENTRY.id)
   })
 
   it('stars and unstars through the same library rows', async () => {
