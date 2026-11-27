@@ -6,7 +6,7 @@
  * drawer when there is not. Loading is on mount rather than at boot, so a reader who never opens this
  * tab does not pay for a library they will not look at.
  */
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactElement } from 'react'
 import { CheckSquare, CircleHelp, LayoutGrid, List, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, Sparkles, Tags, Wallet } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -18,6 +18,7 @@ import { useBreakpoint, useMediaQuery } from '../../lib/hooks'
 import { AssistantDock } from '../chat/AssistantDock'
 import { NotificationsBell } from '../chat/NotificationCenter'
 import { Button, IconButton } from '../../components/primitives'
+import { LoadingBlock } from '../../components/feedback'
 import { Drawer, Modal, Tooltip, confirm } from '../../components/overlay'
 import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
@@ -33,17 +34,18 @@ import { SubscriptionList, type SubscriptionActions } from './SubscriptionList'
 import { SubscriptionGrid } from './SubscriptionGrid'
 import { SORT_LABEL } from './subscription-parts'
 import { SubscriptionDetail } from './SubscriptionDetail'
-import { OverviewView } from './OverviewView'
-import { LogsView } from './LogsView'
-import { SubscriptionForm } from './SubscriptionForm'
-import { RenewDialog } from './RenewDialog'
 import { BulkBar } from './BulkBar'
-import { PaymentDialog } from './PaymentDialog'
-import { TrashView } from './TrashView'
-import { LabelManagerDialog } from './LabelManagerDialog'
 import { useLabelSuggestions } from './label-identity'
-import { SubscriptionSettings } from './SubscriptionSettings'
 import type { PaymentRecord, SubscriptionDetail as Detail, SubscriptionItem } from '@shared/subscriptions/model'
+
+const OverviewView = lazy(() => import('./OverviewView').then((module) => ({ default: module.OverviewView })))
+const LogsView = lazy(() => import('./LogsView').then((module) => ({ default: module.LogsView })))
+const SubscriptionForm = lazy(() => import('./SubscriptionForm').then((module) => ({ default: module.SubscriptionForm })))
+const RenewDialog = lazy(() => import('./RenewDialog').then((module) => ({ default: module.RenewDialog })))
+const PaymentDialog = lazy(() => import('./PaymentDialog').then((module) => ({ default: module.PaymentDialog })))
+const TrashView = lazy(() => import('./TrashView').then((module) => ({ default: module.TrashView })))
+const LabelManagerDialog = lazy(() => import('./LabelManagerDialog').then((module) => ({ default: module.LabelManagerDialog })))
+const SubscriptionSettings = lazy(() => import('./SubscriptionSettings').then((module) => ({ default: module.SubscriptionSettings })))
 
 /** Where the filter rail earns its column, and where the detail panel earns a third one. */
 const NEEDS_RAIL_QUERY = '(min-width: 1024px)'
@@ -390,16 +392,18 @@ export function SubscriptionsApp(): ReactElement {
 
         <main className="min-w-0 flex-1">
           {view === 'overview' && (
-            <OverviewView
-              overview={overview}
-              loading={status === 'loading'}
-              currency={overviewCurrency}
-              refreshingRates={refreshingRates}
-              onRefreshRates={() => { void useSubscriptions.getState().refreshRates() }}
-              onOpenItem={openDetail}
-              onOpenLogs={() => { useSubscriptions.getState().setView('logs') }}
-              onAdd={() => setFormOpen(true)}
-            />
+            <Suspense fallback={<LoadingBlock />}>
+              <OverviewView
+                overview={overview}
+                loading={status === 'loading'}
+                currency={overviewCurrency}
+                refreshingRates={refreshingRates}
+                onRefreshRates={() => { void useSubscriptions.getState().refreshRates() }}
+                onOpenItem={openDetail}
+                onOpenLogs={() => { useSubscriptions.getState().setView('logs') }}
+                onAdd={() => setFormOpen(true)}
+              />
+            </Suspense>
           )}
           {view === 'list' && (
             <SubscriptionList
@@ -427,15 +431,21 @@ export function SubscriptionsApp(): ReactElement {
           )}
           {view === 'list' && <BulkBar items={items} />}
           {view === 'trash' && (
-            <TrashView
-              items={trashItems}
-              timezone={settings?.timezone ?? 'Asia/Shanghai'}
-              onRestore={(item) => void useSubscriptions.getState().restore(item.id)}
-              onPurge={(item) => void onPurge(item)}
-              onEmpty={() => void onEmptyTrash()}
-            />
+            <Suspense fallback={<LoadingBlock />}>
+              <TrashView
+                items={trashItems}
+                timezone={settings?.timezone ?? 'Asia/Shanghai'}
+                onRestore={(item) => void useSubscriptions.getState().restore(item.id)}
+                onPurge={(item) => void onPurge(item)}
+                onEmpty={() => void onEmptyTrash()}
+              />
+            </Suspense>
           )}
-          {view === 'logs' && <LogsView logs={logs} items={items} timezone={settings?.timezone ?? 'Asia/Shanghai'} onLoad={loadLogs} />}
+          {view === 'logs' && (
+            <Suspense fallback={<LoadingBlock />}>
+              <LogsView logs={logs} items={items} timezone={settings?.timezone ?? 'Asia/Shanghai'} onLoad={loadLogs} />
+            </Suspense>
+          )}
         </main>
 
         {panelWide && selectedId && (
@@ -489,73 +499,83 @@ export function SubscriptionsApp(): ReactElement {
       )}
 
       {formOpen && (
-        <SubscriptionForm
-          key={detail?.item.id ?? 'new'}
-          open
-          detail={detail}
-          timezone={settings?.timezone ?? 'Asia/Shanghai'}
-          categories={categorySuggestions}
-          types={typeSuggestions}
-          saving={saving}
-          onClose={() => setFormOpen(false)}
-          onSubmit={async (input) => {
-            const current = useSubscriptions.getState().detail
-            const result = current
-              ? await useSubscriptions.getState().update(current.item.id, input)
-              : await useSubscriptions.getState().create(input)
-            return result !== null
-          }}
-        />
+        <Suspense fallback={<LoadingBlock />}>
+          <SubscriptionForm
+            key={detail?.item.id ?? 'new'}
+            open
+            detail={detail}
+            timezone={settings?.timezone ?? 'Asia/Shanghai'}
+            categories={categorySuggestions}
+            types={typeSuggestions}
+            saving={saving}
+            onClose={() => setFormOpen(false)}
+            onSubmit={async (input) => {
+              const current = useSubscriptions.getState().detail
+              const result = current
+                ? await useSubscriptions.getState().update(current.item.id, input)
+                : await useSubscriptions.getState().create(input)
+              return result !== null
+            }}
+          />
+        </Suspense>
       )}
 
       {renewTarget && (
-        <RenewDialog
-          open
-          detail={renewTarget}
-          timezone={settings?.timezone ?? 'Asia/Shanghai'}
-          saving={saving}
-          onClose={() => setRenewTarget(null)}
-          onSubmit={async (options) => {
-            const result = await useSubscriptions.getState().renew(renewTarget.item.id, options)
-            return result !== null
-          }}
-        />
+        <Suspense fallback={<LoadingBlock />}>
+          <RenewDialog
+            open
+            detail={renewTarget}
+            timezone={settings?.timezone ?? 'Asia/Shanghai'}
+            saving={saving}
+            onClose={() => setRenewTarget(null)}
+            onSubmit={async (options) => {
+              const result = await useSubscriptions.getState().renew(renewTarget.item.id, options)
+              return result !== null
+            }}
+          />
+        </Suspense>
       )}
 
       {paymentTarget && detail && (
-        <PaymentDialog
-          payment={paymentTarget}
-          timezone={settings?.timezone ?? 'Asia/Shanghai'}
-          saving={saving}
-          onClose={() => setPaymentTarget(null)}
-          onSubmit={async (patch) => {
-            const result = await useSubscriptions.getState().updatePayment(detail.item.id, paymentTarget.id, patch)
-            return result !== null
-          }}
-        />
+        <Suspense fallback={<LoadingBlock />}>
+          <PaymentDialog
+            payment={paymentTarget}
+            timezone={settings?.timezone ?? 'Asia/Shanghai'}
+            saving={saving}
+            onClose={() => setPaymentTarget(null)}
+            onSubmit={async (patch) => {
+              const result = await useSubscriptions.getState().updatePayment(detail.item.id, paymentTarget.id, patch)
+              return result !== null
+            }}
+          />
+        </Suspense>
       )}
 
       {settingsOpen && settings && (
-        <Modal open onClose={() => setSettingsOpen(false)} title={t('subscriptions.settings.title')} width={720} bodyClassName="px-4 py-3">
-          <SubscriptionSettings
-            settings={settings}
-            channels={channels}
-            currencies={items.map((item) => item.currency)}
-            categories={categoryNames}
-            onClose={() => setSettingsOpen(false)}
-            onSaveSettings={(patch) => useSubscriptions.getState().saveSettings(patch)}
-            onSaveChannel={(kind, input) => useSubscriptions.getState().saveChannel(kind, input)}
-            onClearChannel={(kind) => useSubscriptions.getState().clearChannel(kind)}
-            onTestChannel={(kind) => useSubscriptions.getState().testChannel(kind)}
-            onRotateToken={() => useSubscriptions.getState().rotateInboundToken()}
-            onRotateCalendarToken={() => useSubscriptions.getState().rotateCalendarToken()}
-            onDiagnostics={() => setDiagnosticsOpen(true)}
-          />
-        </Modal>
+        <Suspense fallback={<LoadingBlock />}>
+          <Modal open onClose={() => setSettingsOpen(false)} title={t('subscriptions.settings.title')} width={720} bodyClassName="px-4 py-3">
+            <SubscriptionSettings
+              settings={settings}
+              channels={channels}
+              currencies={items.map((item) => item.currency)}
+              categories={categoryNames}
+              onClose={() => setSettingsOpen(false)}
+              onSaveSettings={(patch) => useSubscriptions.getState().saveSettings(patch)}
+              onSaveChannel={(kind, input) => useSubscriptions.getState().saveChannel(kind, input)}
+              onClearChannel={(kind) => useSubscriptions.getState().clearChannel(kind)}
+              onTestChannel={(kind) => useSubscriptions.getState().testChannel(kind)}
+              onRotateToken={() => useSubscriptions.getState().rotateInboundToken()}
+              onRotateCalendarToken={() => useSubscriptions.getState().rotateCalendarToken()}
+              onDiagnostics={() => setDiagnosticsOpen(true)}
+            />
+          </Modal>
+        </Suspense>
       )}
 
       {labelsOpen && (
-        <LabelManagerDialog open onClose={() => setLabelsOpen(false)} />
+        <Suspense fallback={<LoadingBlock />}>
+          <LabelManagerDialog open onClose={() => setLabelsOpen(false)} />
+        </Suspense>
       )}
 
       {diagnosticsOpen && (

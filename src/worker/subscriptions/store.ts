@@ -530,30 +530,26 @@ export class SubscriptionsStore {
   async bulk(ids: readonly string[], action: BulkAction, options: { category?: string } = {}): Promise<number> {
     const unique = [...new Set(ids)].filter(Boolean).slice(0, BULK_LIMIT)
     if (!unique.length) return 0
+    const now = Date.now()
+    const placeholders = unique.map((_, index) => `?${index + 2}`).join(', ')
+    const nowPlaceholder = unique.length + 2
     if (action === 'trash') {
-      let changed = 0
-      for (const id of unique) {
-        const result = await this.db.prepare(
-          `UPDATE sub_item SET deleted_at = ?3, updated_at = ?3 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
-        ).bind(this.userId, id, Date.now()).run()
-        changed += (result.meta.changes ?? 0) > 0 ? 1 : 0
-      }
-      return changed
+      const result = await this.db.prepare(
+        `UPDATE sub_item SET deleted_at = ?${nowPlaceholder}, updated_at = ?${nowPlaceholder}
+          WHERE user_id = ?1 AND id IN (${placeholders}) AND deleted_at IS NULL`,
+      ).bind(this.userId, ...unique, now).run()
+      return result.meta.changes ?? 0
     }
     const set = action === 'activate' ? 'is_active = 1'
       : action === 'deactivate' ? 'is_active = 0'
         : 'category = ?3'
-    let changed = 0
-    for (const id of unique) {
-      const result = action === 'set_category'
-        ? await this.db.prepare(`UPDATE sub_item SET ${set}, updated_at = ?4 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`)
-          .bind(this.userId, id, (options.category ?? '').trim(), Date.now()).run()
-        : await this.db.prepare(`UPDATE sub_item SET ${set}, updated_at = ?3 WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`)
-          .bind(this.userId, id, Date.now()).run()
-      changed += (result.meta.changes ?? 0) > 0 ? 1 : 0
-    }
+    const result = action === 'set_category'
+      ? await this.db.prepare(`UPDATE sub_item SET ${set}, updated_at = ?4 WHERE user_id = ?1 AND id IN (${placeholders}) AND deleted_at IS NULL`)
+        .bind(this.userId, (options.category ?? '').trim(), now, ...unique).run()
+      : await this.db.prepare(`UPDATE sub_item SET ${set}, updated_at = ?${nowPlaceholder} WHERE user_id = ?1 AND id IN (${placeholders}) AND deleted_at IS NULL`)
+        .bind(this.userId, ...unique, now).run()
     if (action === 'set_category') await this.registerLabels('category', options.category ?? '')
-    return changed
+    return result.meta.changes ?? 0
   }
 
   async trashCount(): Promise<number> {
