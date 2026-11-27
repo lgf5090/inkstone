@@ -143,11 +143,37 @@ describe('parseFeed', () => {
     expect(feed.entries[0].summary).toBe('One two — three')
   })
 
-  it('refuses a document that is not a feed, and one that declares a DTD', () => {
+  it('refuses a document that is not a feed, and one that declares an entity', () => {
     expect(() => parseFeed('<html><body>hello</body></html>', 'https://example.com/', parser))
       .toThrow(FeedParseError)
     expect(() => parseFeed('<!DOCTYPE a [<!ENTITY x "y">]><rss><channel>&x;</channel></rss>', 'https://example.com/', parser))
-      .toThrow(/DTD/)
+      .toThrow(/ENTITY/)
+  })
+
+  it('accepts the simple DOCTYPE shipped by RSS 0.91 documents', () => {
+    const feed = parseFeed('<!DOCTYPE rss PUBLIC "-//Netscape Communications//DTD RSS 0.91//EN" "http://my.netscape.com/publish/formats/rss-0.91.dtd"><rss version="0.91"><channel><title>Old</title><link>https://example.com/</link></channel></rss>', 'https://example.com/feed.xml')
+    expect(feed.title).toBe('Old')
+  })
+
+  it('keeps the newest entries when an ascending feed exceeds the per-feed ceiling', () => {
+    const items = Array.from({ length: 70 }, (_, index) => `<item><title>Entry ${index}</title><link>https://example.com/${index}</link><pubDate>${new Date(Date.UTC(2025, 0, 1 + index)).toUTCString()}</pubDate></item>`).join('')
+    const feed = parseFeed(rss(items), 'https://example.com/feed.xml')
+    expect(feed.entries).toHaveLength(60)
+    expect(feed.entries[0].title).toBe('Entry 69')
+    expect(feed.entries.at(-1)?.title).toBe('Entry 10')
+  })
+
+  it('uses the channel image instead of an item thumbnail', () => {
+    const feed = parseFeed(rss('<item><title>One</title><link>https://example.com/one</link><media:thumbnail xmlns:media="http://search.yahoo.com/mrss/" url="https://example.com/item.png"/></item>', '<image><url>https://example.com/channel.png</url></image>'), 'https://example.com/feed.xml')
+    expect(feed.imageUrl).toBe('https://example.com/channel.png')
+  })
+
+  it('skips an Atom self link when choosing the site address', () => {
+    const feed = parseFeed(`<feed xmlns="http://www.w3.org/2005/Atom"><title>Atom</title>
+      <link rel="self" href="https://example.com/atom.xml"/>
+      <link rel="alternate" href="https://example.com/blog/"/>
+      <entry><title>One</title><id>1</id><link href="https://example.com/one"/></entry></feed>`, 'https://example.com/atom.xml')
+    expect(feed.siteUrl).toBe('https://example.com/blog/')
   })
 
   it('gives an undated entry no timestamp rather than today', () => {
@@ -164,6 +190,7 @@ describe('parseFeedDate', () => {
 
   it('reads an ISO date, with and without a time', () => {
     expect(parseFeedDate('2025-09-02T10:00:00+08:00')).toBe(Date.UTC(2025, 8, 2, 2, 0))
+    expect(parseFeedDate('2025-09-02T10:00:00')).toBe(Date.UTC(2025, 8, 2, 10, 0))
     expect(parseFeedDate('2025-09-02')).toBe(Date.UTC(2025, 8, 2))
   })
 

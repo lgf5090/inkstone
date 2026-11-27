@@ -118,11 +118,11 @@ function injectNamespaces(value: string): string {
 
 function doc(value: string, parser: DOMParser): Document {
   if (value.length > MAX_XML_CHARS) throw new FeedParseError('feed document is too large')
-  // An internal-entity expansion loop parses into a document far bigger than the bytes it came in
-  // on, and no size ceiling downstream sees it coming. Feeds do not need a doctype; refuse the ones
-  // that carry one.
-  if (/<!DOCTYPE|<!ENTITY/i.test(value.slice(0, 4096))) throw new FeedParseError('feed document declares a DTD')
-  const repaired = repairXml(value)
+  // A simple DOCTYPE is common in RSS 0.91 and harmless once removed. Entity declarations are not:
+  // they can expand a tiny document into a parser bomb, so those are still refused.
+  if (/<!ENTITY/i.test(value.slice(0, 4096))) throw new FeedParseError('feed document declares an ENTITY')
+  const withoutDtd = value.replace(/<!DOCTYPE\s+[^>]*>/gi, '')
+  const repaired = repairXml(withoutDtd)
   let parsed = parser.parseFromString(repaired, 'application/xml')
   if (parsed.getElementsByTagName('parsererror')[0]) {
     parsed = parser.parseFromString(injectNamespaces(repaired), 'application/xml')
@@ -193,12 +193,16 @@ function absolute(value: string | undefined | null, base: string): string {
 export function parseFeedDate(value: string): number | null {
   const raw = (value || '').trim()
   if (!raw) return null
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(raw)
+  if (iso && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    const parts = [iso[1], iso[2], iso[3], iso[4] ?? '0', iso[5] ?? '0', iso[6] ?? '0'].map(Number)
+    return Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5])
+  }
   const normalised = /^[A-Za-z]{3},?\s*\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}$/.test(raw)
     ? `${raw} UTC`
     : raw
   const ts = Date.parse(normalised)
   if (Number.isFinite(ts)) return ts
-  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(raw)
   if (!iso) return null
   const parts = [iso[1], iso[2], iso[3], iso[4] ?? '0', iso[5] ?? '0', iso[6] ?? '0'].map(Number)
   const built = Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5])
@@ -296,8 +300,7 @@ function itemImage(node: Element, base: string): string {
 
 /** The channel's own picture: RSS uses `image > url`, Atom uses `logo` or `icon`. */
 function feedImage(host: Element, base: string): string {
-  return itemImage(host, base)
-    || absolute(child(host, 'image') ? text(child(host, 'image'), 'url', 'href') : '', base)
+  return absolute(child(host, 'image') ? text(child(host, 'image'), 'url', 'href') : '', base)
     || absolute(text(host, 'logo') || text(host, 'icon'), base)
 }
 
@@ -393,7 +396,9 @@ export function parseFeed(xml: string, feedUrl: string, parser: DOMParser = new 
   const seen = new Set<string>()
   let bytes = 0
   let skipped = 0
-  for (const item of readItems(root, atom, feedUrl)) {
+  const items = readItems(root, atom, feedUrl)
+    .sort((a, b) => (parseFeedDate(b.published) ?? 0) - (parseFeedDate(a.published) ?? 0))
+  for (const item of items) {
     const identity = item.identity || item.link || `${item.title}\n${item.published}`
     const id = entryIdFor(feedId, identity)
     if (seen.has(id)) { skipped++; continue }
