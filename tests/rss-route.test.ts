@@ -383,7 +383,7 @@ describe('the feed relay', () => {
     const { results } = (await (await request('/fetch', json({
       requests: [{ url: 'https://example.com/feed.xml', etag: '"v7"', lastModified: 'Tue, 02 Sep 2025 08:30:00 GMT' }],
     }))).json()) as { results: Array<{ status: number, ok: boolean, etag?: string }> }
-    expect(results[0]).toEqual({ url: 'https://example.com/feed.xml', status: 304, ok: true, etag: '"v7"', lastModified: 'Tue, 02 Sep 2025 08:30:00 GMT' })
+    expect(results[0]).toEqual({ url: 'https://example.com/feed.xml', finalUrl: 'https://example.com/feed.xml', status: 304, ok: true, etag: '"v7"', lastModified: 'Tue, 02 Sep 2025 08:30:00 GMT' })
     const sent = new Headers(calls[0].init?.headers)
     expect(sent.get('if-none-match')).toBe('"v7"')
     expect(sent.get('if-modified-since')).toContain('2025')
@@ -405,8 +405,8 @@ describe('the feed relay', () => {
     })
     const { results } = (await (await request('/fetch', json({
       requests: [{ url: 'https://start.example.com/feed' }, { url: 'https://private.example.com/feed' }],
-    }))).json()) as { results: Array<{ ok: boolean, reason?: string }> }
-    expect(results.find(item => item.ok)).toBeTruthy()
+    }))).json()) as { results: Array<{ ok: boolean, reason?: string, finalUrl?: string }> }
+    expect(results.find(item => item.ok)).toMatchObject({ finalUrl: 'https://final.example.com/feed.xml' })
     expect(results.some(item => item.reason === 'blocked')).toBe(true)
     expect(calls.some(call => call.url.includes('final.example.com'))).toBe(true)
     for (const call of calls) expect(call.init?.redirect).toBe('manual')

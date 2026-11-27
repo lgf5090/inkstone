@@ -160,6 +160,10 @@ export function newFeed(id: string, url: string, title: string, order: number): 
   }
 }
 
+export function newGroupId(): string {
+  return `g${rssHash(`${Date.now()}:${Math.random()}`)}`
+}
+
 export function newGroup(id: string, name: string, position: number, parentId: string | null = null, now = Date.now()): RssGroup {
   return { id, parentId, name, icon: null, color: null, position, createdAt: now, updatedAt: now, collapsed: false }
 }
@@ -520,6 +524,8 @@ export type RssFetchReason = 'blocked' | 'timeout' | 'too-large' | 'not-a-feed' 
 /** One answer for one address, from `POST /api/rss/fetch`. */
 export interface RssFetchResult {
   url: string
+  /** The final address after validated redirects. */
+  finalUrl?: string
   status: number
   ok: boolean
   xml?: string

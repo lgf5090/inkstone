@@ -124,7 +124,7 @@ async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
       // A 304 is a 3xx, so it has to be read before the redirect branch or an unchanged feed looks
       // like a hop with nowhere to go.
       if (response.status === 304) {
-        return { url: requested, status: 304, ok: true, etag: etag || undefined, lastModified: lastModified || undefined }
+        return { url: requested, finalUrl: url.href, status: 304, ok: true, etag: etag || undefined, lastModified: lastModified || undefined }
       }
       if (isRedirectResponse(response)) {
         const location = response.headers.get('location')
@@ -147,6 +147,7 @@ async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
       if (xml === null || !xml.trim()) return { url: requested, status: response.status, ok: false, reason: 'not-a-feed' }
       return {
         url: requested,
+        finalUrl: url.href,
         status: response.status,
         ok: true,
         xml,

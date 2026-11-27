@@ -200,6 +200,14 @@ describe('marking an article', () => {
     expect(unread.entries.map((entry) => entry.id)).not.toContain(AI_ENTRY.id)
   })
 
+  it('marks several articles in one call', async () => {
+    const marked = await executor().execute('rss_mark', { ids: [AI_ENTRY.id, DESIGN_ENTRY.id], state: 'read' }, 'mark-many') as { ids: string[], unread: number }
+    expect(marked.ids).toEqual([AI_ENTRY.id, DESIGN_ENTRY.id])
+    expect(marked.unread).toBe(0)
+    const stored = await loadRssLibrary(env.DB, USER)
+    expect(stored.library?.readIds).toEqual(expect.arrayContaining([AI_ENTRY.id, DESIGN_ENTRY.id]))
+  })
+
   it('refuses a mark that would silently trim a full list', async () => {
     const full = { ...libraryWith([aiFeed, designFeed]), favorites: Array.from({ length: RSS_LIMITS.favorites }, (_, index) => `saved-${index}`) }
     await storeRssLibrary(env.DB, USER, full, Date.now())

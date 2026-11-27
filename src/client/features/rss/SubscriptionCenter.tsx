@@ -32,6 +32,7 @@ import { feedCacheLine } from './cacheLine'
 import { copyFeedUrlItem } from './rssMenus'
 import { filterSources, loadDiscovery, topTags, type DiscoveryCatalog, type DiscoverySource, type ShelfName } from './discovery'
 import { exportRssLibraryBackup, parseRssLibraryBackup } from './backup'
+import { rssReasonMessage as reasonText } from './reason'
 
 type Tab = 'manage' | 'discover'
 
@@ -417,20 +418,24 @@ function AddFeedForm({ onDone, onAdded }: { onDone: () => void, onAdded: () => v
     setError('')
     const written = safeHttpUrl(url)
     if (!written) return
+    let active = true
     const timer = window.setTimeout(async () => {
       setBusy(true)
       try {
         let result = (await api.rss.fetch([{ url: written.href }])).results[0]
+        if (!active) return
         let sourceUrl = written.href
         if (result?.reason === 'not-a-feed') {
           const discovered = await api.rss.discover(written.href)
+          if (!active) return
           if (discovered.feeds[0]) {
             sourceUrl = discovered.feeds[0]
             result = (await api.rss.fetch([{ url: sourceUrl }])).results[0]
+            if (!active) return
           }
         }
         if (!result?.ok || !result.xml) {
-          setError(result?.reason ? reasonText(result.reason) : t('rss.error.unreachable'))
+          setError(result?.reason ? reasonText(result.reason, result.status) : t('rss.error.unreachable'))
           return
         }
         const { parseFeed } = await import('../../lib/rss/feed')
@@ -438,13 +443,16 @@ function AddFeedForm({ onDone, onAdded }: { onDone: () => void, onAdded: () => v
         setPreview({ name: parsed.title, count: parsed.entries.length, newest: parsed.entries[0]?.publishedTs ?? 0 })
       }
       catch (error: unknown) {
-        setError(error instanceof Error && error.message ? error.message : t('rss.error.unreachable'))
+        if (active) setError(error instanceof Error && error.message ? error.message : t('rss.error.unreachable'))
       }
       finally {
-        setBusy(false)
+        if (active) setBusy(false)
       }
     }, 500)
-    return () => window.clearTimeout(timer)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
   }, [url])
 
   const add = async (): Promise<void> => {
@@ -642,22 +650,5 @@ function host(url: string): string {
   }
   catch {
     return url
-  }
-}
-
-function reasonText(reason: string): string {
-  switch (reason) {
-    case 'timeout':
-      return t('rss.error.timeout')
-    case 'too-large':
-      return t('rss.error.too_large')
-    case 'not-a-feed':
-      return t('rss.error.not_a_feed')
-    case 'blocked':
-      return t('rss.error.blocked')
-    case 'http':
-      return t('rss.error.http_status')
-    default:
-      return t('rss.error.unreachable')
   }
 }

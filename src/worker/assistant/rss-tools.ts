@@ -169,7 +169,7 @@ async function saveLibrary(ctx: ToolContext, library: RssLibrary, patch: RssPatc
 const MARK_STATES = ['read', 'unread', 'star', 'unstar', 'later', 'unlater'] as const
 type MarkState = (typeof MARK_STATES)[number]
 
-function markPatch(state: MarkState, entryId: string): RssPatch {
+function markPatch(state: MarkState, entryIds: string[]): RssPatch {
   const kind: RssMarkKind = state === 'read' || state === 'unread' ? 'read' : state === 'star' || state === 'unstar' ? 'star' : 'later'
   const add = state === 'read' || state === 'star' || state === 'later'
   return {
@@ -177,8 +177,8 @@ function markPatch(state: MarkState, entryId: string): RssPatch {
     groups: { upsert: [], remove: [] },
     tags: { upsert: [], remove: [] },
     marks: add
-      ? { upsert: [{ kind, entryId, value: '', at: 0 }], remove: [] }
-      : { upsert: [], remove: [{ kind, entryId }] },
+      ? { upsert: entryIds.map(entryId => ({ kind, entryId, value: '', at: 0 })), remove: [] }
+      : { upsert: [], remove: entryIds.map(entryId => ({ kind, entryId })) },
     state: null,
   }
 }
@@ -311,33 +311,37 @@ export const RSS_TOOLS: readonly ToolDefinition[] = [
   },
   {
     name: 'rss_mark',
-    description: 'Change one article state: read or unread, starred or unstarred, saved for later or not. It writes the account row the reader’s own reader syncs, so the unread badge moves. The article id must come from rss_list_entries.',
+    description: 'Change one or more article states: read or unread, starred or unstarred, saved for later or not. It writes the account rows the reader’s own reader syncs, so the unread badge moves. Article ids must come from rss_list_entries.',
     permission: 'write',
     fields: {
-      id: { type: 'string', description: 'Article id from rss_list_entries.', minLength: 1, maxLength: 80 },
+      id: { type: 'string', description: 'One article id from rss_list_entries.', minLength: 1, maxLength: 80, optional: true },
+      ids: { type: 'array', description: 'Article ids from rss_list_entries for a bulk change.', items: 'string', maxItems: 100, optional: true },
       state: { type: 'string', enum: [...MARK_STATES], description: 'The state to set: read, unread, star, unstar, later, unlater.' },
     },
     async run(args, ctx) {
-      const id = String(args.id)
+      const ids = [...new Set([...(args.id ? [String(args.id)] : []), ...(Array.isArray(args.ids) ? args.ids.map(String) : [])])]
+      if (!ids.length || ids.length > 100) throw new ToolError('Provide id or ids with between 1 and 100 article ids.')
       const state = args.state as MarkState
       if (!MARK_STATES.includes(state)) throw new ToolError('"state" must be read, unread, star, unstar, later or unlater.')
       const snapshot = await ask(() => loadRssReading(ctx.env.DB, ctx.store.userId))
       if (!snapshot) noSnapshot()
-      const entry = findEntry(snapshot, id)
-      if (!entry) throw new ToolError('No synced article has that id. Call rss_list_entries for the ids this account holds.')
+      for (const id of ids) {
+        if (!findEntry(snapshot, id)) throw new ToolError('No synced article has that id. Call rss_list_entries for the ids this account holds.')
+      }
       const stored = await ask(() => loadRssLibrary(ctx.env.DB, ctx.store.userId))
       const library = stored.library
       if (!library) throw new ToolError('This account has no reading library yet. Open the RSS app once, then try again.')
-      await saveLibrary(ctx, library, markPatch(state, id))
+      await saveLibrary(ctx, library, markPatch(state, ids))
       const updated = await ask(() => loadRssLibrary(ctx.env.DB, ctx.store.userId))
       const marks = marksOf(updated.library)
       return {
         marked: true,
-        id,
+        id: ids.length === 1 ? ids[0] : undefined,
+        ids,
         state,
-        unread: !marks.read.has(id),
-        starred: marks.starred.has(id),
-        later: marks.later.has(id),
+        unread: ids.length === 1 ? !marks.read.has(ids[0]!) : ids.filter(id => !marks.read.has(id)).length,
+        starred: ids.length === 1 ? marks.starred.has(ids[0]!) : ids.filter(id => marks.starred.has(id)).length,
+        later: ids.length === 1 ? marks.later.has(ids[0]!) : ids.filter(id => marks.later.has(id)).length,
       }
     },
   },

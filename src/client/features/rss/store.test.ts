@@ -446,6 +446,14 @@ describe('refreshing', () => {
     expect(useRss.getState().articles.f1.map(entry => entry.id)).toEqual(['kept'])
   })
 
+  it('includes the HTTP status in a feed failure', async () => {
+    seedCachedArticles()
+    fetchResults = [{ url: feed.url, status: 503, ok: false, reason: 'http' }]
+    await boot()
+    await useRss.getState().refresh(['f1'], { force: true })
+    expect(useRss.getState().library.feeds[0]?.error).toContain('503')
+  })
+
   it('serializes overlapping refresh requests', async () => {
     fetchResults = [{ url: feed.url, status: 304, ok: true }]
     await boot()
@@ -648,6 +656,17 @@ describe('the library a reader edits', () => {
     const library = useRss.getState().library
     expect(library.groups.filter(group => group.id === id || group.id === other)).toHaveLength(1)
     expect(library.feeds[0].groupId).toBe(id)
+  })
+
+  it('does not merge a newly imported original name into a renamed folder', async () => {
+    await boot()
+    const renamed = useRss.getState().addGroup('Original')
+    useRss.getState().renameGroup(renamed, 'Renamed')
+    await useRss.getState().importFeeds([{ url: 'https://example.com/original', title: 'Original', group: 'Original' }])
+    const groups = useRss.getState().library.groups
+    expect(groups).toHaveLength(2)
+    expect(groups.find(group => group.name === 'Renamed')?.id).toBe(renamed)
+    expect(groups.find(group => group.name === 'Original')?.id).not.toBe(renamed)
   })
 
   it('drops the device cache with the subscription', async () => {

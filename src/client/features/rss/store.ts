@@ -26,6 +26,7 @@ import {
   feedIdFor,
   newFeed,
   newGroup,
+  newGroupId,
   parseRssLibrary,
   RSS_LIMITS,
   type RssEntry,
@@ -33,7 +34,7 @@ import {
   type RssGroup,
   type RssLibrary,
 } from '@shared/rss/model'
-import { channelKey, descendantGroupIds, feedsForChannel, feedShelfOrder, feedWantsRefresh, groupIdFor, groupKey, migrateEntryMarks, orderByStaleness, parseChannelKey, refreshBackoffMs, remoteContentKey, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
+import { channelKey, descendantGroupIds, feedsForChannel, feedShelfOrder, feedWantsRefresh, groupKey, migrateEntryMarks, orderByStaleness, parseChannelKey, refreshBackoffMs, remoteContentKey, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
 import { diffLibrary, patchChars, patchIsEmpty } from '@shared/rss/patch'
 import { FeedParseError, parseFeed, type ParsedFeed } from '../../lib/rss/feed'
 import type { LinkPlatform } from '@shared/rss/platform'
@@ -43,6 +44,7 @@ import { localDb } from '../../lib/db'
 import { t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
 import { htmlToText, sanitizeFeedHtml } from './sanitize'
+import { rssReasonMessage as reasonMessage } from './reason'
 
 /** How much article text the assistant gets: a whole post, not a whole archive. */
 const READING_CONTENT_CHARS = 6000
@@ -586,31 +588,15 @@ export const useRss = create<RssState>((set, get) => {
     }
   }
 
-  function reasonMessage(reason: string): string {
-    switch (reason) {
-      case 'timeout':
-        return t('rss.error.timeout')
-      case 'too-large':
-        return t('rss.error.too_large')
-      case 'not-a-feed':
-        return t('rss.error.not_a_feed')
-      case 'blocked':
-        return t('rss.error.blocked')
-      case 'http':
-        return t('rss.error.http_status')
-      default:
-        return t('rss.error.unreachable')
-    }
-  }
-
   /** Find the folder a name belongs to under one parent, or add it. Names that fold together
    * land in one shelf, and only within the parent they were typed under.
    */
   function groupForName(groups: RssGroup[], name: string, parentId: string | null = null): { list: RssGroup[], id: string } {
     const trimmed = name.trim().slice(0, RSS_LIMITS.groupChars)
     if (!trimmed) return { list: groups, id: '' }
-    const id = groupIdFor(trimmed, parentId)
-    if (groups.some(group => group.id === id)) return { list: groups, id }
+    const existing = groups.find(group => (group.parentId ?? '') === (parentId ?? '') && groupKey(group.name) === groupKey(trimmed))
+    if (existing) return { list: groups, id: existing.id }
+    const id = newGroupId()
     return { list: [...groups, newGroup(id, trimmed, groups.length, parentId)], id }
   }
 
@@ -670,12 +656,13 @@ export const useRss = create<RssState>((set, get) => {
           if (!result.ok) {
             failed++
             done++
-            markFeedFailed(feed, result.reason ? reasonMessage(result.reason) : t('rss.error.unreachable'))
+            markFeedFailed(feed, result.reason ? reasonMessage(result.reason, result.status) : t('rss.error.unreachable'))
             continue
           }
           if (result.status === 304) {
             unchanged++
             done++
+            if (result.finalUrl && canonicalFeedUrl(result.finalUrl) !== canonicalFeedUrl(feed.url)) patchFeed(feed.id, { url: result.finalUrl })
             patchFeed(feed.id, { updatedAt: Date.now(), lastAttemptAt: Date.now(), error: '', errorCount: 0, lastErrorAt: 0 })
             continue
           }
@@ -713,7 +700,9 @@ export const useRss = create<RssState>((set, get) => {
             })
           }
           try {
-            await storeArticles(feed.id, parsed.entries)
+            const entries = parsed.entries.map(entry => ({ ...entry, feedId: feed.id }))
+            await storeArticles(feed.id, entries)
+            if (result.finalUrl && canonicalFeedUrl(result.finalUrl) !== canonicalFeedUrl(feed.url)) patchFeed(feed.id, { url: result.finalUrl })
           }
           catch (error) {
             failed++
@@ -1137,7 +1126,11 @@ export const useRss = create<RssState>((set, get) => {
         }
       }
       if (!result?.ok || !result.xml) {
-        return { ok: false, error: result?.reason ? reasonMessage(result.reason) : t('rss.error.unreachable') }
+        return { ok: false, error: result?.reason ? reasonMessage(result.reason, result?.status) : t('rss.error.unreachable') }
+      }
+      if (result.finalUrl) url = result.finalUrl
+      if (get().library.feeds.some(feed => canonicalFeedUrl(feed.url) === canonicalFeedUrl(url))) {
+        return { ok: false, error: t('rss.error.already_subscribed') }
       }
       const parsed = parseArticle(result.xml, url)
       if (!parsed) return { ok: false, error: t('rss.error.not_a_feed') }
