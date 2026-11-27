@@ -152,6 +152,7 @@ export interface RssState {
   /** Pin a subscription to the head of its shelf, or let it back down. */
   setPinned: (feedId: string, pinned: boolean) => void
   openEntry: (entryId: string) => void
+  closeEntry: () => void
   view: () => RssChannelView
   markRead: (entryIds: string[], read: boolean) => void
   toggleFavorite: (entryId: string) => void
@@ -933,9 +934,14 @@ export const useRss = create<RssState>((set, get) => {
     },
 
     openEntry(entryId) {
-      writeView(viewKey(), { entryId })
+      const current = readView(viewKey())
+      writeView(viewKey(), { entryId, readerTop: current.entryId === entryId ? current.readerTop : 0 })
       get().markOpened(entryId)
       if (useSession.getState().settings.rss.markReadOnOpen) get().markRead([entryId], true)
+    },
+
+    closeEntry() {
+      writeView(viewKey(), { entryId: '', readerTop: 0 })
     },
 
     view: () => readView(viewKey()),

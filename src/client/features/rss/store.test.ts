@@ -569,6 +569,18 @@ describe('marks', () => {
 })
 
 describe('saving', () => {
+  it('resets the reader position for a new article and clears it on close', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    useRss.getState().openEntry('e1')
+    useRss.getState().setReaderTop(120)
+    useRss.getState().openEntry('e2')
+    expect(useRss.getState().view().readerTop).toBe(0)
+    useRss.getState().closeEntry()
+    expect(useRss.getState().view().entryId).toBe('')
+    expect(useRss.getState().view().readerTop).toBe(0)
+  })
+
   it('keeps a refused library pending and retries it with the next change', async () => {
     fetchResults = [{ url: feed.url, status: 304, ok: true }]
     await boot()

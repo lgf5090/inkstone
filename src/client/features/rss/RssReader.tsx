@@ -83,6 +83,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   const channel = useRss(state => state.channel)
   const views = useRss(state => state.views)
   const openEntry = useRss(state => state.openEntry)
+  const closeEntry = useRss(state => state.closeEntry)
   const markRead = useRss(state => state.markRead)
   const toggleFavorite = useRss(state => state.toggleFavorite)
   const toggleLater = useRss(state => state.toggleLater)
@@ -132,8 +133,8 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
     setAi(null)
     setImagesOn(false)
     const host = scrollRef.current
-    if (host) host.scrollTop = 0
-  }, [entry?.id])
+    if (host) host.scrollTop = view.readerTop
+  }, [entry?.id, key, view.readerTop])
 
   const display = useMemo(() => (entry
     ? articleDisplayHtml(entry.content, {
@@ -303,6 +304,9 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
           size="sm"
           onClick={() => {
             hideEntries([entry.id], true)
+            const next = entries[index + 1] ?? entries[index - 1]
+            if (next) openEntry(next.id)
+            else closeEntry()
             useUi.getState().toast({
               title: t('rss.hidden_toast', { n: 1 }),
               action: { label: t('rss.undo'), run: () => hideEntries([entry.id], false) },
