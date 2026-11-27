@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, request } from '../../lib/api'
 import { initI18n, t } from '../../lib/i18n'
-import { fetchProjectBoardBundle, patchProjectCard } from './api'
+import { createProjectExternalIssue, fetchProjectBoardBundle, patchProjectCard, saveProjectIntegration } from './api'
 import * as offline from './offline-outbox'
 
 vi.mock('../../lib/api', async (importOriginal) => {
@@ -9,8 +9,11 @@ vi.mock('../../lib/api', async (importOriginal) => {
   return { ...actual, request: vi.fn() }
 })
 
-beforeEach(async () => {
+beforeAll(async () => {
   await initI18n()
+})
+
+beforeEach(() => {
   vi.clearAllMocks()
   vi.spyOn(offline, 'enqueueProjectWrite').mockResolvedValue(undefined)
 })
@@ -37,6 +40,15 @@ describe('the project request wrapper', () => {
   it('leaves reads alone, including the POST-shaped anonymous share reader', async () => {
     vi.mocked(request).mockRejectedValue(new ApiError(0, 'offline', 'offline'))
     await expect(fetchProjectBoardBundle('b1')).rejects.toThrow('offline')
+    expect(offline.enqueueProjectWrite).not.toHaveBeenCalled()
+  })
+
+  it('never queues integration credentials or external side effects', async () => {
+    vi.mocked(request).mockRejectedValue(new ApiError(503, 'unavailable', 'Service unavailable'))
+    await expect(saveProjectIntegration('b1', {
+      provider: 'github', config: { token: 'secret', owner: 'acme', repo: 'roadmap' },
+    })).rejects.toThrow('Service unavailable')
+    await expect(createProjectExternalIssue('c1', 'github')).rejects.toThrow('Service unavailable')
     expect(offline.enqueueProjectWrite).not.toHaveBeenCalled()
   })
 

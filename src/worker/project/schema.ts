@@ -8,6 +8,37 @@
  * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.
  */
 
+export const PROJECT_NATIVE_INTEGRATION_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_integrations (
+    id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK (provider IN ('slack','github','jira')),
+    config_ciphertext TEXT NOT NULL,
+    target TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_integrations_board_provider
+     ON project_integrations(board_id, provider)`,
+  `CREATE TABLE IF NOT EXISTS project_external_links (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK (provider IN ('github','jira')),
+    external_id TEXT NOT NULL,
+    external_url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('pending','ready')),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(card_id, provider)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_external_links_board
+     ON project_external_links(board_id, provider)`,
+]
+
 export const PROJECT_CALENDAR_LINK_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS project_calendar_links (
     id TEXT PRIMARY KEY,
@@ -104,6 +135,7 @@ export const PROJECT_PRESENCE_SCHEMA_STATEMENTS: readonly string[] = [
 ]
 
 export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
+  ...PROJECT_NATIVE_INTEGRATION_SCHEMA_STATEMENTS,
   ...PROJECT_CALENDAR_LINK_SCHEMA_STATEMENTS,
   ...PROJECT_NOTE_LINK_SCHEMA_STATEMENTS,
   ...PROJECT_GUEST_SCHEMA_STATEMENTS,
@@ -818,6 +850,8 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_card_versions',
   'project_card_notes',
   'project_calendar_links',
+  'project_integrations',
+  'project_external_links',
   'project_intake_grants',
   'project_card_links',
   'project_todo_links',
@@ -867,6 +901,8 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_card_notes_user',
   'idx_project_calendar_links_card',
   'idx_project_calendar_links_user',
+  'idx_project_integrations_board_provider',
+  'idx_project_external_links_board',
   'idx_project_intake_grants_share',
   'idx_project_intake_grants_board',
   'idx_project_card_links_to',
@@ -938,6 +974,8 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   project_card_versions: ['id', 'card_id', 'board_id', 'actor_id', 'title', 'payload', 'size', 'created_at'],
   project_card_notes: ['card_id', 'note_id', 'user_id', 'created_at'],
   project_calendar_links: ['id', 'card_id', 'user_id', 'calendar_id', 'event_id', 'property_id', 'created_at', 'updated_at'],
+  project_integrations: ['id', 'board_id', 'provider', 'config_ciphertext', 'target', 'enabled', 'created_by', 'created_at', 'updated_at'],
+  project_external_links: ['id', 'card_id', 'board_id', 'provider', 'external_id', 'external_url', 'title', 'status', 'created_at', 'updated_at'],
   project_intake_grants: ['card_id', 'board_id', 'share_slug', 'token_hash', 'field_ids', 'expires_at', 'revoked_at', 'created_at'],
   project_card_links: ['from_card_id', 'to_card_id', 'kind', 'board_id', 'created_at'],
   project_todo_links: ['card_id', 'todo_id', 'user_id', 'created_at'],

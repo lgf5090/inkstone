@@ -19,6 +19,8 @@ import type {
   ProjectCardNoteLink,
   ProjectNoteCardLink,
   ProjectCalendarLink,
+  ProjectIntegration,
+  ProjectExternalLink,
   ProjectCardVersion,
   ProjectCardVersionDetail,
   ProjectGuestOpenResponse,
@@ -39,7 +41,7 @@ import type {
   ProjectViewType,
   ProjectWorkloadReport,
 } from '@shared/project/model'
-import type { ProjectContentCreateInput, ProjectContentPatchInput } from '@shared/project/validation'
+import type { ProjectContentCreateInput, ProjectContentPatchInput, ProjectIntegrationCreateInput } from '@shared/project/validation'
 import type { ProjectRelationOption } from '@shared/project/relation'
 import type { ProjectAutomation, ProjectAutomationAction, ProjectAutomationCondition, ProjectAutomationTrigger } from '@shared/project/automation'
 import type { ProjectSprint, ProjectSprintBurndown, ProjectSprintStatus } from '@shared/project/stats'
@@ -692,6 +694,35 @@ export async function patchProjectWebhook(boardId: string, id: string, patch: { 
 
 export async function deleteProjectWebhook(boardId: string, id: string): Promise<void> {
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function fetchProjectIntegrations(boardId: string, signal?: AbortSignal): Promise<ProjectIntegration[]> {
+  const body = await request<{ integrations: ProjectIntegration[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/integrations`, { signal })
+  return body.integrations
+}
+
+export async function saveProjectIntegration(boardId: string, input: ProjectIntegrationCreateInput): Promise<ProjectIntegration> {
+  const body = await baseRequest<{ integration: ProjectIntegration }>(`/api/project/boards/${encodeURIComponent(boardId)}/integrations`, { method: 'POST', body: input })
+  return body.integration
+}
+
+export async function patchProjectIntegration(boardId: string, id: string, enabled: boolean): Promise<ProjectIntegration> {
+  const body = await baseRequest<{ integration: ProjectIntegration }>(`/api/project/boards/${encodeURIComponent(boardId)}/integrations/${encodeURIComponent(id)}`, { method: 'PATCH', body: { enabled } })
+  return body.integration
+}
+
+export async function deleteProjectIntegration(boardId: string, id: string): Promise<void> {
+  await baseRequest<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/integrations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export async function fetchProjectExternalLinks(cardId: string, signal?: AbortSignal): Promise<ProjectExternalLink[]> {
+  const body = await request<{ links: ProjectExternalLink[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/external-links`, { signal })
+  return body.links
+}
+
+export async function createProjectExternalIssue(cardId: string, provider: 'github' | 'jira'): Promise<ProjectExternalLink> {
+  const body = await baseRequest<{ link: ProjectExternalLink }>(`/api/project/cards/${encodeURIComponent(cardId)}/external-links/${provider}`, { method: 'POST', body: {} })
+  return body.link
 }
 
 export interface ProjectSprintInput {

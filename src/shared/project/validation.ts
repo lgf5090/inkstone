@@ -252,6 +252,35 @@ export type ProjectWebhookCreateInput = z.infer<typeof ProjectWebhookCreateSchem
 export const ProjectWebhookPatchSchema = ProjectWebhookCreateSchema.partial()
 export type ProjectWebhookPatchInput = z.infer<typeof ProjectWebhookPatchSchema>
 
+export const ProjectIntegrationCreateSchema = z.discriminatedUnion('provider', [
+  z.object({
+    provider: z.literal('slack'),
+    config: z.object({ webhookUrl: z.string().url().max(2048) }),
+  }),
+  z.object({
+    provider: z.literal('github'),
+    config: z.object({
+      token: z.string().min(1).max(512),
+      owner: z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/),
+      repo: z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/),
+    }),
+  }),
+  z.object({
+    provider: z.literal('jira'),
+    config: z.object({
+      baseUrl: z.string().url().max(2048),
+      email: z.string().email().max(256),
+      token: z.string().min(1).max(512),
+      projectKey: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,30}$/),
+    }),
+  }),
+])
+
+export const ProjectIntegrationPatchSchema = z.object({ enabled: z.boolean() })
+
+export type ProjectIntegrationCreateInput = z.infer<typeof ProjectIntegrationCreateSchema>
+export type ProjectIntegrationPatchInput = z.infer<typeof ProjectIntegrationPatchSchema>
+
 export const ProjectSprintCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   goal: z.string().max(1000).optional(),

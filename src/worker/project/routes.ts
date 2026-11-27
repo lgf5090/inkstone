@@ -38,6 +38,8 @@ import {
   ProjectPublicIntakeSchema,
   ProjectGuestOpenSchema,
   ProjectGuestPatchSchema,
+  ProjectIntegrationCreateSchema,
+  ProjectIntegrationPatchSchema,
   ProjectCalendarLinkSchema,
   ProjectCardNoteLinkSchema,
   ProjectTimeEntryCreateSchema,
@@ -192,10 +194,11 @@ import { projectCardForRole, projectPropertiesForRole } from './visibility'
 import { defaultWorkloadRange, readProjectWorkload } from './workload'
 import { listCardNotes, linkCardNote, unlinkCardNote, listNoteProjectCards } from './card-notes'
 import { linkProjectCalendar, listProjectCalendarLinks, syncProjectCalendarLinksForCard, unlinkProjectCalendar } from './project-calendar'
+import { createProjectExternalIssue, deleteProjectIntegration, dispatchProjectSlackEvent, listProjectExternalLinks, listProjectIntegrations, patchProjectIntegration, saveProjectIntegration, syncProjectExternalLinksForCard } from './integrations'
 
 export const projectRoutes = new Hono<AppBindings>()
 
-const TOKEN_SESSION_ONLY_PATH = /(?:\/tokens(?:\/|$)|\/webhooks(?:\/|$)|\/members(?:\/|$)|\/share$|\/save-as-template$|\/automations(?:\/|$)|\/import(?:-account)?$)/
+const TOKEN_SESSION_ONLY_PATH = /(?:\/tokens(?:\/|$)|\/webhooks(?:\/|$)|\/integrations(?:\/|$)|\/members(?:\/|$)|\/share$|\/save-as-template$|\/automations(?:\/|$)|\/import(?:-account)?$)/
 const TOKEN_ACCOUNT_EXPORT_PATH = /^\/api\/project\/export$/
 
 function projectTokenValueMaps(value: unknown): Record<string, unknown>[] {
@@ -673,6 +676,11 @@ projectRoutes.use('*', async (c, next) => {
       console.warn('[inkstone] project webhook dispatch failed:', error instanceof Error ? error.message : error)
     })
     try { c.executionCtx?.waitUntil(delivery) } catch { /* no ExecutionContext in tests */ }
+    if (event.startsWith('card.')) {
+      const slack = dispatchProjectSlackEvent(c.env.DB, c.env, boardId, event, targetId)
+      slack.catch((error: unknown) => console.warn('[inkstone] project Slack dispatch failed:', error instanceof Error ? error.message : error))
+      try { c.executionCtx?.waitUntil(slack) } catch { /* no ExecutionContext in tests */ }
+    }
   }
 })
 
@@ -1090,6 +1098,46 @@ projectRoutes.delete('/boards/:id/share', async (c) => {
   return c.json({ ok: true })
 })
 
+projectRoutes.get('/boards/:id/integrations', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ integrations: await listProjectIntegrations(c.env.DB, board.id) })
+})
+
+projectRoutes.post('/boards/:id/integrations', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  await consumeAttemptBudget(c.env.DB, [{ key: `project-integration-create:${userId}`, maxAttempts: 20, windowMs: 60 * 60 * 1000 }])
+  const input = await projectBody(c, ProjectIntegrationCreateSchema, JSON_BODY_LIMITS.small)
+  const integration = await saveProjectIntegration(c.env.DB, c.env, board.id, userId, input, Date.now())
+  return c.json({ integration }, 201)
+})
+
+projectRoutes.patch('/boards/:id/integrations/:integrationId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
+  const input = await projectBody(c, ProjectIntegrationPatchSchema, JSON_BODY_LIMITS.small)
+  const integration = await patchProjectIntegration(c.env.DB, board.id, c.req.param('integrationId'), input.enabled, Date.now())
+  if (!integration) throw ApiError.notFound('Integration not found')
+  return c.json({ integration })
+})
+
+projectRoutes.delete('/boards/:id/integrations/:integrationId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
+  await deleteProjectIntegration(c.env.DB, board.id, c.req.param('integrationId'))
+  return c.json({ ok: true })
+})
+
+projectRoutes.get('/cards/:id/external-links', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ links: await listProjectExternalLinks(c.env.DB, card.id) })
+})
+
+projectRoutes.post('/cards/:id/external-links/:provider', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  const provider = c.req.param('provider')
+  if (provider !== 'github' && provider !== 'jira') throw ApiError.badRequest('Unsupported integration provider')
+  const link = await createProjectExternalIssue(c.env.DB, c.env, card, provider)
+  return c.json({ link }, 201)
+})
+
 projectRoutes.get('/boards/:id/automations', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
   return c.json({ automations: await listProjectAutomations(c.env.DB, board.id) })
@@ -1334,6 +1382,9 @@ projectRoutes.patch('/cards/:id', async (c) => {
     ? await applyCardValueEffects(c.env.DB, c.env, board, rawCard, updated, properties, userId, now)
     : updated
   await syncProjectCalendarLinksForCard(c.env.DB, rawCard, fresh, userId, now)
+  const externalSync = syncProjectExternalLinksForCard(c.env.DB, c.env, fresh)
+  externalSync.catch((error: unknown) => console.warn('[inkstone] project external issue dispatch failed:', error instanceof Error ? error.message : error))
+  try { c.executionCtx?.waitUntil(externalSync) } catch { /* no ExecutionContext in tests */ }
   return c.json({ card: projectCardForRole(fresh, properties, role) })
 })
 

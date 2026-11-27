@@ -25,6 +25,7 @@ import { PROJECT_REALTIME_EVENT, type ProjectRealtimeDetail } from './realtime-e
 import { CardVersionsDialog } from './CardVersionsDialog'
 import { CardNotesSection } from './CardNotesSection'
 import { CardCalendarLinksSection } from './CardCalendarLinksSection'
+import { CardExternalLinksSection } from './CardExternalLinksSection'
 
 interface CardDialogProps {
   card: ProjectCard
@@ -750,6 +751,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
         />
         <CardNotesSection cardId={card.id} canEdit={canEdit} />
         <CardCalendarLinksSection cardId={card.id} properties={properties} canEdit={canEdit} />
+        <CardExternalLinksSection boardId={card.boardId} cardId={card.id} canEdit={canEdit} />
         <CardAttachmentsSection
           files={files}
           error={filesError}

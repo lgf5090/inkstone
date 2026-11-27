@@ -102,7 +102,7 @@ describe('the project tables', () => {
     // statements it carries rather than by a version number another feature may claim first.
     const projectMigrations = SCHEMA_MIGRATIONS.filter((entry) => entry.statements.some((statement) => PROJECT_STATEMENTS.includes(statement)
       || statement.includes('ALTER TABLE project_shares ADD COLUMN intake_config')))
-    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 397, 398, 401, 402, 403, 428, 435, 436, 437, 438, 439, 440, 441, 442, 443])
+    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 397, 398, 401, 402, 403, 428, 435, 436, 437, 438, 439, 440, 441, 442, 443, 444])
     for (const entry of projectMigrations) {
       if (entry.version === 440 && (migrated.prepare('PRAGMA table_info(project_shares)').all() as Array<{ name: string }>).some((column) => column.name === 'intake_config')) continue
       migrated.exec(entry.statements.join(';'))

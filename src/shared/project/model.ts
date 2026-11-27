@@ -631,6 +631,26 @@ export interface ProjectCardMarks {
   pinned: string[]
 }
 
+export type ProjectIntegrationProvider = 'slack' | 'github' | 'jira'
+
+export interface ProjectIntegration {
+  id: string
+  boardId: string
+  provider: ProjectIntegrationProvider
+  target: string
+  enabled: boolean
+  createdAt: number
+}
+
+export interface ProjectExternalLink {
+  id: string
+  cardId: string
+  provider: 'github' | 'jira'
+  externalId: string
+  externalUrl: string
+  title: string
+}
+
 export interface ProjectWorkloadCard {
   cardId: string
   boardId: string

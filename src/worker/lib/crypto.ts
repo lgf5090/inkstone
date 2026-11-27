@@ -480,6 +480,22 @@ function isNoteWebhookSecret(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith('whsec_') && value.length > 'whsec_'.length && value.length <= 512
 }
 
+export async function encryptProjectIntegrationConfig(env: Env, id: string, config: Record<string, string>): Promise<string> {
+  if (!isValidId(id) || Object.keys(config).length === 0 || Object.keys(config).length > 16) {
+    throw new Error('invalid_project_integration_credential')
+  }
+  return encryptCredential(env, `project-integration:${id}`, config)
+}
+
+export async function decryptProjectIntegrationConfig(env: Env, id: string, stored: string): Promise<Record<string, string> | null> {
+  if (!isValidId(id) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `project-integration:${id}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const entries = Object.entries(value)
+  if (entries.length === 0 || entries.length > 16) return null
+  return Object.fromEntries(entries.filter((entry): entry is [string, string] => typeof entry[1] === 'string')) as Record<string, string>
+}
+
 export async function encryptProjectWebhookSecret(env: Env, webhookId: string, secret: string): Promise<string> {
   const scope = projectWebhookCredentialScope(webhookId)
   if (!scope || !isProjectWebhookSecret(secret)) throw new Error('invalid_project_webhook_credential')
