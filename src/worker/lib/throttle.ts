@@ -26,6 +26,8 @@ export interface AttemptBudgetTarget {
   maxAttempts: number
   windowMs: number
   lockMs?: number
+  /** How many attempts this call spends; defaults to one. */
+  amount?: number
 }
 
 type ThrottleInput = string | ThrottleTarget
@@ -97,7 +99,7 @@ export async function consumeAttemptBudget(
   const now = Date.now()
   const sql = `
     INSERT INTO login_attempts (key, fails, last_fail_at, locked_until)
-    VALUES (?1, 1, ?2, NULL)
+    VALUES (?1, ?6, ?2, NULL)
     ON CONFLICT(key) DO UPDATE SET
       fails = CASE
         WHEN login_attempts.locked_until IS NOT NULL AND login_attempts.locked_until > ?2
@@ -105,7 +107,7 @@ export async function consumeAttemptBudget(
         WHEN login_attempts.locked_until IS NOT NULL AND login_attempts.fails > ?4
           THEN 1
         WHEN ?2 - login_attempts.last_fail_at >= ?3 THEN 1
-        ELSE login_attempts.fails + 1
+        ELSE login_attempts.fails + ?6
       END,
       last_fail_at = CASE
         WHEN login_attempts.locked_until IS NOT NULL AND login_attempts.locked_until > ?2
@@ -118,7 +120,7 @@ export async function consumeAttemptBudget(
         WHEN login_attempts.locked_until IS NOT NULL AND login_attempts.fails > ?4
           THEN NULL
         WHEN ?2 - login_attempts.last_fail_at >= ?3 THEN NULL
-        WHEN login_attempts.fails + 1 > ?4 THEN ?2 + ?5
+        WHEN login_attempts.fails + ?6 > ?4 THEN ?2 + ?5
         ELSE NULL
       END
     RETURNING locked_until`
@@ -129,6 +131,7 @@ export async function consumeAttemptBudget(
       target.windowMs,
       target.maxAttempts,
       target.lockMs,
+      target.amount,
     ),
   )
   const results = await db.batch<{ locked_until: number | null }>(statements)
@@ -231,13 +234,14 @@ function normalizeAttemptBudgets(inputs: readonly AttemptBudgetTarget[]): Requir
   for (const input of inputs) {
     const key = input.key.slice(0, 256)
     if (!key) continue
-    const maxAttempts = Math.min(1000, Math.max(1, Math.trunc(input.maxAttempts)))
+    const maxAttempts = Math.min(10_000, Math.max(1, Math.trunc(input.maxAttempts)))
     const windowMs = Math.min(24 * 60 * 60 * 1000, Math.max(1000, Math.trunc(input.windowMs)))
     const lockMs = Math.min(
       24 * 60 * 60 * 1000,
       Math.max(1000, Math.trunc(input.lockMs ?? windowMs)),
     )
-    const candidate = { key, maxAttempts, windowMs, lockMs }
+    const amount = Math.min(1000, Math.max(1, Math.trunc(input.amount ?? 1)))
+    const candidate = { key, maxAttempts, windowMs, lockMs, amount }
     const previous = unique.get(key)
     if (!previous || maxAttempts < previous.maxAttempts) unique.set(key, candidate)
   }

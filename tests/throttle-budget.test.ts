@@ -58,6 +58,13 @@ it('locks after exceeding the attempt budget using the RETURNING verdict', async
   expect(row.locked_until).toBeGreaterThan(Date.now())
 })
 
+it('spends several attempts in one call when the caller names a batch', async () => {
+  await consumeAttemptBudget(db, [{ ...target, amount: 2 }])
+  const row = sqlite.prepare('SELECT fails FROM login_attempts WHERE key = ?').get(target.key) as { fails: number }
+  expect(row.fails).toBe(2)
+  await expect(consumeAttemptBudget(db, [target])).rejects.toBeInstanceOf(ThrottleError)
+})
+
 it('keeps rejecting and preserves lock state while locked', async () => {
   await consumeAttemptBudget(db, [target])
   await consumeAttemptBudget(db, [target])

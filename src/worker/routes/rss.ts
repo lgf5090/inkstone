@@ -16,7 +16,7 @@
  */
 import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
-import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssFeed, type RssFetchResult } from '@shared/rss/model'
+import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, type RssFeed, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty, patchIsMarksOnly } from '@shared/rss/patch'
 import { accountExists, deleteRssReadingFeed, loadRssLibrary, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
@@ -176,6 +176,27 @@ async function spendBudget(db: D1Database, key: string, maxAttempts: number, mes
   )
 }
 
+async function spendFetchBudget(db: D1Database, userId: string, queue: FeedRequestInput[]): Promise<void> {
+  const perUrl = new Map<string, number>()
+  for (const item of queue) {
+    if (!item || typeof item !== 'object' || typeof item.url !== 'string') continue
+    try {
+      const url = assertFeedUrl(item.url)
+      const key = `rss-fetch-url:${userId}:${rssHash(url.href)}`
+      perUrl.set(key, (perUrl.get(key) ?? 0) + 1)
+    }
+    catch {
+      // Invalid entries still receive their own blocked result, but spend no outbound budget.
+    }
+  }
+  if (!perUrl.size) return
+  const total = [...perUrl.values()].reduce((sum, amount) => sum + amount, 0)
+  await assertAttemptBudget(() => consumeAttemptBudget(db, [
+    { key: `rss-fetch:${userId}`, maxAttempts: 1500, amount: total, windowMs: 10 * 60 * 1000, lockMs: 2 * 60 * 1000 },
+    ...[...perUrl].map(([key, amount]) => ({ key, maxAttempts: 30, amount, windowMs: 10 * 60 * 1000, lockMs: 2 * 60 * 1000 })),
+  ]), 'Too many feed requests')
+}
+
 function capMediaBody(body: ReadableStream<Uint8Array>, maxBytes: number, abort: () => void): ReadableStream<Uint8Array> {
   let bytes = 0
   return body.pipeThrough(new TransformStream({
@@ -192,16 +213,16 @@ function capMediaBody(body: ReadableStream<Uint8Array>, maxBytes: number, abort:
 }
 
 rssRoutes.post('/fetch', async (c) => {
-  await spendBudget(c.env.DB, `rss-fetch:${c.get('userId')}`, 60, 'Too many feed requests')
   const body = await readJson<{ requests?: unknown }>(c, 64 * 1024)
   const queue = (Array.isArray(body.requests) ? body.requests.slice(0, MAX_BATCH) : []) as FeedRequestInput[]
   if (!queue.length) throw ApiError.badRequest('Name at least one feed to fetch')
+  await spendFetchBudget(c.env.DB, c.get('userId'), queue)
   const results: RssFetchResult[] = []
   const worker = async (): Promise<void> => {
     for (;;) {
       const item = queue.shift()
-      if (!item) return
-      results.push(await fetchFeed(item))
+      if (item === undefined) return
+      results.push(await fetchFeed(item && typeof item === 'object' ? item : {}))
     }
   }
   await Promise.all(Array.from({ length: Math.min(BATCH_CONCURRENCY, queue.length) }, worker))

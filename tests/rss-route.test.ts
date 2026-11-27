@@ -453,6 +453,26 @@ describe('the feed relay', () => {
     expect((await request('/fetch', json({}))).status).toBe(400)
   })
 
+  it('keeps valid entries after malformed items in the same batch', async () => {
+    stubFetch(() => response('<rss><channel/></rss>'))
+    const res = await request('/fetch', json({ requests: [null, { url: 'https://example.com/one' }, false, { url: 'https://example.com/two' }] }))
+    expect(res.status).toBe(200)
+    const { results } = await res.json() as { results: RssFetchResult[] }
+    expect(results).toHaveLength(4)
+    expect(results.filter(item => item.ok)).toHaveLength(2)
+    expect(results.filter(item => !item.ok && item.reason === 'blocked')).toHaveLength(2)
+  })
+
+  it('charges the account and URL budgets for the valid URLs in the batch', async () => {
+    stubFetch(() => response('<rss><channel/></rss>'))
+    const res = await request('/fetch', json({ requests: [{ url: 'https://example.com/one' }, { url: 'https://example.com/one' }, null] }))
+    expect(res.status).toBe(200)
+    const account = sqlite.prepare('SELECT fails FROM login_attempts WHERE key = ?1').get(`rss-fetch:${USER}`) as { fails: number }
+    expect(account.fails).toBe(2)
+    const urlKeys = sqlite.prepare("SELECT fails FROM login_attempts WHERE key LIKE ?1").all(`rss-fetch-url:${USER}:%`) as Array<{ fails: number }>
+    expect(urlKeys).toEqual([{ fails: 2 }])
+  })
+
   it('stops a reader who presses refresh without ceasing', async () => {
     stubFetch(() => response('<rss><channel/></rss>'))
     let blocked = 0
