@@ -445,6 +445,7 @@ export function dailySpend(
 export function renewalsPerYear(item: Pick<SubscriptionItem, 'periodUnit' | 'periodValue'>): number {
   const periods = Math.max(1, item.periodValue)
   if (item.periodUnit === 'day') return 365 / periods
+  if (item.periodUnit === 'week') return 52 / periods
   if (item.periodUnit === 'month') return 12 / periods
   return 1 / periods
 }
@@ -600,7 +601,7 @@ export function trialsEnding(
   now: Date = new Date(),
 ): TrialEnding[] {
   return items
-    .filter((item) => item.isActive && item.trialEndsAt)
+    .filter((item) => item.isActive && item.trialEndsAt && (item.trialDaysRemaining ?? -1) >= 0)
     .map((item) => ({
       id: item.id,
       name: item.name,

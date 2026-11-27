@@ -19,6 +19,7 @@ export interface NotifyCopy {
   amountLabel: string
   calendarLabel: string
   expiryLabel: string
+  trialEndsLabel: string
   lunarLabel: string
   autoRenewLabel: string
   reminderLabel: string
@@ -43,6 +44,7 @@ export interface NotifyCopy {
   hourly: string
   perPeriod: string
   unitDay: string
+  unitWeek: string
   unitMonth: string
   unitYear: string
   testTitle: string

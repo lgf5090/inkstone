@@ -19,6 +19,8 @@ export interface NotifySubject {
   item: SubscriptionItem
   daysRemaining: number
   hoursRemaining: number
+  targetDate: string
+  isTrial: boolean
   /** The rule that fired, so the message can say why it arrived today rather than on some other day. */
   rule: { type: ReminderRule['type']; value: number; unit: ReminderRule['unit']; repeatInterval: number | null }
 }
@@ -38,7 +40,7 @@ export function buildNotificationBody(
 
   for (const subject of subjects) {
     const { item } = subject
-    const unit = item.periodUnit === 'day' ? copy.unitDay : item.periodUnit === 'year' ? copy.unitYear : copy.unitMonth
+    const unit = item.periodUnit === 'day' ? copy.unitDay : item.periodUnit === 'week' ? copy.unitWeek : item.periodUnit === 'year' ? copy.unitYear : copy.unitMonth
     const emoji = subject.daysRemaining < 0 ? '🚨' : subject.daysRemaining === 0 ? '⚠️' : '📅'
     const status = subject.daysRemaining < 0
       ? fill(copy.overdue, { count: Math.abs(subject.daysRemaining) })
@@ -52,7 +54,7 @@ export function buildNotificationBody(
     const amount = formatAmount(item.amount, item.currency)
     if (amount) lines.push(`${copy.amountLabel}: ${amount}${copy.perPeriod}`)
     lines.push(`${copy.calendarLabel}: ${item.useLunar ? copy.lunarCalendar : copy.solar}`)
-    lines.push(`${copy.expiryLabel}: ${formatLocalDate(item.expiryDate, settings.timezone, 'date')}`)
+    lines.push(`${subject.isTrial ? copy.trialEndsLabel : copy.expiryLabel}: ${formatLocalDate(subject.targetDate, settings.timezone, 'date')}`)
 
     if (settings.showLunar) {
       const parts2 = getTimezoneDateParts(item.expiryDate, settings.timezone)
@@ -79,6 +81,11 @@ export function buildNotificationBody(
  */
 function reminderLine(subject: NotifySubject, copy: ReturnType<typeof notifyCopy>): string {
   const { rule } = subject
+  if (rule.type === 'before_trial_end') {
+    return rule.unit === 'hours'
+      ? `${fill(copy.beforeHours, { count: rule.value })}${copy.hourly}`
+      : fill(copy.beforeDays, { count: rule.value })
+  }
   if (rule.type === 'after_expiry') {
     return `${fill(copy.afterEvery, { count: rule.repeatInterval ?? 24 })}${copy.hourly}`
   }
@@ -96,7 +103,8 @@ export function subjectOf(
   item: SubscriptionItem,
   daysRemaining: number,
   hoursRemaining: number,
+  targetDate: string,
   rule: NotifySubject['rule'],
 ): NotifySubject {
-  return { item, daysRemaining, hoursRemaining, rule }
+  return { item, daysRemaining, hoursRemaining, targetDate, isTrial: rule.type === 'before_trial_end', rule }
 }

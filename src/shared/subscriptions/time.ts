@@ -202,7 +202,7 @@ export function formatDateInputInTimezone(value: Date | string | number, timezon
 export function addCalendarPeriodInTimezone(
   value: Date | string | number,
   amount: number,
-  unit: 'day' | 'month' | 'year',
+  unit: 'day' | 'week' | 'month' | 'year',
   timezone = 'UTC',
 ): Date {
   const date = value instanceof Date ? value : new Date(value)
@@ -212,8 +212,8 @@ export function addCalendarPeriodInTimezone(
   let month = parts.month
   let day = parts.day
 
-  if (unit === 'day') {
-    const shifted = new Date(Date.UTC(year, month - 1, day + amount))
+  if (unit === 'day' || unit === 'week') {
+    const shifted = new Date(Date.UTC(year, month - 1, day + amount * (unit === 'week' ? 7 : 1)))
     year = shifted.getUTCFullYear()
     month = shifted.getUTCMonth() + 1
     day = shifted.getUTCDate()

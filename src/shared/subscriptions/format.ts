@@ -98,6 +98,7 @@ export function daysStateKey(state: DaysState): MessageKey {
 /** The catalog key for a period unit's name. */
 export function periodUnitKey(unit: PeriodUnit): MessageKey {
   if (unit === 'day') return 'subscriptions.unit_day'
+  if (unit === 'week') return 'subscriptions.unit_week'
   if (unit === 'year') return 'subscriptions.unit_year'
   return 'subscriptions.unit_month'
 }

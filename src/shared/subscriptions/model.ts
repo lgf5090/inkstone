@@ -8,7 +8,7 @@
  * and a component agree about a subscription without any of them owning the rules.
  */
 
-export const PERIOD_UNITS = ['day', 'month', 'year'] as const
+export const PERIOD_UNITS = ['day', 'week', 'month', 'year'] as const
 export type PeriodUnit = (typeof PERIOD_UNITS)[number]
 
 export const SUBSCRIPTION_MODES = ['cycle', 'reset'] as const
@@ -40,7 +40,7 @@ export type CurrencyCode = (typeof CURRENCY_CODES)[number]
  */
 export type RateOverrides = { [K in Exclude<CurrencyCode, 'CNY'>]?: number }
 
-export const REMINDER_KINDS = ['before_expiry', 'on_expiry', 'after_expiry'] as const
+export const REMINDER_KINDS = ['before_expiry', 'before_trial_end', 'on_expiry', 'after_expiry'] as const
 export type ReminderKind = (typeof REMINDER_KINDS)[number]
 
 export const REMINDER_UNITS = ['days', 'hours'] as const

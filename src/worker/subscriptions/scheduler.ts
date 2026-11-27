@@ -33,6 +33,7 @@ interface Candidate {
   rule: ReminderRule
   daysRemaining: number
   hoursRemaining: number
+  targetDate: string
 }
 
 export async function sweepSubscriptions(env: Env, now = Date.now()): Promise<SweepResult> {
@@ -42,12 +43,14 @@ export async function sweepSubscriptions(env: Env, now = Date.now()): Promise<Sw
       FROM sub_item i
      WHERE i.deleted_at IS NULL AND i.is_active = 1
        AND (
-         (i.auto_renew = 1 AND i.expiry_date <= ?1)
+         (i.auto_renew = 1 AND (i.expiry_date <= ?1 OR (i.trial_ends_at IS NOT NULL AND i.trial_ends_at <= ?1)))
+         OR (i.trial_ends_at IS NOT NULL AND i.trial_ends_at <= ?1)
          OR EXISTS (
            SELECT 1 FROM sub_reminder_rule r
             WHERE r.user_id = i.user_id AND r.subscription_id = i.id AND r.enabled = 1
               AND (
                 (r.kind = 'after_expiry' AND i.expiry_date <= ?1)
+                OR (r.kind = 'before_trial_end' AND i.trial_ends_at <= ?1 + CASE r.unit WHEN 'hours' THEN r.value * 3600000 ELSE r.value * 86400000 END + 86400000)
                 OR (r.kind = 'on_expiry' AND i.expiry_date <= ?1 + 86400000)
                 OR (r.kind = 'before_expiry' AND i.expiry_date <= ?1 + CASE r.unit WHEN 'hours' THEN r.value * 3600000 ELSE r.value * 86400000 END + 86400000)
               )
@@ -102,7 +105,7 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
   let renewed = 0
   const current: SubscriptionItem[] = []
   for (const item of items) {
-    if (item.isActive && item.autoRenew && item.daysRemaining < 0) {
+    if (item.isActive && item.autoRenew && (item.daysRemaining < 0 || (item.trialEndsAt !== null && Date.parse(item.trialEndsAt) <= now))) {
       const next = await store.autoRenew(item.id, context)
       if (next) {
         renewed++
@@ -129,17 +132,29 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
     if (!Number.isFinite(expiry)) continue
     const daysDiff = getDaysBetween(now, expiry, settings.timezone)
     const hoursDiff = (expiry - now) / MS_PER_HOUR
+    const trialEnd = item.trialEndsAt === null ? null : Date.parse(item.trialEndsAt)
+    const trialDaysDiff = trialEnd === null || !Number.isFinite(trialEnd) ? undefined : getDaysBetween(now, trialEnd, settings.timezone)
+    const trialHoursDiff = trialEnd === null || !Number.isFinite(trialEnd) ? undefined : (trialEnd - now) / MS_PER_HOUR
     for (const rule of rules.get(item.id) ?? []) {
       const lastFireAt = lastFires.get(`${item.id}:${rule.id}`)
       const decision = shouldFire(rule, {
         daysDiff,
         hoursDiff,
+        trialDaysDiff,
+        trialHoursDiff,
         lastFireAt: lastFireAt === undefined ? null : new Date(lastFireAt).toISOString(),
         nowIso,
       })
       if (!decision.fire) continue
       matched++
-      candidates.push({ item, rule, daysRemaining: daysDiff, hoursRemaining: hoursDiff })
+      const isTrialRule = rule.type === 'before_trial_end'
+      candidates.push({
+        item,
+        rule,
+        daysRemaining: isTrialRule ? trialDaysDiff! : daysDiff,
+        hoursRemaining: isTrialRule ? trialHoursDiff! : hoursDiff,
+        targetDate: isTrialRule ? item.trialEndsAt! : item.expiryDate,
+      })
     }
   }
 
@@ -203,6 +218,7 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
     candidate.item,
     candidate.daysRemaining,
     candidate.hoursRemaining,
+    candidate.targetDate,
     {
       type: candidate.rule.type,
       value: candidate.rule.value,

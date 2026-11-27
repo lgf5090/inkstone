@@ -199,6 +199,22 @@ describe('the sweep', () => {
     expect(deliveries).toHaveLength(2)
   })
 
+  it('reminds before a trial ends and does not report it as expiry', async () => {
+    await saveSettings(db, 'u1', { timezone: 'Asia/Shanghai', notificationHours: [], locale: 'zh-CN' })
+    const store = new SubscriptionsStore(db, 'u1')
+    const created = await store.create({
+      name: 'Trial', amount: 60, expiryDate: '2026-12-21', trialEndsAt: new Date(NOW + 3 * DAY).toISOString(),
+      periodValue: 1, periodUnit: 'month', reminderRules: [{ type: 'before_trial_end', value: 3, unit: 'days' }],
+    }, storeContext({ timezone: 'Asia/Shanghai', notificationHours: [], showLunar: false, paymentHistoryLimit: 100, locale: 'zh-CN', baseCurrency: 'CNY', budgetMonthly: null, budgetYearly: null, budgetCategories: {}, rateOverrides: {}, inboundTokenHint: '' }, NOW))
+    await enableGotify('u1')
+    const result = await sweepSubscriptions(env(), NOW)
+    expect(result.matched).toBe(1)
+    expect(deliveries).toHaveLength(1)
+    const log = sqlite.prepare(`SELECT body FROM sub_notify_log WHERE user_id = 'u1'`).get() as { body: string }
+    expect(log.body).toContain('试用截止')
+    expect(log.body).toContain(created.item.name)
+  })
+
   it('records the sweep even when it throws', async () => {
     await seed('u1', { days: 7 })
     sqlite.prepare(`UPDATE sub_reminder_rule SET value = 7, enabled = 1`).run()

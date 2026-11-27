@@ -156,7 +156,7 @@ export async function applyBackupSubscriptions(
     .map((row) => ({
       id: bounded(String(row.id), 64),
       subscription_id: bounded(String(row.subscription_id), 64),
-      kind: ['before_expiry', 'on_expiry', 'after_expiry'].includes(String(row.kind)) ? row.kind : 'before_expiry',
+      kind: ['before_expiry', 'before_trial_end', 'on_expiry', 'after_expiry'].includes(String(row.kind)) ? row.kind : 'before_expiry',
       value: intAtLeast(row.value, 0, 3650),
       unit: row.unit === 'hours' ? 'hours' : 'days',
       repeat_interval: numberOrNull(row.repeat_interval),

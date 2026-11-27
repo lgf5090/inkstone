@@ -528,7 +528,7 @@ subscriptionRoutes.post('/:id/test-notify', async (c) => {
 
   const rule = detail.rules[0] ?? { type: 'on_expiry' as const, value: 0, unit: 'days' as const, repeatInterval: null }
   const body = buildNotificationBody([
-    subjectOf(detail.item, detail.item.daysRemaining, detail.item.hoursRemaining, {
+    subjectOf(detail.item, detail.item.daysRemaining, detail.item.hoursRemaining, rule.type === 'before_trial_end' ? detail.item.trialEndsAt! : detail.item.expiryDate, {
       type: rule.type,
       value: rule.value,
       unit: rule.unit,

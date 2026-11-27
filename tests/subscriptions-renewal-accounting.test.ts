@@ -67,4 +67,23 @@ describe('renewal accounting', () => {
     expect(detail!.payments).toHaveLength(2)
     expect(detail!.payments.filter((payment) => payment.kind === 'auto')).toHaveLength(1)
   })
+
+  it('keeps a trial free until it ends, then records exactly one first charge', async () => {
+    const store = new SubscriptionsStore(db, 'u1')
+    const created = await store.create({
+      name: 'Trial', amount: 60, expiryDate: '2026-12-21', trialEndsAt: '2026-11-30',
+      periodValue: 1, periodUnit: 'week', autoRenew: true,
+    }, context)
+    expect(created.payments).toEqual([])
+    expect(created.nextReminder).toMatchObject({ type: 'before_trial_end', nextFireTime: '2026-11-27T00:00:00.000Z' })
+    expect(created.rules.some((rule) => rule.type === 'before_trial_end')).toBe(true)
+    expect(await store.autoRenew(created.item.id, context)).toBeNull()
+
+    const later = { ...context, now: Date.parse('2026-12-01T00:00:00Z') }
+    await Promise.all([store.autoRenew(created.item.id, later), store.autoRenew(created.item.id, later)])
+    const detail = await store.get(created.item.id, later)
+    expect(detail!.payments).toHaveLength(1)
+    expect(detail!.payments[0]).toMatchObject({ amount: 60, kind: 'initial', periodCount: 1 })
+    expect(detail!.item.expiryDate).toBe('2026-12-07T00:00:00.000Z')
+  })
 })

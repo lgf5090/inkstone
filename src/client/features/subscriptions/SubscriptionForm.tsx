@@ -15,7 +15,7 @@ import { Button } from '../../components/primitives'
 import { Field, Input, Select, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { DatePicker } from '../../components/date-picker'
-import { formatAmount } from '@shared/subscriptions/format'
+import { formatAmount, periodUnitKey } from '@shared/subscriptions/format'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
 import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts, parseDateInputInTimezone } from '@shared/subscriptions/time'
 import {
@@ -349,7 +349,7 @@ export function SubscriptionForm({
             </Field>
             <Field label={t('subscriptions.form.period_unit')}>
               <Select value={draft.periodUnit} onChange={(event) => set('periodUnit', event.target.value as PeriodUnit)}>
-                {PERIOD_UNITS.map((unit) => <option key={unit} value={unit}>{t(unit === 'day' ? 'subscriptions.unit_day' : unit === 'year' ? 'subscriptions.unit_year' : 'subscriptions.unit_month')}</option>)}
+                {PERIOD_UNITS.map((unit) => <option key={unit} value={unit}>{t(periodUnitKey(unit))}</option>)}
               </Select>
             </Field>
           </div>

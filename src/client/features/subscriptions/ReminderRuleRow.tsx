@@ -41,7 +41,7 @@ export function ReminderRuleRow({ rule, onPatch, onRemove, canAcknowledge = fals
   removable?: boolean
 }): ReactElement {
   const kind = rule.type ?? 'before_expiry'
-  const isBefore = kind === 'before_expiry'
+  const isBefore = kind === 'before_expiry' || kind === 'before_trial_end'
   const isAfter = kind === 'after_expiry'
   const repeatUntil = rule.repeatUntil ?? 'renewed'
   return (
@@ -53,6 +53,7 @@ export function ReminderRuleRow({ rule, onPatch, onRemove, canAcknowledge = fals
         className="h-7 w-[104px] shrink-0 text-[length:var(--text-11-5)]"
       >
         <option value="before_expiry">{t('subscriptions.rules.type_before')}</option>
+        <option value="before_trial_end">{t('subscriptions.rules.type_before_trial')}</option>
         <option value="on_expiry">{t('subscriptions.rules.type_on')}</option>
         <option value="after_expiry">{t('subscriptions.rules.type_after')}</option>
       </Select>

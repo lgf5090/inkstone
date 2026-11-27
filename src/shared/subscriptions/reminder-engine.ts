@@ -24,6 +24,10 @@ export interface FireContext {
   daysDiff: number
   /** Hours to expiry, fractional. Negative once expired. */
   hoursDiff: number
+  /** Whole local days to trial end, when this is a trial reminder. */
+  trialDaysDiff?: number
+  /** Hours to trial end, fractional. */
+  trialHoursDiff?: number
   /** When this same rule last fired, for the repeat interval of an expired subscription. */
   lastFireAt?: string | null
   nowIso?: string
@@ -41,6 +45,12 @@ export function shouldFire(rule: ReminderRule, ctx: FireContext): FireDecision {
   if (!rule || rule.isEnabled === false) return { fire: false, reason: 'rule_disabled' }
   if (!Number.isFinite(ctx.daysDiff) || !Number.isFinite(ctx.hoursDiff)) {
     return { fire: false, reason: 'invalid_diff' }
+  }
+  if (rule.type === 'before_trial_end') {
+    if (!Number.isFinite(ctx.trialDaysDiff) || !Number.isFinite(ctx.trialHoursDiff)) {
+      return { fire: false, reason: 'invalid_trial_diff' }
+    }
+    return decideBeforeExpiry(rule, { ...ctx, daysDiff: ctx.trialDaysDiff!, hoursDiff: ctx.trialHoursDiff! })
   }
   if (rule.type === 'before_expiry') return decideBeforeExpiry(rule, ctx)
   if (rule.type === 'on_expiry') return decideOnExpiry(ctx)
@@ -105,15 +115,17 @@ function repeatHours(rule: ReminderRule): number {
  * Used by the detail panel's "next reminder" line, so it has to agree with `shouldFire` rather than be
  * a second opinion: both read the same interval default, and both treat a past moment as "nothing more".
  */
-export function getNextFireTime(rule: ReminderRule, expiryIso: string, nowIso?: string, schedule?: ReminderSchedule): string | null {
+export function getNextFireTime(rule: ReminderRule, expiryIso: string, nowIso?: string, schedule?: ReminderSchedule, trialEndIso?: string | null): string | null {
   if (!rule || rule.isEnabled === false) return null
-  const expiry = new Date(expiryIso).getTime()
+  const targetIso = rule.type === 'before_trial_end' ? trialEndIso : expiryIso
+  if (!targetIso) return null
+  const expiry = new Date(targetIso).getTime()
   const now = nowIso ? new Date(nowIso).getTime() : Date.now()
   if (Number.isNaN(expiry)) return null
   const hour = 3_600_000
   const day = 86_400_000
 
-  if (rule.type === 'before_expiry') {
+  if (rule.type === 'before_expiry' || rule.type === 'before_trial_end') {
     const fireAt = rule.unit === 'hours' ? expiry - rule.value * hour : expiry - rule.value * day
     if (fireAt < now) return null
     return rule.unit === 'hours' || !schedule
@@ -163,9 +175,10 @@ export function soonestFire(
   expiryIso: string,
   nowIso?: string,
   schedule?: ReminderSchedule,
+  trialEndIso?: string | null,
 ): { ruleId: string; type: ReminderRule['type']; value: number; unit: ReminderUnit; nextFireTime: string } | null {
   const candidates = rules
-    .map((rule) => ({ rule, at: getNextFireTime(rule, expiryIso, nowIso, schedule) }))
+    .map((rule) => ({ rule, at: getNextFireTime(rule, expiryIso, nowIso, schedule, trialEndIso) }))
     .filter((entry): entry is { rule: ReminderRule; at: string } => entry.at !== null)
     .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
   const first = candidates[0]

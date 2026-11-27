@@ -291,6 +291,7 @@ export class SubscriptionsStore {
       })),
     }
     const expiryIso = toIso(row.expiry_date)!
+    const trialEndIso = toIso(row.trial_ends_at)
     const nowIso = new Date(now).toISOString()
     return {
       item: this.toItem(row, context, now, paid, mapped),
@@ -301,9 +302,9 @@ export class SubscriptionsStore {
         amount: payment.amount,
         currency: payment.currency as SpendingInput['currency'],
       })), context.timezone),
-      nextReminder: soonestFire(mapped, expiryIso, nowIso, { timezone: context.timezone, notificationHours: context.notificationHours ?? [] }),
+      nextReminder: soonestFire(mapped, expiryIso, nowIso, { timezone: context.timezone, notificationHours: context.notificationHours ?? [] }, trialEndIso),
       upcoming: mapped
-        .map((rule) => ({ rule, at: getNextFireTime(rule, expiryIso, nowIso, { timezone: context.timezone, notificationHours: context.notificationHours ?? [] }) }))
+        .map((rule) => ({ rule, at: getNextFireTime(rule, expiryIso, nowIso, { timezone: context.timezone, notificationHours: context.notificationHours ?? [] }, trialEndIso) }))
         .filter((entry): entry is { rule: ReminderRule; at: string } => entry.at !== null)
         .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
         .map((entry) => ({
@@ -323,6 +324,7 @@ export class SubscriptionsStore {
     const amount = input.amount === undefined || input.amount === null ? null : roundMoney(input.amount)
     const currency = input.currency ?? 'CNY'
     const startDate = toMs(input.startDate ?? null, context.timezone)
+    const trialEnd = toMs(input.trialEndsAt ?? null, context.timezone)
     const createdAt = now
 
     const statements = [
@@ -346,13 +348,13 @@ export class SubscriptionsStore {
         input.autoRenew === false ? 0 : 1,
         input.notes ?? '',
         startDate ?? createdAt,
-        toMs(input.trialEndsAt ?? null, context.timezone),
+        trialEnd,
         createdAt,
         createdAt,
       ),
     ]
 
-    if (amount !== null) {
+    if (amount !== null && trialEnd === null) {
       statements.push(this.db.prepare(
         `INSERT INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
       ).bind(
@@ -373,7 +375,12 @@ export class SubscriptionsStore {
 
     const rules = input.reminderRules && input.reminderRules.length > 0
       ? input.reminderRules.slice(0, RULES_LIMIT).map((rule) => normalizeRule(rule, newId, now))
-      : defaultPresetRules(newId, now)
+      : trialEnd === null
+        ? defaultPresetRules(newId, now)
+        : [
+            ...defaultPresetRules(newId, now),
+            normalizeRule({ type: 'before_trial_end', value: 3, unit: 'days' }, newId, now),
+          ]
     for (const rule of rules) statements.push(this.insertRuleStatement(id, rule))
 
     await this.db.batch(statements)
@@ -567,11 +574,11 @@ export class SubscriptionsStore {
       : currentExpiry > paymentAt ? currentExpiry : paymentAt
 
     const advance = (from: number, count: number): number => existing.use_lunar === 1
-      ? this.addLunarPeriods(from, existing.period_value * count, existing.period_unit as 'day' | 'month' | 'year', context.timezone)
+      ? this.addLunarPeriods(from, existing.period_value * count, existing.period_unit as 'day' | 'week' | 'month' | 'year', context.timezone)
       : addCalendarPeriodInTimezone(
         from,
         existing.period_value * count,
-        existing.period_unit as 'day' | 'month' | 'year',
+        existing.period_unit as 'day' | 'week' | 'month' | 'year',
         context.timezone,
       ).getTime()
     const expiry = advance(startAt, multiplier)
@@ -619,11 +626,21 @@ export class SubscriptionsStore {
   async autoRenew(id: string, context: StoreContext): Promise<SubscriptionItem | null> {
     const now = context.now ?? Date.now()
     const existing = await this.itemRow(id)
-    if (!existing || existing.auto_renew !== 1 || existing.expiry_date > now) return null
+    if (!existing || existing.auto_renew !== 1 || existing.deleted_at !== null || existing.is_active !== 1) return null
+    if (existing.trial_ends_at !== null && existing.trial_ends_at > now) return null
+
+    const trialPaymentId = existing.trial_ends_at === null ? null : `trial:${id}:${existing.trial_ends_at}`
+    const priorTrialPayment = trialPaymentId === null
+      ? null
+      : await this.db.prepare(`SELECT id FROM sub_payment WHERE user_id = ?1 AND subscription_id = ?2 AND id = ?3`)
+        .bind(this.userId, id, trialPaymentId).first<{ id: string }>()
+    const convertingTrial = trialPaymentId !== null && priorTrialPayment === null
+    if (!convertingTrial && existing.expiry_date > now) return null
 
     const mode = existing.subscription_mode === 'reset' ? 'reset' : 'cycle'
-    const unit = existing.period_unit as 'day' | 'month' | 'year'
-    let expiry = existing.expiry_date
+    const unit = existing.period_unit as 'day' | 'week' | 'month' | 'year'
+    let expiry = convertingTrial ? existing.trial_ends_at! : existing.expiry_date
+    const previousExpiry = expiry
     let lastStart = existing.expiry_date
     let periods = 0
     const ceiling = existing.use_lunar === 1 ? 60 : 120
@@ -639,7 +656,7 @@ export class SubscriptionsStore {
     }
     if (periods === 0) return null
 
-    const paymentId = `auto:${id}:${existing.expiry_date}`
+    const paymentId = convertingTrial ? trialPaymentId! : `auto:${id}:${previousExpiry}`
     const results = await this.db.batch([
       this.db.prepare(
         `INSERT OR IGNORE INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
@@ -650,7 +667,7 @@ export class SubscriptionsStore {
         now,
         roundMoney((existing.amount ?? 0) * periods),
         existing.currency,
-        'auto',
+        convertingTrial ? 'initial' : 'auto',
         '',
         lastStart,
         expiry,
@@ -1022,7 +1039,7 @@ export class SubscriptionsStore {
       (getTimezoneMidnightTimestamp(expiry, context.timezone) - getTimezoneMidnightTimestamp(now, context.timezone)) / 86_400_000,
     )
     const next = rules.length > 0
-      ? soonestFire(rules, new Date(expiry).toISOString(), new Date(now).toISOString(), { timezone: context.timezone, notificationHours: context.notificationHours ?? [] })
+      ? soonestFire(rules, new Date(expiry).toISOString(), new Date(now).toISOString(), { timezone: context.timezone, notificationHours: context.notificationHours ?? [] }, toIso(row.trial_ends_at))
       : null
     return {
       id: row.id,
@@ -1071,7 +1088,7 @@ export class SubscriptionsStore {
     const requested = toMs(input.expiryDate, context.timezone)
     if (requested === null) throw new Error('invalid_expiry')
     const periodValue = Math.max(1, Math.trunc(input.periodValue ?? 1))
-    const periodUnit = (input.periodUnit ?? 'month') as 'day' | 'month' | 'year'
+    const periodUnit = (input.periodUnit ?? 'month') as 'day' | 'week' | 'month' | 'year'
     const today = getTimezoneMidnightTimestamp(now, context.timezone)
     let cursor = requested
     let guard = 0
@@ -1084,7 +1101,7 @@ export class SubscriptionsStore {
     return cursor
   }
 
-  private addLunarPeriods(from: number, value: number, unit: 'day' | 'month' | 'year', timezone: string): number {
+  private addLunarPeriods(from: number, value: number, unit: 'day' | 'week' | 'month' | 'year', timezone: string): number {
     const parts = getTimezoneDateParts(from, timezone)
     const lunar = solar2lunar(parts.year, parts.month, parts.day)
     if (!lunar) throw new Error('lunar_out_of_range')

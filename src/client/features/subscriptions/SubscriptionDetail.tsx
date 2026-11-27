@@ -125,8 +125,10 @@ export function SubscriptionDetail({
           {item.trialEndsAt && (
             <Fact
               label={t('subscriptions.detail.trial_ends')}
-              value={`${formatLocalDate(item.trialEndsAt, timezone, 'date')} · ${t('subscriptions.status.days_left', { count: item.trialDaysRemaining ?? 0 })}`}
-              tone={(item.trialDaysRemaining ?? 0) < 8 ? 'warning' : undefined}
+              value={`${formatLocalDate(item.trialEndsAt, timezone, 'date')} · ${(item.trialDaysRemaining ?? 0) < 0
+                ? t('subscriptions.status.trial_ended')
+                : t('subscriptions.status.days_left', { count: item.trialDaysRemaining ?? 0 })}`}
+              tone={(item.trialDaysRemaining ?? -1) < 0 ? undefined : (item.trialDaysRemaining ?? 0) < 8 ? 'warning' : undefined}
             />
           )}
         </div>

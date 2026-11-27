@@ -34783,6 +34783,8 @@ const allowed = new Map([
     "// repeat rather than deleting the rule: the next term has to be able to nag again on its own.",
     "// Nothing is coming if the reader already said they had seen it — the detail panel would otherwise",
     "// promise a next reminder that the scheduler has been told not to send.",
+    "/** Whole local days to trial end, when this is a trial reminder. */",
+    "/** Hours to trial end, fractional. */",
   ]],
   ["src/shared/subscriptions/search.ts", [
     "/**\n * One spelling of \"which subscription does this text name\".\n *\n * The chat tool filters a listing and the global search filters the same rows over HTTP. Two hand-written\n * haystacks drift — one grows the notes field, the other keeps ignoring it — and then a reader can find a\n * subscription by typing in one place and not the other. So the fields and the folding live here.\n */",
