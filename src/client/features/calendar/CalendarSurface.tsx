@@ -45,6 +45,7 @@ import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, isSharedCalendarId, temporalToEp
 import type { AppLocale } from '@shared/types'
 import type { AssistantPageContext } from '@shared/assistant'
 import type { MessageKey } from '@shared/locales/en-US'
+import { holidayNoticeOf } from '@shared/calendar/holidays'
 import { localDate } from '@shared/assistant-time'
 import { t, useLocale, useLocaleRepaint } from '../../lib/i18n'
 import { useBreakpoint, useThemeDark } from '../../lib/hooks'
@@ -1084,14 +1085,18 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     try {
       await api.addHolidays({
         calendarName: t('calendar.holidays.calendar_name', { year }),
-        holidays: holidayPresets(appLocale, year),
+    if (!holidayNoticeOf(year)) {
+      useUi.getState().toast({ title: t('calendar.holidays.unpublished', { year }), tone: 'warning' })
+      return
+    }
+        holidays: holidayPresets(year),
       })
       useUi.getState().toast({ title: t('calendar.holidays.added'), tone: 'success' })
       await refreshRef.current()
     } catch (error) {
       toastFailure(t('calendar.holidays.failed'), error)
     }
-  }, [appLocale])
+  }, [])
 
   const persistCalendarChange = useCallback(async (calendar: CalendarType): Promise<void> => {
     if (suppressUpdate.current.delete(calendar.id)) return
