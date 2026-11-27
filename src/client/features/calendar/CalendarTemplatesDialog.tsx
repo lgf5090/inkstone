@@ -47,7 +47,7 @@ export function CalendarTemplatesDialog({ open, event, onUse, onClose }: Calenda
   const save = async (): Promise<void> => {
     const templateName = name.trim() || event?.title.trim() || ''
     if (!templateName) {
-      setError(t('calendar.templates.name'))
+      setError(t('calendar.templates.name_required'))
       return
     }
     const minutes = Number(blankDuration)
@@ -136,7 +136,7 @@ export function CalendarTemplatesDialog({ open, event, onUse, onClose }: Calenda
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{template.name}</span>
                 <span className="block truncate text-[length:var(--text-11)] text-[var(--text-quaternary)]">
-                  {template.title}{template.allDay ? ` · ${t('calendar.event.all_day')}` : ` · ${template.durationMinutes} min`}
+                  {template.title}{template.allDay ? ` · ${t('calendar.event.all_day')}` : ` · ${t('calendar.templates.duration_value', { minutes: template.durationMinutes })}`}
                 </span>
               </span>
               {onUse && (

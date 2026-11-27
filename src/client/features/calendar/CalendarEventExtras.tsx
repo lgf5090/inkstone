@@ -107,7 +107,7 @@ export function CalendarEventExtras({
     let cancelled = false
     void api.getContacts().then((rows) => {
       if (!cancelled) setContacts(rows.map(row => ({ name: row.name, email: row.email })))
-    }).catch(() => { /* The address book is a suggestion, not a requirement. */ })
+    }).catch((cause: unknown) => { /* The address book is a suggestion, not a requirement. */ console.debug('[inkstone] Calendar address book could not be loaded.', cause) })
     setEvent(null)
     setMinutes([])
     setAttendees([])

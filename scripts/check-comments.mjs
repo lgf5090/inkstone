@@ -1490,6 +1490,7 @@ const allowed = new Map([
     "/**\n * The create-event form used by a double-click on empty grid space.\n *\n * DayFlow's own double-click creates a row before the reader has typed anything, and closing the\n * editor leaves that empty event behind. This form is the draft: nothing is written until Create,\n * and Cancel really cancels. The wall clock is interpreted in the account's time zone, not the\n * browser's, so a calendar read in Shanghai behaves the same on a laptop in Berlin.\n */",
     "/** The instant the grid reported; its wall clock is read in `timeZone`. */",
     "/** A reusable draft; its fields seed the form and the dates still come from the grid. */",
+    "// Keep the form copy stable while retaining the parsing or persistence cause in diagnostics.",
   ]],
   ["src/client/features/calendar/CalendarEventExtras.tsx", [
     "/**\n * The sidebar section for the event the reader just clicked.\n *\n * DayFlow's own editor owns the fields it renders, and it has no extension point that would let this\n * app add a row to it. Reminders are per event now, so they live here: the section reads the server's\n * row, writes back with its revision, and hands the new revision to the surface so the write queue\n * does not send a stale PATCH afterwards.\n */",
@@ -1510,11 +1511,14 @@ const allowed = new Map([
   ]],
   ["src/client/features/calendar/CalendarFilteredSearch.tsx", [
     "/** A filtered calendar search: keyword, calendar, date span and kind, in one panel. */",
+    "// One malformed provider timestamp must not make the rest of the search results unusable.",
+    "// The browser locale fallback still gives a readable date when the requested zone is unavailable.",
   ]],
   ["src/client/features/calendar/CalendarFreeBusyDialog.tsx", [
     "/**\n * A small \"find a time\" board: busy blocks from every selected calendar, and the open slots\n * inside the account's configured working hours.\n */",
   ]],
   ["src/client/features/calendar/CalendarHeatmap.tsx", [
+    "// A corrupt filter should leave every activity kind visible rather than show an empty grid.",
     "// The selection is a convenience; a full quota must not stop the grid from drawing.",
     "// At least one kind stays on: an empty selection would be a request with nothing to count, and",
     "// the grid would be a field of identical squares rather than an answer.",
@@ -1526,6 +1530,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/calendar/CalendarPrintSheet.tsx", [
     "/**\n * The paper the print dialogue gets.\n *\n * Rendered into `document.body` and hidden on screen, so the app's own layout never has to be fought\n * with: the print rules hide every other body child and show this one. The sheet is built from a range\n * read rather than from what is on screen, so printing from the year view still lists the appointments\n * the reader has, in the calendars they have visible.\n */",
+  ]],
+  ["src/client/features/calendar/CalendarQuickAdd.tsx", [
+    "// The title-only preview remains useful if the runtime cannot format the requested time zone.",
   ]],
   ["src/client/features/calendar/CalendarRecurrenceDialog.tsx", [
     "/**\n * The scope question a recurring-event edit raises.\n *\n * The library asks one event to stand for a whole series, so an edit aimed at one occurrence is\n * turned into a server-side exception (\"this\"), a split (\"following\") or a master edit (\"all\").\n * Nothing is written until the reader answers; the optimistic change was already reverted.\n */",
@@ -1564,6 +1571,7 @@ const allowed = new Map([
   ["src/client/features/calendar/CalendarSurface.tsx", [
     "/**\n * The live calendar surface: DayFlow, the plugins, the native sidebar and the write queue.\n *\n * Configuration is created once, because `useCalendarApp` builds its app from the first config. Later\n * preference changes go through `app.updateConfig`, which re-installs views without rebuilding the\n * app or losing the current selection. Range loading and persistence both apply server state with\n * `source: 'remote'` and a skip set, so a refresh never echoes back as a write.\n */",
     "/** The fingerprint the app shell's first read carried; null when that answer had none. */",
+    "// Corrupt or blocked visibility storage must not hide shared calendars from their owner.",
     "// A browser that refuses storage gets the expanded sidebar; the choice is a convenience.",
     "// Same as above: the sidebar still collapses for this visit.",
     "// The bridge is installed for the header's reference quick-create behavior; the default",
@@ -1594,7 +1602,6 @@ const allowed = new Map([
     "// that defeats the point of updateConfig.",
     "/** A double-click on an empty grid cell; the date is the cell the reader pointed at. */",
     "// The runtime day view reads this callback even though its declaration omits it.",
-    "/**\n   * DayFlow owns the grid, but not the interaction contract around it: on a desktop a click must\n   * select the event for our extras instead of opening its full-screen mobile sheet, every event\n   * needs a keyboard stop, and the compact header/add button must speak the reader's language.\n   * The bridge observes the library's re-renders so all three stay true after a view switch.\n   */",
     "// A visible day/week already inside the shell's first page needs no padded refetch, even though",
     "// the padded range would extend past it. This keeps the first week at one request.",
     "// The shell fetches only a two-week first page. A month or year view still needs its own",
@@ -1614,6 +1621,7 @@ const allowed = new Map([
     "/**\n   * The almanac line inside the month cells.\n   *\n   * The month map is resolved once per render pass and cached for the months a reader actually\n   * visited, so the library's re-renders cost a lookup rather than forty-two lunar conversions.\n   * `auto` follows the language: a Han interface expects an almanac, others do not.\n   */",
     "// The library's own week number is drawn inside the first cell of every row, where it collides",
     "// with the lunar line; the reader's switch now draws a gutter column instead, in our chrome.",
+    "/**\n   * DayFlow owns the grid, but not the interaction contract around it: a click must select the event\n   * for our extras — inline on a wide screen or in the narrow drawer — instead of opening the\n   * library's full-screen sheet, every event needs a keyboard stop, and the compact header/add button\n   * must speak the reader's language. The bridge observes re-renders so these stay true after a switch.\n   */",
   ]],
   ["src/client/features/calendar/CalendarTasksPanel.tsx", [
     "/**\n * The task events for the range the calendar has loaded, as a checklist.\n *\n * Tasks are ordinary events with `kind: 'task'`; this panel is a second view over the same rows, not\n * a second store. A checkbox writes the task field and asks the surface to refresh the range.\n */",
@@ -1627,7 +1635,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/calendar/MiniMonth.tsx", [
     "/**\n * The mini month: 42 cells, event dots in calendar colours, and a date that drives the main view.\n *\n * It reads DayFlow's registry and events directly rather than keeping a second copy of the data, so\n * a visibility toggle or a drag in the main grid is reflected here on the next app notification.\n */",
-    "/** Bumped by the sidebar on every app notification, so event edits refresh the dots. */",
+    "/** Bumped only when the event, calendar, date or calendar-system snapshot changes. */",
     "/** Ask the surface to load the six weeks this grid draws; dots are only as complete as the cache. */",
     "// A date picked in the main grid should bring the mini month back to that month.",
   ]],
@@ -1769,6 +1777,8 @@ const allowed = new Map([
     "/** Terms that fall on this day, empty on most days. */",
     "/** The code point of the library's auspicious luck word, so no copy is spelled in this module. */",
     "/** The hours the panel marks as auspicious, in clock order. */",
+    "/**\n * The day's rules, from the maintained implementation.\n *\n * Dates outside the shared table return null before the package loads. Package or chunk failures\n * propagate so the panel can show a retryable error instead of masquerading as an unsupported date.\n */",
+    "// The shared table already checked the date; a failure here is a broken rule chunk or library bug.",
   ]],
   ["src/client/features/calendar/linked.ts", [
     "/**\n * The read-only reads the day panel makes into other modules.\n *\n * All three are reads through their own public HTTP surfaces, so nothing here knows a table name:\n * the calendar is allowed to say \"these rows exist on this day\", not to change them. A write that a\n * reader asks for from this panel is done by the owning module, through its own editor, after the\n * jump — which is also why every row carries the address it belongs to.\n */",
@@ -1780,7 +1790,7 @@ const allowed = new Map([
     "/**\n * The seam between the calendar API's DTOs and DayFlow's in-memory types.\n *\n * DayFlow works with Temporal values and keeps its own render-only fields on an event; the API works\n * with `{ value, type, timeZone }` records and revisions. Everything that crosses that line goes\n * through this module so a field can never be dropped by one screen and remembered by another.\n */",
     "/** How far around today the first fetch reaches. Navigation fetches more, padded by the same idea. */",
     "/** Extra days fetched on either side of a visible range, so a small scroll does not refetch. */",
-    "/** Events drawn per row in the month grid; the rest live behind DayFlow's \"more\" popup. */",
+    "/** Pixel height of one event row in the month grid; the rest live behind DayFlow's \"more\" popup. */",
     "/** The three density choices the settings panel offers. */",
     "/** Preset calendar colours. These are calendar data, not design tokens; the API stores the hex. */",
     "/** DayFlow's render-only fields are not event data and must never travel to the server. */",
@@ -1812,6 +1822,7 @@ const allowed = new Map([
     "/**\n * Writes made while the network was gone.\n *\n * The queue lives in localStorage so a reload does not lose the edit, keyed by account so one\n * profile cannot replay another's rows. A save records the revision it edited: new rows are created,\n * existing rows are conditionally patched, and a stale replay is handed to conflict resolution.\n */",
     "// Rows written before baseRev existed cannot be replayed safely: their baseline is unknown.",
     "// Keep them until the flush reports and discards them instead of silently erasing or overwriting.",
+    "// A full or read-only store can still replay the legacy row; the next write retries migration.",
     "/** Web Locks serialise tabs; the promise chain covers browsers and tests without that API. */",
     "/** Stops at the first transient failure or a conflict with no handler. */",
     "/** Permanent refusals and non-API failures discarded; the caller must refresh and report them. */",
@@ -21778,7 +21789,7 @@ const allowed = new Map([
     "// Two tiers of visibility, because the calendar asks two different questions. The day",
     "// slices answer \"how active was this day\", which has to agree with what the note list",
     "// Only the counted tier feeds the gap banner: an archived note is invisible to the",
-    "// list, so pointing the reader at a day the list cannot show would repeat C-14.",
+    "// list, so the banner must not point at a day the list cannot show.",
     "// Archiving retires the newest edit without changing its timestamp, and un-archiving",
     "// can hand it back, so either tier crossing has to be reported — but a note that sits",
     "// outside the counted tier on both sides never touched the maximum.",
@@ -21797,14 +21808,6 @@ const allowed = new Map([
     "/** 'auto' defers to the reader's locale; a digit is that weekday's JS `getDay()` number. */",
     "/** 'auto' resolves to the reader's language: a Han interface asks for an almanac, others do not. */",
     "/** Which weekday opens the grids: the reader's answer, or the locale's. */",
-    "// The same split as the tree preferences: `current` is what `useCalendarDisplayPrefs` subscribes to and",
-    "// the listeners below re-render from, so the display change is applied here; this write only carries it",
-    "// to the next load.",
-  ]],
-  ["src/client/lib/calendar-prefs.ts", [
-    "// Persistence only: the value the panels read is `currentPreferences`, replaced above, and the",
-    "// listeners below are notified whatever this write answers. A refused write costs the next load",
-    "// its remembered tree state, not the fold the reader just performed.",
   ]],
   ["src/client/lib/calendar-stats.ts", [
     "/** Consecutive days with at least one note, running back from today. */",
@@ -32809,9 +32812,6 @@ const allowed = new Map([
     "/**\n * Whether this day is off, a makeup workday, or neither.\n *\n * A makeup day wins over a range: the table never overlaps them, but reading one before the other\n * makes the precedence explicit rather than an accident of insertion order.\n */",
     "/** The years the table can answer for, so a picker can refuse outside them instead of printing nothing. */",
   ]],
-  ["src/shared/calendar/model.ts", [
-    "/** The four answers a guest list tracks, named the way the providers name them in an invite. */",
-    "/** One file hung on an event. `url` is the account's own file door, not a public address. */",
   ["src/shared/calendar/lunar.ts", [
     "/**\n * One five-character hex row per lunar year, 1900 through 2100. Bits 0-12 mark, in calendar order,\n * which of that year's twelve (or thirteen) months run to thirty days rather than twenty-nine;\n * bits 13-16 hold the month number that is repeated as the leap month, or 0 when the year has none.\n *\n * Generated from the Shouxing astronomical calendar (lunar-javascript 1.7.7) rather than typed, and\n * pinned by tests/lunar-calendar.test.ts against published almanac anchors - including the 2033\n * leap-month case, which a rule set that ignores the winter-solstice inclusion gets wrong.\n */",
     "/**\n * The day of month of each solar term, twenty-four characters per year in TERM_NAMES order, with the\n * same source and the same pinning as LUNAR_YEAR_TABLE. These are Beijing dates, which is what an\n * almanac prints, so they do not move with the reader's own timezone.\n */",
@@ -32834,6 +32834,9 @@ const allowed = new Map([
     "/** The solar term falling on this Gregorian day. Beijing reckoning, so it is the same for every reader. */",
     "/** All twenty-four terms of a Gregorian year, in calendar order. */",
   ]],
+  ["src/shared/calendar/model.ts", [
+    "/** The four answers a guest list tracks, named the way the providers name them in an invite. */",
+    "/** One file hung on an event. `url` is the account's own file door, not a public address. */",
     "/** A week ahead is the furthest reminder worth firing; eight is more than any client offers. */",
     "/** A guest list this app can render in one sidebar card. */",
     "/** Files one event may carry; the sidebar lists them without paging below this. */",
@@ -39294,9 +39297,9 @@ const allowed = new Map([
   ]],
   ["src/worker/calendar/provider-mappings.ts", [
     "/**\n * The connection↔calendar map the background provider sync is allowed to touch.\n *\n * The browser discovers provider calendars and reports the remote/local id pair after it has created\n * the local rows. The server never invents this map: a calendar without a row here is read-only from\n * the cron's point of view. A local calendar may belong to one connection only, so two same-kind\n * accounts cannot both write the same rows.\n */",
+    "/** Replace this connection's map; rows omitted from the report stop being background-synced. */",
   ]],
   ["src/worker/calendar/provider-sync.ts", [
-    "/** Replace this connection's map; rows omitted from the report stop being background-synced. */",
     "/** The provider libraries get the same authenticated, path-scoped proxy the browser uses. */",
     "/** Remove provider rows that the full-range answer no longer names; local-only rows have no external id. */",
   ]],

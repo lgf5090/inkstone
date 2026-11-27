@@ -27,7 +27,9 @@ export function calendarSearchResultDate(result: CalendarSearchResultDto, timeZo
     if ('epochMilliseconds' in value) return new Date(value.epochMilliseconds)
     return new Date(Temporal.PlainDate.from({ year: value.year, month: value.month, day: value.day })
       .toZonedDateTime({ timeZone }).epochMilliseconds)
-  } catch {
+  } catch (cause) {
+    // One malformed provider timestamp must not make the rest of the search results unusable.
+    console.debug('[inkstone] Calendar search result has an invalid start value.', cause)
     return null
   }
 }
@@ -37,7 +39,9 @@ function resultLabel(result: CalendarSearchResultDto, locale: string, timeZone: 
   if (!date) return ''
   try {
     return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(date)
-  } catch {
+  } catch (cause) {
+    // The browser locale fallback still gives a readable date when the requested zone is unavailable.
+    console.debug('[inkstone] Calendar search date formatting fell back to the browser locale.', cause)
     return date.toLocaleString()
   }
 }

@@ -106,7 +106,7 @@ export function buildPrintSheet(input: PrintSheetInput): PrintSheet {
           time: event.allDay ? '' : timeLabel(itemStart, input.timeZone, input.locale, input.timeFormat),
           title: event.title,
           calendarName: calendar?.name ?? '',
-          color: calendar?.darkColor ?? calendar?.color ?? '#888888',
+          color: calendar?.darkColor ?? calendar?.color ?? 'var(--text-quaternary)',
           location: typeof location === 'string' ? location : '',
         },
       ])

@@ -32,7 +32,9 @@ export function CalendarQuickAdd({ open, app, timeZone, onClose }: CalendarQuick
       const end = new Intl.DateTimeFormat(locale, { timeStyle: 'short', timeZone })
         .format(new Date(parsed.end.epochMilliseconds))
       return `${parsed.title} · ${date} – ${end}`
-    } catch {
+    } catch (cause) {
+      // The title-only preview remains useful if the runtime cannot format the requested time zone.
+      console.debug('[inkstone] Quick-add preview date formatting failed.', cause)
       return parsed.title
     }
   }, [parsed, locale, timeZone])
