@@ -16,7 +16,7 @@
  */
 import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
-import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssFetchResult } from '@shared/rss/model'
+import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssFeed, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty } from '@shared/rss/patch'
 import { accountExists, deleteRssReadingFeed, loadRssLibrary, saveRssReadingFeed, storeRssLibrary, storeRssPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
@@ -271,8 +271,17 @@ rssRoutes.post('/patch', async (c) => {
     throw ApiError.badRequest('The RSS library holds entries that cannot be stored', { dropped, truncated })
   }
   const savedAt = Date.now()
+  const feeds = patch.feeds.upsert.map((change) => {
+    const existing = stored.library?.feeds.find(feed => feed.id === change.id)
+    return {
+      ...existing,
+      ...change,
+      tags: change.tags ? [...change.tags] : [...(existing?.tags ?? [])],
+    } as RssFeed
+  })
   const report = await storeRssPatch(c.env.DB, userId, {
     ...patch,
+    feeds: { ...patch.feeds, upsert: feeds },
     state: patch.state ?? { lastChannel: stored.library?.lastChannel ?? '' },
   }, savedAt)
   return c.json({ savedAt, rows: report.rows })

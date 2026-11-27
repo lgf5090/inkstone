@@ -69,6 +69,7 @@ function libraryWith(feeds: number): string {
       lastModified: '',
       paused: false,
       pinned: false,
+      titleLocked: false,
     })
   }
   return JSON.stringify(library)
@@ -199,6 +200,24 @@ describe('the change set', () => {
     expect(((await res.json()) as { rows: number }).rows).toBe(2)
     expect(rows('rss_feed')).toHaveLength(before)
     expect((await getLibrary()).favorites.sort()).toEqual(['e1', 'e9'])
+  })
+
+  it('updates only the feed fields a patch names', async () => {
+    await put(libraryWith(1))
+    const res = await request('/patch', json({
+      patch: {
+        feeds: { upsert: [{ id: 'f0', updatedAt: 99 }], remove: [] },
+        groups: { upsert: [], remove: [] },
+        tags: { upsert: [], remove: [] },
+        marks: { upsert: [], remove: [] },
+        state: null,
+      },
+    }))
+    expect(res.status).toBe(200)
+    const feed = (await getLibrary()).feeds[0]
+    expect(feed.updatedAt).toBe(99)
+    expect(feed.title).toBe('Example 0')
+    expect(feed.paused).toBe(false)
   })
 
   it('keeps what a second device marked in the meantime', async () => {

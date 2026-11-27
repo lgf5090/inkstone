@@ -884,7 +884,7 @@ export const useRss = create<RssState>((set, get) => {
             }
             changed++
             patchFeed(feed.id, {
-              title: parsed.title || feed.title,
+              title: feed.titleLocked ? feed.title : parsed.title || feed.title,
               siteUrl: parsed.siteUrl || feed.siteUrl,
               imageUrl: parsed.imageUrl || feed.imageUrl,
               updatedAt: Date.now(),
@@ -1014,7 +1014,7 @@ export const useRss = create<RssState>((set, get) => {
     },
 
     renameFeed(feedId, title) {
-      patchFeed(feedId, { title: title.trim().slice(0, RSS_LIMITS.nameChars) })
+      patchFeed(feedId, { title: title.trim().slice(0, RSS_LIMITS.nameChars), titleLocked: true })
       scheduleSave()
     },
 

@@ -88,7 +88,7 @@ describe('the change set', () => {
     const next = structuredClone(base)
     next.feeds[1].title = 'A show, renamed'
     const patch = diffLibrary(base, next, clock)
-    expect(patch.feeds.upsert.map(feed => feed.id)).toEqual(['f2'])
+    expect(patch.feeds.upsert).toEqual([{ id: 'f2', title: 'A show, renamed' }])
     expect(patch.feeds.remove).toEqual([])
   })
 
@@ -198,7 +198,7 @@ describe('a change set from the network', () => {
     expect(parseRssPatch({ ...good, state: { lastChannel: 7 } })).toBeNull()
     expect(parseRssPatch({ ...good, marks: { upsert: [{ kind: 'bogus', entryId: 'e1', value: '', at: 1 }], remove: [] } })).toBeNull()
     expect(parseRssPatch({ ...good, marks: { upsert: [{ kind: 'read', entryId: 'e1', value: '', at: Number.NaN }], remove: [] } })).toBeNull()
-    expect(parseRssPatch({ ...good, feeds: { upsert: [{ id: 'f9' }], remove: [] } })).toBeNull()
+    expect(parseRssPatch({ ...good, feeds: { upsert: [{ id: 4 }], remove: [] } })).toBeNull()
     expect(parseRssPatch({ ...good, groups: { upsert: [{ id: 'g9', name: 4 }], remove: [] } })).toBeNull()
     expect(parseRssPatch({ ...good, tags: { upsert: [{ feedId: 'f1' }], remove: [] } })).toBeNull()
   })

@@ -18,8 +18,10 @@ export interface RssTagKey {
   tag: string
 }
 
+export type RssFeedPatch = Partial<Omit<RssFeed, 'id'>> & { id: string }
+
 export interface RssPatch {
-  feeds: { upsert: RssFeed[], remove: string[] }
+  feeds: { upsert: RssFeedPatch[], remove: string[] }
   groups: { upsert: RssGroup[], remove: string[] }
   tags: { upsert: RssTagKey[], remove: RssTagKey[] }
   marks: { upsert: RssMarkRow[], remove: RssMarkKey[] }
@@ -92,7 +94,17 @@ export function diffLibrary(from: RssLibrary | null, to: RssLibrary, now: () => 
   for (const feed of to.feeds) {
     seenFeeds.add(feed.id)
     const was = oldFeeds.get(feed.id)
-    if (!was || JSON.stringify(was) !== JSON.stringify(feed)) patch.feeds.upsert.push(feed)
+    if (!was) {
+      patch.feeds.upsert.push(feed)
+      continue
+    }
+    const changed: RssFeedPatch = { id: feed.id }
+    for (const key of Object.keys(feed) as Array<keyof RssFeed>) {
+      if (key !== 'id' && JSON.stringify(was[key]) !== JSON.stringify(feed[key])) {
+        Object.assign(changed, { [key]: feed[key] })
+      }
+    }
+    if (Object.keys(changed).length > 1) patch.feeds.upsert.push(changed)
   }
   for (const feed of previous.feeds) {
     if (!seenFeeds.has(feed.id)) patch.feeds.remove.push(feed.id)
@@ -167,7 +179,17 @@ export function parseRssPatch(value: unknown): RssPatch | null {
     patch.state = { lastChannel: value.state.lastChannel.slice(0, 120) }
   }
   for (const feed of patch.feeds.upsert) {
-    if (!isRecord(feed) || typeof feed.id !== 'string' || typeof feed.url !== 'string' || typeof feed.title !== 'string') return null
+    if (!isRecord(feed) || typeof feed.id !== 'string') return null
+    for (const key of ['url', 'title', 'siteUrl', 'imageUrl', 'groupId', 'etag', 'lastModified', 'error'] as const) {
+      if (feed[key] !== undefined && typeof feed[key] !== 'string') return null
+    }
+    for (const key of ['order', 'updatedAt', 'lastAttemptAt', 'errorCount', 'lastErrorAt'] as const) {
+      if (feed[key] !== undefined && (typeof feed[key] !== 'number' || !Number.isFinite(feed[key]))) return null
+    }
+    for (const key of ['paused', 'pinned', 'titleLocked'] as const) {
+      if (feed[key] !== undefined && typeof feed[key] !== 'boolean') return null
+    }
+    if (feed.tags !== undefined && (!Array.isArray(feed.tags) || feed.tags.some(tag => typeof tag !== 'string'))) return null
   }
   for (const group of patch.groups.upsert) {
     if (!isRecord(group) || typeof group.id !== 'string' || typeof group.name !== 'string') return null
@@ -233,9 +255,14 @@ export function applyLibraryPatch(library: RssLibrary, patch: RssPatch): RssLibr
     const feed = keptFeeds.find(item => item.id === key.feedId)
     if (feed) feed.tags = feed.tags.filter(tag => tag !== key.tag)
   }
-  for (const feed of patch.feeds.upsert) {
-    const at = keptFeeds.findIndex(item => item.id === feed.id)
-    const copy = { ...feed, tags: [...feed.tags] }
+  for (const key of patch.feeds.upsert) {
+    const at = keptFeeds.findIndex(item => item.id === key.id)
+    const existing = at >= 0 ? keptFeeds[at] : undefined
+    const copy = {
+      ...existing,
+      ...key,
+      tags: key.tags ? [...key.tags] : [...(existing?.tags ?? [])],
+    } as RssFeed
     if (at >= 0) keptFeeds[at] = copy
     else keptFeeds.push(copy)
   }

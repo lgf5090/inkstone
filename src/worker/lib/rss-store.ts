@@ -36,7 +36,7 @@ const FEED_ROW: RowSpec = {
   columns: [
     'id', 'url', 'title', 'site_url', 'image_url', 'group_id', 'position', 'updated_at',
     'last_attempt_at', 'error', 'error_count', 'last_error_at', 'etag', 'last_modified',
-    'paused', 'pinned',
+    'paused', 'pinned', 'title_locked',
   ],
   key: ['id'],
 }
@@ -77,6 +77,7 @@ interface FeedRecord extends Row {
   last_modified: string
   paused: number
   pinned: number
+  title_locked: number
 }
 
 interface GroupRecord extends Row {
@@ -168,6 +169,7 @@ function feedFromRow(row: FeedRecord, tags: string[]): RssFeed {
     lastModified: String(row.last_modified ?? ''),
     paused: Number(row.paused) === 1,
     pinned: Number(row.pinned) === 1,
+    titleLocked: Number(row.title_locked) === 1,
   }
 }
 
@@ -266,7 +268,7 @@ function feedValues(feed: RssFeed): SqlValue[] {
   return [
     feed.id, feed.url, feed.title, feed.siteUrl, feed.imageUrl, feed.groupId, feed.order,
     feed.updatedAt, feed.lastAttemptAt, feed.error, feed.errorCount, feed.lastErrorAt, feed.etag,
-    feed.lastModified, feed.paused ? 1 : 0, feed.pinned ? 1 : 0,
+    feed.lastModified, feed.paused ? 1 : 0, feed.pinned ? 1 : 0, feed.titleLocked ? 1 : 0,
   ]
 }
 
@@ -423,11 +425,13 @@ export async function storeRssLibrary(
   return storeRssLibraryRows(db, await readLibraryRows(db, userId), userId, library, savedAt)
 }
 
+type RssRowPatch = Omit<RssPatch, 'feeds'> & { feeds: { upsert: RssFeed[], remove: string[] } }
+
 /** Apply only the rows a change set names, so concurrent devices cannot delete each other's additions. */
 export async function storeRssPatch(
   db: D1Database,
   userId: string,
-  patch: RssPatch,
+  patch: RssRowPatch,
   savedAt: number,
 ): Promise<{ rows: number }> {
   const statements = [

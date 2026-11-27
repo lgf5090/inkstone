@@ -307,6 +307,7 @@ const RSS_LIBRARY_STATEMENTS: readonly string[] = [
     last_modified TEXT NOT NULL DEFAULT '',
     paused INTEGER NOT NULL DEFAULT 0,
     pinned INTEGER NOT NULL DEFAULT 0,
+    title_locked INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_rss_feed_shelf ON rss_feed(user_id, group_id, position)`,
@@ -4940,6 +4941,11 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `INSERT OR IGNORE INTO app_meta (key, value) VALUES ('calendar-attendees-v1', '1')`,
     ],
   },
+  {
+    version: 440,
+    skipIfColumnExists: { table: 'rss_feed', column: 'title_locked' },
+    statements: [`ALTER TABLE rss_feed ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -5000,7 +5006,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   rewrite_queue: ['user_id', 'kind', 'source_id', 'old_value', 'new_value', 'created_at', 'attempts', 'claimed_at'],
   community_templates: ['id', 'author_id', 'author_name', 'name', 'description', 'content', 'tags', 'category', 'uses', 'created_at'],
-  rss_feed: ['user_id', 'id', 'url', 'title', 'site_url', 'image_url', 'group_id', 'position', 'updated_at', 'last_attempt_at', 'error', 'error_count', 'last_error_at', 'etag', 'last_modified', 'paused', 'pinned'],
+  rss_feed: ['user_id', 'id', 'url', 'title', 'site_url', 'image_url', 'group_id', 'position', 'updated_at', 'last_attempt_at', 'error', 'error_count', 'last_error_at', 'etag', 'last_modified', 'paused', 'pinned', 'title_locked'],
   rss_feed_tag: ['user_id', 'feed_id', 'tag'],
   rss_group: ['user_id', 'id', 'parent_id', 'name', 'position', 'collapsed', 'icon', 'color', 'created_at', 'updated_at'],
   rss_mark: ['user_id', 'kind', 'entry_id', 'value', 'at'],

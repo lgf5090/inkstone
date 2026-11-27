@@ -78,6 +78,8 @@ export interface RssFeed {
   paused: boolean
   /** Pinned feeds sort above the rest inside their own folder. */
   pinned: boolean
+  /** A reader-supplied title survives source refreshes. */
+  titleLocked: boolean
 }
 
 /**
@@ -149,6 +151,7 @@ export function newFeed(id: string, url: string, title: string, order: number): 
     lastModified: '',
     paused: false,
     pinned: false,
+    titleLocked: false,
   }
 }
 
@@ -316,6 +319,7 @@ function normaliseFeed(value: unknown, order: number): RssFeed | null {
     lastModified: text(value.lastModified, 200),
     paused: flag(value.paused),
     pinned: flag(value.pinned),
+    titleLocked: flag(value.titleLocked),
   }
 }
 

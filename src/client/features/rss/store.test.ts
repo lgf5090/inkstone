@@ -29,6 +29,7 @@ const feed = {
   lastModified: 'Tue, 02 Sep 2025 08:30:00 GMT',
   paused: false,
   pinned: false,
+  titleLocked: false,
 }
 
 const saved = { version: 1, feeds: [feed], groups: [], readIds: [], favorites: [], readLater: [], hiddenIds: [], opened: {}, savedNotes: {}, lastChannel: 'feed:f1' }
@@ -283,6 +284,17 @@ describe('refreshing', () => {
     await boot()
     await new Promise(resolve => setTimeout(resolve, 2100))
     expect(calls.filter(call => call.path === 'reading')).toHaveLength(0)
+  })
+
+  it('keeps a reader-supplied title when the source refreshes', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    useRss.getState().renameFeed('f1', 'Custom name')
+    await useRss.getState().flush()
+    fetchResults = [{ url: feed.url, status: 200, ok: true, xml: atom }]
+    await useRss.getState().refresh(['f1'], { force: true })
+    expect(useRss.getState().library.feeds[0].title).toBe('Custom name')
+    expect(useRss.getState().library.feeds[0].titleLocked).toBe(true)
   })
 
   it('writes the parsed articles to the device cache', async () => {

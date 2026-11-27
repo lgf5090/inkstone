@@ -12,7 +12,7 @@ import { buildPrompts, runArticleAi } from '../src/client/features/rss/ai'
 const feed: RssFeed = {
   id: 'f1', url: 'https://x.test/feed', title: 'A weekly', siteUrl: '', imageUrl: '', groupId: '', tags: [],
   order: 0, updatedAt: 0, lastAttemptAt: 0, error: '', errorCount: 0, lastErrorAt: 0, etag: '', lastModified: '',
-  paused: false, pinned: false,
+  paused: false, pinned: false, titleLocked: false,
 }
 const entry: RssEntry = {
   id: 'e1', feedId: 'f1', title: 'On passages', link: 'https://x.test/1', author: 'Author',

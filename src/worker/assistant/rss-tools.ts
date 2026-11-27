@@ -15,7 +15,7 @@
 import { dayBounds, parseLocalTime, toLocalMinute } from '@shared/assistant-time'
 import { applyLibraryPatch, type RssPatch } from '@shared/rss/patch'
 import type { RssMarkKind } from '@shared/rss/marks'
-import { parseRssLibrary, type RssLibrary } from '@shared/rss/model'
+import { parseRssLibrary, type RssFeed, type RssLibrary } from '@shared/rss/model'
 import { loadRssLibrary, loadRssReading, storeRssPatch, type RssReadingEntry, type RssReadingSnapshot } from '../lib/rss-store'
 import { ApiError } from '../lib/errors'
 import { ToolError, type FieldSpec, type ToolContext, type ToolDefinition } from './tools'
@@ -151,8 +151,17 @@ async function saveLibrary(ctx: ToolContext, library: RssLibrary, patch: RssPatc
   const merged = applyLibraryPatch(library, patch)
   const { data, dropped, truncated } = parseRssLibrary(merged)
   if (!data || dropped > 0 || truncated) throw new ToolError('The reading library could not be updated without losing data.')
+  const feeds = patch.feeds.upsert.map((change) => {
+    const existing = library.feeds.find(feed => feed.id === change.id)
+    return {
+      ...existing,
+      ...change,
+      tags: change.tags ? [...change.tags] : [...(existing?.tags ?? [])],
+    } as RssFeed
+  })
   await ask(() => storeRssPatch(ctx.env.DB, ctx.store.userId, {
     ...patch,
+    feeds: { ...patch.feeds, upsert: feeds },
     state: patch.state ?? { lastChannel: library.lastChannel },
   }, Date.now()))
 }
