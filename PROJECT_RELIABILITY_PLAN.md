@@ -51,9 +51,9 @@
 | P2-01b | done | F27 project FTS index and tokenized search | title/content/comment/property search uses FTS and preserves field visibility | 37257187c |
 | P2-01c | done | F27 keyset bundle pagination and on-demand card loading | initial bundle is bounded; deep links and older pages load without stale overwrite | 321cfc7db |
 | P2-01d | done | F27 bounded streaming or multipart export | large exports avoid whole-ZIP memory and never return truncated success | f1605a0da |
-| P2-02 | in_progress | F28 lazy views; virtualize board/list/gallery; stabilize derived props | large board interaction remains responsive; bundle size reduced | - |
+| P2-02 | done | F28 lazy views; virtualize board/list/gallery; stabilize derived props | large board interaction remains responsive; bundle size reduced | 0376c45db, 75f6bbf9 |
 | P2-02a | done | F28 lazy view chunks and stable chart/sidebar derived data | inactive views are split into chunks; chart/sidebar avoid needless rebuilds | 0376c45db |
-| P2-02b | in_progress | F28 virtualize large board, list and gallery surfaces | rendered card count stays bounded while scrolling, keyboard and drag still work | - |
+| P2-02b | done | F28 virtualize large board, list and gallery surfaces | rendered card count stays bounded while scrolling, keyboard and drag still work | 75f6bbf9 |
 | P2-03 | done | F29 route all refreshes through one stale-response queue | delayed old response never overwrites newer local patch | b46e61fdd |
 | P2-04 | done | F30 clear hidden selections; refresh today; correct dashboard in-progress KPI | no invisible batch delete; midnight correct; KPI matches definition | c3153d1a0 |
 | P2-05 | done | F31 recent-opened semantics, unique DOM ids, keyboard order and list metadata | sidebar has no duplicate ids; list shows count/update/category | f14529b54 |
@@ -63,7 +63,7 @@
 | P2-09 | done | F35 keyboard equivalents for drag; pointercancel/unmount cleanup | Tab/arrow/Enter reorder works; cancelled pointer never mutates | 1d26ce4e8 |
 | P2-10 | done | F36 readable CSV values and spreadsheet-safe escaping | labels/ISO dates exported; formula payloads neutralized | 5ac0b42b2 |
 | P2-11 | done | F37 reject unknown property ids and redact invisible backreferences | unknown id 400; invisible references expose no ids | 525aca436 |
-| P2-12 | pending | F38 remove dead code, centralize API/network access, split giant components, i18n/style cleanup | gates pass; no unused public helpers; responsibilities separated | - |
+| P2-12 | in_progress | F38 remove dead code, centralize API/network access, split giant components, i18n/style cleanup | gates pass; no unused public helpers; responsibilities separated | - |
 | P2-13 | pending | Add editable Markdown card body and editable/assignable checklist | card description edits persist with Markdown preview | - |
 | P2-14 | pending | Add personal views/filters without mutating shared view | viewer can personalize; shared filter unchanged | - |
 | P2-15 | pending | Add offline board read cache and conflict indicators | offline opens cached board; reconnect shows conflicts | - |
@@ -112,3 +112,4 @@
 - 2026-11-27: P2-01c completed in `321cfc7db`; interactive bundles now load 200-card keyset pages, page reads scope values/details/relations, single-card deep links reuse formula/rollup/redaction, and refresh replays loaded cursors through one queue; 727 related tests, forced typechecks, static gates and production build passed, with headed Chrome confirming 200/205 → 205, refresh replay and a page-external card opening at 201/205.
 - 2026-11-27: P2-01d completed in `f1605a0da`; archives stream attachment bytes through fflate into bounded R2 multipart parts, publish only after complete, clean up failed/cancelled uploads, record actual file sizes, and cap the no-R2 memory fallback at 4MiB; 29 focused archive tests, static gates, production build and headed-Chrome ZIP download passed.
 - 2026-11-27: P2-02a completed in `0376c45db`; all 11 project views load as separate chunks behind an accessible Suspense state, chart labels/values and sidebar lookups keep stable references; 734 project tests, production/test typechecks, static gates and production build passed, with headed Chrome opening every view and the build emitting separate Kanban/Table/Gallery/List/Chart chunks.
+- 2026-11-27: P2-02b completed in `75f6bbf9`; large Kanban columns, list rows and gallery rows render only the measured window while full geometry preserves pointer/keyboard ordering, per-column auto-scroll, padding and tail drop space; 738 project tests, production/test typechecks, static gates and build passed, with headed Chrome showing 16–30 rendered cards out of 200/205, working tail scrolling, size changes, same/cross-column pointer drag and isolated auto-scroll.
