@@ -124,6 +124,8 @@ describe('an existing subscriptions database', () => {
   it('gains the base currency without disturbing the timezone or the window already saved', async () => {
     await boot()
     expect(columnsOf(sqlite, 'sub_settings')).toContain('base_currency')
+    expect(columnsOf(sqlite, 'sub_settings')).toContain('calendar_token_hash')
+    expect(columnsOf(sqlite, 'sub_settings')).toContain('calendar_token_hint')
     const row = sqlite.prepare(`SELECT timezone, notification_hours, payment_history_limit, inbound_token_hint, base_currency
       FROM sub_settings WHERE user_id = 'u1'`).get() as Record<string, string | number>
     expect(row).toEqual({

@@ -240,8 +240,8 @@ export async function applyBackupSubscriptions(
     if (settings) {
       statements.push(db.prepare(
         `INSERT INTO sub_settings (user_id, timezone, notification_hours, show_lunar, payment_history_limit,
-           locale, base_currency, budget_monthly, budget_yearly, budget_categories, rate_overrides, inbound_token_hash, inbound_token_hint, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, '', '', ?12)
+           locale, base_currency, budget_monthly, budget_yearly, budget_categories, rate_overrides, inbound_token_hash, inbound_token_hint, calendar_token_hash, calendar_token_hint, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, '', '', '', '', ?12)
          ON CONFLICT(user_id) DO UPDATE SET
            timezone = excluded.timezone, notification_hours = excluded.notification_hours,
            show_lunar = excluded.show_lunar, payment_history_limit = excluded.payment_history_limit,

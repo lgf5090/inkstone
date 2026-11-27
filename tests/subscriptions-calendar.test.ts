@@ -8,7 +8,7 @@ import type { AppBindings } from '../src/worker/env'
 import { subscriptionInboundRoutes } from '../src/worker/routes/subscriptions-inbound'
 import { buildEvents, toICal } from '../src/worker/subscriptions/calendar'
 import { parseIcsCalendar } from '../src/worker/calendar/ics'
-import { rotateInboundToken } from '../src/worker/subscriptions/settings'
+import { rotateCalendarToken, rotateInboundToken } from '../src/worker/subscriptions/settings'
 import { SubscriptionsStore, storeContext } from '../src/worker/subscriptions/store'
 import { DEFAULT_SETTINGS } from '../src/shared/subscriptions/model'
 import type { SubscriptionItem } from '../src/shared/subscriptions/model'
@@ -169,7 +169,7 @@ describe('the calendar link', () => {
   }
 
   async function token(): Promise<string> {
-    const created = await rotateInboundToken(db, ALICE)
+    const created = await rotateCalendarToken(db, ALICE)
     return created.token
   }
 
@@ -205,10 +205,22 @@ describe('the calendar link', () => {
 
   it('hands out no plan of anybody else to a token from another account', async () => {
     await seed('MineOnly')
-    const other = await rotateInboundToken(db, 'user-bob')
+    const other = await rotateCalendarToken(db, 'user-bob')
     const response = await app.request(`/hooks/subscriptions/calendar/${other.token}`, undefined, env())
     expect(response.status).toBe(200)
     expect(await response.text()).not.toContain('MineOnly')
+  })
+
+  it('keeps calendar read tokens and webhook write tokens separate', async () => {
+    const calendar = await rotateCalendarToken(db, ALICE)
+    const inbound = await rotateInboundToken(db, ALICE)
+    expect((await app.request(`/hooks/subscriptions/calendar/${inbound.token}`, undefined, env())).status).toBe(404)
+    expect((await app.request(`/hooks/subscriptions/${calendar.token}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'must not send' }),
+    }, env())).status).toBe(404)
+    expect((await app.request(`/hooks/subscriptions/calendar/${calendar.token}`, undefined, env())).status).toBe(200)
   })
 
   it('brakes a client that polls the same link past the minute, and leaves the neighbours alone', async () => {
@@ -222,7 +234,7 @@ describe('the calendar link', () => {
     expect(statuses.slice(0, 30)).toEqual(Array.from({ length: 30 }, () => 200))
     expect(statuses[30]).toBe(429)
     // The brake is keyed by link, so a second device with its own token is not punished for the first.
-    const neighbour = await rotateInboundToken(db, 'user-carol')
+    const neighbour = await rotateCalendarToken(db, 'user-carol')
     expect((await app.request(`/hooks/subscriptions/calendar/${neighbour.token}`, undefined, env())).status).toBe(200)
   })
 })

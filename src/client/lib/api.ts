@@ -2902,6 +2902,8 @@ export const api = {
       request<{ logs: ScheduleLogEntry[] }>(`/api/subscriptions/logs/schedule${toQuery({ limit })}`),
     rotateInboundToken: () =>
       request<{ token: string; hint: string }>('/api/subscriptions/inbound-token', { method: 'POST' }),
+    rotateCalendarToken: () =>
+      request<{ token: string; hint: string }>('/api/subscriptions/calendar-token', { method: 'POST' }),
   },
 }
 

@@ -543,6 +543,7 @@ export function SubscriptionsApp(): ReactElement {
             onClearChannel={(kind) => useSubscriptions.getState().clearChannel(kind)}
             onTestChannel={(kind) => useSubscriptions.getState().testChannel(kind)}
             onRotateToken={() => useSubscriptions.getState().rotateInboundToken()}
+            onRotateCalendarToken={() => useSubscriptions.getState().rotateCalendarToken()}
             onDiagnostics={() => setDiagnosticsOpen(true)}
           />
         </Modal>

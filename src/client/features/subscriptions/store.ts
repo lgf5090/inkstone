@@ -114,6 +114,7 @@ interface SubscriptionsState {
   clearChannel: (kind: ChannelKind) => Promise<boolean>
   testChannel: (kind: ChannelKind) => Promise<void>
   rotateInboundToken: () => Promise<{ token: string; hint: string } | null>
+  rotateCalendarToken: () => Promise<{ token: string; hint: string } | null>
 
   addLabel: (kind: LabelKind, name: string) => Promise<boolean>
   setLabelStyle: (kind: LabelKind, name: string, style: { icon?: string | null; color?: string | null }) => Promise<boolean>
@@ -527,6 +528,18 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       const rotated = await api.subscriptions.rotateInboundToken()
       const settings = get().settings
       if (settings) set({ settings: { ...settings, inboundTokenHint: rotated.hint } })
+      return rotated
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return null
+    }
+  },
+
+  async rotateCalendarToken() {
+    try {
+      const rotated = await api.subscriptions.rotateCalendarToken()
+      const settings = get().settings
+      if (settings) set({ settings: { ...settings, calendarTokenHint: rotated.hint } })
       return rotated
     } catch (error) {
       report(error, 'subscriptions.error.save')

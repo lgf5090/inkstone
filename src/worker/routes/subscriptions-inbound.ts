@@ -17,7 +17,7 @@ import { createMinuteBudget } from '../lib/rate-limit'
 import { initializeDatabase } from '../db/schema'
 import { dispatch } from '../subscriptions/channels'
 import { writeNotifyLog } from '../subscriptions/logs'
-import { enabledChannels, loadSettings, userIdForInboundToken } from '../subscriptions/settings'
+import { enabledChannels, loadSettings, userIdForCalendarToken, userIdForInboundToken } from '../subscriptions/settings'
 import { buildEvents, toICal } from '../subscriptions/calendar'
 import { SubscriptionsStore, storeContext } from '../subscriptions/store'
 
@@ -91,7 +91,7 @@ subscriptionInboundRoutes.get('/calendar/:token', async (c) => {
   await initializeDatabase(c.env)
 
   const presented = c.req.param('token')
-  const userId = await userIdForInboundToken(c.env.DB, presented)
+  const userId = await userIdForCalendarToken(c.env.DB, presented)
   if (!userId) throw ApiError.notFound('No such token')
   takeCalendarBudget(presented)
 

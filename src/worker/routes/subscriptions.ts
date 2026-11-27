@@ -50,6 +50,7 @@ import {
   loadSettings,
   readChannelConfig,
   recordChannelTest,
+  rotateCalendarToken,
   rotateInboundToken,
   saveChannel,
   saveSettings,
@@ -396,6 +397,10 @@ subscriptionRoutes.post('/rates/refresh', async (c) => {
 
 subscriptionRoutes.post('/inbound-token', async (c) => {
   return c.json(await rotateInboundToken(c.env.DB, c.get('userId')!))
+})
+
+subscriptionRoutes.post('/calendar-token', async (c) => {
+  return c.json(await rotateCalendarToken(c.env.DB, c.get('userId')!))
 })
 
 subscriptionRoutes.get('/channels', async (c) => {

@@ -52,6 +52,7 @@ export function SubscriptionSettings({
   onClearChannel,
   onTestChannel,
   onRotateToken,
+  onRotateCalendarToken,
   onDiagnostics,
 }: {
   settings: SubscriptionSettings
@@ -64,6 +65,7 @@ export function SubscriptionSettings({
   onClearChannel: (kind: ChannelKind) => Promise<boolean>
   onTestChannel: (kind: ChannelKind) => Promise<void>
   onRotateToken: () => Promise<{ token: string; hint: string } | null>
+  onRotateCalendarToken: () => Promise<{ token: string; hint: string } | null>
   onDiagnostics: () => void
 }): ReactElement {
   const [tab, setTab] = useState<'general' | 'channels'>('general')
@@ -75,12 +77,11 @@ export function SubscriptionSettings({
   const [budgets, setBudgets] = useState<Record<string, string>>(() =>
     Object.fromEntries(Object.entries(settings.budgetCategories).map(([name, value]) => [name, String(value)])))
   const [token, setToken] = useState<string | null>(null)
+  const [calendarToken, setCalendarToken] = useState<string | null>(null)
   // Built once: the address the copy button puts on the clipboard and the line that shows it to the reader
   // must not be two strings that can drift.
   const inboundAddress = token ? `${location.origin}${INBOUND_HOOK_PATH}/${token}` : ''
-  // The calendar link carries the same token: a calendar client polls a URL and sends no header anybody
-  // could ask it to keep the secret out of the address bar of its own logs.
-  const calendarAddress = token ? `${location.origin}${INBOUND_HOOK_PATH}/calendar/${token}` : ''
+  const calendarAddress = calendarToken ? `${location.origin}${INBOUND_HOOK_PATH}/calendar/${calendarToken}` : ''
 
   /**
    * Send the pins as one map, because the boxes above are the whole map.
@@ -357,13 +358,25 @@ export function SubscriptionSettings({
                 {t('subscriptions.settings.inbound_once', { token: inboundAddress })}
               </p>
             )}
-            {token && (
-              <div className="mt-2 border-t border-[var(--border-subtle)] pt-2">
-                <p className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('subscriptions.settings.calendar')}</p>
-                <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
-                  {t('subscriptions.settings.calendar_hint')}
-                </p>
-                <div className="mt-1.5 flex items-center gap-1.5">
+            <div className="mt-2 border-t border-[var(--border-subtle)] pt-2">
+              <p className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('subscriptions.settings.calendar')}</p>
+              <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+                {t('subscriptions.settings.calendar_hint')}
+              </p>
+              {settings.calendarTokenHint && (
+                <p className="mt-1 font-mono text-[length:var(--text-11)] text-[var(--text-tertiary)]">••••{settings.calendarTokenHint}</p>
+              )}
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    void onRotateCalendarToken().then((rotated) => { if (rotated) setCalendarToken(rotated.token) })
+                  }}
+                >
+                  {t('subscriptions.settings.calendar_rotate')}
+                </Button>
+                {calendarToken && (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -374,12 +387,14 @@ export function SubscriptionSettings({
                   >
                     {t('subscriptions.settings.calendar_copy')}
                   </Button>
-                </div>
-                <p className="mt-1 break-all rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[length:var(--text-10-5)] text-[var(--warning)]">
-                  {calendarAddress}
-                </p>
+                )}
               </div>
-            )}
+              {calendarToken && (
+                <p className="mt-1 break-all rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[length:var(--text-10-5)] text-[var(--warning)]">
+                  {t('subscriptions.settings.calendar_once', { token: calendarAddress })}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-between">

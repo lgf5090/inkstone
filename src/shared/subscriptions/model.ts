@@ -341,6 +341,7 @@ export interface SubscriptionSettings {
   rateOverrides: RateOverrides
   /** The last four characters of the inbound token, or empty when none was ever made. */
   inboundTokenHint: string
+  calendarTokenHint?: string
 }
 
 /** How many decimals a pinned rate keeps: a won is worth fractions of a fen. */
@@ -778,6 +779,7 @@ export const DEFAULT_SETTINGS: SubscriptionSettings = {
   budgetCategories: {},
   rateOverrides: {},
   inboundTokenHint: '',
+  calendarTokenHint: '',
 }
 
 /**

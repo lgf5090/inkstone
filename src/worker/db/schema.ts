@@ -4960,6 +4960,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_sub_restore_stage_cleanup ON sub_restore_stage(created_at)`,
     ],
   },
+  {
+    version: 442,
+    skipIfColumnExists: { table: 'sub_settings', column: 'calendar_token_hash' },
+    statements: [
+      `ALTER TABLE sub_settings ADD COLUMN calendar_token_hash TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE sub_settings ADD COLUMN calendar_token_hint TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

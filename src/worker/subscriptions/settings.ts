@@ -43,6 +43,8 @@ interface SettingsRow {
   budget_monthly: number | null
   inbound_token_hash: string
   inbound_token_hint: string
+  calendar_token_hash: string
+  calendar_token_hint: string
   updated_at: number
   rate_overrides: string
   budget_yearly: number | null
@@ -64,7 +66,7 @@ interface ChannelRow {
 }
 
 const SETTINGS_COLUMNS = `user_id, timezone, notification_hours, show_lunar, payment_history_limit,
-  locale, base_currency, budget_monthly, inbound_token_hash, inbound_token_hint, updated_at, rate_overrides,
+  locale, base_currency, budget_monthly, inbound_token_hash, inbound_token_hint, calendar_token_hash, calendar_token_hint, updated_at, rate_overrides,
   budget_yearly, budget_categories`
 
 const CHANNEL_COLUMNS = `user_id, id, kind, enabled, config_ciphertext, config_hint, last_test_at,
@@ -111,6 +113,7 @@ function toSettings(row: SettingsRow): SubscriptionSettings {
     budgetCategories: parseCategoryBudgets(row.budget_categories),
     rateOverrides: parseRates(row.rate_overrides),
     inboundTokenHint: row.inbound_token_hint,
+    calendarTokenHint: row.calendar_token_hint,
   }
 }
 
@@ -214,7 +217,7 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
   }
 
   await db.prepare(
-    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', ?9, ?10, ?11, ?12)
+    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', '', '', ?9, ?10, ?11, ?12)
      ON CONFLICT(user_id) DO UPDATE SET
        timezone = excluded.timezone,
        notification_hours = excluded.notification_hours,
@@ -254,6 +257,7 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
     budgetCategories,
     rateOverrides,
     inboundTokenHint: current.inboundTokenHint,
+    calendarTokenHint: current.calendarTokenHint,
   }
 }
 
@@ -489,7 +493,7 @@ export async function rotateInboundToken(db: D1Database, userId: string): Promis
   const hash = await sha256Hex(token)
   const hint = token.slice(-4)
   await db.prepare(
-    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, '[]', 0, 100, 'zh-CN', 'CNY', NULL, ?3, ?4, ?5, '{}', NULL, '{}')
+    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, '[]', 0, 100, 'zh-CN', 'CNY', NULL, ?3, ?4, '', '', ?5, '{}', NULL, '{}')
      ON CONFLICT(user_id) DO UPDATE SET
        inbound_token_hash = excluded.inbound_token_hash,
        inbound_token_hint = excluded.inbound_token_hint,
@@ -513,6 +517,30 @@ export async function userIdForInboundToken(db: D1Database, token: string): Prom
     .first<{ user_id: string; inbound_token_hash: string }>()
   if (!row) return null
   return timingSafeEqual(row.inbound_token_hash, hash) ? row.user_id : null
+}
+
+export async function rotateCalendarToken(db: D1Database, userId: string): Promise<{ token: string; hint: string }> {
+  const token = newSlug()
+  const hash = await sha256Hex(token)
+  const hint = token.slice(-4)
+  await db.prepare(
+    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, '[]', 0, 100, 'zh-CN', 'CNY', NULL, '', '', ?3, ?4, ?5, '{}', NULL, '{}')
+     ON CONFLICT(user_id) DO UPDATE SET
+       calendar_token_hash = excluded.calendar_token_hash,
+       calendar_token_hint = excluded.calendar_token_hint,
+       updated_at = excluded.updated_at`,
+  ).bind(userId, DEFAULT_SETTINGS.timezone, hash, hint, Date.now()).run()
+  return { token, hint }
+}
+
+export async function userIdForCalendarToken(db: D1Database, token: string): Promise<string | null> {
+  if (!token || token.length < 8 || token.length > 64) return null
+  const hash = await sha256Hex(token)
+  const row = await db.prepare(`SELECT user_id, calendar_token_hash FROM sub_settings WHERE calendar_token_hash = ?1`)
+    .bind(hash)
+    .first<{ user_id: string; calendar_token_hash: string }>()
+  if (!row) return null
+  return timingSafeEqual(row.calendar_token_hash, hash) ? row.user_id : null
 }
 
 export { CHANNEL_KIND_ORDER }

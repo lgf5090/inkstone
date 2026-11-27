@@ -15904,8 +15904,6 @@ const allowed = new Map([
     "// Built once: the address the copy button puts on the clipboard and the line that shows it to the reader",
     "// must not be two strings that can drift.",
     "/**\n * Which currencies get a box.\n *\n * Not every currency the app can be told in: thirty boxes is a wall, and a reader pins a rate because a\n * number on their own dashboard is wrong, so the currencies they are actually billed in are the ones that\n * belong here — plus anything they have already pinned, plus the currency the totals are added up in, in\n * case that one is the number nobody can find. Anything else is one choice away in the add list.\n */",
-    "// The calendar link carries the same token: a calendar client polls a URL and sends no header anybody",
-    "// could ask it to keep the secret out of the address bar of its own logs.",
     "/* The year is its own ceiling because an annual plan spends twelve months of cost in one\n                month, and a reader who set only the monthly number is told they overspent on the day they\n                bought the thing that makes their other months cheap. */",
     "/**\n   * Send the ceilings as one map, for the same reason the pins are sent that way: the boxes are the map.\n   *\n   * A blank box is a ceiling the reader gave up on, which has to be absent from what goes out rather than\n   * sent as zero — zero would come back as a ceiling nobody can spend under.\n   */",
     "/* A ceiling on a category is the question about a pile rather than about one plan: the dashboard\n              already splits the year by category, and this is where a reader says what each pile may cost. */",
