@@ -18,6 +18,7 @@ import { coverMediaType, importBook, ImportRejected } from '../engine/book-impor
 import { LIMITS, READER_COVER_TYPES } from '@shared/constants'
 import { deleteBookOnServer, downloadBookBytes, IDLE_SYNC, pullLibrary, pushLibrary, uploadBookBytes, uploadCoverBytes, type SyncState } from './cloud'
 import { createGroup, deleteGroup, groupName, normaliseGroups, pruneGroups, renameGroup, toggleBook, type BookGroup, type GroupResult } from '../book-groups'
+import { dayKey } from '../format-time'
 import type { ReaderUsage } from '@shared/types'
 import type {
   BookRecord,
@@ -440,7 +441,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
 
     recordSeconds(bookId, seconds) {
       if (seconds <= 0) return
-      const day = new Date().toISOString().slice(0, 10)
+      const day = dayKey()
       set((state) => {
         const current = state.stats[bookId] ?? { bookId, seconds: 0, days: {} }
         return {

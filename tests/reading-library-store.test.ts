@@ -65,6 +65,16 @@ describe('importing a library file', () => {
     expect(useLibrary.getState().books[0]?.localOnly).toBe(true)
   })
 
+  it('files reading time under the local calendar day', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 10, 25, 0, 30))
+    vi.spyOn(Date.prototype, 'toISOString').mockReturnValue('2026-11-24T16:30:00.000Z')
+    useLibrary.getState().recordSeconds('b1', 30)
+    expect(useLibrary.getState().stats.b1?.days).toEqual({ '2026-11-25': 30 })
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
   it('merges highlights by id instead of doubling a re-imported list', async () => {
     const mark: Highlight = { id: 'h1', bookId: 'b1', chapter: 0, start: 1, end: 2, color: 'yellow', quote: 'q', prefix: '', suffix: '', comment: '', createdAt: 1, updatedAt: 1 }
     await useLibrary.getState().importLibrary(exportOf([{ id: 'b1', format: 'epub', title: 'x', filename: 'a', size: 1, addedAt: 1, unitCount: 1, toc: [] }]))
