@@ -45,13 +45,20 @@ const calls: Array<{ path: string, body?: unknown }> = []
 let fetchResults: Array<{ url: string, status: number, ok: boolean, xml?: string, etag?: string, reason?: string }> = []
 let saveFails = false
 let patchWait: Promise<void> | null = null
+let fetchWait: Promise<void> | null = null
+let fetchActive = 0
+let fetchMaxActive = 0
+let failedArticleFeed = ''
 
 vi.mock('../../lib/db', () => ({
   localDb: {
     loadRssCacheIndex: () => Promise.resolve(cache.get('index') ?? null),
     saveRssCacheIndex: (value: unknown) => { cache.set('index', value); return Promise.resolve() },
     loadRssArticles: (id: string) => Promise.resolve(cache.get(`articles:${id}`) ?? null),
-    saveRssArticles: (value: { feedId: string }) => { cache.set(`articles:${value.feedId}`, value); return Promise.resolve() },
+    saveRssArticles: async (value: { feedId: string }) => {
+      if (value.feedId === failedArticleFeed) throw new Error('IndexedDB quota exceeded')
+      cache.set(`articles:${value.feedId}`, value)
+    },
     dropRssArticles: (id: string) => { cache.delete(`articles:${id}`); return Promise.resolve() },
     loadRssAi: () => Promise.resolve(null),
     saveRssAi: () => Promise.resolve(),
@@ -78,9 +85,17 @@ vi.mock('../../lib/api', () => ({
         cache.set('library', applyLibraryPatch(base, patch as never))
         return Promise.resolve({ savedAt: Date.now(), rows: 1 })
       },
-      fetch: (requests: Array<{ url: string, etag?: string, lastModified?: string }>) => {
+      fetch: async (requests: Array<{ url: string, etag?: string, lastModified?: string }>) => {
         calls.push({ path: 'fetch', body: requests })
-        return Promise.resolve({ results: fetchResults })
+        fetchActive++
+        fetchMaxActive = Math.max(fetchMaxActive, fetchActive)
+        try {
+          if (fetchWait) await fetchWait
+          return { results: fetchResults }
+        }
+        finally {
+          fetchActive--
+        }
       },
       saveReading: (feedId: string, entries: unknown[]) => {
         calls.push({ path: 'reading', body: { feedId, entries } })
@@ -129,6 +144,10 @@ function reset(): void {
   calls.length = 0
   saveFails = false
   patchWait = null
+  fetchWait = null
+  fetchActive = 0
+  fetchMaxActive = 0
+  failedArticleFeed = ''
   RSS_SETTINGS.refreshIntervalMinutes = 0
   fetchResults = []
   cache.set('library', JSON.parse(JSON.stringify(saved)))
@@ -269,6 +288,48 @@ describe('refreshing', () => {
     expect(after.error).toMatch(/超时|timeout/i)
     expect(after.errorCount).toBeGreaterThanOrEqual(1)
     expect(useRss.getState().articles.f1.map(entry => entry.id)).toEqual(['kept'])
+  })
+
+  it('serializes overlapping refresh requests', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    calls.length = 0
+    let release = (): void => {}
+    fetchWait = new Promise<void>(resolve => { release = resolve })
+    const first = useRss.getState().refresh(['f1'], { force: true })
+    const second = useRss.getState().refresh(['f1'], { force: true })
+    release()
+    await Promise.all([first, second])
+    expect(fetchMaxActive).toBe(1)
+    expect(fetchCalls()).toHaveLength(2)
+  })
+
+  it('counts a missing feed result as a visible failure', async () => {
+    fetchResults = []
+    await boot()
+    const result = await useRss.getState().refresh(['f1'], { force: true })
+    expect(result.failed).toBe(1)
+    expect(useRss.getState().library.feeds[0].error).not.toBe('')
+  })
+
+  it('continues refreshing other feeds when one cache write fails', async () => {
+    const base = JSON.parse(JSON.stringify(saved)) as RssLibrary
+    base.feeds = [
+      { ...feed, id: 'f1', url: 'https://a.test/feed' },
+      { ...feed, id: 'f2', url: 'https://b.test/feed' },
+    ]
+    base.lastChannel = 'all'
+    cache.set('library', base)
+    fetchResults = [
+      { url: 'https://a.test/feed', status: 200, ok: true, xml: atom },
+      { url: 'https://b.test/feed', status: 200, ok: true, xml: atom },
+    ]
+    failedArticleFeed = 'f1'
+    await boot()
+    await vi.waitFor(() => expect(useRss.getState().refreshing).toHaveLength(0))
+    expect(useRss.getState().articles.f1).toBeUndefined()
+    expect(useRss.getState().articles.f2).toHaveLength(2)
+    expect(useRss.getState().library.feeds.find(item => item.id === 'f1')?.error).toMatch(/quota/)
   })
 
   it('waits out the backoff a failed refresh installed', async () => {

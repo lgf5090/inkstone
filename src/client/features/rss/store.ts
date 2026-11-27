@@ -230,6 +230,8 @@ export const useRss = create<RssState>((set, get) => {
   let sent: RssLibrary | null = null
   const loading = new Map<string, Promise<void>>()
   const readingUploads = new Map<string, number>()
+  let refreshInFlight: Promise<RssRefreshSummary> | null = null
+  let refreshGeneration = 0
 
   /**
    * Hand this feed's articles to the account, so the assistant can read them.
@@ -572,6 +574,121 @@ export const useRss = create<RssState>((set, get) => {
 
   const byPosition = (a: { position: number }, b: { position: number }): number => a.position - b.position
 
+  async function performRefresh(feedIds?: string[], options: { force?: boolean, staleMs?: number } = {}): Promise<RssRefreshSummary> {
+    const started = Date.now()
+    const now = Date.now()
+    const generation = refreshGeneration
+    const { feeds } = get().library
+    const wanted = new Set(feedIds?.length ? feedIds : feeds.map(feed => feed.id))
+    const candidates = orderByStaleness(feeds.filter(feed => wanted.has(feed.id)
+      && feedWantsRefresh(feed, now, options.force === true, options.staleMs ?? 0)))
+    if (!candidates.length) {
+      return { refreshed: 0, changed: 0, unchanged: 0, failed: 0, skipped: 0, elapsedMs: 0 }
+    }
+    set({ refreshing: candidates.map(feed => feed.id), progress: { done: 0, total: candidates.length } })
+    let changed = 0
+    let unchanged = 0
+    let failed = 0
+    let done = 0
+    try {
+      batches: for (let offset = 0; offset < candidates.length; offset += FETCH_BATCH) {
+        const batch = candidates.slice(offset, offset + FETCH_BATCH)
+        let results: Awaited<ReturnType<typeof api.rss.fetch>>['results'] = []
+        try {
+          results = (await api.rss.fetch(batch.map(feed => {
+            // A validator is only worth sending to a device that has something to validate. The
+            // library carries the etag across browsers, so a second device that asked anyway got
+            // `304 Not Modified` for a list it did not have — and stayed empty forever.
+            const holds = !!index.articles[feed.id]
+            return {
+              url: feed.url,
+              etag: options.force || !holds ? undefined : feed.etag || undefined,
+              lastModified: options.force || !holds ? undefined : feed.lastModified || undefined,
+            }
+          }))).results
+        }
+        catch (error) {
+          if (generation !== refreshGeneration) break batches
+          // The whole batch is unreachable: keep each feed's old articles and count them failed.
+          for (const feed of batch) markFeedFailed(feed, error instanceof Error && error.message ? error.message : t('rss.error.unreachable'))
+          failed += batch.length
+          done += batch.length
+          set({ progress: { done, total: candidates.length } })
+          continue
+        }
+        for (const feed of batch) {
+          if (generation !== refreshGeneration) break batches
+          const result = results.find(item => canonicalFeedUrl(item.url) === canonicalFeedUrl(feed.url))
+          if (!result) {
+            failed++
+            done++
+            markFeedFailed(feed, t('rss.error.unreachable'))
+            continue
+          }
+          if (!result.ok) {
+            failed++
+            done++
+            markFeedFailed(feed, result.reason ? reasonMessage(result.reason) : t('rss.error.unreachable'))
+            continue
+          }
+          if (result.status === 304) {
+            unchanged++
+            done++
+            patchFeed(feed.id, { updatedAt: Date.now(), lastAttemptAt: Date.now(), error: '', errorCount: 0, lastErrorAt: 0 })
+            continue
+          }
+          const parsed = parseArticle(result.xml ?? '', feed.url)
+          if (!parsed) {
+            failed++
+            done++
+            markFeedFailed(feed, t('rss.error.not_a_feed'))
+            continue
+          }
+          try {
+            await storeArticles(feed.id, parsed.entries)
+          }
+          catch (error) {
+            failed++
+            done++
+            markFeedFailed(feed, error instanceof Error && error.message ? error.message : t('rss.error.unreachable'))
+            continue
+          }
+          if (generation !== refreshGeneration) break batches
+          changed++
+          done++
+          patchFeed(feed.id, {
+            title: feed.titleLocked ? feed.title : parsed.title || feed.title,
+            siteUrl: parsed.siteUrl || feed.siteUrl,
+            imageUrl: parsed.imageUrl || feed.imageUrl,
+            updatedAt: Date.now(),
+            lastAttemptAt: Date.now(),
+            error: '',
+            errorCount: 0,
+            lastErrorAt: 0,
+            etag: result.etag ?? feed.etag,
+            lastModified: result.lastModified ?? feed.lastModified,
+          })
+        }
+        if (generation === refreshGeneration) set({ progress: { done, total: candidates.length } })
+      }
+    }
+    finally {
+      if (generation === refreshGeneration) set({ refreshing: [], progress: null })
+    }
+    if (generation === refreshGeneration) {
+      scheduleSave()
+      await flushSave()
+    }
+    return {
+      refreshed: done,
+      changed,
+      unchanged,
+      failed,
+      skipped: candidates.length - done,
+      elapsedMs: Date.now() - started,
+    }
+  }
+
   return {
     status: 'idle',
     library: emptyLibrary(),
@@ -645,6 +762,7 @@ export const useRss = create<RssState>((set, get) => {
       dirty = false
       saveRevision = 0
       saveGeneration++
+      refreshGeneration++
       sent = null
       index = emptyIndex()
       loading.clear()
@@ -847,95 +965,14 @@ export const useRss = create<RssState>((set, get) => {
     },
 
     async refresh(feedIds, options = {}) {
-      const started = Date.now()
-      const now = Date.now()
-      const { feeds } = get().library
-      const wanted = new Set(feedIds?.length ? feedIds : feeds.map(feed => feed.id))
-      const candidates = orderByStaleness(feeds.filter(feed => wanted.has(feed.id)
-      && feedWantsRefresh(feed, now, options.force === true, options.staleMs ?? 0)))
-      if (!candidates.length) {
-        return { refreshed: 0, changed: 0, unchanged: 0, failed: 0, skipped: 0, elapsedMs: 0 }
-      }
-      set({ refreshing: candidates.map(feed => feed.id), progress: { done: 0, total: candidates.length } })
-      let changed = 0
-      let unchanged = 0
-      let failed = 0
-      let done = 0
+      while (refreshInFlight) await refreshInFlight
+      const run = performRefresh(feedIds, options)
+      refreshInFlight = run
       try {
-        for (let offset = 0; offset < candidates.length; offset += FETCH_BATCH) {
-          const batch = candidates.slice(offset, offset + FETCH_BATCH)
-          let results: Awaited<ReturnType<typeof api.rss.fetch>>['results'] = []
-          try {
-            results = (await api.rss.fetch(batch.map(feed => {
-              // A validator is only worth sending to a device that has something to validate. The
-              // library carries the etag across browsers, so a second device that asked anyway got
-              // `304 Not Modified` for a list it did not have — and stayed empty forever.
-              const holds = !!index.articles[feed.id]
-              return {
-                url: feed.url,
-                etag: options.force || !holds ? undefined : feed.etag || undefined,
-                lastModified: options.force || !holds ? undefined : feed.lastModified || undefined,
-              }
-            }))).results
-          }
-          catch (error) {
-            // The whole batch is unreachable: keep each feed's old articles and count them failed.
-            for (const feed of batch) markFeedFailed(feed, error instanceof Error && error.message ? error.message : t('rss.error.unreachable'))
-            failed += batch.length
-            done += batch.length
-            set({ progress: { done, total: candidates.length } })
-            continue
-          }
-          for (const feed of batch) {
-            const result = results.find(item => canonicalFeedUrl(item.url) === canonicalFeedUrl(feed.url))
-            if (!result) continue
-            if (!result.ok) {
-              failed++
-              markFeedFailed(feed, result.reason ? reasonMessage(result.reason) : t('rss.error.unreachable'))
-              continue
-            }
-            if (result.status === 304) {
-              unchanged++
-              patchFeed(feed.id, { updatedAt: Date.now(), lastAttemptAt: Date.now(), error: '', errorCount: 0, lastErrorAt: 0 })
-              continue
-            }
-            const parsed = parseArticle(result.xml ?? '', feed.url)
-            if (!parsed) {
-              failed++
-              markFeedFailed(feed, t('rss.error.not_a_feed'))
-              continue
-            }
-            changed++
-            patchFeed(feed.id, {
-              title: feed.titleLocked ? feed.title : parsed.title || feed.title,
-              siteUrl: parsed.siteUrl || feed.siteUrl,
-              imageUrl: parsed.imageUrl || feed.imageUrl,
-              updatedAt: Date.now(),
-              lastAttemptAt: Date.now(),
-              error: '',
-              errorCount: 0,
-              lastErrorAt: 0,
-              etag: result.etag ?? feed.etag,
-              lastModified: result.lastModified ?? feed.lastModified,
-            })
-            await storeArticles(feed.id, parsed.entries)
-          }
-          done += batch.length
-          set({ progress: { done, total: candidates.length } })
-        }
+        return await run
       }
       finally {
-        set({ refreshing: [], progress: null })
-      }
-      scheduleSave()
-      await flushSave()
-      return {
-        refreshed: done,
-        changed,
-        unchanged,
-        failed,
-        skipped: candidates.length - done,
-        elapsedMs: Date.now() - started,
+        if (refreshInFlight === run) refreshInFlight = null
       }
     },
 
