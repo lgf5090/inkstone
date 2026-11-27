@@ -71,6 +71,8 @@ export function SubscriptionsApp(): ReactElement {
   const selectedId = useSubscriptions((state) => state.selectedId)
   const detail = useSubscriptions((state) => state.detail)
   const detailLoading = useSubscriptions((state) => state.detailLoading)
+  const detailDrawer = useSubscriptions((state) => state.detailDrawerOpen)
+  const setDetailDrawerOpen = useSubscriptions((state) => state.setDetailDrawerOpen)
   const logs = useSubscriptions((state) => state.logs)
   const saving = useSubscriptions((state) => state.saving)
   const refreshingRates = useSubscriptions((state) => state.refreshingRates)
@@ -88,7 +90,6 @@ export function SubscriptionsApp(): ReactElement {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [keysOpen, setKeysOpen] = useState(false)
-  const [detailDrawer, setDetailDrawer] = useState(false)
   const [labelsOpen, setLabelsOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
@@ -166,8 +167,8 @@ export function SubscriptionsApp(): ReactElement {
   }, [detail])
 
   const openDetail = (id: string): void => {
-    void useSubscriptions.getState().select(id)
-    if (!panelWide) setDetailDrawer(true)
+    if (!panelWide) void useSubscriptions.getState().openDetail(id)
+    else void useSubscriptions.getState().select(id)
   }
 
   const onTrash = async (item: SubscriptionItem): Promise<void> => {
@@ -334,7 +335,7 @@ export function SubscriptionsApp(): ReactElement {
       detail={detail}
       loading={detailLoading}
       timezone={settings?.timezone ?? 'Asia/Shanghai'}
-      onClose={() => { void useSubscriptions.getState().select(null); setDetailDrawer(false) }}
+      onClose={() => { void useSubscriptions.getState().closeDetail() }}
       callbacks={{
         onEdit: () => setFormOpen(true),
         onRenew: () => { if (detail) setRenewTarget(detail) },
@@ -464,7 +465,7 @@ export function SubscriptionsApp(): ReactElement {
       </div>
 
       {!panelWide && (
-        <Drawer open={detailDrawer && Boolean(selectedId)} onClose={() => setDetailDrawer(false)} side="right" width={380} ariaLabel={t('subscriptions.detail.info')}>
+        <Drawer open={detailDrawer && Boolean(selectedId)} onClose={() => setDetailDrawerOpen(false)} side="right" width={380} ariaLabel={t('subscriptions.detail.info')}>
           {detailPanel}
         </Drawer>
       )}

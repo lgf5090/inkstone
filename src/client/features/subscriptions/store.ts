@@ -76,6 +76,7 @@ interface SubscriptionsState {
   selectedId: string | null
   detail: SubscriptionDetail | null
   detailLoading: boolean
+  detailDrawerOpen: boolean
   logs: SubscriptionLogs
   saving: boolean
   /** A refresh of the exchange rates is in flight, so the button does not start a second one. */
@@ -83,6 +84,9 @@ interface SubscriptionsState {
 
   load: () => Promise<void>
   select: (id: string | null) => Promise<void>
+  openDetail: (id: string) => Promise<void>
+  closeDetail: () => Promise<void>
+  setDetailDrawerOpen: (open: boolean) => void
   setView: (view: SubscriptionsView) => void
   setFilter: (patch: Partial<ListFilter>) => void
 
@@ -159,6 +163,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
   selectedId: null,
   detail: null,
   detailLoading: false,
+  detailDrawerOpen: false,
   logs: { notify: [], schedule: [], loading: false, error: null },
   saving: false,
   refreshingRates: false,
@@ -225,6 +230,20 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
         report(error, 'subscriptions.error.load')
       }
     }
+  },
+
+  openDetail(id) {
+    set({ detailDrawerOpen: true })
+    return get().select(id)
+  },
+
+  closeDetail() {
+    set({ detailDrawerOpen: false })
+    return get().select(null)
+  },
+
+  setDetailDrawerOpen(open) {
+    set({ detailDrawerOpen: open })
   },
 
   setView(view) {
@@ -376,6 +395,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
     try {
       const { rules: saved } = await api.subscriptions.replaceRules(id, rules)
       set({ detail: mergeRules(get().detail, id, saved) })
+      await get().select(id)
       return saved
     } catch (error) {
       report(error, 'subscriptions.error.save')
@@ -387,6 +407,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
     try {
       const { rules } = await api.subscriptions.applyPresetRules(id)
       set({ detail: mergeRules(get().detail, id, rules) })
+      await get().select(id)
       return rules
     } catch (error) {
       report(error, 'subscriptions.error.save')
@@ -401,6 +422,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       if (detail && detail.item.id === id) {
         set({ detail: { ...detail, rules: [...detail.rules, saved] } })
       }
+      await get().select(id)
       return saved
     } catch (error) {
       report(error, 'subscriptions.error.save')
@@ -415,6 +437,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       if (detail && detail.item.id === id) {
         set({ detail: { ...detail, rules: detail.rules.map((entry) => (entry.id === ruleId ? rule : entry)) } })
       }
+      await get().select(id)
       return rule
     } catch (error) {
       report(error, 'subscriptions.error.save')
@@ -431,11 +454,10 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
           detail: {
             ...detail,
             rules: detail.rules.map((entry) => entry.id === ruleId ? rule : entry),
-            // The rule that just muted itself may have been the one the panel said was coming next.
-            nextReminder: detail.nextReminder && detail.nextReminder.ruleId === ruleId ? null : detail.nextReminder,
           },
         })
       }
+      await get().select(id)
       return true
     } catch (error) {
       report(error, 'subscriptions.error.save')
@@ -450,6 +472,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       if (detail && detail.item.id === id) {
         set({ detail: { ...detail, rules: detail.rules.filter((entry) => entry.id !== ruleId) } })
       }
+      await get().select(id)
       return true
     } catch (error) {
       report(error, 'subscriptions.error.save')

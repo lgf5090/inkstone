@@ -49,12 +49,19 @@ beforeEach(() => {
     status: 'ready', error: null, items: [], trashItems: [], trashCount: 0, types: [], categories: [],
     settings: { ...DEFAULT_SETTINGS }, channels: [], overview: null, view: 'list',
     filter: { status: 'all', category: null, query: '', sort: 'expiry' }, selectedId: null,
-    detail: null, detailLoading: false, logs: { notify: [], schedule: [], loading: false, error: null },
+    detail: null, detailLoading: false, detailDrawerOpen: false, logs: { notify: [], schedule: [], loading: false, error: null },
     saving: false, refreshingRates: false, selection: [],
   })
 })
 
 describe('subscription store request ordering', () => {
+  it('opens the mobile detail drawer for an external deep link', async () => {
+    mocks.detail.mockResolvedValue(detail('a'))
+    await useSubscriptions.getState().openDetail('a')
+    expect(useSubscriptions.getState().detailDrawerOpen).toBe(true)
+    expect(useSubscriptions.getState().detail?.item.id).toBe('a')
+  })
+
   it('keeps the newest selected detail when an older request finishes last', async () => {
     const first = deferred<SubscriptionDetail>()
     const second = deferred<SubscriptionDetail>()

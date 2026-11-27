@@ -1055,6 +1055,7 @@ export class SubscriptionsStore {
       nextReminderAt: next?.nextFireTime ?? null,
       paymentCount: paid?.count ?? 0,
       paidByCurrency: paid?.byCurrency ?? [],
+      reminderRules: rules,
     }
   }
 

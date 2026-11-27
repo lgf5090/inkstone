@@ -239,6 +239,7 @@ export interface SubscriptionItem {
    * convert through the rate table and say which one it used.
    */
   paidByCurrency: PaidAmount[]
+  reminderRules?: ReminderRule[]
 }
 
 /** Money actually paid, in the currency it was paid in. */

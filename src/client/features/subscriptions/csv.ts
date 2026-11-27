@@ -16,7 +16,7 @@ import { formatLocalDate } from '@shared/subscriptions/time'
 export const CSV_COLUMNS = [
   'name', 'customType', 'category', 'amount', 'currency',
   'startDate', 'expiryDate', 'periodValue', 'periodUnit', 'subscriptionMode',
-  'useLunar', 'autoRenew', 'notes',
+  'useLunar', 'autoRenew', 'isActive', 'trialEndsAt', 'reminderRules', 'notes',
 ] as const
 
 export type CsvColumn = (typeof CSV_COLUMNS)[number]
@@ -57,6 +57,9 @@ function csvValue(item: SubscriptionItem, column: CsvColumn, timezone: string): 
     case 'subscriptionMode': return item.subscriptionMode
     case 'useLunar': return item.useLunar ? 'true' : 'false'
     case 'autoRenew': return item.autoRenew ? 'true' : 'false'
+    case 'isActive': return item.isActive ? 'true' : 'false'
+    case 'trialEndsAt': return item.trialEndsAt ? formatLocalDate(item.trialEndsAt, timezone, 'date') : ''
+    case 'reminderRules': return JSON.stringify(item.reminderRules ?? [])
     case 'notes': return item.notes
   }
 }
@@ -134,6 +137,13 @@ export function parseCsv(text: string): CsvRow[] {
  * Booleans are the reader's problem to spell: anything that is not an obvious yes is a no, because a
  * column of blanks should not switch a hundred subscriptions onto auto-renew.
  */
+function parseReminderRules(value: string | undefined): unknown {
+  if (!value) return undefined
+  const parsed: unknown = JSON.parse(value)
+  if (!Array.isArray(parsed)) throw new Error('reminderRules must be a JSON array')
+  return parsed
+}
+
 export function rowToInput(row: CsvRow): Record<string, unknown> {
   return {
     name: row.name ?? '',
@@ -148,6 +158,9 @@ export function rowToInput(row: CsvRow): Record<string, unknown> {
     subscriptionMode: row.subscriptionMode || 'cycle',
     useLunar: isYes(row.useLunar),
     autoRenew: isYes(row.autoRenew),
+    isActive: isYes(row.isActive),
+    trialEndsAt: row.trialEndsAt || null,
+    reminderRules: parseReminderRules(row.reminderRules),
     notes: row.notes ?? '',
   }
 }

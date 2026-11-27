@@ -126,7 +126,11 @@ describe('import', () => {
   })
 
   it('round-trips what the exporter wrote', () => {
-    const original = item({ name: 'A, B', notes: 'he said "hi"\nand left', category: 'a/b' })
+    const original = item({
+      name: 'A, B', notes: 'he said "hi"\nand left', category: 'a/b', isActive: false,
+      trialEndsAt: '2026-05-20T00:00:00.000Z',
+      reminderRules: [{ id: 'r1', type: 'before_expiry', value: 3, unit: 'days', repeatInterval: null, repeatUntil: 'renewed', acknowledgedAt: null, isEnabled: true, createdAt: '2026-01-01T00:00:00.000Z' }],
+    })
     const [row] = parseCsv(toCsv([original]))
     const input = rowToInput(row)
     expect(input).toMatchObject({
@@ -137,6 +141,9 @@ describe('import', () => {
       currency: 'CNY',
       expiryDate: '2026-06-01',
       periodUnit: 'month',
+      isActive: false,
+      trialEndsAt: '2026-05-20',
+      reminderRules: original.reminderRules,
     })
   })
 })
