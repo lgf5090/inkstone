@@ -18,7 +18,7 @@ import { useBreakpoint } from '../../lib/hooks'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { useLibrary } from './store/library'
-import { useReaderSettings } from './store/reader-settings'
+import { useReaderSettings, type ReaderSettings } from './store/reader-settings'
 import { useReadingPage } from './page-context'
 import { LibraryView } from './LibraryView'
 import { ReaderView } from './reader/ReaderView'
@@ -51,6 +51,9 @@ export function ReadingApp() {
   const syncPhase = useLibrary((state) => state.sync.phase)
   const bindUser = useLibrary((state) => state.bindUser)
   const loadFonts = useReaderSettings((state) => state.loadFonts)
+  const applyReaderSettings = useReaderSettings((state) => state.applyRemote)
+  const remoteSettings = useLibrary((state) => state.settings)
+  const remoteSettingsUpdatedAt = useLibrary((state) => state.settingsUpdatedAt)
   const [fontsLoaded, setFontsLoaded] = useState(false)
   const book = useLibrary((state) => (bookId ? state.books.find((one) => one.id === bookId) : undefined))
   const dockOpen = useUi((state) => state.assistantDockOpen)
@@ -72,6 +75,12 @@ export function ReadingApp() {
     setFontsLoaded(true)
     void loadFonts()
   }, [fontsLoaded, loadFonts])
+
+  useEffect(() => {
+    if (status === 'ready' && (remoteSettingsUpdatedAt ?? 0) > 0) {
+      applyReaderSettings(remoteSettings as Partial<ReaderSettings>, remoteSettingsUpdatedAt!)
+    }
+  }, [applyReaderSettings, remoteSettings, remoteSettingsUpdatedAt, status])
 
   // A path may name a book this device does not have — a link opened on another machine, or a book
   // deleted since. The shelf is the only honest answer, but the first pull may still be bringing that

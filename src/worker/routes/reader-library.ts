@@ -275,6 +275,17 @@ type LibraryDeletions = Record<Exclude<ReaderSyncEntity, 'vocabulary'>, LibraryT
 async function loadLibrary(c: Context<AppBindings>, userId: string) {
   const rows = await store(c, userId).shelf()
   const vocabulary = rows.meta.find((row) => row.key === 'vocabulary')?.value ?? null
+  const settingsRaw = rows.meta.find((row) => row.key === 'settings')?.value ?? null
+  let settings: Record<string, unknown> = {}
+  if (settingsRaw) {
+    try {
+      const parsed = JSON.parse(settingsRaw) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) settings = parsed as Record<string, unknown>
+    } catch (error) {
+      console.warn('[reading] stored reader settings are invalid', error)
+    }
+  }
+  const settingsUpdatedAt = rows.meta.find((row) => row.key === 'settings')?.updated_at ?? 0
   const vocabularyUpdatedAt = rows.meta.find((row) => row.key === 'vocabulary')?.updated_at
     ?? rows.syncVersions.find((row) => row.entity === 'vocabulary')?.updated_at
     ?? null
@@ -345,6 +356,8 @@ async function loadLibrary(c: Context<AppBindings>, userId: string) {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     })),
+    settings,
+    settingsUpdatedAt,
     deleted,
   }
 }
@@ -554,6 +567,9 @@ readerLibraryRoutes.put('/library', async (c) => {
   }
   const vocabulary = typeof notesSource.vocabulary === 'string' ? notesSource.vocabulary.slice(0, 64) : null
   const vocabularyUpdatedAt = vocabulary === null ? null : updatedAtOf({ updatedAt: notesSource.vocabularyUpdatedAt }, fallbackUpdatedAt)
+  const settings = library.settings === undefined ? undefined : asRecord(library.settings, 'library.settings')
+  if (settings && JSON.stringify(settings).length > 32 * 1024) throw ApiError.badRequest('Reader settings are too large')
+  const settingsUpdatedAt = settings === undefined ? undefined : requiredUpdatedAt({ updatedAt: library.settingsUpdatedAt })
 
   // A group is only worth keeping if the shelf it points at still exists. Members may name an incoming
   // book or a book already live on the server, but never a tombstone.
@@ -591,7 +607,7 @@ readerLibraryRoutes.put('/library', async (c) => {
 
   const { missingBlobs, missingCovers } = await store(c, userId).merge({
     books: bookRows, progress, highlights, marks, stats, notes, groups,
-    vocabulary, vocabularyUpdatedAt, deleted,
+    vocabulary, vocabularyUpdatedAt, settings, settingsUpdatedAt, deleted,
   })
   await drainStorageDeletions(c, userId)
   return c.json({

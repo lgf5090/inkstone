@@ -51,6 +51,8 @@ const EMPTY: PersistedLibrary = {
   marks: {},
   stats: {},
   notes: { byBook: {}, updatedAt: {}, vocabulary: null, vocabularyUpdatedAt: null },
+  settings: {},
+  settingsUpdatedAt: 0,
   deleted: emptyDeletions(),
 }
 
@@ -177,6 +179,7 @@ export interface LibraryState extends PersistedLibrary {
   syncPush: () => Promise<void>
   /** Take the server's shelf. Only ever adopted when this device has nothing of its own. */
   syncPull: () => Promise<number>
+  saveReaderSettings: (settings: Record<string, unknown>) => void
   /** Everything but the files, as text a reader can carry to another device. */
   exportLibrary: () => Promise<string>
   importLibrary: (raw: string) => Promise<{ books: number; highlights: number; rejected: number }>
@@ -210,6 +213,8 @@ function schedulePersist(getState: () => LibraryState): void {
       stats: state.stats,
       notes: state.notes,
       groups: state.groups,
+      settings: state.settings,
+      settingsUpdatedAt: state.settingsUpdatedAt,
       deleted: state.deleted,
     }, epoch)
   }
@@ -317,6 +322,8 @@ async function loadLibrary(user: string | null): Promise<PersistedLibrary> {
     },
     // A shelf written before groups existed has no key to read, which is the same as an empty one.
     groups: normaliseStoredGroups(stored.groups),
+    settings: stored.settings && typeof stored.settings === 'object' && !Array.isArray(stored.settings) ? stored.settings : {},
+    settingsUpdatedAt: numberOr(stored.settingsUpdatedAt),
     deleted: normaliseStoredDeletions(stored.deleted),
   }
 }
@@ -786,6 +793,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
               stats: state.stats,
               notes: state.notes,
               groups: state.groups,
+              settings: state.settings,
+              settingsUpdatedAt: state.settingsUpdatedAt,
               deleted: tombstonePayload(state.deleted),
             })
             if (!isCurrentAccount(epoch, userId)) return
@@ -858,6 +867,11 @@ export const useLibrary = create<LibraryState>((set, get) => {
       return task
     },
 
+    saveReaderSettings(settings) {
+      set((state) => ({ settings, settingsUpdatedAt: nextTimestamp(state.settingsUpdatedAt) }))
+      schedulePersist(get)
+    },
+
     async exportLibrary() {
       const state = get()
       return JSON.stringify({
@@ -886,6 +900,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
         stats: state.stats,
         notes: state.notes,
         groups: state.groups,
+        settings: state.settings,
+        settingsUpdatedAt: state.settingsUpdatedAt,
         deleted: state.deleted,
       }, incoming)
       set(merged)

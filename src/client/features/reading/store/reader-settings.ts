@@ -16,8 +16,10 @@ import { CLIENT_DATABASE_NAME, IS_DEMO_MODE } from '../../../lib/runtime'
 import type { HighlightColor } from '../types'
 import { isShelfViewMode, type ShelfViewMode } from '../shelf-view'
 import { READER_THEMES, type ReaderThemeName } from '../themes'
+import { useLibrary } from './library'
 
 const STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.reader.settings' : 'inkstone.reader.settings'
+const SETTINGS_SYNC_KEY = `${STORAGE_KEY}.updated-at`
 const fontStore = createStore(CLIENT_DATABASE_NAME, 'kv')
 
 export type ReaderFontFamily = 'serif' | 'sans' | 'mono' | 'custom'
@@ -244,6 +246,7 @@ function snapshot(state: ReaderSettingsState): ReaderSettings {
 function writeStored(state: ReaderSettingsState): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot(state)))
+    localStorage.setItem(SETTINGS_SYNC_KEY, String(Date.now()))
   } catch {
     // Private mode and a full device both land here; the page still reads, it just forgets.
   }
@@ -263,10 +266,14 @@ interface ReaderSettingsState extends ReaderSettings {
   /** Register a font file the reader picked; returns the face so the settings row can name it. */
   importFont: (file: File) => Promise<ImportedFont>
   removeFont: (id: string) => Promise<void>
+  applyRemote: (values: Partial<ReaderSettings>, updatedAt: number) => void
 }
 
 export const useReaderSettings = create<ReaderSettingsState>((set, get) => {
-  const commit = (): void => writeStored(get())
+  const commit = (): void => {
+    writeStored(get())
+    useLibrary.getState().saveReaderSettings(snapshot(get()) as unknown as Record<string, unknown>)
+  }
   return {
     ...readStored(),
     fontUrls: {},
@@ -306,6 +313,11 @@ export const useReaderSettings = create<ReaderSettingsState>((set, get) => {
       }))
       commit()
       return font
+    },
+    applyRemote(values, updatedAt) {
+      if (updatedAt <= Number(localStorage.getItem(SETTINGS_SYNC_KEY) ?? 0)) return
+      set({ ...sanitise(values), fontUrls: get().fontUrls })
+      localStorage.setItem(SETTINGS_SYNC_KEY, String(updatedAt))
     },
     async removeFont(id) {
       // Evicting the imported bytes. The font is taken out of state below and the settings persisted with

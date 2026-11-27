@@ -73,6 +73,13 @@ describe('mergeRemoteLibrary', () => {
     expect(merged.deleted.vocabulary?.updatedAt).toBe(30)
   })
 
+  it('merges reader settings by version', () => {
+    const local = data({ settings: { fontSize: 20 }, settingsUpdatedAt: 10 })
+    const remote = data({ settings: { fontSize: 24 }, settingsUpdatedAt: 20 })
+    expect(mergeRemoteLibrary(local, remote).settings).toEqual({ fontSize: 24 })
+    expect(mergeRemoteLibrary(remote, local).settings).toEqual({ fontSize: 24 })
+  })
+
   it('converts local tombstones to the server entity timestamp contract', () => {
     const deleted = emptyDeletions()
     deleted.highlights = [{ id: 'h1', bookId: 'b1', updatedAt: 10 }, { id: 'h2', bookId: 'b1', updatedAt: 20 }]

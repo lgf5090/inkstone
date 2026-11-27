@@ -140,6 +140,16 @@ describe('the shelf round trip', () => {
     expect(answer.library.stats['book-1'].updatedAt).toBe(5)
   })
 
+  it('syncs reader settings with their version', async () => {
+    await send('PUT', '/library', { library: library({ settings: { fontSize: 24 }, settingsUpdatedAt: 100 }) })
+    const answer = await (await send('GET', '/library')).json() as { library: any }
+    expect(answer.library.settings).toEqual({ fontSize: 24 })
+    expect(answer.library.settingsUpdatedAt).toBe(100)
+    await send('PUT', '/library', { library: library({ settings: { fontSize: 30 }, settingsUpdatedAt: 90 }) })
+    const stale = await (await send('GET', '/library')).json() as { library: any }
+    expect(stale.library.settings).toEqual({ fontSize: 24 })
+  })
+
   it('keeps a second account out of the first one\'s shelf', async () => {
     await send('PUT', '/library', { library: library() })
     mocks.userId = BOB

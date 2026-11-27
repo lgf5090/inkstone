@@ -46,6 +46,8 @@ export interface LibraryData {
   stats: Record<string, BookStats>
   notes: ReadingNoteLinks
   groups: BookGroup[]
+  settings?: Record<string, unknown>
+  settingsUpdatedAt?: number
   deleted: LibraryDeletions
 }
 
@@ -200,6 +202,8 @@ export function mergeRemoteLibrary(local: LibraryData, remote: LibraryData): Lib
 
   const vocabulary = mergeVocabulary(localData.notes, remoteData.notes, deleted.vocabulary)
   if (vocabulary.cleared) deleted.vocabulary = null
+  const settingsSource = timestamp(remoteData.settingsUpdatedAt) > timestamp(localData.settingsUpdatedAt) ? remoteData : localData
+  const settingsUpdatedAt = Math.max(timestamp(localData.settingsUpdatedAt), timestamp(remoteData.settingsUpdatedAt))
 
   if (deletedBookIds.size) {
     const deletionTimes = new Map(deleted.books.map((one) => [one.id, one.updatedAt]))
@@ -247,6 +251,8 @@ export function mergeRemoteLibrary(local: LibraryData, remote: LibraryData): Lib
         vocabularyUpdatedAt: vocabulary.vocabularyUpdatedAt,
       },
       groups: pruneDeletedBooks([...groups.values()], deletedBookIds, deletionTimes),
+      settings: settingsSource.settings,
+      settingsUpdatedAt,
       deleted,
     }
   }
@@ -264,6 +270,8 @@ export function mergeRemoteLibrary(local: LibraryData, remote: LibraryData): Lib
       vocabularyUpdatedAt: vocabulary.vocabularyUpdatedAt,
     },
     groups: [...groups.values()],
+    settings: settingsSource.settings,
+    settingsUpdatedAt,
     deleted,
   }
 }
@@ -333,6 +341,8 @@ function normaliseLibrary(library: LibraryData): LibraryData {
       vocabularyUpdatedAt: vocabulary ? timestamp(notes.vocabularyUpdatedAt) : null,
     },
     groups: (Array.isArray(source.groups) ? source.groups : []).map(normaliseGroup),
+    settings: source.settings && typeof source.settings === 'object' && !Array.isArray(source.settings) ? source.settings : {},
+    settingsUpdatedAt: timestamp(source.settingsUpdatedAt),
     deleted: {
       books: mergeTombstones([], deletions.books ?? []),
       progress: mergeTombstones([], deletions.progress ?? []),

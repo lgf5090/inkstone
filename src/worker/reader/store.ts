@@ -247,6 +247,8 @@ export interface ShelfMergeInput {
   /** `null` when the push said nothing about the reading note's vocabulary. */
   vocabulary: string | null
   vocabularyUpdatedAt?: number | null
+  settings?: Record<string, unknown>
+  settingsUpdatedAt?: number
   groups: ShelfGroupInput[]
   deleted: ShelfDeletedInput
 }
@@ -532,6 +534,15 @@ export class ReaderLibraryStore {
          WHERE ?3 > COALESCE((SELECT updated_at FROM reader_sync_versions
                                 WHERE user_id = ?1 AND entity = 'vocabulary' AND entity_id = 'vocabulary'), -1)`,
       ).bind(this.userId, input.vocabulary, input.vocabularyUpdatedAt))
+    }
+    if (input.settings && input.settingsUpdatedAt !== undefined) {
+      statements.push(this.db.prepare(
+        `INSERT INTO reader_meta (user_id, key, value, updated_at)
+         SELECT ?1, 'settings', ?2, ?3
+         WHERE ?3 > COALESCE((SELECT updated_at FROM reader_meta WHERE user_id = ?1 AND key = 'settings'), -1)
+         ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+           WHERE excluded.updated_at > reader_meta.updated_at`,
+      ).bind(this.userId, JSON.stringify(input.settings), input.settingsUpdatedAt))
     }
 
     for (const group of input.groups) {
