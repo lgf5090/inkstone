@@ -23,7 +23,7 @@ describe('indexPdfPages', () => {
 
   it('stops when cancelled and does not start another batch', async () => {
     const controller = new AbortController()
-    const index = vi.fn(async () => ({ indexed: 0 }))
+    const index = vi.fn(async (_rows: Array<{ page: number; text: string }>) => ({ indexed: 0 }))
     const promise = indexPdfPages(20, async (page) => {
       if (page === 9) controller.abort()
       return `text ${page}`
