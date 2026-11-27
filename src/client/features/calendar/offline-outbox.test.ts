@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../../lib/api'
 import type { CalendarEventInput } from '@shared/calendar/model'
-import { clearOutbox, enqueueOutbox, flushOutbox, outboxEventIds, readOutbox, removeOutbox } from './offline-outbox'
+import { enqueueOutbox, flushOutbox, outboxEventIds, readOutbox, removeOutbox } from './offline-outbox'
 import * as api from './api'
 
 vi.mock('./api', () => ({
@@ -62,7 +62,7 @@ describe('the offline calendar outbox', () => {
 
     const result = await flushOutbox('u1')
 
-    expect(result).toEqual({ flushed: 3, pending: 0, stopped: false, dropped: 0, conflicts: 0 })
+    expect(result).toEqual({ flushed: 3, dropped: 0, conflicts: 0 })
     expect(createEvents).toHaveBeenCalledWith([expect.objectContaining({ id: 'new' })], 'create')
     expect(updateEvent).toHaveBeenCalledWith('e1', expect.objectContaining({ id: 'e1', title: 'Later' }), 4)
     expect(deleteEvent).toHaveBeenCalledWith('e2', 4)
@@ -73,7 +73,7 @@ describe('the offline calendar outbox', () => {
     await enqueueOutbox('u1', { kind: 'save', eventId: 'e1', input: input('e1', 'Offline'), baseRev: 1, at: 1 })
     updateEvent.mockRejectedValue(new ApiError(0, 'offline', 'offline'))
 
-    expect(await flushOutbox('u1')).toEqual({ flushed: 0, pending: 1, stopped: true, dropped: 0, conflicts: 0 })
+    expect(await flushOutbox('u1')).toEqual({ flushed: 0, dropped: 0, conflicts: 0 })
     expect(readOutbox('u1')).toHaveLength(1)
   })
 
@@ -83,7 +83,7 @@ describe('the offline calendar outbox', () => {
     updateEvent.mockRejectedValueOnce(new ApiError(403, 'forbidden', 'no'))
     updateEvent.mockRejectedValueOnce(new Error('unexpected response'))
 
-    expect(await flushOutbox('u1')).toEqual({ flushed: 0, pending: 0, stopped: false, dropped: 2, conflicts: 0 })
+    expect(await flushOutbox('u1')).toEqual({ flushed: 0, dropped: 2, conflicts: 0 })
     expect(readOutbox('u1')).toEqual([])
   })
 
@@ -92,7 +92,7 @@ describe('the offline calendar outbox', () => {
     updateEvent.mockRejectedValue(new ApiError(409, 'conflict', 'stale revision'))
     const onConflict = vi.fn()
 
-    expect(await flushOutbox('u1', { onConflict })).toEqual({ flushed: 0, pending: 0, stopped: false, dropped: 0, conflicts: 1 })
+    expect(await flushOutbox('u1', { onConflict })).toEqual({ flushed: 0, dropped: 0, conflicts: 1 })
     expect(onConflict).toHaveBeenCalledWith({
       id: 'e1',
       intent: 'save',
@@ -119,7 +119,7 @@ describe('the offline calendar outbox', () => {
       { kind: 'save', eventId: 'e1', input: input('e1', 'Legacy'), at: 1 },
     ]))
 
-    expect(await flushOutbox('u1')).toEqual({ flushed: 0, pending: 0, stopped: false, dropped: 1, conflicts: 0 })
+    expect(await flushOutbox('u1')).toEqual({ flushed: 0, dropped: 1, conflicts: 0 })
     expect(createEvents).not.toHaveBeenCalled()
     expect(updateEvent).not.toHaveBeenCalled()
     expect(readOutbox('u1')).toEqual([])
@@ -129,7 +129,7 @@ describe('the offline calendar outbox', () => {
     await enqueueOutbox('u1', { kind: 'save', eventId: 'e1', input: input('e1', 'Mine'), baseRev: 3, at: 1 })
     updateEvent.mockRejectedValue(new ApiError(409, 'conflict', 'stale revision'))
 
-    expect((await flushOutbox('u1')).stopped).toBe(true)
+    expect(await flushOutbox('u1')).toEqual({ flushed: 0, dropped: 0, conflicts: 0 })
     expect(readOutbox('u1')).toHaveLength(1)
   })
 
@@ -221,9 +221,4 @@ describe('the offline calendar outbox', () => {
     expect(readOutbox('u1')).toHaveLength(10)
   })
 
-  it('clears the durable queue on sign-out', async () => {
-    await enqueueOutbox('u1', { kind: 'save', eventId: 'e1', input: input('e1', 'Mine'), baseRev: 1, at: 1 })
-    await clearOutbox('u1')
-    expect(localStorage.getItem('inkstone.calendar.outbox.v1:u1')).toBeNull()
-  })
 })

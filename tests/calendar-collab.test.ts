@@ -536,7 +536,7 @@ describe('entity write quotas', () => {
     }
     await expect(insertTemplateRow(db, ALICE, 'overflow-template', {
       name: 'Overflow', title: 'Overflow', description: '', kind: 'event', allDay: false,
-      durationMinutes: 60, color: null, metaJson: '{}',
+      durationMinutes: 60, color: null,
     })).rejects.toMatchObject({ status: 409 })
 
     const linkInsert = sqlite.prepare(

@@ -22,7 +22,6 @@ const HISTORY_LIMIT = 50
 export class CalendarEditHistory {
   private undoStack: EditHistoryEntry[] = []
   private redoStack: EditHistoryEntry[] = []
-  private replaying = false
   /** Ids a replay touched; their echo through the write queue must not start a new history entry. */
   private replayPending = new Set<string>()
   private replayPositions = new Map<string, { stack: 'undo' | 'redo'; index: number }>()
@@ -37,10 +36,6 @@ export class CalendarEditHistory {
     for (const listener of this.listeners) listener()
   }
 
-  get isReplaying(): boolean {
-    return this.replaying
-  }
-
   get canUndo(): boolean {
     return this.undoStack.length > 0 && this.replayPending.size === 0
   }
@@ -51,7 +46,6 @@ export class CalendarEditHistory {
 
   /** Called after a change has reached the API; a replay of history never records again. */
   record(entry: EditHistoryEntry): void {
-    if (this.replaying) return
     if (this.replayPending.delete(entry.id)) {
       this.replayPositions.delete(entry.id)
       this.changed()
@@ -126,20 +120,15 @@ export class CalendarEditHistory {
   }
 
   private apply(app: ICalendarApp, target: Event | null, opposite: Event | null): void {
-    this.replaying = true
     for (const event of [target, opposite]) if (event) this.replayPending.add(event.id)
-    try {
-      if (!target) {
-        if (opposite) app.applyEventsChanges({ delete: [opposite.id] }, false, 'local')
-        return
-      }
-      if (!opposite) {
-        app.applyEventsChanges({ add: [target] }, false, 'local')
-        return
-      }
-      app.applyEventsChanges({ update: [{ id: target.id, updates: toEventUpdates(target) }] }, false, 'local')
-    } finally {
-      this.replaying = false
+    if (!target) {
+      if (opposite) app.applyEventsChanges({ delete: [opposite.id] }, false, 'local')
+      return
     }
+    if (!opposite) {
+      app.applyEventsChanges({ add: [target] }, false, 'local')
+      return
+    }
+    app.applyEventsChanges({ update: [{ id: target.id, updates: toEventUpdates(target) }] }, false, 'local')
   }
 }

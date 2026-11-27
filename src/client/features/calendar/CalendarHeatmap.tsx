@@ -25,8 +25,8 @@ import { t, useLocale } from '../../lib/i18n'
 import type { MessageKey } from '@shared/locales/en-US'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Modal, Tooltip } from '../../components/overlay'
-import { request } from '../../lib/api'
 import { navigateToPath } from '../../lib/app-history'
+import { getActivityHeatmap } from './api'
 import { calendarStorageKey } from '../../lib/calendar-storage'
 
 const KIND_KEYS: Record<ActivityKind, MessageKey> = {
@@ -100,12 +100,7 @@ export function CalendarHeatmapCard({ today }: { today: Date }) {
     const controller = new AbortController()
     setLoading(true)
     setError(null)
-    const params = new URLSearchParams({
-      from: `${year}-01-01`,
-      to: `${year}-12-31`,
-      kinds: kinds.join(','),
-    })
-    void request<HeatmapResponse>(`/api/activity/heatmap?${params.toString()}`, { signal: controller.signal })
+    void getActivityHeatmap({ from: `${year}-01-01`, to: `${year}-12-31`, kinds: kinds.join(',') }, controller.signal)
       .then((answer) => {
         if (controller.signal.aborted) return
         setResponse(answer)
@@ -244,12 +239,7 @@ function HeatmapDialog({ year: initialYear, today, kinds, onKindsChange, onClose
     const controller = new AbortController()
     setLoading(true)
     setError(null)
-    const params = new URLSearchParams({
-      from: `${year}-01-01`,
-      to: `${year}-12-31`,
-      kinds: kinds.join(','),
-    })
-    void request<HeatmapResponse>(`/api/activity/heatmap?${params.toString()}`, { signal: controller.signal })
+    void getActivityHeatmap({ from: `${year}-01-01`, to: `${year}-12-31`, kinds: kinds.join(',') }, controller.signal)
       .then((answer) => {
         if (controller.signal.aborted) return
         setResponse(answer)

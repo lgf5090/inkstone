@@ -98,7 +98,7 @@ function requireRecord(value: unknown, field: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-function entityId(value: unknown, field: string): string {
+export function parseEntityId(value: unknown, field: string): string {
   if (!isCalendarEntityId(value)) throw ApiError.badRequest(`${field} is not a valid id`)
   return value
 }
@@ -239,7 +239,7 @@ function parseCalendarIds(record: Record<string, unknown>, required: boolean): s
   }
   const ids: string[] = []
   for (const value of values) {
-    const id = entityId(value, 'calendarIds')
+    const id = parseEntityId(value, 'calendarIds')
     if (!ids.includes(id)) ids.push(id)
   }
   if (ids.length === 0) throw ApiError.badRequest('An event needs at least one calendar')
@@ -377,7 +377,7 @@ function recurringRuleFrom(
 export function parseEventInput(value: unknown, options: ParseEventOptions = {}): CalendarEventWriteInput {
   const record = requireRecord(value, 'event')
   const fallback = options.defaultTimeZone ?? defaultTimeZone()
-  const id = record.id === undefined || record.id === null ? undefined : entityId(record.id, 'Event id')
+  const id = record.id === undefined || record.id === null ? undefined : parseEntityId(record.id, 'Event id')
   if (record.start === undefined || record.end === undefined) {
     throw ApiError.badRequest('An event needs a start and an end')
   }
@@ -393,7 +393,7 @@ export function parseEventInput(value: unknown, options: ParseEventOptions = {})
   const source = record.source === undefined ? 'local' : parseSource(record.source)
   const externalId = record.externalId === undefined || record.externalId === null
     ? null
-    : entityId(record.externalId, 'External id')
+    : parseEntityId(record.externalId, 'External id')
   return {
     ...(id === undefined ? {} : { id }),
     title: eventTitle(record.title),
@@ -638,12 +638,12 @@ export function parseCalendarInput(value: unknown): CalendarWriteInput {
   }
   if (CONTROL_CHARS.test(name)) throw ApiError.badRequest('name must not contain control characters')
   const input: CalendarWriteInput = { name }
-  if (record.id !== undefined && record.id !== null) input.id = entityId(record.id, 'Calendar id')
+  if (record.id !== undefined && record.id !== null) input.id = parseEntityId(record.id, 'Calendar id')
   if (record.color !== undefined) input.color = calendarColor(record.color, 'color')
   if (record.darkColor !== undefined) input.darkColor = calendarColor(record.darkColor, 'darkColor')
   if (record.icon !== undefined) input.icon = parseIconName(record.icon)
   if (record.groupId !== undefined) {
-    input.groupId = record.groupId === null ? null : entityId(record.groupId, 'groupId')
+    input.groupId = record.groupId === null ? null : parseEntityId(record.groupId, 'groupId')
   }
   if (record.isDefault !== undefined) input.isDefault = booleanValue(record.isDefault, 'isDefault')
   if (record.isVisible !== undefined) input.isVisible = booleanValue(record.isVisible, 'isVisible')
@@ -676,7 +676,7 @@ export function parseCalendarPatch(value: unknown): CalendarPatchInput {
     touched = true
   }
   if (record.groupId !== undefined) {
-    patch.groupId = record.groupId === null ? null : entityId(record.groupId, 'groupId')
+    patch.groupId = record.groupId === null ? null : parseEntityId(record.groupId, 'groupId')
     touched = true
   }
   if (record.isDefault !== undefined) {
@@ -705,7 +705,7 @@ export function parseGroupInput(value: unknown): CalendarGroupWriteInput {
   }
   if (CONTROL_CHARS.test(name)) throw ApiError.badRequest('name must not contain control characters')
   const input: CalendarGroupWriteInput = { name }
-  if (record.id !== undefined && record.id !== null) input.id = entityId(record.id, 'Group id')
+  if (record.id !== undefined && record.id !== null) input.id = parseEntityId(record.id, 'Group id')
   return input
 }
 
@@ -876,7 +876,7 @@ export function parseCalendarIdList(raw: string | undefined): string[] | undefin
   for (const part of raw.split(',')) {
     const trimmed = part.trim()
     if (!trimmed) continue
-    const id = entityId(trimmed, 'calendarIds')
+    const id = parseEntityId(trimmed, 'calendarIds')
     if (!ids.includes(id)) ids.push(id)
   }
   if (ids.length === 0) return undefined
@@ -889,7 +889,7 @@ export function parseReorder(value: unknown): string[] {
   if (!Array.isArray(record.ids)) throw ApiError.badRequest('ids must be an array')
   if (record.ids.length === 0) throw ApiError.badRequest('ids may not be empty')
   if (record.ids.length > MAX_EVENTS_PER_BATCH) throw ApiError.badRequest('ids is too long')
-  const ids = record.ids.map((id) => entityId(id, 'ids'))
+  const ids = record.ids.map((id) => parseEntityId(id, 'ids'))
   if (new Set(ids).size !== ids.length) throw ApiError.badRequest('ids must not repeat')
   return ids
 }
@@ -900,11 +900,6 @@ export function parseRevQuery(raw: string | undefined): number | null {
   const value = Number(raw)
   if (!Number.isInteger(value) || value < 1) throw ApiError.badRequest('rev must be a positive integer')
   return value
-}
-
-/** Kept for the route's 404-on-malformed decision; the shared predicate is the single authority. */
-export function parseEntityId(value: unknown, field: string): string {
-  return entityId(value, field)
 }
 
 const COLOR_HEX = /^#[0-9a-fA-F]{6}$/
@@ -952,7 +947,7 @@ function countdownRepeat(value: unknown): CountdownRepeat {
  */
 export function parseCountdownInput(value: unknown): CountdownWriteInput {
   const record = requireRecord(value, 'countdown')
-  const id = record.id === undefined ? undefined : entityId(record.id, 'id')
+  const id = record.id === undefined ? undefined : parseEntityId(record.id, 'id')
   if (!isCountdownDate(record.date)) throw ApiError.badRequest('date must be a YYYY-MM-DD day that exists')
   return {
     ...(id ? { id } : {}),

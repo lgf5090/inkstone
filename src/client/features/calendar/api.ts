@@ -4,6 +4,7 @@
  */
 import { ApiError, request } from '../../lib/api'
 import type { CalendarCountdownDto, CalendarCountdownInput } from '@shared/calendar/countdown'
+import type { HeatmapResponse } from '@shared/activity/heatmap'
 import type {
   CalendarAttachmentDto,
   CalendarAttendeeDto,
@@ -27,6 +28,10 @@ import type {
   CalendarTemplateDto,
   TemporalValue,
 } from '@shared/calendar/model'
+
+export function getActivityHeatmap(params: { from: string; to: string; kinds: string }, signal?: AbortSignal): Promise<HeatmapResponse> {
+  return request(`/api/activity/heatmap?${new URLSearchParams(params).toString()}`, { signal })
+}
 
 export interface EventRangeQuery {
   from: number

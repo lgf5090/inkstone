@@ -47,7 +47,7 @@ function text(value: unknown, field: string, max: number, fallback = ''): string
   return trimmed
 }
 
-function parse(value: unknown): Omit<TemplateWrite, 'metaJson'> {
+function parse(value: unknown): TemplateWrite {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw ApiError.badRequest('template must be an object')
   }
@@ -88,15 +88,8 @@ calendarTemplateRoutes.post('/templates', async (c) => {
   writeBudget(c.get('userId'))
   const input = parse(await readJson<unknown>(c, LIMIT))
   const id = newId()
-  try {
-    const row = await insertTemplateRow(c.env.DB, c.get('userId'), id, { ...input, metaJson: '{}' })
-    return c.json({ template: toDto(row) })
-  } catch (error) {
-    if (error instanceof Error && /unique/i.test(error.message)) {
-      throw ApiError.conflict('A template with that name already exists')
-    }
-    throw error
-  }
+  const row = await insertTemplateRow(c.env.DB, c.get('userId'), id, input)
+  return c.json({ template: toDto(row) })
 })
 
 calendarTemplateRoutes.patch('/templates/:id', async (c) => {
@@ -108,21 +101,8 @@ calendarTemplateRoutes.patch('/templates/:id', async (c) => {
   const input = parse({ ...toDto(current), ...record })
   const rev = record.rev === undefined ? null : Number(record.rev)
   if (rev === null || !Number.isSafeInteger(rev) || rev < 1) throw ApiError.badRequest('rev is required')
-  try {
-    const row = await updateTemplateRow(c.env.DB, c.get('userId'), id, rev, {
-      ...input,
-      metaJson: current.meta_json,
-    })
-    return c.json({ template: toDto(row) })
-  } catch (error) {
-    if (error instanceof Error && /unique/i.test(error.message)) {
-      throw ApiError.conflict('A template with that name already exists')
-    }
-    if (error instanceof Error && error.message.includes('did not persist')) {
-      throw ApiError.conflict('The template changed elsewhere')
-    }
-    throw error
-  }
+  const row = await updateTemplateRow(c.env.DB, c.get('userId'), id, rev, input)
+  return c.json({ template: toDto(row) })
 })
 
 calendarTemplateRoutes.delete('/templates/:id', async (c) => {

@@ -22,6 +22,8 @@ import {
   getSchedulingLink,
   insertSchedulingLink,
   listSchedulingLinks,
+  schedulingLinkDays,
+  toSchedulingLinkDto,
   updateSchedulingLink,
   type SchedulingLinkRow,
   type SchedulingLinkWithOwner,
@@ -70,29 +72,8 @@ function title(value: unknown): string {
   return trimmed
 }
 
-function toDto(row: SchedulingLinkRow): CalendarSchedulingLinkDto {
-  let days = [1, 2, 3, 4, 5]
-  try {
-    const parsed: unknown = JSON.parse(row.days_json)
-    if (Array.isArray(parsed)) days = parsed.filter((day): day is number => typeof day === 'number' && day >= 0 && day <= 6)
-  } catch {
-    // Keep the weekday default for a malformed row.
-  }
-  return {
-    id: row.id,
-    calendarId: row.calendar_id,
-    slug: row.slug,
-    title: row.title,
-    durationMinutes: Number(row.duration_minutes),
-    days,
-    startHour: Number(row.start_hour),
-    endHour: Number(row.end_hour),
-    enabled: row.enabled === 1,
-  }
-}
-
 function toPublicDto(row: SchedulingLinkRow): Omit<CalendarSchedulingLinkDto, 'id' | 'calendarId'> {
-  const dto = toDto(row)
+  const dto = toSchedulingLinkDto(row)
   return {
     slug: dto.slug,
     title: dto.title,
@@ -115,7 +96,7 @@ calendarSchedulingRoutes.use('*', requireAuth)
 calendarSchedulingRoutes.get('/scheduling-links', async (c) => {
   readBudget(c.get('userId'))
   const links = await listSchedulingLinks(c.env.DB, c.get('userId'))
-  return c.json({ links: links.map(toDto) })
+  return c.json({ links: links.map(toSchedulingLinkDto) })
 })
 
 calendarSchedulingRoutes.post('/scheduling-links', async (c) => {
@@ -146,7 +127,7 @@ calendarSchedulingRoutes.post('/scheduling-links', async (c) => {
     enabled: body.enabled !== false,
     now,
   })
-  return c.json({ link: toDto(await linkRow(c, id) as SchedulingLinkRow) })
+  return c.json({ link: toSchedulingLinkDto(await linkRow(c, id) as SchedulingLinkRow) })
 })
 
 calendarSchedulingRoutes.patch('/scheduling-links/:id', async (c) => {
@@ -168,7 +149,7 @@ calendarSchedulingRoutes.patch('/scheduling-links/:id', async (c) => {
     endHour,
     enabled: body.enabled === undefined ? existing.enabled === 1 : body.enabled === true,
   })
-  return c.json({ link: toDto(await linkRow(c, existing.id) as SchedulingLinkRow) })
+  return c.json({ link: toSchedulingLinkDto(await linkRow(c, existing.id) as SchedulingLinkRow) })
 })
 
 calendarSchedulingRoutes.delete('/scheduling-links/:id', async (c) => {
@@ -278,13 +259,7 @@ async function reserve(
   if (start.minute % SLOT_INTERVAL_MINUTES !== 0 || start.second !== 0 || start.millisecond !== 0) {
     throw ApiError.badRequest('startMs must align with an offered slot')
   }
-  let days: number[] = [1, 2, 3, 4, 5]
-  try {
-    const parsed: unknown = JSON.parse(row.days_json)
-    if (Array.isArray(parsed)) days = parsed.filter((value): value is number => typeof value === 'number')
-  } catch {
-    // Defaults stay.
-  }
+  const days = schedulingLinkDays(row.days_json)
   if (!days.includes(day)) throw ApiError.badRequest('That day is not offered')
   const windowStart = start.toPlainDate().toZonedDateTime(zone).add({ hours: Number(row.start_hour) })
   const windowEnd = start.toPlainDate().toZonedDateTime(zone).add({ hours: Number(row.end_hour) })
@@ -356,13 +331,7 @@ function offeredSlots(
   busy: ReadonlyArray<{ startMs: number; endMs: number }>,
   locale: string,
 ): OfferedSlot[] {
-  let days: number[] = [1, 2, 3, 4, 5]
-  try {
-    const parsed: unknown = JSON.parse(row.days_json)
-    if (Array.isArray(parsed)) days = parsed.filter((value): value is number => typeof value === 'number')
-  } catch {
-    // Defaults stay.
-  }
+  const days = schedulingLinkDays(row.days_json)
   const duration = Number(row.duration_minutes)
   const startHour = Number(row.start_hour)
   const endHour = Number(row.end_hour)

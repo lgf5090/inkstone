@@ -11,6 +11,7 @@ export const CALENDAR_CACHE_PREFIXES = [
   `${CALENDAR_STORAGE_PREFIX}first-paint.`,
   `${CALENDAR_STORAGE_PREFIX}range.`,
   `${CALENDAR_STORAGE_PREFIX}outbox.`,
+  `${CALENDAR_STORAGE_PREFIX}hidden-shared.`,
   'inkstone:calendar:outbox:',
   'inkstone:calendar:hidden-shared',
 ] as const

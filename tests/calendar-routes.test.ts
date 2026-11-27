@@ -495,31 +495,35 @@ describe('event routes', () => {
 describe('preference routes', () => {
   it('saves the supplied shape and answers it back', async () => {
     const saved = await json<{ preferences: CalendarPreferences }>(await call('PUT', '/preferences', {
-      weekStart: 0,
-      timeZone: 'UTC',
-      defaultView: 'month',
+      preferences: {
+        weekStart: 0,
+        timeZone: 'UTC',
+        defaultView: 'month',
+      },
     }))
     expect(saved.preferences.weekStart).toBe(0)
     expect(saved.preferences.defaultView).toBe('month')
 
     const read = await json<{ preferences: CalendarPreferences }>(await call('GET', '/preferences'))
     expect(read.preferences).toEqual(saved.preferences)
-    expect((await call('PUT', '/preferences', { notASetting: true })).status).toBe(400)
+    expect((await call('PUT', '/preferences', { preferences: { notASetting: true } })).status).toBe(400)
   })
 
   it('accepts a working-hours window and refuses an impossible one', async () => {
     const answer = await json<{ preferences: CalendarPreferences }>(await call('PUT', '/preferences', {
-      workingHours: { enabled: true, startHour: 8, endHour: 17 },
+      preferences: {
+        workingHours: { enabled: true, startHour: 8, endHour: 17 },
+      },
     }))
     expect(answer.preferences.workingHours).toEqual({ enabled: true, startHour: 8, endHour: 17 })
 
     expect((await call('PUT', '/preferences', {
-      workingHours: { enabled: true, startHour: 17, endHour: 8 },
+      preferences: { workingHours: { enabled: true, startHour: 17, endHour: 8 } },
     })).status).toBe(400)
     expect((await call('PUT', '/preferences', {
-      workingHours: { enabled: true, startHour: 8, endHour: 17, days: [1] },
+      preferences: { workingHours: { enabled: true, startHour: 8, endHour: 17, days: [1] } },
     })).status).toBe(400)
-    expect((await call('PUT', '/preferences', { workingHours: '9-17' })).status).toBe(400)
+    expect((await call('PUT', '/preferences', { preferences: { workingHours: '9-17' } })).status).toBe(400)
   })
 
   it('refuses a body over the small limit', async () => {

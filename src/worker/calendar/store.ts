@@ -17,7 +17,6 @@
 
 import type {
   CalendarConferenceDto,
-  CalendarConnectionDto,
   CalendarDto,
   CalendarEventDto,
   CalendarEventInput,
@@ -27,8 +26,6 @@ import type {
   CalendarMetaDto,
   CalendarPreferences,
   CalendarRangeRevisionDto,
-  CalendarResourceDto,
-  CalendarSchedulingLinkDto,
   CalendarSearchResultDto,
   CalendarSource,
   CalendarSubscriptionDto,
@@ -63,7 +60,9 @@ import { RRule } from 'rrule'
 import { parseStoredJson, storedObject } from '../lib/json'
 import { eventAttachmentDeleteStatements } from './attachments'
 import { attachmentCleanupTargetSql } from '../attachments/keys'
-import { parseCalendarConnectionRow, toCalendarConnectionDto, type CalendarConnectionRow } from './connections'
+import { listCalendarConnections } from './connections'
+import { listResources } from './resources'
+import { listSchedulingLinkDtos } from './scheduling'
 
 /** Light/dark pairs the first calendar and any uncoloured create draw from, in order. */
 const DEFAULT_CALENDAR_COLORS: ReadonlyArray<{ color: string; darkColor: string }> = [
@@ -283,7 +282,8 @@ function subscriptionHost(raw: string | null): string | null {
   if (!raw) return null
   try {
     return new URL(raw).hostname
-  } catch {
+  } catch (cause) {
+    console.warn('[inkstone] Calendar subscription URL host could not be read.', cause)
     return null
   }
 }
@@ -360,7 +360,7 @@ function ruleParts(rule: string): string[] {
 }
 
 function formatRuleUntil(value: Date, start: TemporalValue): string {
-  const instant = Temporal.Instant.from(value.getTime())
+  const instant = Temporal.Instant.fromEpochMilliseconds(value.getTime())
   if (start.type === 'date') return instant.toZonedDateTimeISO('UTC').toPlainDate().toString().replaceAll('-', '')
   if (start.type === 'datetime') {
     return instant.toZonedDateTimeISO('UTC').toPlainDateTime()
@@ -431,14 +431,29 @@ function partitionMetaDates(
 function readCompletedAt(raw: string | null): TemporalValue | null {
   if (!raw) return null
   const value = parseStoredJson(raw)
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    console.warn('[inkstone] Task completion timestamp is invalid; omitting it.')
+    return null
+  }
   const record = value as Record<string, unknown>
-  if (typeof record.value !== 'string' || !isTemporalKind(record.type)) return null
+  if (typeof record.value !== 'string' || !isTemporalKind(record.type)) {
+    console.warn('[inkstone] Task completion timestamp has an invalid shape; omitting it.')
+    return null
+  }
   return record.timeZone === undefined
     ? { value: record.value, type: record.type }
     : typeof record.timeZone === 'string'
       ? { value: record.value, type: record.type, timeZone: record.timeZone }
       : { value: record.value, type: record.type }
+}
+
+function readConferenceJson(raw: string): CalendarConferenceDto | null {
+  const value = parseStoredJson(raw)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    console.warn('[inkstone] Event conference metadata is invalid; omitting it.')
+    return null
+  }
+  return value as CalendarConferenceDto
 }
 
 function readIcon(raw: string | null): boolean | null {
@@ -492,7 +507,7 @@ function toEventDto(row: EventRow, calendarIds: readonly string[]): CalendarEven
     : asKind(row.kind) === 'task'
       ? { completed: false }
       : null
-  const conference = row.conference_json ? parseStoredJson(row.conference_json) : null
+  const conference = row.conference_json ? readConferenceJson(row.conference_json) : null
   return {
     id: row.id,
     title: row.title,
@@ -646,13 +661,13 @@ export class CalendarStore {
       this.ensureDefaultCalendar(defaultCalendarName),
       this.listGroups(),
       this.listSubscriptions(),
-      this.listConnections(),
+      listCalendarConnections(this.db, this.userId),
       this.preferences(),
       this.hasPreferences(),
       this.listSharedCalendars(),
       this.listInvites(),
-      this.listResources(),
-      this.listSchedulingLinks(),
+      listResources(this.db, this.userId),
+      listSchedulingLinkDtos(this.db, this.userId),
     ])
     return {
       calendars: [...owned, ...shared],
@@ -665,58 +680,6 @@ export class CalendarStore {
       resources,
       schedulingLinks,
     }
-  }
-
-  private async listResources(): Promise<CalendarResourceDto[]> {
-    const { results } = await this.db.prepare(
-      `SELECT id, calendar_id, name, capacity FROM calendar_resources
-        WHERE user_id = ? ORDER BY lower(name) ASC, id ASC`,
-    ).bind(this.userId).all<{ id: string; calendar_id: string; name: string; capacity: number | null }>()
-    return (results ?? []).map(row => ({
-      id: row.id,
-      calendarId: row.calendar_id,
-      name: row.name,
-      capacity: row.capacity === null ? null : Number(row.capacity),
-    }))
-  }
-
-  private async listSchedulingLinks(): Promise<CalendarSchedulingLinkDto[]> {
-    const { results } = await this.db.prepare(
-      `SELECT id, calendar_id, slug, title, duration_minutes, days_json, start_hour, end_hour, enabled
-         FROM calendar_scheduling_links WHERE user_id = ? ORDER BY created_at ASC, id ASC`,
-    ).bind(this.userId).all<{
-      id: string
-      calendar_id: string
-      slug: string
-      title: string
-      duration_minutes: number
-      days_json: string
-      start_hour: number
-      end_hour: number
-      enabled: number
-    }>()
-    return (results ?? []).map(row => {
-      let days: number[] = [1, 2, 3, 4, 5]
-      try {
-        const parsed: unknown = JSON.parse(row.days_json)
-        if (Array.isArray(parsed)) {
-          days = parsed.filter((day): day is number => typeof day === 'number' && day >= 0 && day <= 6)
-        }
-      } catch {
-        // A malformed window keeps the weekday default rather than hiding the link.
-      }
-      return {
-        id: row.id,
-        calendarId: row.calendar_id,
-        slug: row.slug,
-        title: row.title,
-        durationMinutes: Number(row.duration_minutes),
-        days,
-        startHour: Number(row.start_hour),
-        endHour: Number(row.end_hour),
-        enabled: row.enabled === 1,
-      }
-    })
   }
 
   private async hasPreferences(): Promise<boolean> {
@@ -1597,13 +1560,6 @@ export class CalendarStore {
     return event
   }
 
-  async upsertEvent(input: CalendarEventWriteInput): Promise<CalendarEventDto> {
-    const events = await this.createEvents([input], 'upsert')
-    const event = events[0]
-    if (!event) throw new Error('Event upsert did not persist')
-    return event
-  }
-
   /**
    * Create or upsert up to 200 events as a small number of D1 batches.
    *
@@ -1832,7 +1788,7 @@ export class CalendarStore {
     const conference = patch.conference !== undefined
       ? patch.conference
       : row.conference_json
-        ? this.readConference(row.conference_json)
+        ? readConferenceJson(row.conference_json)
         : null
     const icon = patch.icon !== undefined ? patch.icon : readIcon(row.icon_json)
     const color = patch.color !== undefined ? patch.color : row.color
@@ -2374,12 +2330,6 @@ export class CalendarStore {
     return { event, attendees: [...attendees] }
   }
 
-  private readConference(raw: string): CalendarConferenceDto | null {
-    const value = parseStoredJson(raw)
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-    return value as CalendarConferenceDto
-  }
-
   /**
    * Title and description search across owned and accepted shared calendars.
    *
@@ -2612,16 +2562,6 @@ export class CalendarStore {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }))
-  }
-
-  /** Connections as the meta read exposes them: identifiers and state, never credentials. */
-  private async listConnections(): Promise<CalendarConnectionDto[]> {
-    const { results } = await this.db.prepare(
-      `SELECT id, kind, label, base_url, calendar_home_url, username, scope, writable, status,
-              last_synced_at, last_error_code
-         FROM calendar_connections WHERE user_id = ?1 ORDER BY created_at ASC, id ASC`,
-    ).bind(this.userId).all<CalendarConnectionRow>()
-    return (results ?? []).map(row => toCalendarConnectionDto(parseCalendarConnectionRow(row)))
   }
 
   // ------------------------------------------------------------- statements

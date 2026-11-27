@@ -198,11 +198,8 @@ calendarRoutes.get('/preferences', async (c) => {
 
 calendarRoutes.put('/preferences', async (c) => {
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
-  // Accept both `{preferences: {...}}` and a bare preferences object. The wrapper exists because a
-  // GET answers with it; unwrapping keeps old clients and the obvious PUT body working.
-  const raw = body.preferences !== undefined && typeof body.preferences === 'object' && !Array.isArray(body.preferences)
-    ? body.preferences
-    : body
+  const raw = body.preferences
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw ApiError.badRequest('preferences must be an object')
   const preferences = parsePreferences(raw)
   return c.json({ preferences: await store(c).savePreferences(preferences) })
 })

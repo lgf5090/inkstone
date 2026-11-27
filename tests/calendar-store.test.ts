@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { CalendarStore, type CalendarEventWriteInput, type RecurrenceChangeWrite } from '../src/worker/calendar/store'
 import { parseEventInput, parsePreferences } from '../src/worker/calendar/validation'
@@ -79,6 +79,28 @@ describe('the default calendar', () => {
     expect(calendars).toHaveLength(1)
     expect(calendars[0]?.id).toBe(calendar.id)
     expect(calendars[0]?.isDefault).toBe(true)
+  })
+})
+
+describe('stored event metadata', () => {
+  it('keeps a readable event and reports malformed completion and conference JSON', async () => {
+    const created = await store.createEvent(eventInput({
+      kind: 'task',
+      task: { completed: true, completedAt: { value: '2026-10-26T10:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' } },
+      conference: { joinUrl: 'https://meet.example.com/join' },
+    }))
+    sqlite.prepare('UPDATE calendar_events SET task_completed_at_value = ?, conference_json = ? WHERE user_id = ? AND id = ?')
+      .run('{broken', '{broken', ALICE, created.id)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const event = await store.getEvent(created.id)
+      expect(event?.title).toBe('Meeting')
+      expect(event?.task?.completedAt ?? null).toBeNull()
+      expect(event?.conference ?? null).toBeNull()
+      expect(warn).toHaveBeenCalledTimes(2)
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 

@@ -144,22 +144,9 @@ export async function removeOutbox(userId: string, eventId: string): Promise<voi
   })
 }
 
-export async function clearOutbox(userId: string): Promise<void> {
-  await withOutboxLock(userId, async () => {
-    try {
-      localStorage.removeItem(key(userId))
-    } catch (cause) {
-      throw new Error('The calendar offline queue could not be cleared.', { cause })
-    }
-  })
-}
-
 export interface FlushResult {
   flushed: number
-  pending: number
-  /** Stops at the first transient failure or a conflict with no handler. */
-  stopped: boolean
-  /** Permanent refusals and non-API failures discarded; the caller must refresh and report them. */
+  /** Permanent refusals and non-API errors discarded; the caller must refresh and report them. */
   dropped: number
   /** Stale writes moved to the conflict dialog rather than replayed over the server. */
   conflicts: number
@@ -193,7 +180,7 @@ export async function flushOutbox(userId: string, options: FlushOutboxOptions = 
       } catch (error) {
         if (error instanceof ApiError && error.status === 409) {
           if (!options.onConflict) {
-            return { flushed, pending: readOutbox(userId).length, stopped: true, dropped, conflicts }
+            return { flushed, dropped, conflicts }
           }
           // The in-memory conflict now owns this intent. Removing the stale queue row prevents a
           // later reconnect from overwriting the reader's merged decision with the old payload.
@@ -207,7 +194,7 @@ export async function flushOutbox(userId: string, options: FlushOutboxOptions = 
           continue
         }
         if (error instanceof ApiError && (error.isOffline || error.status >= 500)) {
-          return { flushed, pending: readOutbox(userId).length, stopped: true, dropped, conflicts }
+          return { flushed, dropped, conflicts }
         }
         // A refusal this entry can never pass (gone, forbidden, invalid) is discarded rather than
         // replayed forever. The count makes the loss visible and asks the surface to reload.
@@ -215,6 +202,6 @@ export async function flushOutbox(userId: string, options: FlushOutboxOptions = 
         dropped++
       }
     }
-    return { flushed, pending: readOutbox(userId).length, stopped: false, dropped, conflicts }
+    return { flushed, dropped, conflicts }
   })
 }

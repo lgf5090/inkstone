@@ -1,5 +1,6 @@
 /** Booking-link rows; the public page reads them by slug without an account. */
 import { ApiError } from '../lib/errors'
+import type { CalendarSchedulingLinkDto } from '@shared/calendar/model'
 export interface SchedulingLinkRow {
   id: string
   calendar_id: string
@@ -24,6 +25,34 @@ export async function listSchedulingLinks(db: D1Database, userId: string): Promi
     `SELECT ${COLUMNS} FROM calendar_scheduling_links WHERE user_id = ? ORDER BY created_at ASC, id ASC`,
   ).bind(userId).all<SchedulingLinkRow>()
   return results ?? []
+}
+
+export function schedulingLinkDays(raw: string): number[] {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed.filter((day): day is number => typeof day === 'number' && day >= 0 && day <= 6)
+  } catch {
+    console.warn('[inkstone] Scheduling link days_json is invalid; using weekdays.')
+  }
+  return [1, 2, 3, 4, 5]
+}
+
+export function toSchedulingLinkDto(row: SchedulingLinkRow): CalendarSchedulingLinkDto {
+  return {
+    id: row.id,
+    calendarId: row.calendar_id,
+    slug: row.slug,
+    title: row.title,
+    durationMinutes: Number(row.duration_minutes),
+    days: schedulingLinkDays(row.days_json),
+    startHour: Number(row.start_hour),
+    endHour: Number(row.end_hour),
+    enabled: row.enabled === 1,
+  }
+}
+
+export async function listSchedulingLinkDtos(db: D1Database, userId: string): Promise<CalendarSchedulingLinkDto[]> {
+  return (await listSchedulingLinks(db, userId)).map(toSchedulingLinkDto)
 }
 
 export async function getSchedulingLink(
