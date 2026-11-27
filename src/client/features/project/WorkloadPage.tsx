@@ -4,7 +4,7 @@ import type { ProjectWorkloadReport } from '@shared/project/model'
 import { t, useLocale } from '../../lib/i18n'
 import { navigateToAddress, navigateToPath } from '../../lib/app-history'
 import { Avatar, Button, IconButton } from '../../components/primitives'
-import { Input } from '../../components/form'
+import { commitOnEnter, Input } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
@@ -85,7 +85,7 @@ export function WorkloadPage(): ReactElement {
         </div>
         <label className="flex items-center gap-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">
           {t('project.workload.my_capacity')}
-          <Input className="w-24" type="number" min={0} max={168} step={0.5} value={capacityHours} aria-label={t('project.workload.my_capacity')} onChange={(event) => setCapacityHours(event.target.value)} onBlur={saveCapacity} onKeyDown={(event) => { if (event.key === 'Enter') saveCapacity() }} />
+          <Input className="w-24" type="number" min={0} max={168} step={0.5} value={capacityHours} aria-label={t('project.workload.my_capacity')} onChange={(event) => setCapacityHours(event.target.value)} onBlur={saveCapacity} onKeyDown={(event) => commitOnEnter(event, saveCapacity)} />
           <span>{t('project.workload.hours_per_week')}</span>
         </label>
       </header>
