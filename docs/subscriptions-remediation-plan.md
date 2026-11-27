@@ -34,7 +34,7 @@ These three are marked `external-product-decision`, not silently skipped.
 | SUB-006 | completed | Stop destroying lifetime payment totals when trimming visible history | `store`, schema/migration, backup | 81 tests; typecheck/lint/static gates/build | `6c91d5071` |
 | SUB-007 | completed | Make backup restore staged and recoverable | `backup`, schema/migration | 29 tests incl. injected final-batch failure; typecheck/lint/static gates/build | `b72040165` |
 | SUB-008 | completed | Split calendar read token from webhook write token | inbound routes, settings, schema/migration, UI | 117 backend/migration tests + 26 UI/security tests; typecheck/lint/static gates/build | `bdf50101e` |
-| SUB-009 | pending | Make scheduler due-driven and aggregate routine logs | `scheduler`, `logs`, schema/indexes | query/write-count test at 100/1000 accounts | pending |
+| SUB-009 | completed | Make scheduler due-driven and aggregate routine logs | `scheduler`, `logs`, schema/indexes | 26 tests; typecheck/lint/static gates/build | `c39582eae` |
 | SUB-010 | pending | Refresh overview after activation changes and add frontend request ordering | client `store` | delayed-response tests + browser | pending |
 | SUB-011 | pending | Fix toolbar wrappers, narrow-screen overflow, drawer close, and toolbar semantics | `form`, `SubscriptionsApp`, `SubscriptionDetail`, `Drawer` | 390/1100/1440/1800 browser geometry and screenshots | pending |
 | SUB-012 | pending | Fix reminder row drafts, settings autosave races, bulk pending/rollback, and log filters | `ReminderRuleRow`, `SubscriptionSettings`, `BulkBar`, `LogsView` | component tests + browser | pending |
@@ -76,3 +76,4 @@ For each task:
 - SUB-006 completed in `6c91d5071`: payment history is no longer physically trimmed. The setting now limits visible receipts only; lifetime totals and yearly statistics use the complete ledger. Regression tests show 10 visible receipts while 11 receipts and the full 660 total remain.
 - SUB-007 completed in `b72040165`: migration 441 adds an isolated restore staging table. Restores normalize and stage first, then switch live tables in one atomic batch. An injected final-batch failure leaves the old library unchanged and cleans staging.
 - SUB-008 completed in `bdf50101e`: migration 442 adds a separate calendar read token. Calendar GET and webhook POST reject each other's tokens; the settings UI rotates and displays them independently. This is a recorded breaking change: existing calendar links must be regenerated.
+- SUB-009 completed in `c39582eae`: the scheduler now selects only accounts with due auto-renewals or reminders inside their lead window. Routine minutes no longer write schedule rows; events and an hourly heartbeat remain. Migration 443 adds the due-query index.
