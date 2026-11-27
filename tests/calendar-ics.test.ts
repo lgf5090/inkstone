@@ -315,6 +315,97 @@ describe('serializeIcsCalendar', () => {
 })
 
 describe('recurrence expansion', () => {
+  function recurring(input: {
+    id?: string
+    start: CalendarEventDto['start']
+    end: CalendarEventDto['end']
+    rule?: string
+    allDay?: boolean
+  }): CalendarEventDto {
+    const rule = input.rule ?? 'FREQ=DAILY'
+    return {
+      id: input.id ?? 'series-1',
+      title: 'Recurring',
+      description: '',
+      kind: 'event',
+      task: null,
+      conference: null,
+      start: input.start,
+      end: input.end,
+      allDay: input.allDay ?? false,
+      calendarId: 'cal-1',
+      calendarIds: ['cal-1'],
+      meta: { recurrenceRule: rule },
+      icon: null,
+      color: null,
+      recurrenceRule: rule,
+      recurrenceParentId: null,
+      recurrenceId: null,
+      recurrenceCancelled: false,
+      rev: 1,
+      source: 'local',
+      externalId: null,
+    }
+  }
+
+  it('includes occurrences that begin before the range but overlap it', () => {
+    const event = recurring({
+      start: { value: '2026-10-01T00:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+      end: { value: '2026-10-04T00:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+    })
+    const result = expandRecurringEvents([event], Date.parse('2026-10-02T00:00:00Z'), Date.parse('2026-10-03T23:59:59Z'), 'UTC')
+
+    expect(result.occurrences.map((entry) => entry.start.value)).toEqual([
+      '2026-10-02T00:00:00+00:00[UTC]',
+      '2026-10-03T00:00:00+00:00[UTC]',
+    ])
+    expect(result.occurrences[0]!.end.value).toBe('2026-10-05T00:00:00+00:00[UTC]')
+  })
+
+  it('excludes an occurrence ending exactly at the range start and terminates by start', () => {
+    const event = recurring({
+      start: { value: '2026-10-01T00:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+      end: { value: '2026-10-01T01:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+    })
+    const result = expandRecurringEvents([event], Date.parse('2026-10-02T01:00:00Z'), Date.parse('2026-10-03T00:00:00Z'), 'UTC')
+
+    expect(result.occurrences.map((entry) => entry.start.value)).toEqual(['2026-10-03T00:00:00+00:00[UTC]'])
+  })
+
+  it('preserves point-occurrence boundaries', () => {
+    const event = recurring({
+      start: { value: '2026-10-01T00:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+      end: { value: '2026-10-01T00:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+    })
+    const result = expandRecurringEvents([event], Date.parse('2026-10-02T00:00:00Z'), Date.parse('2026-10-02T00:00:00Z'), 'UTC')
+    expect(result.occurrences.map((entry) => entry.start.value)).toEqual(['2026-10-02T00:00:00+00:00[UTC]'])
+  })
+
+  it('keeps all-day recurrence ends exclusive when testing overlap', () => {
+    const event = recurring({
+      start: { value: '2026-10-01', type: 'date' },
+      end: { value: '2026-10-04', type: 'date' },
+      allDay: true,
+    })
+    const result = expandRecurringEvents([event], Date.parse('2026-10-02T00:00:00Z'), Date.parse('2026-10-03T23:59:59Z'), 'UTC')
+    expect(result.occurrences.map((entry) => entry.start.value)).toEqual(['2026-10-02', '2026-10-03'])
+    expect(result.occurrences.every((entry) => entry.allDay)).toBe(true)
+  })
+
+  it('keeps an overlap that crosses the spring DST transition', () => {
+    const event = recurring({
+      start: { value: '2026-03-06T23:00:00-05:00[America/New_York]', type: 'zoned', timeZone: 'America/New_York' },
+      end: { value: '2026-03-07T03:00:00-05:00[America/New_York]', type: 'zoned', timeZone: 'America/New_York' },
+      rule: 'FREQ=DAILY;COUNT=3',
+    })
+    const result = expandRecurringEvents([event], Date.parse('2026-03-08T06:30:00Z'), Date.parse('2026-03-09T04:00:00Z'), 'America/New_York')
+    expect(result.occurrences.map((entry) => entry.start.value)).toEqual([
+      '2026-03-07T23:00:00-05:00[America/New_York]',
+      '2026-03-08T23:00:00-04:00[America/New_York]',
+    ])
+    expect(result.occurrences[0]!.end.value).toBe('2026-03-08T03:00:00-04:00[America/New_York]')
+  })
+
   it('expands a floating weekly rule with an Asia/Shanghai fallback', async () => {
     const { expandRecurringEvents } = await import('../src/worker/calendar/ics')
     const event = {

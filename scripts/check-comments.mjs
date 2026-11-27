@@ -1776,7 +1776,7 @@ const allowed = new Map([
     "/**\n * The read-only reads the day panel makes into other modules.\n *\n * All three are reads through their own public HTTP surfaces, so nothing here knows a table name:\n * the calendar is allowed to say \"these rows exist on this day\", not to change them. A write that a\n * reader asks for from this panel is done by the owning module, through its own editor, after the\n * jump — which is also why every row carries the address it belongs to.\n */",
     "/** Epoch milliseconds or an ISO instant, as the to-do API answers; null when the row has no date. */",
     "/** Tasks whose due date is that account day, read through the to-do listing's own range filter. */",
-    "/**\n * Plans whose expiry date is that day.\n *\n * The subscription app has no range endpoint of its own, and inventing one would mean a second copy\n * of its derived rows; the bundle is read instead and filtered here. It is fetched only when a reader\n * opens the day panel, which is the one moment its cost buys something.\n */",
+    "/** Plans whose expiry falls on that account day, read through the indexed expiry endpoint. */",
   ]],
   ["src/client/features/calendar/model.ts", [
     "/**\n * The seam between the calendar API's DTOs and DayFlow's in-memory types.\n *\n * DayFlow works with Temporal values and keeps its own render-only fields on an event; the API works\n * with `{ value, type, timeZone }` records and revisions. Everything that crosses that line goes\n * through this module so a field can never be dropped by one screen and remembered by another.\n */",

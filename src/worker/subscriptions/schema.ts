@@ -45,6 +45,7 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_sub_item_expiry ON sub_item(user_id, expiry_date)`,
+  `CREATE INDEX IF NOT EXISTS idx_sub_item_expiring ON sub_item(user_id, deleted_at, expiry_date, id)`,
   `CREATE INDEX IF NOT EXISTS idx_sub_item_active ON sub_item(user_id, is_active, expiry_date)`,
   `CREATE INDEX IF NOT EXISTS idx_sub_item_trash ON sub_item(user_id, deleted_at)`,
 
@@ -209,6 +210,7 @@ export const SUBSCRIPTIONS_REQUIRED_TABLES: readonly string[] = [
 
 export const SUBSCRIPTIONS_REQUIRED_INDEXES: readonly string[] = [
   'idx_sub_item_expiry',
+  'idx_sub_item_expiring',
   'idx_sub_item_active',
   'idx_sub_item_trash',
   'idx_sub_payment_sub',

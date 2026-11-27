@@ -957,15 +957,17 @@ export function expandRecurringEvents(
       let start: TemporalValue
       let end: TemporalValue
       let startMs: number
+      let endMs: number
       try {
         const details = icalEvent.getOccurrenceDetails(next)
         start = temporalValueFor(details.startDate, context)
         end = temporalValueFor(details.endDate, context)
         startMs = temporalValueToEpochMs(start, fallbackTimeZone)
+        endMs = temporalValueToEpochMs(end, fallbackTimeZone)
       } catch {
         continue
       }
-      if (startMs < fromMs) continue
+      if (endMs > startMs ? endMs <= fromMs : startMs < fromMs) continue
       if (startMs > toMs) break
       if (startMs === masterStartMs) continue
       if (occurrences.length >= MAX_RECURRENCE_OCCURRENCES) {

@@ -179,6 +179,20 @@ export const DEDUPE_RETENTION_MS = 48 * 60 * 60 * 1000
 export const NOTIFY_LOCALES = ['zh-CN', 'en-US'] as const
 export type NotifyLocale = (typeof NOTIFY_LOCALES)[number]
 
+export interface SubscriptionExpiry {
+  id: string
+  name: string
+  amount: number | null
+  currency: CurrencyCode
+  expiryDate: string
+  isActive: boolean
+}
+
+export interface SubscriptionExpiryPage {
+  items: SubscriptionExpiry[]
+  nextCursor: string | null
+}
+
 /**
  * A subscription as the browser receives it.
  *

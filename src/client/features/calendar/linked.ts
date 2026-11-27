@@ -7,7 +7,9 @@
  * jump — which is also why every row carries the address it belongs to.
  */
 
-import { request } from '../../lib/api'
+import { Temporal } from 'temporal-polyfill'
+import type { SubscriptionExpiry } from '@shared/subscriptions/model'
+import { api } from '../../lib/api'
 
 export interface LinkedTodo {
   id: string
@@ -17,14 +19,7 @@ export interface LinkedTodo {
   dueAt: number | string | null
 }
 
-export interface LinkedRenewal {
-  id: string
-  name: string
-  amount: number | null
-  currency: string
-  expiryDate: string
-  isActive: boolean
-}
+export type LinkedRenewal = SubscriptionExpiry
 
 function instantOf(value: number | string | null): number | null {
   if (value === null || value === '') return null
@@ -35,23 +30,38 @@ function instantOf(value: number | string | null): number | null {
 
 /** Tasks whose due date is that account day, read through the to-do listing's own range filter. */
 export async function todosDueOn(day: string, signal?: AbortSignal): Promise<LinkedTodo[]> {
-  const params = new URLSearchParams({
-    dueFrom: `${day}T00:00`,
-    dueTo: `${day}T23:59`,
-    limit: '50',
-  })
-  const data = await request<{ tasks?: LinkedTodo[] }>(`/api/todos?${params.toString()}`, { signal })
-  return (data.tasks ?? []).filter(task => instantOf(task.dueAt) !== null)
+  const next = Temporal.PlainDate.from(day).add({ days: 1 }).toString()
+  const pageSize = 500
+  const tasks: LinkedTodo[] = []
+  let offset = 0
+  let total = Number.POSITIVE_INFINITY
+  while (offset < total) {
+    const params = {
+      dueFrom: `${day}T00:00`,
+      dueTo: `${next}T00:00`,
+      sort: 'due',
+      limit: pageSize,
+      offset,
+    }
+    const data = await api.todos.list(params, signal)
+    const rows = data.tasks ?? []
+    const page = rows.filter(task => instantOf(task.dueAt) !== null)
+    total = data.total
+    if (rows.length === 0 && offset < total) throw new Error('The task page ended before its total')
+    tasks.push(...page)
+    offset += rows.length
+  }
+  return tasks
 }
 
-/**
- * Plans whose expiry date is that day.
- *
- * The subscription app has no range endpoint of its own, and inventing one would mean a second copy
- * of its derived rows; the bundle is read instead and filtered here. It is fetched only when a reader
- * opens the day panel, which is the one moment its cost buys something.
- */
+/** Plans whose expiry falls on that account day, read through the indexed expiry endpoint. */
 export async function renewalsOn(day: string, signal?: AbortSignal): Promise<LinkedRenewal[]> {
-  const data = await request<{ items?: LinkedRenewal[] }>('/api/subscriptions', { signal })
-  return (data.items ?? []).filter(item => item.expiryDate.slice(0, 10) === day)
+  const items: LinkedRenewal[] = []
+  let cursor: string | undefined
+  do {
+    const page = await api.subscriptions.expiring(day, 500, cursor, signal)
+    items.push(...page.items)
+    cursor = page.nextCursor ?? undefined
+  } while (cursor)
+  return items
 }

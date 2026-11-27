@@ -27,6 +27,7 @@ import type {
   ScheduleLogEntry,
   SubscriptionBundle,
   SubscriptionDetail,
+  SubscriptionExpiryPage,
   SubscriptionInput,
   SubscriptionItem,
   SubscriptionSettings,
@@ -1783,8 +1784,8 @@ export const api = {
       q?: string, dueFrom?: string, dueTo?: string, completedFrom?: string, completedTo?: string,
       archived?: string, scope?: string,
       sort?: string, limit?: number, offset?: number
-    } = {}) =>
-      request<TaskPage>(`/api/todos${toQuery(params)}`),
+    } = {}, signal?: AbortSignal) =>
+      request<TaskPage>(`/api/todos${toQuery(params)}`, { signal }),
     /**
      * The sidebar's numbers, without a task row attached.
      *
@@ -2647,6 +2648,8 @@ export const api = {
    */
   subscriptions: {
     bundle: () => request<SubscriptionBundle>('/api/subscriptions'),
+    expiring: (day: string, limit = 500, cursor?: string, signal?: AbortSignal) =>
+      request<SubscriptionExpiryPage>(`/api/subscriptions/expiring${toQuery({ day, limit, cursor })}`, { signal }),
     /**
      * Drop the cached day of exchange rates and read a fresh one.
      *
