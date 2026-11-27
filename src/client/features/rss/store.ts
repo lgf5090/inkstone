@@ -33,7 +33,7 @@ import {
   type RssGroup,
   type RssLibrary,
 } from '@shared/rss/model'
-import { channelKey, descendantGroupIds, feedShelfOrder, feedWantsRefresh, groupIdFor, groupKey, migrateEntryMarks, orderByStaleness, parseChannelKey, refreshBackoffMs, remoteContentKey, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
+import { channelKey, descendantGroupIds, feedsForChannel, feedShelfOrder, feedWantsRefresh, groupIdFor, groupKey, migrateEntryMarks, orderByStaleness, parseChannelKey, refreshBackoffMs, remoteContentKey, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
 import { diffLibrary, patchChars, patchIsEmpty } from '@shared/rss/patch'
 import { FeedParseError, parseFeed, type ParsedFeed } from '../../lib/rss/feed'
 import type { LinkPlatform } from '@shared/rss/platform'
@@ -200,8 +200,8 @@ function resultStamp(): number {
 }
 const FETCH_BATCH = 25
 const SAVE_DEBOUNCE_MS = 900
-/** How many of a merged channel's feeds are read into memory when it is opened. */
-const PREPARE_LIMIT = 80
+/** How many feed caches are read at once when a large channel opens. */
+const FEED_PREPARE_BATCH = 20
 
 interface CacheIndex {
   articles: Record<string, RssCacheMeta>
@@ -514,15 +514,10 @@ export const useRss = create<RssState>((set, get) => {
 
   /** The feeds a channel is made of, with their articles read into memory first. */
   async function prepare(channel: RssChannel): Promise<void> {
-    const { feeds } = get().library
-    const members = channel.kind === 'feed'
-      ? feeds.filter(feed => feed.id === channel.feedId)
-      : channel.kind === 'group'
-        ? feeds.filter(feed => feed.groupId === channel.groupId)
-        : channel.kind === 'vault'
-          ? []
-          : feeds
-    await Promise.all(members.slice(0, PREPARE_LIMIT).map(feed => ensureArticles(feed.id)))
+    const members = feedsForChannel(get().library, channel)
+    for (let offset = 0; offset < members.length; offset += FEED_PREPARE_BATCH) {
+      await Promise.all(members.slice(offset, offset + FEED_PREPARE_BATCH).map(feed => ensureArticles(feed.id)))
+    }
   }
 
   /**

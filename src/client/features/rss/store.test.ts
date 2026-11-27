@@ -8,7 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { channelEntries } from '@shared/rss/reading'
-import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssLibrary } from '@shared/rss/model'
+import { emptyLibrary, newGroup, parseRssLibrary, RSS_LIMITS, type RssLibrary } from '@shared/rss/model'
 import { applyLibraryPatch } from '@shared/rss/patch'
 
 const feed = {
@@ -254,6 +254,38 @@ describe('loading on a device', () => {
     // second device settle for `304` and an empty list forever.
     expect(sent[0].etag).toBeUndefined()
     expect(sent[0].lastModified).toBeUndefined()
+  })
+
+  it('loads every cached feed in a large merged channel', async () => {
+    const base = JSON.parse(JSON.stringify(saved)) as RssLibrary
+    base.feeds = []
+    base.lastChannel = 'all'
+    const articles: Record<string, unknown> = {}
+    for (let index = 0; index < 81; index++) {
+      const id = `f${index}`
+      base.feeds.push({ ...feed, id, url: `https://example.test/${id}` })
+      articles[id] = { fetchedAt: Date.now(), bytes: 10, count: 1 }
+      cache.set(`articles:${id}`, { feedId: id, fetchedAt: Date.now(), entries: [{ id: `e${index}`, feedId: id, title: id, link: `https://example.test/${index}`, author: '', publishedTs: index, summary: '', content: '', imageUrl: '', audioUrl: '' }] })
+    }
+    cache.set('library', base)
+    cache.set('index', { articles, views: {} })
+    await boot()
+    expect(Object.keys(useRss.getState().articles)).toHaveLength(81)
+  })
+
+  it('loads descendant folder feeds when the parent folder opens', async () => {
+    const base = JSON.parse(JSON.stringify(saved)) as RssLibrary
+    base.groups = [newGroup('g1', 'Parent', 0), newGroup('g2', 'Child', 1, 'g1')]
+    base.feeds = [{ ...feed, id: 'f1', url: 'https://a.test/feed', groupId: 'g1' }, { ...feed, id: 'f2', url: 'https://b.test/feed', groupId: 'g2' }]
+    base.lastChannel = 'group:g1'
+    cache.set('library', base)
+    for (const id of ['f1', 'f2']) {
+      cache.set(`articles:${id}`, { feedId: id, fetchedAt: Date.now(), entries: [{ id: `e-${id}`, feedId: id, title: id, link: `https://example.test/${id}`, author: '', publishedTs: 1, summary: '', content: '', imageUrl: '', audioUrl: '' }] })
+    }
+    cache.set('index', { articles: { f1: { fetchedAt: Date.now(), bytes: 1 }, f2: { fetchedAt: Date.now(), bytes: 1 } }, views: {} })
+    await boot()
+    expect(useRss.getState().articles.f1).toHaveLength(1)
+    expect(useRss.getState().articles.f2).toHaveLength(1)
   })
 
   it('sends the validator once the device does hold a copy', async () => {

@@ -26,6 +26,7 @@ import { Segmented } from '../../components/form'
 import { Menu, Tooltip, useContextMenu } from '../../components/overlay'
 import {
   channelEntries,
+  feedsForChannel,
   findFeed,
   selectEntries,
   sortEntries,
@@ -94,13 +95,7 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
   const [markArmed, setMarkArmed] = useState(false)
   const menu = useContextMenu()
   const [menuEntry, setMenuEntry] = useState<RssEntry | null>(null)
-  const channelFeeds = state.channel.kind === 'feed'
-    ? [state.channel.feedId]
-    : state.channel.kind === 'group'
-      ? state.library.feeds.filter(feed => feed.groupId === (state.channel as { groupId: string }).groupId).map(feed => feed.id)
-      : state.channel.kind === 'vault'
-        ? []
-        : state.library.feeds.map(feed => feed.id)
+  const channelFeeds = feedsForChannel(state.library, state.channel).map(feed => feed.id)
   // A list that has not been asked for anything in half a day says so, because the rows look exactly
   // like news and the reader has no other way to tell they are the last visit's.
   const cachedSince = channelCachedSince(channelFeeds.map(id => state.cache[id]))
