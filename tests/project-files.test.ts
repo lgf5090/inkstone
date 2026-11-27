@@ -36,6 +36,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
+  sqlite.prepare('UPDATE users SET settings = ?').run(JSON.stringify({ appearance: { language: 'en-US' } }))
   sqlite.exec(`DELETE FROM attachment_cleanup; DELETE FROM project_attachments; DELETE FROM project_subscriptions; DELETE FROM project_reminders; DELETE FROM chat_notifications; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_properties`)
 })
 

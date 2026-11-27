@@ -5,7 +5,7 @@ import { fromBase64, fromUtf8, toBase64, utf8 } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
 import { publicUser } from '../lib/session-info'
-import { USER_COLUMNS, rowToUser } from '../middleware/auth'
+import { USER_COLUMNS, rowToUser } from '../lib/user-row'
 import { isProtectedReadable, isPubliclyReadable } from './access'
 import { findShareByToken } from './shares'
 import {

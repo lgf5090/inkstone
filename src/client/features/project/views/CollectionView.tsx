@@ -15,6 +15,7 @@ import { LoadingBlock } from '../../../components/feedback'
 import { Input } from '../../../components/form'
 import { confirm, useDialogFocus, useEscape } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
+import { request } from '../../../lib/api'
 import { ViewEmpty, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { deleteProjectFile, listBoardFiles, projectFileUrl, uploadBoardFile } from '../api'
 
@@ -94,11 +95,7 @@ export function CollectionView({ boardId, canEdit, onOpenCard, publicView = fals
     if (!preview || !preview.mime.startsWith('text/')) { setText(null); setTextStatus('idle'); return }
     const controller = new AbortController()
     setTextStatus('loading')
-    fetch(projectFileUrl(preview.id), { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error('File preview failed')
-        return response.text()
-      })
+    request<string>(projectFileUrl(preview.id), { signal: controller.signal })
       .then((body) => { if (!controller.signal.aborted) { setText(body.slice(0, 20_000)); setTextStatus('ready') } })
       .catch(() => { if (!controller.signal.aborted) { setText(null); setTextStatus('error') } })
     return () => controller.abort()

@@ -14,20 +14,8 @@ import { ApiError } from '../lib/errors'
 import { memoPatFromAuthorization } from '../memos/tokens'
 import { projectTokenFromAuthorization } from '../project/tokens'
 import { isXgetProxyPath } from '../development/xget/paths'
-import type { AppBindings, Variables } from '../env'
-
-interface UserRow {
-  id: string
-  username: string
-  login: string
-  name: string
-  avatar_url: string
-  role: 'owner' | 'member'
-  settings: string
-  created_at: number
-}
-
-export const USER_COLUMNS = `id, username, login, name, avatar_url, role, settings, created_at`
+import type { AppBindings } from '../env'
+import { rowToUser, USER_COLUMNS, type UserRow } from '../lib/user-row'
 
 const USER_COLUMNS_ALIASED = USER_COLUMNS.split(', ').map((column) => `u.${column}`).join(', ')
 
@@ -39,21 +27,6 @@ const USER_COLUMNS_ALIASED = USER_COLUMNS.split(', ').map((column) => `u.${colum
  * both decide they were the one that crossed the interval.
  */
 const LAST_SEEN_WRITE_INTERVAL_MS = 5 * 60 * 1000
-
-export function rowToUser(row: UserRow): Variables['user'] {
-  return {
-    id: row.id,
-    username: row.username,
-    login: row.login,
-    name: row.name,
-    avatarUrl: row.avatar_url,
-
-    role: row.role === 'owner' ? 'owner' : 'member',
-    createdAt: row.created_at,
-    settingsRaw: row.settings,
-  }
-}
-
 
 interface SessionUserRow extends UserRow {
   session_id: string

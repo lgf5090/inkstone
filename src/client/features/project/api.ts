@@ -9,7 +9,6 @@ import type {
   ProjectAttachment,
   ProjectBoard,
   ProjectBoardBundle,
-  ProjectBoardMetadata,
   ProjectBoardPatch,
   ProjectBoardMember,
   ProjectBoardSummary,
@@ -32,7 +31,7 @@ import type {
   ProjectViewType,
 } from '@shared/project/model'
 import type { ProjectContentCreateInput, ProjectContentPatchInput } from '@shared/project/validation'
-import type { ProjectRelationBackReference, ProjectRelationOption } from '@shared/project/relation'
+import type { ProjectRelationOption } from '@shared/project/relation'
 import type { ProjectAutomation, ProjectAutomationAction, ProjectAutomationCondition, ProjectAutomationTrigger } from '@shared/project/automation'
 import type { ProjectSprint, ProjectSprintBurndown, ProjectSprintStatus } from '@shared/project/stats'
 import type { ProjectBoardCreateInput, ProjectCardCreateInput } from '@shared/project/validation'
@@ -229,10 +228,6 @@ export async function undeleteProjectView(id: string): Promise<void> {
 export async function duplicateProjectView(id: string): Promise<ProjectView> {
   const body = await request<{ view: ProjectView }>(`/api/project/views/${encodeURIComponent(id)}/duplicate`, { method: 'POST', body: {} })
   return body.view
-}
-
-export async function fetchBoardMetadata(id: string): Promise<ProjectBoardMetadata> {
-  return request<ProjectBoardMetadata>(`/api/project/boards/${encodeURIComponent(id)}/metadata`)
 }
 
 export async function fetchBoardProperties(id: string, signal?: AbortSignal): Promise<ProjectProperty[]> {
@@ -470,14 +465,6 @@ export async function removeBoardMember(boardId: string, userId: string): Promis
   await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' })
 }
 
-export async function joinProjectBoard(boardId: string): Promise<ProjectBoardMember> {
-  return request<ProjectBoardMember>(`/api/project/boards/${encodeURIComponent(boardId)}/join`, { method: 'POST', body: {} })
-}
-
-export async function leaveProjectBoard(boardId: string): Promise<void> {
-  await request<{ ok: true }>(`/api/project/boards/${encodeURIComponent(boardId)}/leave`, { method: 'POST', body: {} })
-}
-
 export async function fetchProjectSubscriptions(signal?: AbortSignal): Promise<ProjectSubscription[]> {
   const body = await request<{ subscriptions: ProjectSubscription[] }>('/api/project/subscriptions', { signal })
   return body.subscriptions
@@ -510,11 +497,6 @@ export async function restoreProjectBoard(boardId: string): Promise<void> {
 export async function fetchRelationCards(targetBoardId: string, signal?: AbortSignal): Promise<ProjectRelationOption[] | null> {
   const body = await request<{ cards: ProjectRelationOption[] | null }>(`/api/project/boards/${encodeURIComponent(targetBoardId)}/relation-cards`, { signal })
   return body.cards
-}
-
-export async function fetchCardRelations(cardId: string, signal?: AbortSignal): Promise<ProjectRelationBackReference[]> {
-  const body = await request<{ references: ProjectRelationBackReference[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/relations`, { signal })
-  return body.references
 }
 
 export interface ProjectAutomationInput {

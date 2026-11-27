@@ -32,7 +32,7 @@
  * and the first result (password) are the route's answers and are preserved by position.
  */
 
-import { rowToUser, USER_COLUMNS } from '../middleware/auth'
+import { rowToUser, USER_COLUMNS } from '../lib/user-row'
 
 /** The row a sign-in compares against: the profile columns the session carries plus the verifier. */
 export type AccountCredentialRow = Parameters<typeof rowToUser>[0] & { password_hash: string }

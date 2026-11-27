@@ -1,7 +1,5 @@
 import type {
   ProjectBoardBundle,
-  ProjectCard,
-  ProjectCardRelation,
   ProjectMinimumRole,
   ProjectProperty,
   ProjectRole,
@@ -32,7 +30,7 @@ export function projectRelationTargets(properties: readonly ProjectProperty[]): 
   return targets
 }
 
-export async function projectBoardVisibleTo(
+async function projectBoardVisibleTo(
   db: D1Database,
   boardId: string,
   viewerId: string | undefined,
@@ -89,21 +87,6 @@ export function relationEdgeStatements(
     statements.push(insertRelationStatement(db, boardId, fromCardId, propertyId, targetBoardId, toId, now))
   }
   return statements
-}
-
-export async function syncCardRelationsForCard(
-  db: D1Database,
-  card: ProjectCard,
-  properties: readonly ProjectProperty[],
-  now: number,
-): Promise<void> {
-  const statements: D1PreparedStatement[] = []
-  for (const [propertyId, targetBoardId] of projectRelationTargets(properties)) {
-    statements.push(...relationEdgeStatements(
-      db, card.boardId, card.id, propertyId, targetBoardId, card.values[propertyId] ?? '', now,
-    ))
-  }
-  if (statements.length) await db.batch(statements)
 }
 
 export async function rebuildBoardRelations(
@@ -249,25 +232,4 @@ export async function redactHiddenRelations(
   for (const card of bundle.cards) {
     for (const propertyId of hidden) card.values[propertyId] = ''
   }
-}
-
-export async function deleteCardRelationsForCard(db: D1Database, cardId: string): Promise<void> {
-  await db.prepare('DELETE FROM project_card_relations WHERE from_card_id = ?1 OR to_card_id = ?1').bind(cardId).run()
-}
-
-export async function deleteCardRelationsForProperty(db: D1Database, propertyId: string): Promise<void> {
-  await db.prepare('DELETE FROM project_card_relations WHERE property_id = ?1').bind(propertyId).run()
-}
-
-export async function listBoardRelations(db: D1Database, boardId: string): Promise<ProjectCardRelation[]> {
-  const { results } = await db.prepare(
-    'SELECT board_id, from_card_id, to_card_id, property_id, created_at FROM project_card_relations WHERE board_id = ?1 ORDER BY from_card_id, to_card_id',
-  ).bind(boardId).all<{ board_id: string, from_card_id: string, to_card_id: string, property_id: string, created_at: number }>()
-  return results.map((row) => ({
-    boardId: row.board_id,
-    fromCardId: row.from_card_id,
-    toCardId: row.to_card_id,
-    propertyId: row.property_id,
-    createdAt: row.created_at,
-  }))
 }

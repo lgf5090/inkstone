@@ -34,7 +34,7 @@ beforeEach(() => {
   sqlite.exec(`DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards;
     DELETE FROM project_cards; DELETE FROM project_card_values; DELETE FROM project_card_contents;
     DELETE FROM project_comments; DELETE FROM project_subscriptions; DELETE FROM chat_notifications`)
-  sqlite.prepare("UPDATE users SET settings = '{}'").run()
+  sqlite.prepare("UPDATE users SET settings = ?").run(JSON.stringify({ appearance: { language: 'en-US' } }))
 })
 
 async function req(method: string, path: string, body?: unknown): Promise<Response> {
@@ -57,7 +57,7 @@ async function boardWithCard(): Promise<{ board: ProjectBoard, card: ProjectCard
 }
 
 function preference(boardId: string, level: 'all' | 'mentions' | 'off'): void {
-  sqlite.prepare('UPDATE users SET settings = ? WHERE id = ?').run(JSON.stringify({ project: { notifications: { [boardId]: level } } }), 'bob')
+  sqlite.prepare('UPDATE users SET settings = ? WHERE id = ?').run(JSON.stringify({ appearance: { language: 'en-US' }, project: { notifications: { [boardId]: level } } }), 'bob')
 }
 
 function notices(): { title: string, link: string | null }[] {
@@ -96,6 +96,14 @@ describe('the per-board notification preference', () => {
     sqlite.prepare('DELETE FROM project_board_members WHERE board_id = ? AND user_id = ?').run(board.id, 'bob')
     expect((await req('POST', `/cards/${card.id}/comments`, { body: '@bob private update' })).status).toBe(201)
     expect(notices()).toEqual([])
+  })
+
+  it('uses the recipient language for notification titles', async () => {
+    const { board, card } = await boardWithCard()
+    sqlite.prepare('UPDATE users SET settings = ? WHERE id = ?').run(JSON.stringify({ appearance: { language: 'zh-CN' } }), 'bob')
+    expect((await req('POST', `/cards/${card.id}/comments`, { body: '@bob please look' })).status).toBe(201)
+    expect(notices().map((notice) => notice.title)).toEqual(['新评论：Task'])
+    void board
   })
 
   it('honours the same choice for an assignment', async () => {
