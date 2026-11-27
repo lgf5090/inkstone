@@ -24,7 +24,6 @@ import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 import { readStreamTextWithinLimit } from '../lib/request'
 import {
   GOOGLE_CALENDAR_API_BASE,
-  OUTLOOK_CALENDAR_API_BASE,
   createCalendarConnection,
   listCalendarConnections,
   loadCalendarCredential,
@@ -32,6 +31,7 @@ import {
   updateCalendarConnectionStatus,
   type CalendarConnectionRecord,
 } from './connections'
+import { outlookGraphBase } from './graph'
 
 export type CalendarOAuthProvider = 'google' | 'outlook'
 
@@ -395,35 +395,41 @@ export async function revokeCalendarConnection(
 // ---------------------------------------------------------------------------- configuration
 
 function providerSettings(env: Env, provider: CalendarOAuthProvider): ProviderSettings {
-  if (provider === 'google') {
-    const clientId = env.GOOGLE_CLIENT_ID?.trim() ?? ''
-    const clientSecret = env.GOOGLE_CLIENT_SECRET?.trim() ?? ''
-    if (!clientId || !clientSecret) {
-      throw new ApiError(503, 'server_misconfigured', 'Google Calendar sign-in is not configured on this deployment')
+  switch (provider) {
+    case 'google': {
+      const clientId = env.GOOGLE_CLIENT_ID?.trim() ?? ''
+      const clientSecret = env.GOOGLE_CLIENT_SECRET?.trim() ?? ''
+      if (!clientId || !clientSecret) {
+        throw new ApiError(503, 'server_misconfigured', 'Google Calendar sign-in is not configured on this deployment')
+      }
+      return {
+        provider,
+        clientId,
+        clientSecret,
+        authorizeUrl: GOOGLE_AUTHORIZE_URL,
+        tokenUrl: GOOGLE_TOKEN_URL,
+        apiBase: GOOGLE_CALENDAR_API_BASE,
+        label: 'Google Calendar',
+      }
     }
-    return {
-      provider,
-      clientId,
-      clientSecret,
-      authorizeUrl: GOOGLE_AUTHORIZE_URL,
-      tokenUrl: GOOGLE_TOKEN_URL,
-      apiBase: GOOGLE_CALENDAR_API_BASE,
-      label: 'Google Calendar',
+    case 'outlook': {
+      const clientId = env.OUTLOOK_CLIENT_ID?.trim() ?? ''
+      const clientSecret = env.OUTLOOK_CLIENT_SECRET?.trim() ?? ''
+      if (!clientId || !clientSecret) {
+        throw new ApiError(503, 'server_misconfigured', 'Outlook Calendar sign-in is not configured on this deployment')
+      }
+      return {
+        provider,
+        clientId,
+        clientSecret,
+        authorizeUrl: OUTLOOK_AUTHORIZE_URL,
+        tokenUrl: OUTLOOK_TOKEN_URL,
+        apiBase: outlookGraphBase(env),
+        label: 'Outlook Calendar',
+      }
     }
-  }
-  const clientId = env.OUTLOOK_CLIENT_ID?.trim() ?? ''
-  const clientSecret = env.OUTLOOK_CLIENT_SECRET?.trim() ?? ''
-  if (!clientId || !clientSecret) {
-    throw new ApiError(503, 'server_misconfigured', 'Outlook Calendar sign-in is not configured on this deployment')
-  }
-  return {
-    provider,
-    clientId,
-    clientSecret,
-    authorizeUrl: OUTLOOK_AUTHORIZE_URL,
-    tokenUrl: OUTLOOK_TOKEN_URL,
-    apiBase: OUTLOOK_CALENDAR_API_BASE,
-    label: 'Outlook Calendar',
+    default:
+      throw new ApiError(500, 'internal', 'The calendar sign-in names an unknown provider')
   }
 }
 

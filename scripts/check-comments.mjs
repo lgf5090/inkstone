@@ -39226,7 +39226,7 @@ const allowed = new Map([
     "/**\n * Insert a connection and its sealed credential together.\n *\n * D1 batches are transactional, so a credential the vault refused to encrypt can never leave behind a\n * connection that looks usable but has no secret. The caller encrypts first, then calls this once.\n */",
     "/**\n * Remove a connection and everything tied to its authorization.\n *\n * Pending OAuth states for the same provider are removed too, because they can no longer produce a\n * connection the reader asked for. Subscriptions and events are deliberately left alone: the route\n * and the sync layer own that policy, and deleting a connection must not silently delete a calendar.\n */",
     "/** Upsert the one credential row a connection may have for its kind. Reconnecting replaces it. */",
-    "/**\n * The row as the server needs it. The browser-facing DTO deliberately drops `baseUrl` and\n * `username`; the proxy and OAuth refresh still need them server-side.\n */",
+    "/**\n * The row as the server needs it. The browser-facing DTO deliberately drops `username`; the proxy\n * and OAuth refresh still need it server-side.\n */",
   ]],
   ["src/worker/calendar/contacts.ts", [
     "/**\n * The account's address book.\n *\n * Calendar guests and birthdays are the same person seen twice: a guest list stores an email, a\n * birthday stores a date. Keeping both in one row means the composer can suggest a known address\n * and the birthday sweep has a date to turn into a yearly event.\n */",
@@ -39296,8 +39296,10 @@ const allowed = new Map([
     "// Encoded separators are the same attack in a different spelling: a browser may turn `%5c` or",
     "// `%2f%2f` back into a path that leaves this origin before it sends the request.",
   ]],
-  ["src/worker/calendar/provider-sync.ts", [
+  ["src/worker/calendar/provider-mappings.ts", [
     "/**\n * The connection↔calendar map the background provider sync is allowed to touch.\n *\n * The browser discovers provider calendars and reports the remote/local id pair after it has created\n * the local rows. The server never invents this map: a calendar without a row here is read-only from\n * the cron's point of view. A local calendar may belong to one connection only, so two same-kind\n * accounts cannot both write the same rows.\n */",
+  ]],
+  ["src/worker/calendar/provider-sync.ts", [
     "/** Replace this connection's map; rows omitted from the report stop being background-synced. */",
     "/** The provider libraries get the same authenticated, path-scoped proxy the browser uses. */",
     "/** Remove provider rows that the full-range answer no longer names; local-only rows have no external id. */",
@@ -49148,7 +49150,6 @@ const allowed = new Map([
   ["tests/calendar-sync.test.ts", [
     "// The real application installs `loadSession` before this router; the callback depends on that, so",
     "// the test installs the same half of it instead of letting the callback read an empty context.",
-    "// The browser-facing DTO is sanitized: base address and username stay server-side.",
   ]],
   ["tests/certhub-apply-row.test.tsx", [
     "/**\n * The request form's two visible bugs: a checkbox that printed its label twice, and a wildcard row\n * that still offered HTTP-01 even though the CA refuses it.\n */",

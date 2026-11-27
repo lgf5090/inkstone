@@ -7,5 +7,5 @@ export interface OutlookSync {
   ): Promise<{ events: unknown[]; deleted: string[]; deltaToken?: string }>
 }
 
-export function createOutlookSyncAdapter(options?: { fetch?: typeof fetch }): unknown
+export function createOutlookSyncAdapter(options?: { baseUrl?: string; fetch?: typeof fetch }): unknown
 export function createOutlookSync(adapter: unknown): OutlookSync

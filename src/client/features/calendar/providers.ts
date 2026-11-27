@@ -265,8 +265,8 @@ export function attachCalendarProviders(
         })
         void controller.start().then(() => reportCalendars(connection, sync)).catch((error: unknown) => announce(connection, 'error', error))
         controllers.push({ stop: () => controller.stop() })
-      } else {
-        const adapter = createOutlookSyncAdapter({ fetch: fetchImpl })
+      } else if (connection.kind === 'outlook') {
+        const adapter = createOutlookSyncAdapter({ baseUrl: connection.baseUrl, fetch: fetchImpl })
         const sync = createOutlookSync(adapter, { storage: new IdbOutlookStorage(prefix) })
         const controller = attachOutlookSyncToDayFlow(app, sync, {
           writable: connection.writable,
@@ -280,6 +280,8 @@ export function attachCalendarProviders(
         })
         void controller.start().then(() => reportCalendars(connection, sync)).catch((error: unknown) => announce(connection, 'error', error))
         controllers.push({ stop: () => controller.stop() })
+      } else {
+        throw new Error('The calendar connection names an unknown provider')
       }
     } catch (error) {
       announce(connection, 'error', error)

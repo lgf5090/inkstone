@@ -11,12 +11,13 @@
  */
 import type { CalendarConnectionDto, CalendarConnectionKind } from '@shared/calendar/model'
 import { CALENDAR_CONNECTION_KINDS } from '@shared/calendar/model'
+import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { validateConnectionUrl } from './discovery'
+import { assertOutlookGraphBase } from './graph'
 
 export const GOOGLE_CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3/'
-export const OUTLOOK_CALENDAR_API_BASE = 'https://graph.microsoft.com/v1.0/'
 
 export const CALENDAR_CONNECTION_STATUSES = ['connected', 'error', 'expired', 'disconnected'] as const
 export type CalendarConnectionStatus = (typeof CALENDAR_CONNECTION_STATUSES)[number]
@@ -24,8 +25,8 @@ export type CalendarConnectionStatus = (typeof CALENDAR_CONNECTION_STATUSES)[num
 export type CalendarCredentialKind = 'basic' | 'oauth'
 
 /**
- * The row as the server needs it. The browser-facing DTO deliberately drops `baseUrl` and
- * `username`; the proxy and OAuth refresh still need them server-side.
+ * The row as the server needs it. The browser-facing DTO deliberately drops `username`; the proxy
+ * and OAuth refresh still need it server-side.
  */
 export interface CalendarConnectionRecord {
   id: string
@@ -60,7 +61,7 @@ export interface CalendarConnectionStatusUpdate {
   errorCode?: string | null
 }
 
-interface ConnectionRow {
+export interface CalendarConnectionRow {
   id: string
   kind: string
   label: string
@@ -102,7 +103,7 @@ export async function listCalendarConnections(
         WHERE user_id = ?1 ORDER BY created_at ASC, id ASC`,
     )
     .bind(userId)
-    .all<ConnectionRow>()
+    .all<CalendarConnectionRow>()
   return (results ?? []).map(rowToConnectionDto)
 }
 
@@ -118,8 +119,8 @@ export async function getCalendarConnection(
         WHERE user_id = ?1 AND id = ?2`,
     )
     .bind(userId, connectionId)
-    .first<ConnectionRow>()
-  return row ? rowToConnectionRecord(row) : null
+    .first<CalendarConnectionRow>()
+  return row ? parseCalendarConnectionRow(row) : null
 }
 
 /**
@@ -302,24 +303,38 @@ function credentialStatement(
   ).bind(userId, newId(), connectionId, kind, ciphertext, now)
 }
 
-function rowToConnectionRecord(row: ConnectionRow): CalendarConnectionRecord {
+export function parseCalendarConnectionRow(row: CalendarConnectionRow): CalendarConnectionRecord {
+  if (!isCalendarConnectionKind(row.kind)
+    || (row.scope !== 'read' && row.scope !== 'write')
+    || !isCalendarConnectionStatus(row.status)
+    || (row.writable !== 0 && row.writable !== 1)
+    || (row.scope === 'read' && row.writable === 1)
+    || typeof row.id !== 'string'
+    || typeof row.label !== 'string'
+    || typeof row.base_url !== 'string'
+    || !(row.calendar_home_url === null || typeof row.calendar_home_url === 'string')
+    || !(row.username === null || typeof row.username === 'string')
+    || !(row.last_synced_at === null || (Number.isSafeInteger(row.last_synced_at) && row.last_synced_at >= 0))
+    || !(row.last_error_code === null || typeof row.last_error_code === 'string')) {
+    throw new ApiError(500, 'internal', 'The stored calendar connection is invalid')
+  }
   return {
     id: row.id,
-    kind: isCalendarConnectionKind(row.kind) ? row.kind : 'caldav',
+    kind: row.kind,
     label: row.label,
     baseUrl: row.base_url,
     calendarHomeUrl: row.calendar_home_url,
     username: row.username,
-    scope: row.scope === 'write' ? 'write' : 'read',
+    scope: row.scope,
     writable: row.writable === 1,
-    status: isCalendarConnectionStatus(row.status) ? row.status : 'error',
-    lastSyncedAt: typeof row.last_synced_at === 'number' ? row.last_synced_at : null,
+    status: row.status,
+    lastSyncedAt: row.last_synced_at,
     lastErrorCode: row.last_error_code,
   }
 }
 
-function rowToConnectionDto(row: ConnectionRow): CalendarConnectionDto {
-  return toCalendarConnectionDto(rowToConnectionRecord(row))
+function rowToConnectionDto(row: CalendarConnectionRow): CalendarConnectionDto {
+  return toCalendarConnectionDto(parseCalendarConnectionRow(row))
 }
 
 export function toCalendarConnectionDto(connection: CalendarConnectionRecord): CalendarConnectionDto {
@@ -327,12 +342,42 @@ export function toCalendarConnectionDto(connection: CalendarConnectionRecord): C
     id: connection.id,
     kind: connection.kind,
     label: connection.label,
+    baseUrl: connection.baseUrl,
     calendarHomeUrl: connection.calendarHomeUrl,
     scope: connection.scope,
     writable: connection.writable,
     status: connection.status,
     lastSyncedAt: connection.lastSyncedAt,
     lastErrorCode: connection.lastErrorCode,
+  }
+}
+
+export function assertCalendarConnectionKind(_kind: never): never {
+  throw new ApiError(500, 'internal', 'The stored calendar connection names an unknown provider')
+}
+
+export function calendarConnectionBase(
+  env: Pick<Env, 'OUTLOOK_GRAPH_API_BASE'>,
+  connection: CalendarConnectionRecord,
+): string {
+  switch (connection.kind) {
+    case 'caldav': {
+      if (!connection.calendarHomeUrl) {
+        throw ApiError.conflict('This CalDAV connection has no verified calendar home. Reconnect it')
+      }
+      return validateConnectionUrl(connection.calendarHomeUrl).toString()
+    }
+    case 'google': {
+      const url = validateConnectionUrl(connection.calendarHomeUrl ?? connection.baseUrl)
+      if (url.origin !== new URL(GOOGLE_CALENDAR_API_BASE).origin) {
+        throw new ApiError(500, 'internal', 'This Google connection has an invalid base address')
+      }
+      return url.toString()
+    }
+    case 'outlook':
+      return assertOutlookGraphBase(env, connection.baseUrl, connection.calendarHomeUrl)
+    default:
+      return assertCalendarConnectionKind(connection.kind)
   }
 }
 

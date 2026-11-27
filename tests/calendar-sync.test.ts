@@ -500,6 +500,45 @@ describe('OAuth start and callback', () => {
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_connections WHERE user_id = ?').get(USER)).toEqual({ count: 1 })
   })
 
+  it('persists the configured beta Graph base when Outlook OAuth completes', async () => {
+    const betaEnv: Env = { ...env, OUTLOOK_GRAPH_API_BASE: 'https://graph.microsoft.com/beta/' }
+    const started = await startOAuth(betaEnv, USER, {
+      provider: 'outlook',
+      writable: false,
+      origin: 'https://notes.example.com',
+    })
+    vi.stubGlobal('fetch', async () => Response.json({
+      access_token: 'outlook-access',
+      refresh_token: 'outlook-refresh',
+      expires_in: 3600,
+      scope: 'https://graph.microsoft.com/Calendars.Read offline_access',
+    }))
+    const completed = await completeOAuth(betaEnv, USER, {
+      code: 'synthetic-code',
+      state: new URL(started.url).searchParams.get('state')!,
+      origin: 'https://notes.example.com',
+    })
+    expect(await getCalendarConnection(db, USER, completed.connectionId)).toMatchObject({
+      kind: 'outlook',
+      baseUrl: 'https://graph.microsoft.com/beta/',
+      calendarHomeUrl: 'https://graph.microsoft.com/beta/',
+    })
+  })
+
+  it('refuses an invalid Outlook Graph base before starting OAuth', async () => {
+    const invalidEnv: Env = { ...env, OUTLOOK_GRAPH_API_BASE: 'http://graph.microsoft.com/v1.0/' }
+    const fetchMock = vi.fn(async () => Response.json({}))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(startOAuth(invalidEnv, USER, {
+      provider: 'outlook',
+      writable: false,
+      origin: 'https://notes.example.com',
+    })).rejects.toMatchObject({ status: 503, code: 'server_misconfigured' })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_oauth_states').get())
+      .toEqual({ count: 0 })
+  })
+
   it('does not accept a state minted for another account or an expired one', async () => {
     const started = await startOAuth(env, USER, {
       provider: 'google',
@@ -593,6 +632,29 @@ describe('access token refresh', () => {
 })
 
 describe('background provider sync', () => {
+  it('rejects an unknown stored provider before listing, mapping or touching the network', async () => {
+    const connection = await seedBasic()
+    await new CalendarStore(db, USER).createCalendar({ id: 'remote-cal', name: 'Remote', source: 'caldav' })
+    sqlite.prepare('UPDATE calendar_connections SET kind = ? WHERE user_id = ? AND id = ?')
+      .run('unknown-provider', USER, connection.id)
+    sqlite.prepare(`INSERT INTO calendar_provider_calendars
+      (user_id, connection_id, remote_calendar_id, local_calendar_id, created_at, updated_at)
+      VALUES (?, ?, 'remote-cal', 'remote-cal', 1, 1)`).run(USER, connection.id)
+    const fetchMock = vi.fn(async () => Response.json({}))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(listCalendarConnections(db, USER)).rejects.toMatchObject({ status: 500 })
+    await expect(new CalendarStore(db, USER).meta()).rejects.toMatchObject({ status: 500 })
+    const mapped = await request(`/connections/${connection.id}/calendars`, json({
+      calendars: [{ remoteId: 'remote-cal', localId: 'remote-cal' }],
+    }))
+    expect(mapped.status).toBe(500)
+    await expect(syncDueProviderConnections(env, Date.now())).rejects.toMatchObject({ status: 500 })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_provider_calendars').get())
+      .toEqual({ count: 1 })
+  })
+
   it('pulls events for a mapped Google calendar through the same proxy', async () => {
     const seeded = await seedOAuth()
     await new CalendarStore(db, USER).createCalendar({
@@ -799,9 +861,8 @@ describe('calendar sync routes', () => {
       writable: true,
       status: 'connected',
     })
-    // The browser-facing DTO is sanitized: base address and username stay server-side.
     expect(body.connection.username).toBeUndefined()
-    expect(body.connection.baseUrl).toBeUndefined()
+    expect(body.connection.baseUrl).toBe('https://dav.example.com/')
     expect(JSON.stringify(body)).not.toContain('synthetic-password')
     expect(JSON.stringify(body)).not.toContain('ciphertext')
   })

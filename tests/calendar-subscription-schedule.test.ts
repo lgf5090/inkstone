@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import {
+  createIcsSubscription,
   deleteIcsSubscription,
   refreshDueIcsSubscriptions,
   refreshIcsSubscription,
@@ -61,6 +62,19 @@ afterEach(() => {
 })
 
 describe('scheduled calendar subscriptions', () => {
+  it('returns the persisted subscription timestamps instead of the current clock', async () => {
+    const createdAt = Date.parse('2026-11-27T00:00:00Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(createdAt)
+    const created = await createIcsSubscription(env, USER, { url: 'https://example.com/feed.ics' })
+    expect(created.subscription.createdAt).toBe(createdAt)
+    expect(created.subscription.updatedAt).toBe(createdAt)
+
+    vi.setSystemTime(createdAt + 86_400_000)
+    const meta = await new CalendarStore(db, USER).meta()
+    expect(meta.subscriptions).toEqual([expect.objectContaining({ createdAt, updatedAt: createdAt })])
+  })
+
   it('refreshes only enabled, due feeds and skips a future sync', async () => {
     await insertSubscription('due', 1, null)
     await insertSubscription('paused', 0, null)

@@ -133,6 +133,30 @@ async function seedGoogle(userId = USER): Promise<string> {
   return id
 }
 
+async function seedOutlook(baseUrl = 'https://graph.microsoft.com/v1.0/'): Promise<string> {
+  const id = newId()
+  const ciphertext = await encryptCalendarCredential(env, id, {
+    kind: 'oauth',
+    accessToken: 'outlook-access',
+    refreshToken: 'outlook-refresh',
+    expiresAt: Date.now() + 3_600_000,
+    scope: 'https://graph.microsoft.com/Calendars.Read',
+    tokenType: 'Bearer',
+  })
+  await createCalendarConnection(db, USER, {
+    id,
+    kind: 'outlook',
+    label: 'Outlook Calendar',
+    baseUrl,
+    calendarHomeUrl: baseUrl,
+    username: null,
+    scope: 'read',
+    writable: false,
+    credential: { kind: 'oauth', ciphertext },
+  })
+  return id
+}
+
 function stubFetch(responder: (url: string, init?: RequestInit) => Response | Promise<Response>): Array<{ url: string; init?: RequestInit }> {
   const calls: Array<{ url: string; init?: RequestInit }> = []
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -291,6 +315,35 @@ describe('proxy route', () => {
     expect(response.status).toBe(200)
     expect(calls[0]!.url).toBe('https://www.googleapis.com/calendar/v3/users/me/calendarList')
     expect((calls[0]!.init?.headers as Record<string, string>).Authorization).toBe('Bearer access-token-value')
+  })
+
+  it.each<[string | undefined, string]>([
+    [undefined, 'https://graph.microsoft.com/v1.0/'],
+    ['https://graph.microsoft.com/beta/', 'https://graph.microsoft.com/beta/'],
+    ['https://graph.example.com/calendar/v2/', 'https://graph.example.com/calendar/v2/'],
+  ])('uses the configured Outlook Graph base %s', async (configured, baseUrl) => {
+    const id = await seedOutlook(baseUrl)
+    const bindings = configured === undefined ? env : { ...env, OUTLOOK_GRAPH_API_BASE: configured }
+    const calls = stubFetch(() => Response.json({ value: [] }))
+    const response = await request(`/connections/${id}/proxy`, json({
+      method: 'GET',
+      path: `${new URL(baseUrl).pathname}me/calendars`,
+    }), bindings)
+    expect(response.status).toBe(200)
+    expect(calls[0]?.url).toBe(`${baseUrl}me/calendars`)
+    expect((calls[0]?.init?.headers as Record<string, string>).Authorization).toBe('Bearer outlook-access')
+  })
+
+  it('refuses a tampered Outlook origin or path before network access', async () => {
+    const id = await seedOutlook()
+    const calls = stubFetch(() => Response.json({}))
+    for (const tampered of ['https://evil.example/v1.0/', 'https://graph.microsoft.com/v2.0/']) {
+      sqlite.prepare('UPDATE calendar_connections SET base_url = ?, calendar_home_url = ? WHERE user_id = ? AND id = ?')
+        .run(tampered, tampered, USER, id)
+      const response = await request(`/connections/${id}/proxy`, json({ method: 'GET', path: '/v1.0/me/calendars' }))
+      expect(response.status).toBe(500)
+    }
+    expect(calls).toHaveLength(0)
   })
 
   it('refuses an absolute URL, a traversal, and a path outside the connection', async () => {

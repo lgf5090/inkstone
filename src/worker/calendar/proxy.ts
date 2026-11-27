@@ -21,13 +21,10 @@ import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { readStreamTextWithinLimit } from '../lib/request'
 import {
-  GOOGLE_CALENDAR_API_BASE,
-  OUTLOOK_CALENDAR_API_BASE,
+  calendarConnectionBase,
   getCalendarConnection,
   loadCalendarCredential,
-  type CalendarConnectionRecord,
 } from './connections'
-import { validateConnectionUrl } from './discovery'
 import { ensureAccessToken } from './oauth'
 
 export const PROXY_REQUEST_MAX_BYTES = 2 * 1024 * 1024
@@ -95,7 +92,7 @@ export async function proxyCalendarRequest(
   const connection = await getCalendarConnection(env.DB, userId, connectionId)
   if (!connection) throw ApiError.notFound('Calendar connection not found')
 
-  const baseUrl = proxyBaseFor(connection)
+  const baseUrl = calendarConnectionBase(env, connection)
   const method = proxyMethod(connection.kind, input.method)
   // `writable` is a server-side truth, not a UI hint: a connection created read-only must not be
   // turned into a write channel by a caller that ignores the adapter's own guard.
@@ -297,21 +294,6 @@ function proxyBody(method: string, raw: unknown): string | undefined {
     throw ApiError.badRequest('That method does not carry a calendar request body')
   }
   return raw
-}
-
-function proxyBaseFor(connection: CalendarConnectionRecord): string {
-  if (connection.kind === 'caldav' && !connection.calendarHomeUrl) {
-    throw ApiError.conflict('This CalDAV connection has no verified calendar home. Reconnect it')
-  }
-  const raw = connection.calendarHomeUrl ?? connection.baseUrl
-  const url = validateConnectionUrl(raw)
-  if (connection.kind === 'google' && url.origin !== new URL(GOOGLE_CALENDAR_API_BASE).origin) {
-    throw new ApiError(500, 'internal', 'This Google connection has an invalid base address')
-  }
-  if (connection.kind === 'outlook' && url.origin !== new URL(OUTLOOK_CALENDAR_API_BASE).origin) {
-    throw new ApiError(500, 'internal', 'This Outlook connection has an invalid base address')
-  }
-  return url.toString()
 }
 
 function hasHeader(headers: Record<string, string>, name: string): boolean {

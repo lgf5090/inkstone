@@ -63,6 +63,7 @@ import { RRule } from 'rrule'
 import { parseStoredJson, storedObject } from '../lib/json'
 import { eventAttachmentDeleteStatements } from './attachments'
 import { attachmentCleanupTargetSql } from '../attachments/keys'
+import { parseCalendarConnectionRow, toCalendarConnectionDto, type CalendarConnectionRow } from './connections'
 
 /** Light/dark pairs the first calendar and any uncoloured create draw from, in order. */
 const DEFAULT_CALENDAR_COLORS: ReadonlyArray<{ color: string; darkColor: string }> = [
@@ -258,20 +259,6 @@ interface SubscriptionRow {
   last_error_code: string | null
   created_at: number
   updated_at: number
-}
-
-interface ConnectionRow {
-  id: string
-  kind: string
-  label: string
-  base_url: string
-  calendar_home_url: string | null
-  username: string | null
-  scope: string | null
-  writable: number
-  status: string
-  last_synced_at: number | null
-  last_error_code: string | null
 }
 
 function placeholders(count: number): string {
@@ -2638,20 +2625,8 @@ export class CalendarStore {
       `SELECT id, kind, label, base_url, calendar_home_url, username, scope, writable, status,
               last_synced_at, last_error_code
          FROM calendar_connections WHERE user_id = ?1 ORDER BY created_at ASC, id ASC`,
-    ).bind(this.userId).all<ConnectionRow>()
-    return (results ?? []).map((row) => ({
-      id: row.id,
-      kind: row.kind === 'caldav' || row.kind === 'google' || row.kind === 'outlook' ? row.kind : 'caldav',
-      label: row.label,
-      calendarHomeUrl: row.calendar_home_url,
-      scope: row.scope === 'write' ? 'write' : 'read',
-      writable: row.writable === 1,
-      status: row.status === 'error' || row.status === 'expired' || row.status === 'disconnected'
-        ? row.status
-        : 'connected',
-      lastSyncedAt: row.last_synced_at,
-      lastErrorCode: row.last_error_code,
-    }))
+    ).bind(this.userId).all<CalendarConnectionRow>()
+    return (results ?? []).map(row => toCalendarConnectionDto(parseCalendarConnectionRow(row)))
   }
 
   // ------------------------------------------------------------- statements

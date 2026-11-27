@@ -40,6 +40,8 @@ interface SubscriptionRow {
   sync_state_json: string
   last_sync_at: number | null
   last_error_code: string | null
+  created_at: number
+  updated_at: number
 }
 
 export interface CreateSubscriptionResult {
@@ -94,19 +96,13 @@ export async function createIcsSubscription(
         lastModified: feed.lastModified,
       }), now),
     ])
+    const subscription = await loadSubscription(env.DB, userId, subscriptionId)
+    if (!subscription) throw new Error('Calendar subscription create did not persist')
     const inputs = await subscriptionEvents(parsed.events, calendar.id, preferences.timeZone, parsed.warnings)
     if (inputs.length === 0) throw ApiError.badRequest('The calendar feed contains no valid events')
     const imported = await insertInChunks(store, inputs)
     return {
-      subscription: subscriptionRowToDto({
-        id: subscriptionId,
-        calendar_id: calendar.id,
-        url: url.href,
-        enabled: 1,
-        sync_state_json: JSON.stringify({ etag: feed.etag, lastModified: feed.lastModified }),
-        last_sync_at: now,
-        last_error_code: null,
-      }),
+      subscription: subscriptionRowToDto(subscription),
       calendarId: calendar.id,
       imported,
       warnings: parsed.warnings,
@@ -328,7 +324,8 @@ async function loadSubscription(
   id: string,
 ): Promise<SubscriptionRow | null> {
   return db.prepare(
-    `SELECT id, calendar_id, url, enabled, sync_state_json, last_sync_at, last_error_code
+    `SELECT id, calendar_id, url, enabled, sync_state_json, last_sync_at, last_error_code,
+            created_at, updated_at
        FROM calendar_subscriptions
       WHERE user_id = ?1 AND id = ?2`,
   ).bind(userId, id).first<SubscriptionRow>()
@@ -389,7 +386,6 @@ function subscriptionHost(raw: string | null): string | null {
 }
 
 function subscriptionRowToDto(row: SubscriptionRow): CalendarSubscriptionDto {
-  const now = Date.now()
   return {
     id: row.id,
     calendarId: row.calendar_id,
@@ -398,8 +394,8 @@ function subscriptionRowToDto(row: SubscriptionRow): CalendarSubscriptionDto {
     enabled: row.enabled === 1,
     lastSyncAt: row.last_sync_at,
     lastErrorCode: row.last_error_code,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }
 

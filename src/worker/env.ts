@@ -239,6 +239,8 @@ export interface Env {
 
   OUTLOOK_CLIENT_SECRET?: string
 
+  OUTLOOK_GRAPH_API_BASE?: string
+
   /**
    * The public origin the OAuth callback is registered under, as in `https://notes.example.com`.
    * Optional: unset uses the origin of the request that started the flow. The callback path itself
