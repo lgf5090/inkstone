@@ -16,7 +16,7 @@ import { dayBounds, parseLocalTime, toLocalMinute } from '@shared/assistant-time
 import { applyLibraryPatch, type RssPatch } from '@shared/rss/patch'
 import type { RssMarkKind } from '@shared/rss/marks'
 import { parseRssLibrary, type RssLibrary } from '@shared/rss/model'
-import { loadRssLibrary, loadRssReading, storeRssLibrary, type RssReadingEntry, type RssReadingSnapshot } from '../lib/rss-store'
+import { loadRssLibrary, loadRssReading, storeRssPatch, type RssReadingEntry, type RssReadingSnapshot } from '../lib/rss-store'
 import { ApiError } from '../lib/errors'
 import { ToolError, type FieldSpec, type ToolContext, type ToolDefinition } from './tools'
 
@@ -151,7 +151,10 @@ async function saveLibrary(ctx: ToolContext, library: RssLibrary, patch: RssPatc
   const merged = applyLibraryPatch(library, patch)
   const { data, dropped, truncated } = parseRssLibrary(merged)
   if (!data || dropped > 0 || truncated) throw new ToolError('The reading library could not be updated without losing data.')
-  await ask(() => storeRssLibrary(ctx.env.DB, ctx.store.userId, data, Date.now()))
+  await ask(() => storeRssPatch(ctx.env.DB, ctx.store.userId, {
+    ...patch,
+    state: patch.state ?? { lastChannel: library.lastChannel },
+  }, Date.now()))
 }
 
 const MARK_STATES = ['read', 'unread', 'star', 'unstar', 'later', 'unlater'] as const

@@ -18,7 +18,7 @@ import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty } from '@shared/rss/patch'
-import { accountExists, loadRssLibrary, saveRssReadingFeed, storeRssLibrary } from '../lib/rss-store'
+import { accountExists, loadRssLibrary, saveRssReadingFeed, storeRssLibrary, storeRssPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -236,8 +236,11 @@ rssRoutes.post('/patch', async (c) => {
     throw ApiError.badRequest('The RSS library holds entries that cannot be stored', { dropped, truncated })
   }
   const savedAt = Date.now()
-  const report = await storeRssLibrary(c.env.DB, userId, data, savedAt)
-  return c.json({ savedAt, rows: report.rowsWritten + report.rowsDeleted })
+  const report = await storeRssPatch(c.env.DB, userId, {
+    ...patch,
+    state: patch.state ?? { lastChannel: stored.library?.lastChannel ?? '' },
+  }, savedAt)
+  return c.json({ savedAt, rows: report.rows })
 })
 
 /**

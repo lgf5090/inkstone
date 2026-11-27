@@ -10,7 +10,8 @@ import {
   type RssLibrary,
 } from '../src/shared/rss/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
-import { loadRssLibrary, storeRssLibrary } from '../src/worker/lib/rss-store'
+import { diffLibrary } from '../src/shared/rss/patch'
+import { loadRssLibrary, storeRssLibrary, storeRssPatch } from '../src/worker/lib/rss-store'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'user-store'
@@ -82,6 +83,17 @@ describe('the row store', () => {
 
   it('answers null for an account that has never saved', async () => {
     expect(await loadRssLibrary(db, USER)).toEqual({ savedAt: 0, library: null })
+  })
+
+  it('applies concurrent change sets without deleting unrelated marks', async () => {
+    const base = { ...library(), favorites: [] }
+    await storeRssLibrary(db, USER, base, 1)
+    const first = diffLibrary(base, { ...base, favorites: ['e1'] }, () => 10)
+    const second = diffLibrary(base, { ...base, favorites: ['e2'] }, () => 20)
+    await storeRssPatch(db, USER, first, 2)
+    await storeRssPatch(db, USER, second, 3)
+    const got = await loadRssLibrary(db, USER)
+    expect(got.library?.favorites).toEqual(['e2', 'e1'])
   })
 
   it('keeps one account inside its own rows', async () => {

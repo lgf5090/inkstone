@@ -15,6 +15,7 @@
  */
 import { emptyLibrary, normaliseEntry, parseRssLibrary, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
 import { libraryMarkRows, marksIntoLibrary, RSS_LIST_MARK_KINDS, type RssMarkKind } from '@shared/rss/marks'
+import type { RssPatch } from '@shared/rss/patch'
 
 /** D1 binds at most 100 variables per statement; stay under it the way `routes/tags.ts` does. */
 const PARAM_BUDGET = 90
@@ -420,6 +421,33 @@ export async function storeRssLibrary(
   savedAt: number,
 ): Promise<RssWriteReport> {
   return storeRssLibraryRows(db, await readLibraryRows(db, userId), userId, library, savedAt)
+}
+
+/** Apply only the rows a change set names, so concurrent devices cannot delete each other's additions. */
+export async function storeRssPatch(
+  db: D1Database,
+  userId: string,
+  patch: RssPatch,
+  savedAt: number,
+): Promise<{ rows: number }> {
+  const statements = [
+    ...upserts(GROUP_ROW, userId, patch.groups.upsert.map(groupValues)),
+    ...upserts(FEED_ROW, userId, patch.feeds.upsert.map(feedValues)),
+    ...deletes(TAG_ROW, userId, patch.tags.remove.map(key => [key.feedId, key.tag])),
+    ...upserts(TAG_ROW, userId, patch.tags.upsert.map(key => [key.feedId, key.tag])),
+    ...deletes(FEED_ROW, userId, patch.feeds.remove.map(id => [id])),
+    ...deletes(GROUP_ROW, userId, patch.groups.remove.map(id => [id])),
+    ...deletes(MARK_ROW, userId, patch.marks.remove.map(row => [row.kind, row.entryId])),
+    ...upserts(MARK_ROW, userId, patch.marks.upsert.map(row => [row.kind, row.entryId, row.value, row.at])),
+    ...(patch.state ? upserts(STATE_ROW, userId, [[patch.state.lastChannel, savedAt]]) : []),
+  ]
+  await runBatches(db, statements)
+  const rows = patch.groups.upsert.length + patch.feeds.upsert.length
+    + patch.tags.remove.length + patch.tags.upsert.length
+    + patch.feeds.remove.length + patch.groups.remove.length
+    + patch.marks.remove.length + patch.marks.upsert.length
+    + (patch.state ? 1 : 0)
+  return { rows }
 }
 
 /**
