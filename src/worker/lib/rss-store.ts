@@ -50,6 +50,11 @@ const GROUP_ROW: RowSpec = {
 const TAG_ROW: RowSpec = { table: 'rss_feed_tag', columns: ['feed_id', 'tag'], key: ['feed_id', 'tag'] }
 
 const MARK_ROW: RowSpec = { table: 'rss_mark', columns: ['kind', 'entry_id', 'value', 'at'], key: ['kind', 'entry_id'] }
+const READING_ENTRY_ROW: RowSpec = {
+  table: 'rss_reading_entry',
+  columns: ['entry_id', 'feed_id', 'title', 'link', 'author', 'content', 'summary', 'published_ts', 'image_url', 'audio_url', 'captured_at'],
+  key: ['entry_id'],
+}
 
 const STATE_ROW: RowSpec = { table: 'rss_state', columns: ['last_channel', 'saved_at'], key: [] }
 
@@ -530,13 +535,12 @@ export interface RssReadingSnapshot {
   feeds: Record<string, RssReadingFeed>
 }
 
-/** What one article may contribute, so a single long post cannot fill the whole row. */
+/** What one article may contribute, so a single long post cannot fill the whole account. */
 const READING_CONTENT_CHARS = 6000
 const READING_SUMMARY_CHARS = 600
 /** How many articles one feed, and the whole account, may keep for the assistant. */
 const READING_ENTRIES_PER_FEED = 40
 const READING_ENTRIES_TOTAL = 180
-/** The row's size ceiling, well under what D1 will store for one value. */
 const READING_SNAPSHOT_CHARS = 600_000
 
 function readingEntry(value: unknown, feedId: string): RssReadingEntry | null {
@@ -556,79 +560,94 @@ function readingEntry(value: unknown, feedId: string): RssReadingEntry | null {
   }
 }
 
-function readingFeed(value: unknown, feedId: string): RssReadingFeed | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const row = value as { capturedAt?: unknown; entries?: unknown }
-  if (!Array.isArray(row.entries)) return null
-  const capturedAt = typeof row.capturedAt === 'number' && Number.isFinite(row.capturedAt) ? Math.trunc(row.capturedAt) : 0
-  const entries: RssReadingEntry[] = []
-  for (const item of row.entries) {
-    const entry = readingEntry(item, feedId)
-    if (entry) entries.push(entry)
-    if (entries.length >= READING_ENTRIES_PER_FEED) break
-  }
-  return entries.length ? { capturedAt, entries } : null
+function readingEntryValues(entry: RssReadingEntry, capturedAt: number): SqlValue[] {
+  return [
+    entry.id, entry.feedId, entry.title, entry.link, entry.author, entry.content,
+    entry.summary, entry.publishedTs, entry.imageUrl, entry.audioUrl, capturedAt,
+  ]
 }
 
-function parseReadingSnapshot(raw: unknown): RssReadingSnapshot | null {
-  if (typeof raw !== 'string' || !raw.trim()) return null
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  }
-  catch {
-    return null
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
-  const row = parsed as { capturedAt?: unknown; feeds?: unknown }
-  if (!row.feeds || typeof row.feeds !== 'object' || Array.isArray(row.feeds)) return null
-  const feeds: Record<string, RssReadingFeed> = {}
-  for (const [feedId, value] of Object.entries(row.feeds as Record<string, unknown>)) {
-    const feed = readingFeed(value, feedId)
-    if (feedId && feed) feeds[feedId] = feed
-  }
-  if (!Object.keys(feeds).length) return null
-  const capturedAt = typeof row.capturedAt === 'number' && Number.isFinite(row.capturedAt) ? Math.trunc(row.capturedAt) : 0
-  return { capturedAt, feeds }
+function readingCleanupStatements(userId: string): RssStatement[] {
+  return [
+    {
+      sql: `DELETE FROM rss_reading_entry
+             WHERE rowid IN (
+               SELECT rowid FROM (
+                 SELECT rowid, ROW_NUMBER() OVER
+                   (ORDER BY published_ts DESC, captured_at DESC, entry_id) AS entry_rank
+                   FROM rss_reading_entry WHERE user_id = ?1
+               ) WHERE entry_rank > ?2
+             )`,
+      params: [userId, READING_ENTRIES_TOTAL],
+    },
+    {
+      sql: `DELETE FROM rss_reading_entry
+             WHERE rowid IN (
+               SELECT rowid FROM (
+                 SELECT rowid, SUM(length(content) + length(summary) + length(title)) OVER
+                   (ORDER BY published_ts DESC, captured_at DESC, entry_id ROWS UNBOUNDED PRECEDING) AS chars
+                   FROM rss_reading_entry WHERE user_id = ?1
+               ) WHERE chars > ?2
+             )`,
+      params: [userId, READING_SNAPSHOT_CHARS],
+    },
+  ]
+}
+
+interface ReadingEntryRow {
+  feed_id: string
+  entry_id: string
+  title: string
+  link: string
+  author: string
+  content: string
+  summary: string
+  published_ts: number | null
+  image_url: string
+  audio_url: string
+  captured_at: number
 }
 
 export async function loadRssReading(db: D1Database, userId: string): Promise<RssReadingSnapshot | null> {
-  const row = await db.prepare('SELECT snapshot, captured_at FROM rss_reading WHERE user_id = ?1')
-    .bind(userId)
-    .first<{ snapshot: string; captured_at: number }>()
-  if (!row) return null
-  const snapshot = parseReadingSnapshot(row.snapshot)
-  return snapshot ? { ...snapshot, capturedAt: snapshot.capturedAt || row.captured_at || 0 } : null
+  const { results } = await db.prepare(
+    `SELECT feed_id, entry_id, title, link, author, content, summary, published_ts, image_url, audio_url, captured_at
+       FROM rss_reading_entry
+      WHERE user_id = ?1
+      ORDER BY published_ts DESC, captured_at DESC, entry_id ASC`,
+  ).bind(userId).all<ReadingEntryRow>()
+  const feeds: Record<string, RssReadingFeed> = {}
+  let capturedAt = 0
+  for (const row of results) {
+    const entry = readingEntry({
+      id: row.entry_id,
+      title: row.title,
+      link: row.link,
+      author: row.author,
+      content: row.content,
+      summary: row.summary,
+      publishedTs: row.published_ts,
+      imageUrl: row.image_url,
+      audioUrl: row.audio_url,
+    }, row.feed_id)
+    if (!entry) continue
+    const feed = feeds[row.feed_id] ?? { capturedAt: row.captured_at, entries: [] }
+    feed.entries.push(entry)
+    feeds[row.feed_id] = feed
+    capturedAt = Math.max(capturedAt, row.captured_at)
+  }
+  return Object.keys(feeds).length ? { capturedAt, feeds } : null
 }
 
 export async function deleteRssReadingFeed(db: D1Database, userId: string, feedId?: string): Promise<void> {
-  if (!feedId) {
-    await db.prepare('DELETE FROM rss_reading WHERE user_id = ?1').bind(userId).run()
+  if (feedId) {
+    await db.prepare('DELETE FROM rss_reading_entry WHERE user_id = ?1 AND feed_id = ?2')
+      .bind(userId, feedId).run()
     return
   }
-  const snapshot = await loadRssReading(db, userId)
-  if (!snapshot) return
-  delete snapshot.feeds[feedId]
-  if (!Object.keys(snapshot.feeds).length) {
-    await db.prepare('DELETE FROM rss_reading WHERE user_id = ?1').bind(userId).run()
-    return
-  }
-  await db.prepare('UPDATE rss_reading SET snapshot = ?2 WHERE user_id = ?1')
-    .bind(userId, JSON.stringify(snapshot)).run()
+  await db.prepare('DELETE FROM rss_reading_entry WHERE user_id = ?1').bind(userId).run()
 }
 
-function newestFirst(left: RssReadingEntry, right: RssReadingEntry): number {
-  return (right.publishedTs ?? 0) - (left.publishedTs ?? 0)
-}
-
-/**
- * Replace one feed's slice of the snapshot, then trim the whole row to its ceilings.
- *
- * Per feed rather than per device is deliberate: a reader with forty subscriptions refreshes them a
- * few at a time, and a full replace would erase the thirty-nine that just answered. The oldest
- * articles lose their text first, because "what did I miss today" is the question this row exists
- * for and an archive from last month is the part it can afford to forget.
- */
+/** Replace one feed's articles, then enforce account-wide count and character ceilings atomically. */
 export async function saveRssReadingFeed(
   db: D1Database,
   userId: string,
@@ -636,33 +655,18 @@ export async function saveRssReadingFeed(
   raw: readonly unknown[],
   capturedAt = Date.now(),
 ): Promise<{ capturedAt: number; entries: number }> {
-  const snapshot = (await loadRssReading(db, userId)) ?? { capturedAt, feeds: {} }
   const entries: RssReadingEntry[] = []
   for (const item of raw.slice(0, READING_ENTRIES_PER_FEED)) {
     const entry = readingEntry(item, feedId)
     if (entry) entries.push(entry)
   }
-  entries.sort(newestFirst)
-  snapshot.feeds[feedId] = { capturedAt, entries }
-
-  const kept: Record<string, RssReadingFeed> = {}
-  let stored = 0
-  let chars = 0
-  for (const [id, feed] of Object.entries(snapshot.feeds)) {
-    const rows: RssReadingEntry[] = []
-    for (const entry of feed.entries.toSorted(newestFirst)) {
-      const cost = entry.content.length + entry.summary.length + entry.title.length
-      if (stored >= READING_ENTRIES_TOTAL || chars + cost > READING_SNAPSHOT_CHARS) break
-      rows.push(entry)
-      stored += 1
-      chars += cost
-    }
-    if (rows.length) kept[id] = { capturedAt: feed.capturedAt, entries: rows }
-  }
-  const next: RssReadingSnapshot = { capturedAt, feeds: kept }
-  await db.prepare(
-    `INSERT INTO rss_reading (user_id, snapshot, captured_at) VALUES (?1, ?2, ?3)
-     ON CONFLICT(user_id) DO UPDATE SET snapshot = excluded.snapshot, captured_at = excluded.captured_at`,
-  ).bind(userId, JSON.stringify(next), capturedAt).run()
-  return { capturedAt, entries: kept[feedId]?.entries.length ?? 0 }
+  entries.sort((left, right) => (right.publishedTs ?? 0) - (left.publishedTs ?? 0))
+  const statements = [
+    ...upserts(READING_ENTRY_ROW, userId, entries.map(entry => readingEntryValues(entry, capturedAt))),
+    ...readingCleanupStatements(userId),
+  ]
+  await db.batch(statements.map(statement => db.prepare(statement.sql).bind(...statement.params)))
+  const kept = await db.prepare('SELECT COUNT(*) AS count FROM rss_reading_entry WHERE user_id = ?1 AND feed_id = ?2')
+    .bind(userId, feedId).first<{ count: number }>()
+  return { capturedAt, entries: Number(kept?.count ?? 0) }
 }

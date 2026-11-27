@@ -288,6 +288,26 @@ const REWRITE_QUEUE_INDEX = `CREATE INDEX IF NOT EXISTS idx_rewrite_queue_due
   ON rewrite_queue(user_id, created_at)`
 
 
+const RSS_READING_ENTRY_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS rss_reading_entry (
+    user_id TEXT NOT NULL,
+    feed_id TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    link TEXT NOT NULL DEFAULT '',
+    author TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
+    published_ts INTEGER,
+    image_url TEXT NOT NULL DEFAULT '',
+    audio_url TEXT NOT NULL DEFAULT '',
+    captured_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, entry_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_rss_reading_entry_feed ON rss_reading_entry(user_id, feed_id, captured_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_rss_reading_entry_recent ON rss_reading_entry(user_id, published_ts DESC, captured_at DESC, entry_id)`,
+]
+
 const RSS_LIBRARY_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS rss_feed (
     user_id TEXT NOT NULL,
@@ -355,21 +375,7 @@ const RSS_LIBRARY_STATEMENTS: readonly string[] = [
     last_channel TEXT NOT NULL DEFAULT '',
     saved_at INTEGER NOT NULL DEFAULT 0
   )`,
-
-  /**
-   * The bounded text the assistant reads.
-   *
-   * Article bodies are rebuilt from the network and stay on the device that fetched them, so a tool
-   * running in the Worker cannot see an article at all. This row is the device's answer: the newest
-   * articles it holds, already reduced to plain text, per feed, with a ceiling on both count and size.
-   * It is a cache rather than a library, so it is replaced feed by feed and never merged into the
-   * subscription rows.
-   */
-  `CREATE TABLE IF NOT EXISTS rss_reading (
-    user_id TEXT PRIMARY KEY,
-    snapshot TEXT NOT NULL DEFAULT '',
-    captured_at INTEGER NOT NULL DEFAULT 0
-  )`,
+  ...RSS_READING_ENTRY_STATEMENTS,
 ]
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
@@ -4946,6 +4952,40 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'rss_feed', column: 'title_locked' },
     statements: [`ALTER TABLE rss_feed ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0`],
   },
+  {
+    version: 441,
+    statements: [
+      ...RSS_READING_ENTRY_STATEMENTS,
+      `INSERT OR IGNORE INTO rss_reading_entry
+         (user_id, feed_id, entry_id, title, link, author, content, summary, published_ts, image_url, audio_url, captured_at)
+       SELECT r.user_id, feed.key,
+              json_extract(entry.value, '$.id'),
+              COALESCE(json_extract(entry.value, '$.title'), ''),
+              COALESCE(json_extract(entry.value, '$.link'), ''),
+              COALESCE(json_extract(entry.value, '$.author'), ''),
+              COALESCE(json_extract(entry.value, '$.content'), ''),
+              COALESCE(json_extract(entry.value, '$.summary'), ''),
+              json_extract(entry.value, '$.publishedTs'),
+              COALESCE(json_extract(entry.value, '$.imageUrl'), ''),
+              COALESCE(json_extract(entry.value, '$.audioUrl'), ''),
+              COALESCE(json_extract(feed.value, '$.capturedAt'), r.captured_at)
+         FROM rss_reading r
+         JOIN json_each(CASE WHEN json_valid(r.snapshot) THEN r.snapshot ELSE '{}' END, '$.feeds') feed
+         JOIN json_each(CASE WHEN json_valid(feed.value) THEN feed.value ELSE '{}' END, '$.entries') entry
+        WHERE length(COALESCE(json_extract(entry.value, '$.id'), '')) > 0`,
+      `DELETE FROM rss_reading_entry
+        WHERE rowid IN (
+          SELECT rowid FROM (
+            SELECT rowid,
+                   ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY published_ts DESC, captured_at DESC, entry_id) AS rank,
+                   SUM(length(content) + length(summary) + length(title)) OVER
+                     (PARTITION BY user_id ORDER BY published_ts DESC, captured_at DESC, entry_id ROWS UNBOUNDED PRECEDING) AS chars
+              FROM rss_reading_entry
+          ) WHERE rank > 180 OR chars > 600000
+        )`,
+      `DROP TABLE IF EXISTS rss_reading`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -5011,7 +5051,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   rss_group: ['user_id', 'id', 'parent_id', 'name', 'position', 'collapsed', 'icon', 'color', 'created_at', 'updated_at'],
   rss_mark: ['user_id', 'kind', 'entry_id', 'value', 'at'],
   rss_state: ['user_id', 'last_channel', 'saved_at'],
-  rss_reading: ['user_id', 'snapshot', 'captured_at'],
+  rss_reading_entry: ['user_id', 'feed_id', 'entry_id', 'title', 'link', 'author', 'content', 'summary', 'published_ts', 'image_url', 'audio_url', 'captured_at'],
   ...ASSISTANT_REQUIRED_COLUMNS,
   ...DEVELOPMENT_CERTHUB_REQUIRED_COLUMNS,
   ...TODOS_REQUIRED_COLUMNS,
@@ -5098,7 +5138,7 @@ export const REQUIRED_TABLES = [
   'rss_group',
   'rss_mark',
   'rss_state',
-  'rss_reading',
+  'rss_reading_entry',
   ...ASSISTANT_REQUIRED_TABLES,
   ...TODOS_REQUIRED_TABLES,
   ...SUBSCRIPTIONS_REQUIRED_TABLES,
@@ -5202,6 +5242,8 @@ export const REQUIRED_INDEXES = [
   'idx_community_templates_author',
   'idx_rss_feed_shelf',
   'idx_rss_mark_recent',
+  'idx_rss_reading_entry_feed',
+  'idx_rss_reading_entry_recent',
   ...ASSISTANT_REQUIRED_INDEXES,
   ...TODOS_REQUIRED_INDEXES,
   ...SUBSCRIPTIONS_REQUIRED_INDEXES,

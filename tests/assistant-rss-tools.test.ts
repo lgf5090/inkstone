@@ -225,7 +225,7 @@ describe('marking an article', () => {
 
 describe('a device that never uploaded', () => {
   it('refuses to list or read an article it never received', async () => {
-    sqlite.exec('DELETE FROM rss_reading')
+    sqlite.exec('DELETE FROM rss_reading_entry')
     await expect(executor().execute('rss_list_entries', {}, 'no-snapshot')).rejects.toBeInstanceOf(ToolError)
     await expect(executor().execute('rss_read_entry', { id: AI_ENTRY.id }, 'no-snapshot-read')).rejects.toBeInstanceOf(ToolError)
   })

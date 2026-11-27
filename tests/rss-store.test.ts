@@ -11,7 +11,7 @@ import {
 } from '../src/shared/rss/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { diffLibrary } from '../src/shared/rss/patch'
-import { loadRssLibrary, storeRssLibrary, storeRssPatch } from '../src/worker/lib/rss-store'
+import { loadRssLibrary, loadRssReading, saveRssReadingFeed, storeRssLibrary, storeRssPatch } from '../src/worker/lib/rss-store'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'user-store'
@@ -255,5 +255,29 @@ describe('the legacy column', () => {
     expect(got.savedAt).toBe(9)
     expect(count('rss_feed', USER)).toBe(0)
     expect(count('rss_feed', OTHER)).toBe(2)
+  })
+})
+
+describe('the assistant reading cache', () => {
+  function entry(id: string, feedId: string, publishedTs: number) {
+    return { id, feedId, title: id, link: `https://example.test/${id}`, author: '', publishedTs, summary: '', content: id, imageUrl: '', audioUrl: '' }
+  }
+
+  it('keeps concurrent feed uploads in separate rows', async () => {
+    await Promise.all([
+      saveRssReadingFeed(db, USER, 'f1', [entry('a', 'f1', 1)], 1),
+      saveRssReadingFeed(db, USER, 'f2', [entry('b', 'f2', 2)], 2),
+    ])
+    expect(Object.keys((await loadRssReading(db, USER))?.feeds ?? {}).sort()).toEqual(['f1', 'f2'])
+  })
+
+  it('keeps the newest feed when the account ceiling is reached', async () => {
+    for (let feed = 0; feed < 6; feed++) {
+      const rows = Array.from({ length: 40 }, (_unused, index) => entry(`e${feed}-${index}`, `f${feed}`, feed * 100 + index))
+      await saveRssReadingFeed(db, USER, `f${feed}`, rows, feed + 1)
+    }
+    const snapshot = await loadRssReading(db, USER)
+    expect(snapshot?.feeds.f5.entries).toHaveLength(40)
+    expect(Object.values(snapshot?.feeds ?? {}).reduce((sum, feed) => sum + feed.entries.length, 0)).toBe(180)
   })
 })
