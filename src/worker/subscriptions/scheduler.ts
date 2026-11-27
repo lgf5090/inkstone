@@ -58,7 +58,12 @@ export async function sweepSubscriptions(env: Env, now = Date.now()): Promise<Sw
             WHERE r.user_id = i.user_id AND r.subscription_id = i.id AND r.enabled = 1
               AND (
                 (r.kind = 'after_expiry' AND i.expiry_date <= ?1)
-                OR (r.kind = 'before_trial_end' AND i.trial_ends_at <= ?1 + CASE r.unit WHEN 'hours' THEN r.value * 3600000 ELSE r.value * 86400000 END + 86400000)
+                OR (r.kind = 'before_trial_end' AND i.trial_ends_at <= ?1 + CASE r.unit WHEN 'hours' THEN r.value * 3600000 ELSE r.value * 86400000 END + 86400000
+                  AND NOT EXISTS (
+                    SELECT 1 FROM sub_payment p
+                     WHERE p.user_id = i.user_id AND p.subscription_id = i.id
+                       AND p.id = 'trial:' || i.id || ':' || i.trial_ends_at
+                  ))
                 OR (r.kind = 'on_expiry' AND i.expiry_date <= ?1 + 86400000)
                 OR (r.kind = 'before_expiry' AND i.expiry_date <= ?1 + CASE r.unit WHEN 'hours' THEN r.value * 3600000 ELSE r.value * 86400000 END + 86400000)
               )

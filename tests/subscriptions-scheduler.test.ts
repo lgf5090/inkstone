@@ -277,9 +277,8 @@ describe('the trash', () => {
     const settings = { timezone: 'Asia/Shanghai', notificationHours: [], digest: 'off' as const, digestHour: 8, showLunar: false, paymentHistoryLimit: 100, locale: 'zh-CN' as const, baseCurrency: 'CNY' as const, budgetMonthly: null, budgetYearly: null, budgetCategories: {}, rateOverrides: {}, inboundTokenHint: '' }
     const created = await store.create({
       name: 'Converted trial', amount: 60, expiryDate: '2026-12-21', trialEndsAt: '2026-11-30',
-      periodValue: 1, periodUnit: 'month', reminderRules: [],
+      periodValue: 1, periodUnit: 'month', reminderRules: [{ type: 'before_trial_end', value: 3, unit: 'days' }],
     }, storeContext(settings, NOW))
-    sqlite.prepare(`DELETE FROM sub_reminder_rule WHERE subscription_id = ?`).run(created.item.id)
     const later = Date.parse('2026-12-01T00:00:00Z')
     expect(await store.autoRenew(created.item.id, { ...storeContext(settings, NOW), now: later })).not.toBeNull()
     const result = await sweepSubscriptions(env(), later)
