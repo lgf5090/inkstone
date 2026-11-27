@@ -101,6 +101,7 @@ export interface RssCacheMeta {
 
 export interface RssState {
   status: 'idle' | 'loading' | 'ready' | 'error'
+  offline: boolean
   library: RssLibrary
   /** feedId → the articles this device holds, newest first as the feed sent them. */
   articles: Record<string, RssEntry[]>
@@ -126,6 +127,7 @@ export interface RssState {
    * keeps its own copy: overwriting them here is how a mark the reader just made disappears.
    */
   reloadFromServer: () => Promise<void>
+  reconcile: () => Promise<void>
   reset: () => void
   open: (channel: RssChannel) => Promise<void>
   setFilter: (filter: RssFilter) => void
@@ -207,6 +209,8 @@ const FEED_PREPARE_BATCH = 20
 interface CacheIndex {
   articles: Record<string, RssCacheMeta>
   views: Record<string, RssChannelView>
+  library?: RssLibrary
+  savedAt?: number
 }
 
 function emptyIndex(): CacheIndex {
@@ -233,6 +237,7 @@ export const useRss = create<RssState>((set, get) => {
   const readingUploads = new Map<string, number>()
   let refreshInFlight: Promise<RssRefreshSummary> | null = null
   let refreshGeneration = 0
+  let reconnect: (() => void) | null = null
 
   /**
    * Hand this feed's articles to the account, so the assistant can read them.
@@ -242,7 +247,7 @@ export const useRss = create<RssState>((set, get) => {
    * device keeps what it holds, and the next refresh or load tries again.
    */
   function scheduleReadingUpload(feedId: string): void {
-    if (!useSession.getState().settings.rss.aiEnabled) {
+    if (!useSession.getState().settings.rss.aiEnabled || navigator.onLine === false) {
       const pending = readingUploads.get(feedId)
       if (pending) window.clearTimeout(pending)
       readingUploads.delete(feedId)
@@ -354,6 +359,7 @@ export const useRss = create<RssState>((set, get) => {
   }
 
   function refreshDueFeeds(): void {
+    if (navigator.onLine === false) return
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
     const due = dueFeedIds()
     if (due.length) void get().refresh(due)
@@ -362,6 +368,7 @@ export const useRss = create<RssState>((set, get) => {
   function scheduleAutoRefresh(): void {
     if (autoRefreshTimer) window.clearInterval(autoRefreshTimer)
     autoRefreshTimer = 0
+    if (navigator.onLine === false) return
     const interval = useSession.getState().settings.rss.refreshIntervalMinutes * 60_000
     if (interval <= 0) return
     autoRefreshTimer = window.setInterval(refreshDueFeeds, interval)
@@ -376,6 +383,9 @@ export const useRss = create<RssState>((set, get) => {
   }
 
   function writeIndex(): void {
+    if (get().status === 'ready') {
+      index = { ...index, library: structuredClone(get().library), savedAt: get().savedAt }
+    }
     void localDb.saveRssCacheIndex(index)
   }
 
@@ -714,6 +724,7 @@ export const useRss = create<RssState>((set, get) => {
 
   return {
     status: 'idle',
+    offline: false,
     library: emptyLibrary(),
     articles: {},
     fetchedAt: {},
@@ -735,23 +746,39 @@ export const useRss = create<RssState>((set, get) => {
       publishCache()
       set({ results: normaliseResults(storedResults) })
       let library: RssLibrary
+      let fromCache = false
       try {
         const response = await api.rss.load()
         library = parseRssLibrary(response.library).data ?? emptyLibrary()
-        set({ savedAt: response.savedAt })
+        set({ savedAt: response.savedAt, offline: false })
       }
       catch (error) {
         console.warn('[inkstone] RSS library could not be loaded', error)
-        set({
-          status: 'error',
-          saveError: error instanceof Error && error.message ? error.message : t('rss.error.load_failed'),
-        })
-        return
+        if (!index.library) {
+          set({
+            status: 'error',
+            saveError: error instanceof Error && error.message ? error.message : t('rss.error.load_failed'),
+          })
+          return
+        }
+        library = index.library
+        fromCache = true
+        set({ savedAt: index.savedAt ?? 0, offline: true })
       }
       const channel = parseChannelKey(library.lastChannel)
       set({ library, views: index.views, channel, status: 'ready' })
       sent = structuredClone(library)
+      writeIndex()
       await prepare(channel)
+      if (fromCache) {
+        const onOnline = (): void => {
+          reconnect = null
+          void get().reconcile()
+        }
+        reconnect = onOnline
+        window.addEventListener('online', onOnline, { once: true })
+        return
+      }
       // A feed this device holds no articles for is stale by definition: a second browser, a
       // cleared cache or an eviction all leave the subscription list intact and the reading empty,
       // and rss.no_articles is not an honest answer when the feed was never asked for.
@@ -766,16 +793,27 @@ export const useRss = create<RssState>((set, get) => {
       try {
         const response = await api.rss.load()
         const library = parseRssLibrary(response.library).data ?? emptyLibrary()
-        set({ library: { ...library, lastChannel: get().library.lastChannel }, savedAt: response.savedAt })
+        set({ library: { ...library, lastChannel: get().library.lastChannel }, savedAt: response.savedAt, saveError: null, offline: false })
         sent = structuredClone(get().library)
+        writeIndex()
+        scheduleAutoRefresh()
+        refreshDueFeeds()
       }
       catch (error) {
-        set({ saveError: error instanceof Error && error.message ? error.message : t('rss.error.load_failed') })
+        set({ saveError: error instanceof Error && error.message ? error.message : t('rss.error.load_failed'), offline: true })
         console.warn('[inkstone] RSS library could not be reloaded', error)
       }
     },
 
+    async reconcile() {
+      await get().flush()
+      if (dirty || saveInFlight) return
+      await get().reloadFromServer()
+    },
+
     reset() {
+      if (reconnect) window.removeEventListener('online', reconnect)
+      reconnect = null
       if (saveTimer) window.clearTimeout(saveTimer)
       if (autoRefreshTimer) window.clearInterval(autoRefreshTimer)
       autoRefreshTimer = 0
@@ -791,6 +829,7 @@ export const useRss = create<RssState>((set, get) => {
       loading.clear()
       set({
         status: 'idle',
+        offline: false,
         library: emptyLibrary(),
         articles: {},
         fetchedAt: {},
@@ -1326,7 +1365,9 @@ function normaliseResults(value: unknown): Record<string, RssAiResult> {
 function normaliseIndex(value: unknown): CacheIndex {
   const out = emptyIndex()
   if (!value || typeof value !== 'object') return out
-  const source = value as { articles?: unknown, views?: unknown }
+  const source = value as { articles?: unknown, views?: unknown, library?: unknown, savedAt?: unknown }
+  if (source.library) out.library = parseRssLibrary(source.library).data ?? undefined
+  out.savedAt = typeof source.savedAt === 'number' && Number.isFinite(source.savedAt) ? Math.max(0, source.savedAt) : undefined
   if (source.articles && typeof source.articles === 'object') {
     for (const [key, item] of Object.entries(source.articles as Record<string, unknown>)) {
       const meta = item as { fetchedAt?: unknown, bytes?: unknown, body?: unknown, count?: unknown }

@@ -6,7 +6,7 @@
  * pending. Each of those had a real failure behind it during the port, and a component test would
  * have watched the same symptom from too far away to name the cause.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { channelEntries } from '@shared/rss/reading'
 import { emptyLibrary, newGroup, parseRssLibrary, RSS_LIMITS, type RssLibrary } from '@shared/rss/model'
 import { applyLibraryPatch } from '@shared/rss/patch'
@@ -44,6 +44,7 @@ const cache = new Map<string, unknown>()
 const calls: Array<{ path: string, body?: unknown }> = []
 let fetchResults: Array<{ url: string, status: number, ok: boolean, xml?: string, etag?: string, reason?: string }> = []
 let saveFails = false
+let loadFails = false
 let patchWait: Promise<void> | null = null
 let fetchWait: Promise<void> | null = null
 let fetchActive = 0
@@ -70,7 +71,11 @@ vi.mock('../../lib/db', () => ({
 vi.mock('../../lib/api', () => ({
   api: {
     rss: {
-      load: () => { calls.push({ path: 'load' }); return Promise.resolve({ savedAt: 1, library: cache.get('library') ?? null }) },
+      load: () => {
+        calls.push({ path: 'load' })
+        if (loadFails) return Promise.reject(new Error('Network unavailable'))
+        return Promise.resolve({ savedAt: 1, library: cache.get('library') ?? null })
+      },
       save: (library: string) => {
         calls.push({ path: 'save', body: JSON.parse(library) })
         if (saveFails) return Promise.reject(new Error('The RSS library holds entries that cannot be stored'))
@@ -143,6 +148,7 @@ function reset(): void {
   cache.clear()
   calls.length = 0
   saveFails = false
+  loadFails = false
   patchWait = null
   fetchWait = null
   fetchActive = 0
@@ -155,6 +161,7 @@ function reset(): void {
 }
 
 beforeEach(reset)
+afterEach(() => { vi.restoreAllMocks() })
 
 /** Load, then wait for the refresh it starts so the assertions below are not racing it. */
 async function boot(): Promise<void> {
@@ -172,6 +179,65 @@ function seedCachedArticles(): void {
 function fetchCalls(): Array<{ path: string, body?: unknown }> {
   return calls.filter(call => call.path === 'fetch')
 }
+
+describe('offline cold start', () => {
+  it('persists the account library beside the article cache index', async () => {
+    await boot()
+    const index = cache.get('index') as { library?: RssLibrary }
+    expect(index.library?.feeds[0]?.title).toBe('Example')
+  })
+
+  it('opens cached subscriptions and articles without fetching when the account is unreachable', async () => {
+    seedCachedArticles()
+    cache.set('index', {
+      ...(cache.get('index') as object),
+      library: JSON.parse(JSON.stringify(saved)),
+      savedAt: 42,
+    })
+    loadFails = true
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+
+    await useRss.getState().load()
+
+    expect(useRss.getState().status).toBe('ready')
+    expect(useRss.getState().library.feeds[0]?.title).toBe('Example')
+    expect(useRss.getState().savedAt).toBe(42)
+    expect(useRss.getState().articles.f1?.[0]?.title).toBe('Cached')
+    expect(fetchCalls()).toHaveLength(0)
+    expect(useRss.getState().offline).toBe(true)
+    expect(useRss.getState().saveError).toBeNull()
+  })
+
+  it('reconciles with the account after connectivity returns', async () => {
+    seedCachedArticles()
+    cache.set('index', {
+      ...(cache.get('index') as object),
+      library: JSON.parse(JSON.stringify(saved)),
+      savedAt: 42,
+    })
+    loadFails = true
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    await useRss.getState().load()
+
+    loadFails = false
+    online.mockReturnValue(true)
+    const newer = JSON.parse(JSON.stringify(saved)) as RssLibrary
+    newer.feeds[0]!.title = 'Renamed on another device'
+    cache.set('library', newer)
+    window.dispatchEvent(new Event('online'))
+
+    await vi.waitFor(() => expect(useRss.getState().library.feeds[0]?.title).toBe('Renamed on another device'))
+    expect(useRss.getState().saveError).toBeNull()
+    expect(useRss.getState().offline).toBe(false)
+  })
+
+  it('still reports a load error when no usable snapshot exists', async () => {
+    cache.set('index', { articles: {}, views: {}, library: 'broken' })
+    loadFails = true
+    await useRss.getState().load()
+    expect(useRss.getState().status).toBe('error')
+  })
+})
 
 describe('keeping a subscription at the top', () => {
   function shelfLibrary(): void {

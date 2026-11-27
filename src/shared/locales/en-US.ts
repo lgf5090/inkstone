@@ -7335,6 +7335,7 @@ const CORE_MESSAGES_TAIL = {
     "rss.error.blocked": "That address is not reachable from this deployment",
     "rss.error.http_status": "The feed answered with an error",
     "rss.error.load_failed": "Your subscriptions could not be loaded",
+    "rss.error.offline_cache": "Your account is unavailable. Showing the subscriptions last synced on this device.",
     "rss.error.save_failed": "Your subscriptions could not be saved",
     "rss.error.save_pending": "Some changes are not saved yet",
     "rss.wechat_notice": "Content comes from a WeChat official account through a bridge feed; the writing belongs to its author.",

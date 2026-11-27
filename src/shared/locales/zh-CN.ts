@@ -7326,6 +7326,7 @@ console.log(\`Hello, \${name}!\`)
     "rss.error.blocked": "该地址不允许从此部署访问",
     "rss.error.http_status": "订阅源返回错误",
     "rss.error.load_failed": "订阅列表读取失败",
+    "rss.error.offline_cache": "账号暂时不可用，正在显示此设备上次同步的订阅",
     "rss.error.save_failed": "订阅列表保存失败",
     "rss.error.save_pending": "部分改动尚未保存",
     "rss.wechat_notice": "内容来自微信公众号的桥接订阅源，版权归原作者。",
