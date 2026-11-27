@@ -29,6 +29,7 @@ export interface TableProps {
   columns: ProjectProperty[]
   fields: ProjectViewFields
   canEdit: boolean
+  canPersonalize?: boolean
   selected: string[]
   onSelected: (ids: string[]) => void
   subtasksByParent: Map<string, ProjectCard[]>
@@ -51,6 +52,8 @@ export function TableView(props: TableProps): ReactElement {
   const [resizing, setResizing] = useState<{ id: string, width: number } | null>(null)
   const startPointerSession = usePointerSession()
   const headRef = useRef<HTMLTableRowElement>(null)
+  const columnWidthsRef = useRef(fields.columnWidths)
+  columnWidthsRef.current = fields.columnWidths
   const density = fields.cardSize ?? 'comfortable'
   const rowPad = density === 'compact' ? 'py-0.5' : density === 'spacious' ? 'py-3' : 'py-1.5'
 
@@ -81,9 +84,13 @@ export function TableView(props: TableProps): ReactElement {
     })
   }
   const onGripKey = (event: KeyboardEvent, id: string): void => {
-    const current = fields.columnWidths[id] ?? 160
-    if (event.key === 'ArrowLeft') { event.preventDefault(); commitWidth(id, current - 16) }
-    else if (event.key === 'ArrowRight') { event.preventDefault(); commitWidth(id, current + 16) }
+    const current = columnWidthsRef.current[id] ?? 160
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault()
+      const width = Math.max(80, current + (event.key === 'ArrowLeft' ? -16 : 16))
+      columnWidthsRef.current = { ...columnWidthsRef.current, [id]: width }
+      commitWidth(id, width)
+    }
   }
   const reorderColumn = (sourceId: string, targetId: string): void => {
     if (!canEdit || sourceId === targetId) return
@@ -336,7 +343,7 @@ export function TableView(props: TableProps): ReactElement {
                     size="sm"
                     value={calc}
                     label={property.name}
-                    disabled={!canEdit}
+                    disabled={!(props.canPersonalize ?? props.canEdit)}
                     onChange={(value) => props.onPatchFields({ columnCalculations: { ...fields.columnCalculations, [property.id]: value as ProjectCalculation } })}
                     options={calculationOptionsFor(property).map((option) => ({ value: option, label: t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0]) }))}
                   />

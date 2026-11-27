@@ -458,6 +458,7 @@ export const EN_US_PROJECT = {
     "project.view.rename_group_hint": "Click to rename this group",
     "project.view.rename_card": "Rename card",
     "project.view.reset_order": "Reset manual order",
+    "project.view.reset_personal": "Reset personal view",
     "project.view.drag_card": "Drag {title}",
     "project.view.zoom_in": "Zoom in",
     "project.view.zoom_out": "Zoom out",

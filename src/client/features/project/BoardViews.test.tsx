@@ -3,8 +3,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { ProjectBoardBundle, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, PROJECT_VIEW_TYPES } from '@shared/project/model'
 import { projectDayToStamp } from '@shared/project/date'
+import { mergeSettingsPatch } from '@shared/constants'
 import { initI18n, initI18nForReading, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { useSession } from '../../store/session'
 import { BoardViews } from './BoardViews'
 import * as api from './api'
 import * as overlay from '../../components/overlay'
@@ -37,6 +39,7 @@ function bundle(): ProjectBoardBundle {
 }
 
 let view: RenderedElement
+let restoreSettingsUpdate: (() => void) | undefined
 async function mount(custom?: ProjectBoardBundle, publicView = false) {
   const props = { bundle: custom ?? bundle(), canEdit: !publicView, publicView, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(), onPatchView: vi.fn(), onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(), onPatchCard: vi.fn().mockResolvedValue(undefined), onAddGroupOption: vi.fn().mockResolvedValue(undefined), onRenameGroupOption: vi.fn().mockResolvedValue(undefined), onSetGroupOptionColor: vi.fn().mockResolvedValue(undefined), onCardCreated: vi.fn(), onRefresh: vi.fn().mockResolvedValue(undefined) }
   await act(async () => {
@@ -64,9 +67,21 @@ beforeAll(async () => {
 beforeEach(async () => {
   localStorage.clear()
   vi.mocked(api.saveBoardDefaultView).mockClear()
+  const updateSettings = useSession.getState().updateSettings
+  useSession.setState((state) => ({
+    settings: { ...state.settings, project: { ...state.settings.project, personalViews: {} } },
+    updateSettings: (patch: Parameters<typeof updateSettings>[0]) => {
+      useSession.setState((current) => ({ settings: mergeSettingsPatch(current.settings, patch) }))
+    },
+  }))
+  restoreSettingsUpdate = () => useSession.setState({ updateSettings })
   await initI18n()
 })
-afterEach(() => { view?.unmount() })
+afterEach(() => {
+  view?.unmount()
+  restoreSettingsUpdate?.()
+  restoreSettingsUpdate = undefined
+})
 
 describe('view read failures', () => {
   it('shows a retryable dashboard activity error instead of no activity', async () => {
@@ -214,7 +229,8 @@ describe('board column hide and cross-column drag (C-2)', () => {
     const hide = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((row) => row.textContent === t('project.view.hide_column'))
     expect(hide, 'hide is not in the column menu').toBeDefined()
     await act(async () => { hide!.click() })
-    expect(onPatch).toHaveBeenCalledWith('v2', { fields: { hiddenOptionIds: ['o1'] } })
+    expect(onPatch).not.toHaveBeenCalled()
+    expect(useSession.getState().settings.project.personalViews['b1:v2']?.hiddenOptionIds).toEqual(['o1'])
   })
 
   it('dragging a card into another column commits group value and manual order together', async () => {
@@ -289,7 +305,8 @@ describe('board column hide and cross-column drag (C-2)', () => {
     await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
     await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) })
     await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
-    expect(onPatch).toHaveBeenCalledWith('v2', { fields: { columnOrder: ['o2', 'o1', ''] } })
+    expect(onPatch).not.toHaveBeenCalled()
+    expect(useSession.getState().settings.project.personalViews['b1:v2']?.columnOrder).toEqual(['o2', 'o1', ''])
   })
 })
 
@@ -308,7 +325,8 @@ describe('table group rows, collapse, inline edit, column reorder (C-3/C-22)', (
     const toggle = view.container.querySelector('tbody button[aria-expanded="true"]') as HTMLButtonElement
     expect(toggle).not.toBeNull()
     await act(async () => { toggle.click() })
-    expect(onPatchView).toHaveBeenCalledWith('v1', { fields: { collapsedOptionIds: ['o1'] } })
+    expect(onPatchView).not.toHaveBeenCalled()
+    expect(useSession.getState().settings.project.personalViews['b1:v1']?.collapsedOptionIds).toEqual(['o1'])
   })
 
   it('a collapsed group renders no card rows', async () => {
@@ -352,24 +370,18 @@ describe('table group rows, collapse, inline edit, column reorder (C-3/C-22)', (
     await act(async () => { fire('pointerdown', 210, grip) })
     await act(async () => { fire('pointermove', 100) })
     await act(async () => { fire('pointerup', 100) })
-    expect(onPatchView).toHaveBeenCalledWith('v1', { fields: { visiblePropertyIds: ['pt', 'ps'] } })
+    expect(onPatchView).not.toHaveBeenCalled()
+    expect(useSession.getState().settings.project.personalViews['b1:v1']?.visiblePropertyIds).toEqual(['pt', 'ps'])
   })
 
-  it('serializes rapid view patches so the second waits for the first', async () => {
-    let finishFirst: (() => void) | undefined
-    const firstCall = new Promise<void>((resolve) => { finishFirst = resolve })
-    const events: string[] = []
-    const onPatchView = vi.fn<(id: string, patch: ProjectViewPatch) => Promise<void>>()
-      .mockImplementationOnce(async () => { events.push('first:start'); await firstCall; events.push('first:end') })
-      .mockImplementation(async () => { events.push('second') })
+  it('merges rapid personal view patches without writing the shared view', async () => {
+    const onPatchView = vi.fn().mockResolvedValue(undefined)
     await mountTable({}, onPatchView, vi.fn().mockResolvedValue(undefined))
     const grip = view.container.querySelector<HTMLElement>(`[role="separator"][aria-label="${t('project.view.resize_column')}"]`)!
     const press = (): void => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) }
     await act(async () => { press(); press() })
-    expect(events).toEqual(['first:start'])
-    finishFirst!()
-    await act(async () => { await firstCall })
-    expect(events).toEqual(['first:start', 'first:end', 'second'])
+    expect(onPatchView).not.toHaveBeenCalled()
+    expect(useSession.getState().settings.project.personalViews['b1:v1']?.columnWidths).toEqual({ ps: 192 })
   })
 })
 
@@ -443,7 +455,8 @@ describe('column resize grip (C-17)', () => {
     const grip = view.container.querySelector(`[role="separator"][aria-label="${t('project.view.resize_column')}"]`) as HTMLButtonElement
     expect(grip).not.toBeNull()
     await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })) })
-    expect(onPatchView).toHaveBeenCalledWith('v1', { fields: { columnWidths: { ps: 176 } } })
+    expect(onPatchView).not.toHaveBeenCalled()
+    expect(useSession.getState().settings.project.personalViews['b1:v1']?.columnWidths).toEqual({ ps: 176 })
   })
 })
 
@@ -552,6 +565,34 @@ describe('view actions menu (C-1/C-15)', () => {
     })
     await openMenu()
     expect(item(t('project.view.delete')).disabled).toBe(true)
+  })
+})
+
+describe('personal view preferences', () => {
+  it('disables personal controls on a public share', async () => {
+    await mount(bundle(), true)
+    expect(view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.view.density')}"]`)?.disabled).toBe(true)
+    expect(view.container.querySelector(`button[aria-label="${t('project.view.filter')}"]`)).toBeNull()
+  })
+
+  it('lets a viewer personalize density without patching the shared view', async () => {
+    const shared = bundle()
+    const onPatchView = vi.fn().mockResolvedValue(undefined)
+    await act(async () => {
+      view = renderElement(createElement(BoardViews, {
+        bundle: shared, canEdit: false, onDeleteCard: vi.fn(), onCreateView: vi.fn(), onOpenCard: vi.fn(),
+        onPatchView, onDeleteView: vi.fn(), onDuplicateView: vi.fn(), onActiveViewChange: vi.fn(),
+        onPatchCard: vi.fn(), onAddGroupOption: vi.fn(), onRenameGroupOption: vi.fn(), onSetGroupOptionColor: vi.fn(),
+        onCardCreated: vi.fn(), onRefresh: vi.fn(),
+      }))
+    })
+    const density = view.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.view.density')}"]`)!
+    expect(density.disabled).toBe(false)
+    await act(async () => { density.click() })
+    await act(async () => { [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]')].find((button) => button.textContent === t('project.view.density_compact'))!.click() })
+    expect(useSession.getState().settings.project.personalViews['b1:v1']?.cardSize).toBe('compact')
+    expect(shared.views[0]!.fields.cardSize).toBeUndefined()
+    expect(onPatchView).not.toHaveBeenCalled()
   })
 })
 
@@ -901,7 +942,8 @@ describe('the column header stays readable (R4-1)', () => {
     const sum = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((row) => row.textContent === t('project.calc.countnotempty'))
     expect(sum, 'the summary choices are not in the menu').toBeDefined()
     await act(async () => { sum!.click() })
-    expect(onPatch).toHaveBeenCalledWith('v2', { fields: { kanbanCalculations: { o1: { calculation: 'countNotEmpty', propertyId: 'ps' } } } })
+    expect(onPatch).not.toHaveBeenCalled()
+    expect(useSession.getState().settings.project.personalViews['b1:v2']?.kanbanCalculations).toEqual({ o1: { calculation: 'countNotEmpty', propertyId: 'ps' } })
   })
 })
 
@@ -918,7 +960,8 @@ describe('clearing a picker (the merge keeps absent keys)', () => {
     await act(async () => { trigger.click() })
     const blank = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((row) => row.textContent === t('project.view.swimlane'))!
     await act(async () => { blank.click() })
-    expect(onPatchView).toHaveBeenCalledWith('v2', { fields: { swimlaneBy: '' } })
+    expect(onPatchView).not.toHaveBeenCalled()
+    expect(useSession.getState().settings.project.personalViews['b1:v2']?.swimlaneBy).toBe('')
   })
 
   it('falls back to the first date property when display-by is cleared', async () => {

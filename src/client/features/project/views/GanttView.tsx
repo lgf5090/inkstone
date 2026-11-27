@@ -50,6 +50,7 @@ export interface GanttProps {
   fields: ProjectViewFields
   subtasksByParent: Map<string, ProjectCard[]>
   canEdit: boolean
+  canPersonalize?: boolean
   onOpenCard: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onPatchFields: (fields: Partial<ProjectViewFields>) => void
@@ -361,7 +362,7 @@ export function GanttView(props: GanttProps): ReactElement {
         <Seg
           value={scale}
           label={t('project.view.scale')}
-          disabled={!canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(next) => props.onPatchFields({ scheduleScale: next })}
           options={SCALES.map((entry) => ({ value: entry, label: t(`project.view.scale_${entry}` as Parameters<typeof t>[0]) }))}
         />
@@ -375,7 +376,7 @@ export function GanttView(props: GanttProps): ReactElement {
           size="sm"
           value={fields.scheduleGroupById ?? statusProperty?.id ?? ''}
           label={t('project.view.group_lanes')}
-          disabled={!canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(value) => props.onPatchFields({ scheduleGroupById: value })}
           options={[{ value: '', label: t('project.view.no_value') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
         />

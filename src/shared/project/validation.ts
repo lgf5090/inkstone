@@ -139,6 +139,13 @@ export const ProjectViewFieldsSchema = z.object({
   chartCalculation: ProjectCalculationSchema.optional(),
 })
 
+export const ProjectPersonalViewFieldsSchema = ProjectViewFieldsSchema.omit({
+  minimumRole: true,
+  cardOrder: true,
+  defaultTemplateId: true,
+}).partial()
+export type ProjectPersonalViewFieldsInput = z.infer<typeof ProjectPersonalViewFieldsSchema>
+
 export const ProjectBoardFromTemplateSchema = z.object({
   templateId: z.string().min(1).max(64),
   locale: z.string().max(16).optional(),

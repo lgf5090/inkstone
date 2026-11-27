@@ -2,6 +2,7 @@
 
 
 import type { CoverPosition, CoverShape } from './property-decorations'
+import type { ProjectViewFields } from './project/model'
 import type { RemindOffset, TodoTask } from './todos/model'
 
 export type UserRole = 'owner' | 'member'
@@ -648,6 +649,7 @@ export interface ProjectSettings {
   pinnedBoards: string[]
   starredBoards: string[]
   notifications: Record<string, 'all' | 'mentions' | 'off'>
+  personalViews: Record<string, Partial<ProjectViewFields>>
 }
 
 /**

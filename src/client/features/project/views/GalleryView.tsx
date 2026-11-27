@@ -28,6 +28,7 @@ export interface GalleryProps {
   badgesFor: (cardId: string) => ProjectCardBadges
   coverFor?: (cardId: string) => string | null
   canEdit: boolean
+  canPersonalize?: boolean
   onOpenCard: (id: string) => void
   onCardContextMenu: (event: MouseEvent, card: ProjectCard) => void
   onPatchFields: (fields: Partial<ProjectViewFields>) => void
@@ -168,7 +169,7 @@ export function GalleryView(props: GalleryProps): ReactElement {
         <Seg
           value={size}
           label={t('project.view.gallery_size')}
-          disabled={!canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(next) => props.onPatchFields({ galleryCardSize: next })}
           options={[
             { value: 'small', label: t('project.view.gallery_small') },

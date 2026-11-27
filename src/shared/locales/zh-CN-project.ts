@@ -458,6 +458,7 @@ export const ZH_CN_PROJECT = {
     "project.view.rename_group_hint": "点击重命名该分组",
     "project.view.rename_card": "重命名卡片",
     "project.view.reset_order": "重置手动排序",
+    "project.view.reset_personal": "重置个人视图",
     "project.view.drag_card": "拖动 {title}",
     "project.view.zoom_in": "放大",
     "project.view.zoom_out": "缩小",

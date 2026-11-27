@@ -23,6 +23,7 @@ export interface ChartProps {
   properties: ProjectProperty[]
   fields: ProjectViewFields
   canEdit: boolean
+  canPersonalize?: boolean
   onPatchFields: (fields: Partial<ProjectViewFields>) => void
 }
 
@@ -117,7 +118,7 @@ export function ChartView(props: ChartProps): ReactElement {
         <Seg
           value={type}
           label={t('project.view.chart_type')}
-          disabled={!props.canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(next) => props.onPatchFields({ chartType: next })}
           options={[
             { value: 'bar', label: t('project.view.chart_bar') },
@@ -132,7 +133,7 @@ export function ChartView(props: ChartProps): ReactElement {
           size="sm"
           value={groupProperty?.id ?? ''}
           label={t('project.view.group_by')}
-          disabled={!props.canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(value) => props.onPatchFields({ chartGroupById: value })}
           options={groupable.map((property) => ({ value: property.id, label: property.name }))}
         />
@@ -141,7 +142,7 @@ export function ChartView(props: ChartProps): ReactElement {
           size="sm"
           value={calculation}
           label={t('project.view.chart_measure')}
-          disabled={!props.canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(value) => props.onPatchFields({ chartCalculation: value as ProjectCalculation })}
           options={calcOptions.map((option) => ({ value: option, label: t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0]) }))}
         />
@@ -152,7 +153,7 @@ export function ChartView(props: ChartProps): ReactElement {
           size="sm"
           value={measureProperty?.id ?? ''}
           label={t('project.view.chart_property')}
-          disabled={!props.canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(value) => props.onPatchFields({ chartPropertyId: value, chartCalculation: 'count' })}
           options={properties.map((property) => ({ value: property.id, label: property.name }))}
         />

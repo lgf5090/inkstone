@@ -16,6 +16,7 @@ import { t, useLocale } from '../../lib/i18n'
 import { useEvent } from '../../lib/hooks'
 import { isImeComposing } from '../../lib/ime'
 import { useUi } from '../../store/ui'
+import { useSession } from '../../store/session'
 import { useProjectStore } from './store'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
@@ -216,7 +217,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   // C-23: tabs read alphabetically; the default view stays the board's first by position.
   const orderedViews = sortProjectViewsAlphabetically(bundle.views)
   const active = orderedViews.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
-  const fields = active?.fields ?? emptyProjectViewFields()
+  const personalViewKey = active ? `${bundle.board.id}:${active.id}` : ''
+  const storedPersonalFields = useSession((state) => personalViewKey ? state.settings.project.personalViews[personalViewKey] : undefined)
+  const personalFields = publicView ? undefined : storedPersonalFields
+  const fields = useMemo(() => ({ ...(active?.fields ?? emptyProjectViewFields()), ...personalFields }), [active?.fields, personalFields])
+  const effectiveView = active ? { ...active, fields } : null
   const viewType = active?.viewType ?? 'table'
 
   // Only the two dependency-drawing views read links, and a saved dependency must refresh with the
@@ -248,8 +253,17 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     viewPatchQueue.current = task.then(() => undefined)
     return task
   })
-  const patchFields = useEvent((patch: Partial<ProjectViewFields>): void => {
-    if (active) void enqueueViewPatch(active.id, { fields: patch })
+  const patchFields = useEvent(async (patch: Partial<ProjectViewFields>): Promise<boolean> => {
+    if (!active || publicView) return false
+    const key = `${bundle.board.id}:${active.id}`
+    const current = useSession.getState().settings.project.personalViews[key] ?? {}
+    useSession.getState().updateSettings({ project: { personalViews: { [key]: { ...current, ...patch } } } })
+    return true
+  })
+  const resetPersonalFields = useEvent((): void => {
+    if (!active || publicView) return
+    const key = `${bundle.board.id}:${active.id}`
+    useSession.getState().updateSettings({ project: { personalViews: { [key]: {} } } })
   })
   // Every keystroke used to re-match and re-sort the whole board; the box stays immediate while the
   // expensive pass trails one frame behind.
@@ -521,7 +535,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     { id: 'rename', label: t('project.view.rename'), icon: <Pencil size={15} />, disabled: !canEdit, onSelect: renameView },
     { id: 'duplicate', label: t('project.view.duplicate'), icon: <Copy size={15} />, disabled: !canEdit, onSelect: () => onDuplicateView(active.id) },
     { id: 'delete', label: t('project.view.delete'), icon: <Trash2 size={15} />, tone: 'danger', disabled: !canEdit || bundle.views.length <= 1, onSelect: () => onDeleteView(active.id) },
-    ...(fields.cardOrder.length > 0 ? [{ id: 'reset-order', label: t('project.view.reset_order'), icon: <RotateCcw size={15} />, separatorBefore: true, disabled: !canEdit, onSelect: () => patchFields({ cardOrder: [] }) }] : []),
+    ...(personalFields && Object.keys(personalFields).length > 0 ? [{ id: 'reset-personal', label: t('project.view.reset_personal'), icon: <RotateCcw size={15} />, separatorBefore: true, onSelect: resetPersonalFields }] : []),
+    ...(fields.cardOrder.length > 0 ? [{ id: 'reset-order', label: t('project.view.reset_order'), icon: <RotateCcw size={15} />, disabled: !canEdit, onSelect: () => { if (active) void enqueueViewPatch(active.id, { fields: { cardOrder: [] } }) } }] : []),
     { id: 'export-csv', label: t('project.view.export_csv'), icon: <Download size={15} />, separatorBefore: true, onSelect: () => { window.open(projectBoardExportUrl(bundle.board.id, 'csv'), '_blank') } },
     { id: 'export-archive', label: t('project.view.export_archive'), icon: <Download size={15} />, onSelect: () => { window.open(projectBoardExportUrl(bundle.board.id, 'archive'), '_blank') } },
   ] : []
@@ -564,7 +579,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       case 'dashboard':
         return <DashboardView boardId={bundle.board.id} cards={cards} properties={bundle.properties} datePropertyId={projectViewPropertyId(fields.dateDisplayPropertyId)} onOpenCard={onOpenCard} publicView={publicView} />
       case 'chart':
-        return <ChartView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} onPatchFields={patchFields} />
+        return <ChartView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} canPersonalize={!publicView} onPatchFields={patchFields} />
       case 'calendar':
         return (
           <CalendarView
@@ -575,6 +590,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             mode={fields.calendarMode ?? 'month'}
             onModeChange={changeCalendarMode}
             canEdit={canEdit}
+            canPersonalize={!publicView}
             onOpenCard={onOpenCard}
             onPatchCard={onPatchCard}
             onRefresh={onRefresh}
@@ -585,9 +601,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       case 'timeline':
         return <TimelineView cards={cards} properties={bundle.properties} links={links} fields={fields} subtasksByParent={subtasksByParent} canEdit={canEdit} onOpenCard={onOpenCard} onPatchFields={patchFields} />
       case 'gantt':
-        return <GanttView cards={cards} boardId={bundle.board.id} properties={bundle.properties} links={links} fields={fields} subtasksByParent={subtasksByParent} canEdit={canEdit} onOpenCard={onOpenCard} onPatchCard={onPatchCard} onPatchFields={patchFields} onRefresh={onRefresh} />
+        return <GanttView cards={cards} boardId={bundle.board.id} properties={bundle.properties} links={links} fields={fields} subtasksByParent={subtasksByParent} canEdit={canEdit} canPersonalize={!publicView} onOpenCard={onOpenCard} onPatchCard={onPatchCard} onPatchFields={patchFields} onRefresh={onRefresh} />
       case 'gallery':
-        return <GalleryView cards={cards} properties={bundle.properties} chipProperties={columns} fields={fields} badgesFor={badgesFor} coverFor={coverFor} canEdit={canEdit} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onPatchFields={patchFields} onAddCard={addCardInColumn} />
+        return <GalleryView cards={cards} properties={bundle.properties} chipProperties={columns} fields={fields} badgesFor={badgesFor} coverFor={coverFor} canEdit={canEdit} canPersonalize={!publicView} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onPatchFields={patchFields} onAddCard={addCardInColumn} />
       case 'list':
         return <ListView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} canMarkDone={projectCanMarkDone(bundle.properties)} badgesFor={badgesFor} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onDeleteCard={onDeleteCard} onPatchCard={onPatchCard} onPatchFields={patchFields} onDragCards={dragCards} onAddCard={addCardInColumn} />
       case 'board':
@@ -602,6 +618,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             columns={columns}
             fields={fields}
             canEdit={canEdit}
+            canPersonalize={!publicView}
             selected={visibleSelected}
             onSelected={setSelected}
             subtasksByParent={subtasksByParent}
@@ -701,7 +718,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               size="sm"
               value={fields.dateDisplayPropertyId ?? ''}
               label={t('project.view.display_by')}
-              disabled={!canEdit}
+              disabled={publicView}
               onChange={(value) => patchFields({ dateDisplayPropertyId: value })}
               options={[{ value: '', label: t('project.view.display_by') }, ...dateProperties.map((property) => ({ value: property.id, label: property.name }))]}
             />
@@ -712,7 +729,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               size="sm"
               value={fields.groupById ?? ''}
               label={t('project.view.group_by')}
-              disabled={!canEdit}
+              disabled={publicView}
               onChange={(value) => patchFields({ groupById: value })}
               options={[{ value: '', label: t('project.view.group_by') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
             />
@@ -721,7 +738,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             <Seg
               value={fields.boardLayout ?? 'compact'}
               label={t('project.view.board_layout')}
-              disabled={!canEdit}
+              disabled={publicView}
               onChange={(next) => patchFields({ boardLayout: next })}
               options={[
                 { value: 'compact', label: t('project.view.layout_compact') },
@@ -735,7 +752,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               size="sm"
               value={fields.swimlaneBy ?? ''}
               label={t('project.view.swimlane')}
-              disabled={!canEdit}
+              disabled={publicView}
               onChange={(value) => patchFields({ swimlaneBy: value })}
               options={[{ value: '', label: t('project.view.swimlane') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
             />
@@ -746,7 +763,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               size="sm"
               value={density}
               label={t('project.view.density')}
-              disabled={!canEdit}
+              disabled={publicView}
               onChange={(value) => patchFields({ cardSize: value as 'compact' | 'comfortable' | 'spacious' })}
               options={[
                 { value: 'compact', label: t('project.view.density_compact') },
@@ -756,9 +773,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             />
             {!publicView && (
               <>
-                <IconButton label={t('project.view.sort')} size="sm" disabled={!canEdit} onClick={() => setSettings('sort')}><ArrowUpDown size={15} /></IconButton>
-                <IconButton label={t('project.view.filter')} size="sm" disabled={!canEdit} onClick={() => setSettings('filter')}><Filter size={15} /></IconButton>
-                <IconButton label={t('project.view.properties')} size="sm" disabled={!canEdit} onClick={() => setSettings('properties')}><Eye size={15} /></IconButton>
+                <IconButton label={t('project.view.sort')} size="sm" onClick={() => setSettings('sort')}><ArrowUpDown size={15} /></IconButton>
+                <IconButton label={t('project.view.filter')} size="sm" onClick={() => setSettings('filter')}><Filter size={15} /></IconButton>
+                <IconButton label={t('project.view.properties')} size="sm" onClick={() => setSettings('properties')}><Eye size={15} /></IconButton>
               </>
             )}
           </span>
@@ -815,9 +832,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             </ProjectPeopleProvider>
           </div>
         )}
-      {active && settings === 'sort' && <SortModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => enqueueViewPatch(active.id, { fields: next })} />}
-      {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} members={bundle.members} people={bundle.people} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => enqueueViewPatch(active.id, { fields: next })} />}
-      {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => enqueueViewPatch(active.id, { fields: next })} />}
+      {effectiveView && settings === 'sort' && <SortModal view={effectiveView} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={patchFields} />}
+      {effectiveView && settings === 'filter' && <FilterModal view={effectiveView} properties={bundle.properties} members={bundle.members} people={bundle.people} canEdit onClose={() => setSettings(null)} onPatch={patchFields} />}
+      {effectiveView && settings === 'properties' && <PropertiesModal view={effectiveView} properties={bundle.properties} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={patchFields} />}
       {contextPoint && <Menu anchor={contextPoint} open onClose={() => setContextPoint(null)} items={contextItems} label={t('project.card.menu')} />}
       {batchOpen && (
         <BatchEditDialog

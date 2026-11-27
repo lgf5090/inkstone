@@ -37,6 +37,7 @@ export interface CalendarProps {
   mode: ProjectCalendarMode
   onModeChange: (mode: ProjectCalendarMode) => void
   canEdit: boolean
+  canPersonalize?: boolean
   onOpenCard: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onRefresh?: () => Promise<void>
@@ -194,7 +195,7 @@ export function CalendarView(props: CalendarProps): ReactElement {
         <Seg
           value={mode}
           label={t('project.view.calendar_range')}
-          disabled={!canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={props.onModeChange}
           options={[
             { value: 'month', label: t('project.view.calendar_month') },
