@@ -126,6 +126,15 @@ describe('the list a reader sees', () => {
 })
 
 describe('badges', () => {
+  it('counts merged badges on the same per-feed window as the list', () => {
+    const state = library()
+    state.articles.fa = Array.from({ length: 25 }, (_unused, index) => entry('fa', `a${index}`, index))
+    const merged = unreadCounts(state)
+    expect(merged.feeds.get('fa')).toBe(25)
+    expect(merged.total).toBe(22)
+    expect(unreadCounts(state, { merged: false }).total).toBe(27)
+  })
+
   it('counts unread per feed, per group and in total, in one pass', () => {
     const state = library()
     state.library.readIds = ['a1']

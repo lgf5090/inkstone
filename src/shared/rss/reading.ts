@@ -330,22 +330,21 @@ export function badgeFor(entries: RssEntry[], read: Set<string>, starred: Set<st
  * badge that counts what the channel it labels will not show is the disagreement this file exists
  * to prevent.
  */
-export function unreadCounts(view: RssView): { feeds: Map<string, number>, groups: Map<string, number>, tags: Map<string, number>, total: number } {
+export function unreadCounts(view: RssView, options: { merged?: boolean } = {}): { feeds: Map<string, number>, groups: Map<string, number>, tags: Map<string, number>, total: number } {
   const read = new Set(view.library.readIds)
   const hidden = new Set(view.library.hiddenIds)
   const byId = new Map(view.library.groups.map(group => [group.id, group]))
   const feeds = new Map<string, number>()
   const groups = new Map<string, number>()
   const tags = new Map<string, number>()
+  const merged = options.merged !== false
   let total = 0
   for (const feed of view.library.feeds) {
-    // Counted on the de-duplicated list, so the badge beside a WeChat subscription says what the
-    // channel it labels will actually show.
-    let unread = 0
-    for (const entry of uniqueRemoteEntries(view.articles[feed.id] ?? [])) {
-      if (!read.has(entry.id) && !hidden.has(entry.id)) unread++
-    }
-    feeds.set(feed.id, unread)
+    const entries = uniqueRemoteEntries(view.articles[feed.id] ?? [])
+    const readKeys = readKeysFor(entries, read)
+    const unreadEntries = entries.filter(entry => !read.has(entry.id) && !hidden.has(entry.id) && !readKeys.has(remoteContentKey(entry.link)))
+    const unread = merged ? unreadEntries.slice(0, MERGED_PER_FEED).length : unreadEntries.length
+    feeds.set(feed.id, unreadEntries.length)
     total += unread
     const seen = new Set<string>()
     let cursor = feed.groupId

@@ -146,7 +146,7 @@ export function RssApp(): ReactElement {
     const view = views[channelKey(channel)]
     const read = new Set(library.readIds)
     const hidden = new Set(library.hiddenIds)
-    const counts = unreadCounts({ library, articles })
+    const counts = unreadCounts({ library, articles }, { merged: false })
     const listed = channelEntries({ library, articles }, channel)
     const unreadHere = listed.filter(entry => !read.has(entry.id) && !hidden.has(entry.id)).length
     const open = view?.entryId ? findEntry({ library, articles }, view.entryId) : undefined
