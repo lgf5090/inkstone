@@ -717,6 +717,8 @@ describe('background provider sync', () => {
 
   it('pulls events for a mapped Google calendar through the same proxy', async () => {
     const seeded = await seedOAuth()
+    const eventStart = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    const eventEnd = new Date(eventStart.getTime() + 60 * 60 * 1000)
     await new CalendarStore(db, USER).createCalendar({
       id: 'google-cal-1',
       name: 'Google',
@@ -736,8 +738,8 @@ describe('background provider sync', () => {
           id: 'google-event-1',
           status: 'confirmed',
           summary: 'Remote design review',
-          start: { dateTime: '2026-10-28T09:00:00Z' },
-          end: { dateTime: '2026-10-28T10:00:00Z' },
+          start: { dateTime: eventStart.toISOString() },
+          end: { dateTime: eventEnd.toISOString() },
         }],
       })
     })
@@ -756,7 +758,7 @@ describe('background provider sync', () => {
     }])
 
     const store = new CalendarStore(db, USER)
-    const remote = (await store.listEvents(Date.parse('2026-10-01T00:00:00Z'), Date.parse('2026-11-01T00:00:00Z')))
+    const remote = (await store.listEvents(eventStart.getTime() - 24 * 60 * 60 * 1000, eventEnd.getTime() + 24 * 60 * 60 * 1000))
       .events.find(event => event.externalId === 'google-event-1')!
     await store.setEventReminders(remote.id, [10], remote.rev)
     sqlite.prepare('INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -780,10 +782,10 @@ describe('background provider sync', () => {
       kind: 'event',
       task: null,
       conference: null,
-      start: { value: '2026-10-28T11:00:00', type: 'datetime' },
-      end: { value: '2026-10-28T12:00:00', type: 'datetime' },
-      startMs: Date.parse('2026-10-28T11:00:00Z'),
-      endMs: Date.parse('2026-10-28T12:00:00Z'),
+      start: { value: eventStart.toISOString(), type: 'datetime' },
+      end: { value: eventEnd.toISOString(), type: 'datetime' },
+      startMs: eventStart.getTime(),
+      endMs: eventEnd.getTime(),
       allDay: false,
       calendarIds: ['google-cal-1'],
       meta: {},
