@@ -64,6 +64,8 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const stage = useRef<EpubStageHandle>(null)
   const fixedStage = useRef<FixedStageHandle>(null)
   const fixedSearch = useRef<((query: string) => Promise<PanelHit[]>) | null>(null)
+  const indexAbort = useRef<AbortController | null>(null)
+  const [indexProgress, setIndexProgress] = useState<{ done: number; total: number } | null>(null)
   const [zoom, setZoom] = useState(1)
   const [moreAt, setMoreAt] = useState<{ x: number; y: number } | null>(null)
   const isFixed = book.format !== 'epub'
@@ -186,6 +188,8 @@ export function ReaderView({ book }: { book: BookRecord }) {
       }
     }
   }, [busy, settings.immersive])
+
+  useEffect(() => () => indexAbort.current?.abort(), [])
 
   const onPosition = useCallback((position: BookPosition, chapterFraction: number) => {
     const total = handle?.pkg.spine.length ?? 1
@@ -678,19 +682,33 @@ export function ReaderView({ book }: { book: BookRecord }) {
           </IconButton>
           {isFixed ? (
             <IconButton
-              label={t('reading.index_book')}
+              label={indexProgress ? t('reading.indexing_value0_value1', { value0: indexProgress.done, value1: indexProgress.total }) : t('reading.index_book')}
               size="sm"
               onClick={() => {
-                void fixedStage.current?.indexBook().then((result) => {
+                if (indexProgress) {
+                  indexAbort.current?.abort()
+                  return
+                }
+                const controller = new AbortController()
+                indexAbort.current = controller
+                setIndexProgress({ done: 0, total: book.unitCount })
+                void fixedStage.current?.indexBook(controller.signal, (done, total) => setIndexProgress({ done, total })).then((result) => {
                   useUi.getState().toast({ title: t('reading.index_book_done', { pages: result.pages, chunks: result.chunks }), tone: 'success' })
                 }).catch((error: unknown) => {
-                  // The route's own sentence says which half of the indexing is missing (no embedding
-                  // model, a page it could not read); the transport headline alone is a dead end.
+                  if (error instanceof DOMException && error.name === 'AbortError') {
+                    useUi.getState().toast({ title: t('reading.index_cancelled'), tone: 'warning' })
+                    return
+                  }
                   useUi.getState().toast({
                     title: t('reading.index_book_failed'),
                     description: error instanceof ApiError ? error.serverMessage : error instanceof Error ? error.message : undefined,
                     tone: 'danger',
                   })
+                }).finally(() => {
+                  if (indexAbort.current === controller) {
+                    indexAbort.current = null
+                    setIndexProgress(null)
+                  }
                 })
               }}
             >

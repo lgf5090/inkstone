@@ -7014,6 +7014,8 @@ const CORE_MESSAGES_TAIL = {
     "reading.index_book": "Add this book to knowledge",
     "reading.index_book_done": "Indexed {pages} pages into {chunks} chunks",
     "reading.index_book_failed": "This book could not be indexed",
+    "reading.indexing_value0_value1": "Indexing page {value0} of {value1}",
+    "reading.index_cancelled": "Indexing cancelled",
     "reading.capture_page": "Send page to chat",
     "reading.capture_region": "Select an area",
     "reading.capture_added": "The picture was added to the chat box",

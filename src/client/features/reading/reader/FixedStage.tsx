@@ -33,7 +33,7 @@ export interface FixedStageHandle {
   goTo(position: BookPosition): void
   current(): BookPosition | null
   /** Read every page's text once and hand it to the account's knowledge base. */
-  indexBook(): Promise<{ pages: number, chunks: number }>
+  indexBook(signal?: AbortSignal, onProgress?: (done: number, total: number) => void): Promise<{ pages: number, chunks: number }>
 }
 
 type PdfHandle = {
@@ -234,30 +234,15 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
       setPage(spread === 2 ? Math.floor((position.page - 1) / 2) * 2 + 1 : position.page)
     },
     current: () => ({ kind: 'fixed', page }),
-    indexBook: async () => {
+    indexBook: async (signal, onProgress) => {
       const document = docRef.current?.document
       if (!document) return { pages: 0, chunks: 0 }
       const { readPdfTextContent } = await import('../engine/pdf')
-      let pages = 0
-      let chunks = 0
-      let batch: Array<{ page: number, text: string }> = []
-      const flush = async () => {
-        if (!batch.length) return
-        const result = await api.assistant.indexReaderBook(book.id, batch)
-        chunks += result.indexed
-        batch = []
-      }
-      for (let number = 1; number <= Math.min(document.numPages, 200); number++) {
+      const { indexPdfPages } = await import('../engine/pdf-index')
+      return indexPdfPages(document.numPages, async (number) => {
         const source = await document.getPage(number).catch(() => null) as { getTextContent(): Promise<unknown> } | null
-        if (!source) continue
-        const text = readPdfTextContent(await source.getTextContent() as never).text.trim()
-        if (!text) continue
-        pages += 1
-        batch.push({ page: number, text })
-        if (batch.length >= 8) await flush()
-      }
-      await flush()
-      return { pages, chunks }
+        return source ? readPdfTextContent(await source.getTextContent() as never).text : ''
+      }, (batch) => api.assistant.indexReaderBook(book.id, batch), signal, onProgress)
     },
   }), [page, pages, spread])
 

@@ -7005,6 +7005,8 @@ console.log(\`Hello, \${name}!\`)
     "reading.index_book": "把本书加入知识库",
     "reading.index_book_done": "已索引 {pages} 页，共 {chunks} 个片段",
     "reading.index_book_failed": "本书无法建立索引",
+    "reading.indexing_value0_value1": "正在索引 {value0}/{value1} 页",
+    "reading.index_cancelled": "已取消索引",
     "reading.capture_page": "整页发给助手",
     "reading.capture_region": "框选区域",
     "reading.capture_added": "图片已加入聊天输入框",
