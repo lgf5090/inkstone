@@ -67,4 +67,5 @@ For each task:
 
 - Created worktree and branch from the requested base.
 - Committed the living plan as `17dc3d608`.
+- Repaired the pre-existing `scripts/e2e.mjs` comment allowlist mismatch as `929aa6edd`; `comments:check` now passes.
 - Began dependency installation and task decomposition.
