@@ -27,7 +27,7 @@ These three are marked `external-product-decision`, not silently skipped.
 | ID | Status | Task | Primary files | Verification | Commit |
 |---|---|---|---|---|---|
 | SUB-001 | completed | Create branch, worktree, and living plan | `docs/subscriptions-remediation-plan.md` | git worktree/branch checks | `17dc3d608` |
-| SUB-002 | pending | Unify date parsing and local display | `SubscriptionForm`, `routes/subions`, `store`, `SubscriptionDetail`, `csv`, `calendar` | Shanghai/New York/Sydney round-trip tests + browser | pending |
+| SUB-002 | completed | Unify date parsing and local display | `SubscriptionForm`, `routes/subscriptions`, `store`, `SubscriptionDetail`, `csv`, `calendar` | 101 related tests; typecheck/lint/i18n/comments/a11y/build; headed Chrome local-date inspection | `acd90a003` |
 | SUB-003 | pending | Deduplicate before/on reminders by local day and compute next fire inside notification window | `reminder-engine`, `scheduler`, `store`, `SubscriptionDetail` | cross-hour scheduler test + browser | pending |
 | SUB-004 | pending | Fix multi-period renewal amounts, period metadata, price normalization, and auto-renew concurrency | `store`, `currency`, schema/migration | API tests for multiplier/catch-up/concurrency | pending |
 | SUB-005 | pending | Preserve expired state on edit and separate price correction from future price changes | `store`, `SubscriptionForm` | expired edit and initial receipt tests | pending |
@@ -69,3 +69,4 @@ For each task:
 - Committed the living plan as `17dc3d608`.
 - Repaired the pre-existing `scripts/e2e.mjs` comment allowlist mismatch as `929aa6edd`; `comments:check` now passes.
 - Began dependency installation and task decomposition.
+- SUB-002 completed in `acd90a003`: bare dates are parsed in the account timezone; form/detail/CSV/ICS/log diagnostics use local formatting. Regression tests cover Shanghai, New York, and renew/edit round trips. Headed Chrome showed local expiry and reminder text correctly; the lazy dialog automation was unstable, so the round-trip assertion is covered by real store/route tests.
