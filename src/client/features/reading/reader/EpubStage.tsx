@@ -122,6 +122,8 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     start?.kind === 'epub' ? { kind: 'offset', offset: start.offset } : null,
   )
   const indexRef = useRef<TextIndex | null>(null)
+  /** The last position published for the mounted chapter; passive layout changes return to these words. */
+  const reportedPositionRef = useRef<{ chapter: number; offset: number } | null>(null)
   /**
    * Which slot the words on the page belong to.
    *
@@ -158,6 +160,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
   useEffect(() => {
     let cancelled = false
     chapterSlotRef.current = -1
+    reportedPositionRef.current = null
     setChapter(null)
     setFailed(false)
     void handle.prepare(slot).then((prepared) => {
@@ -228,8 +231,9 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     const scrollMode = settings.readMode === 'scroll'
     // The load effect passes through an empty chapter on the way to every jump. Laying that out would
     // spend the anchor on a page count of one and strand the reader at the top of the page that is about
-    // to arrive, so there is nothing to land on until the chapter itself is here.
-    if (!chapter) return
+    // to arrive, so there is nothing to land on until the chapter itself is here. The slot guard also
+    // keeps a settings change in the same commit from spending the new chapter's anchor on the old DOM.
+    if (!chapter || chapterSlotRef.current !== slot) return
     stage.style.setProperty('--reader-column-width', `${next.columnWidth}px`)
     stage.style.setProperty('--reader-gap', `${next.gap}px`)
 
@@ -237,9 +241,13 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     const count = scrollMode ? 1 : measure()
     setPages(count)
 
-    const anchor = anchorRef.current
+    const explicitAnchor = anchorRef.current
+    const reported = reportedPositionRef.current
+    const anchor = explicitAnchor ?? (reported?.chapter === slot
+      ? { kind: 'offset' as const, offset: reported.offset }
+      : null)
     if (!anchor) return
-    anchorRef.current = null
+    if (explicitAnchor) anchorRef.current = null
     if (scrollMode || count <= 1) {
       let moved = false
       if (anchor.kind === 'offset') {
@@ -257,6 +265,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
         }
       }
       if (moved) programmaticScroll.current = true
+      if (!scrollMode) columns.scrollLeft = 0
       setPage(0)
       return
     }
@@ -273,7 +282,11 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
       const element = point?.node.parentElement
       target = element ? pageForOffset(element.offsetLeft, next) : 0
     }
-    setPage(Math.min(count - 1, Math.max(0, target)))
+    target = Math.min(count - 1, Math.max(0, target))
+    // A resize can change the pixel pitch without changing the page number. Apply it here rather than
+    // waiting for `page` to change, or the browser keeps the previous layout's scrollLeft.
+    columns.scrollLeft = scrollForPage(target, next)
+    setPage(target)
   }, [chapter, geometry, measure, settings.readMode])
 
   useLayoutEffect(() => {
@@ -390,6 +403,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     if (!index || chapterSlotRef.current !== slot) return
     paintParagraphFocus()
     const offset = currentOffset()
+    reportedPositionRef.current = { chapter: slot, offset }
     const scrollMode = settings.readMode === 'scroll'
     const progress = scrollMode ? { page: 1, pages: 1 } : chapterProgress(page, pages)
     // How far through the chapter is a share of its prose, not of its page count: a chapter that fits
@@ -410,6 +424,12 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
   useEffect(() => {
     report()
   }, [report])
+
+  // A scroll chapter keeps one page before and after layout, so `report`'s identity does not change when
+  // its text arrives. Publish once the new chapter is mounted; paged mode already reports via page count.
+  useEffect(() => {
+    if (settings.readMode === 'scroll') report()
+  }, [chapter, report, settings.readMode])
 
   /**
    * Reading hands-free.
