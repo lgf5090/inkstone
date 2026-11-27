@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../../lib/test-render'
 import { ConfirmHost, PromptHost } from '../../../components/overlay'
@@ -60,9 +60,10 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
   const VAULT_SALT = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
   const keyiv = deriveVaultKey(masterPassword, VAULT_SALT)
 
-  beforeEach(async () => {
+  beforeAll(async () => { await initI18n() })
+
+  beforeEach(() => {
     localStorage.clear()
-    await initI18n()
 
     // Reset store state
     usePasswordVaultStore.setState({
