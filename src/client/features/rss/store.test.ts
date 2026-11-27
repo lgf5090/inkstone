@@ -386,6 +386,17 @@ describe('loading on a device', () => {
     expect(articleLoadMaxActive).toBeLessThanOrEqual(20)
   })
 
+  it('measures cached articles in UTF-8 bytes and records access time', async () => {
+    const content = '<p>' + '文'.repeat(1000) + '</p>'
+    cache.set('articles:f1', { feedId: 'f1', fetchedAt: Date.now() - 60_000, entries: [{ id: 'cjk', feedId: 'f1', title: '中文', link: 'https://example.com/cjk', author: '', publishedTs: 1, summary: '摘要', content, imageUrl: '', audioUrl: '' }] })
+    cache.set('index', { articles: { f1: { fetchedAt: Date.now() - 60_000, bytes: 10 } }, views: {} })
+    await boot()
+    const meta = (cache.get('index') as { articles: Record<string, { bytes: number, body: number, accessedAt: number }> }).articles.f1
+    expect(meta.bytes).toBeGreaterThan(content.length * 2)
+    expect(meta.body).toBeGreaterThan(content.length * 2)
+    expect(meta.accessedAt).toBeGreaterThanOrEqual(Date.now() - 5_000)
+  })
+
   it('loads descendant folder feeds when the parent folder opens', async () => {
     const base = JSON.parse(JSON.stringify(saved)) as RssLibrary
     base.groups = [newGroup('g1', 'Parent', 0), newGroup('g2', 'Child', 1, 'g1')]

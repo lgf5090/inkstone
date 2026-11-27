@@ -90,7 +90,9 @@ export interface RssRefreshSummary {
 /** What one feed's blob on this device costs, as the durable index recorded it. */
 export interface RssCacheMeta {
   fetchedAt: number
-  /** Characters of title, summary and body. The LRU ceiling is counted in these. */
+  /** Last time this device read the blob; absent on ledgers written before access-aware LRU. */
+  accessedAt?: number
+  /** UTF-8 bytes of the serialized article cache. */
   bytes: number
   /** The part of {@link RssCacheMeta.bytes} that is article body. Absent for a feed this build has
    * not stored or read since the field existed, which the storage panel says instead of guessing. */
@@ -423,13 +425,14 @@ export const useRss = create<RssState>((set, get) => {
 
   /** What one feed's articles cost, split so the storage panel can say what the bytes are. */
   function cacheMeta(entries: RssEntry[], fetchedAt: number): RssCacheMeta {
-    let body = 0
-    let bytes = 0
-    for (const entry of entries) {
-      body += entry.content.length
-      bytes += entry.content.length + entry.summary.length + entry.title.length
+    const encoder = new TextEncoder()
+    return {
+      fetchedAt,
+      accessedAt: Date.now(),
+      bytes: encoder.encode(JSON.stringify(entries)).byteLength,
+      body: entries.reduce((sum, entry) => sum + encoder.encode(entry.content).byteLength, 0),
+      count: entries.length,
     }
-    return { fetchedAt, bytes, body, count: entries.length }
   }
 
   /** Hand the durable index to the components that show it. The index itself stays module-private. */
@@ -441,7 +444,7 @@ export const useRss = create<RssState>((set, get) => {
   async function trimCache(): Promise<void> {
     let total = Object.values(index.articles).reduce((sum, meta) => sum + meta.bytes, 0)
     if (total <= RSS_LIMITS.cacheBytes) return
-    for (const [feedId, meta] of Object.entries(index.articles).sort((a, b) => a[1].fetchedAt - b[1].fetchedAt)) {
+    for (const [feedId, meta] of Object.entries(index.articles).sort((a, b) => (a[1].accessedAt ?? a[1].fetchedAt) - (b[1].accessedAt ?? b[1].fetchedAt))) {
       if (total <= RSS_LIMITS.cacheBytes) break
       delete index.articles[feedId]
       total -= meta.bytes
@@ -494,15 +497,11 @@ export const useRss = create<RssState>((set, get) => {
         }
         return
       }
-      // A blob written before this build measured bodies and counts: record what it really holds
-      // now, so the storage panel and the per-source lines tell the truth without waiting for a
-      // refresh to overwrite the feed with the same articles.
-      const held = index.articles[feedId]
-      if (!held || held.count === undefined || held.body === undefined) {
-        index = { ...index, articles: { ...index.articles, [feedId]: cacheMeta(cached.entries, cached.fetchedAt) } }
-        writeIndex()
-        publishCache()
-      }
+      // Reading a blob is an access for LRU purposes. Re-measuring also upgrades ledgers written
+      // before bodies, counts and UTF-8 byte accounting existed.
+      index = { ...index, articles: { ...index.articles, [feedId]: cacheMeta(cached.entries, cached.fetchedAt) } }
+      writeIndex()
+      publishCache()
       set((state) => {
         if (state.articles[feedId]) return state
         return {
@@ -1477,10 +1476,11 @@ function normaliseIndex(value: unknown): CacheIndex {
   out.savedAt = typeof source.savedAt === 'number' && Number.isFinite(source.savedAt) ? Math.max(0, source.savedAt) : undefined
   if (source.articles && typeof source.articles === 'object') {
     for (const [key, item] of Object.entries(source.articles as Record<string, unknown>)) {
-      const meta = item as { fetchedAt?: unknown, bytes?: unknown, body?: unknown, count?: unknown }
+      const meta = item as { fetchedAt?: unknown, accessedAt?: unknown, bytes?: unknown, body?: unknown, count?: unknown }
       if (typeof meta?.fetchedAt === 'number' && typeof meta.bytes === 'number') {
         out.articles[key.slice(0, 80)] = {
           fetchedAt: meta.fetchedAt,
+          accessedAt: typeof meta.accessedAt === 'number' && Number.isFinite(meta.accessedAt) ? Math.max(0, meta.accessedAt) : undefined,
           bytes: Math.max(0, meta.bytes),
           // An index an older build wrote measured neither, and a guessed split is worse than none:
           // the storage panel leaves those feeds out of the body line until the feed is read again.
