@@ -68,8 +68,8 @@
 | P2-12b | done | F38 split CardDialog sections and BoardPage paging state | dialog sections and pagination orchestration have separate modules without behavior change | 1a1603f23 |
 | P2-13 | done | Add editable Markdown card body and editable/assignable checklist | card description edits persist with Markdown preview | 08ede20cb |
 | P2-14 | done | Add personal views/filters without mutating shared view | viewer can personalize; shared filter unchanged | 79d92f2ba |
-| P2-15 | in_progress | Add offline board read cache and conflict indicators | offline opens cached board; reconnect shows conflicts | - |
-| P2-16 | pending | Add presence, comment realtime, field-level audit and version restore | collaborators see presence; audit answers who/what/when; restore works | - |
+| P2-15 | done | Add offline board read cache and conflict indicators | offline opens cached board; reconnect shows conflicts | 6c0648abb |
+| P2-16 | in_progress | Add presence, comment realtime, field-level audit and version restore | collaborators see presence; audit answers who/what/when; restore works | - |
 | P2-17 | pending | Add form intake and restricted editable guests | public form creates card; guest cannot exceed scope | - |
 | P2-18 | pending | Add workload/capacity, estimates and time reports | cross-board capacity and estimate-vs-actual visible | - |
 | P2-19 | pending | Add note↔card links, embedded board views and AI meeting-note card generation | bidirectional references and generated cards work | - |
@@ -119,3 +119,4 @@
 - 2026-11-27: P2-12b completed in `1a1603f23`; CardDialog now composes dedicated comment/attachment/dependency/subtask sections, and BoardPage delegates bundle paging, refresh serialization and deep-link races to useBoardSession; 739 project tests, typechecks, static gates and build passed, with headed Chrome confirming all dialog sections, comment posting, 205-card pagination and a page-external deep link.
 - 2026-11-27: P2-13 completed in `08ede20cb`; card text blocks render editable Markdown, checklist items persist title/assignee/UTC due date with undo, and single/batch writes share member validation; 744 project tests, typechecks, static gates and build passed, with headed Chrome confirming Markdown emphasis, assignment metadata and date persistence across reload.
 - 2026-11-27: P2-14 completed in `79d92f2ba`; account settings now persist per-board/view filter, sort, grouping, density and layout overrides without patching shared views, with byte budgets, deep debounce merging, public-share disabling and viewer-safe controls; 761 project/settings tests, typechecks, static gates and build passed, with headed Chrome confirming personal filter persistence and an unchanged shared filter.
+- 2026-11-27: P2-15 completed in `6c0648abb`; account-scoped board snapshots hydrate before refresh, cache loaded pages and deep links, fall back read-only on offline failures, reject stale snapshots and retain 409/412 writes for explicit conflict resolution; 757 project/cache tests, typechecks, static gates and build passed, with headed Chrome confirming API-blocked cache mode, reconnect recovery and the conflict dialog.
