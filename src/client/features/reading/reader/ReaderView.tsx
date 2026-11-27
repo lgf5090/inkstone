@@ -21,7 +21,7 @@ import { useReaderSettings } from '../store/reader-settings'
 import { resolveReaderTheme, type ReaderThemeName } from '../themes'
 import type { BookPosition } from '../position'
 import { formatReadingSeconds } from '../format-time'
-import { decodePosition, formatPercent } from '../position'
+import { formatPercent } from '../position'
 import type { BookRecord, Highlight } from '../types'
 import { useEpubHandle } from './useEpubHandle'
 import { FixedStage, type FixedStageHandle } from './FixedStage'
@@ -45,6 +45,8 @@ import { shortcutAllowedWhilePanelOpen, shortcutFor } from './shortcuts'
 import { ShortcutsPanel } from './ShortcutsPanel'
 import { SpeechPanel } from './SpeechPanel'
 import { useReadAloud } from './use-read-aloud'
+import { useDeepLinkPosition } from './use-deep-link-position'
+import { useHudAutoHide } from './use-hud-auto-hide'
 import { StatsPanel } from './StatsPanel'
 import { lookupSelection, vocabularyEntry, hasLegacyLocalAiKey, type LookupOutcome } from '../lookup'
 import { ensureVocabularyNote } from '../vocabulary'
@@ -100,7 +102,6 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const downloading = sync.phase === 'downloading' && sync.bookId === book.id
   const syncPercent = downloading && sync.total > 0 ? Math.min(1, sync.sent / sync.total) : 0
   const [chapter, setChapter] = useState(0)
-  const [hudHidden, setHudHidden] = useState(false)
   const [hudPinned, setHudPinned] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -114,15 +115,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
    * a place. It is read once and then removed: a reload of the address should resume the book rather
    * than teleport back to a link the reader has already acted on.
    */
-  const linkedPosition = useRef<BookPosition | null>(null)
-  const [deepLinkHandled, setDeepLinkHandled] = useState(false)
-  if (!deepLinkHandled) {
-    setDeepLinkHandled(true)
-    linkedPosition.current = decodePosition(new URLSearchParams(window.location.search).get('p'))
-    if (linkedPosition.current) {
-      window.history.replaceState(null, '', window.location.pathname)
-    }
-  }
+  const linkedPosition = useDeepLinkPosition()
   const highlights = useLibrary((state) => state.highlights[book.id])
   const addHighlight = useLibrary((state) => state.addHighlight)
   const updateHighlight = useLibrary((state) => state.updateHighlight)
@@ -168,36 +161,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const theme = resolveReaderTheme(settings.theme as ReaderThemeName, appDark)
 
   const busy = Boolean(panel || selection || comment) || hudPinned
-
-  /**
-   * The HUD retracts when the reader stops moving, and never while something is open.
-   *
-   * Hiding it under a pointer that is about to click a control is the failure mode, so the timer is
-   * restarted by every pointer event rather than only by movement into the bars.
-   */
-  useEffect(() => {
-    if (!settings.immersive || busy) {
-      setHudHidden(false)
-      return
-    }
-    let timer = 0
-    const wake = () => {
-      if (hudPinned) return
-      setHudHidden(false)
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => setHudHidden(true), 3200)
-    }
-    wake()
-    for (const event of ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const) {
-      window.addEventListener(event, wake, { passive: true })
-    }
-    return () => {
-      window.clearTimeout(timer)
-      for (const event of ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const) {
-        window.removeEventListener(event, wake)
-      }
-    }
-  }, [busy, settings.immersive])
+  const hudHidden = useHudAutoHide(settings.immersive, busy, hudPinned)
 
   useEffect(() => () => indexAbort.current?.abort(), [])
 
@@ -612,7 +576,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           settings={settings}
           theme={theme}
           highlights={list}
-          start={linkedPosition.current ?? progress?.position ?? null}
+          start={linkedPosition ?? progress?.position ?? null}
           zoom={zoom}
           onPosition={onFixedPosition}
           onSelection={onFixedSelection}
@@ -635,7 +599,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           settings={settings}
           theme={theme}
           highlights={highlightsHere}
-          start={linkedPosition.current ?? progress?.position ?? null}
+          start={linkedPosition ?? progress?.position ?? null}
           onPosition={onPosition}
           onPageChange={(next, total) => {
             // A card pinned to a word that has just moved off the page is a card about nothing.
@@ -863,7 +827,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           {panel === 'search' ? (
             <SearchPanel
               search={search}
-              start={linkedPosition.current ?? progress?.position ?? null}
+              start={linkedPosition ?? progress?.position ?? null}
               fixedMode={isFixed}
               unitLabel={(unit) => (isFixed
                 ? t('reading.page_value0', { value0: unit })
