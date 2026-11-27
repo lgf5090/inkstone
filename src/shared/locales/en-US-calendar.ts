@@ -641,6 +641,7 @@ export const EN_US_CALENDAR = {
   'calendar.almanac.badge_off': 'REST',
   'calendar.almanac.badge_makeup': 'WORK',
   'calendar.almanac.loading': 'Working out the rules…',
+  'calendar.almanac.detail_failed': 'Almanac details could not be loaded. Close and reopen this day to retry.',
   'calendar.almanac.inferred': 'Derived',
   'calendar.almanac.inferred_hint': 'The activity list and auspicious hours are derived from traditional rules. Read them as reference, not as authority.',
   'calendar.almanac.ganzhi': 'Cycle',

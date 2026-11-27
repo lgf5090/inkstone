@@ -13,7 +13,7 @@
  */
 
 import { Temporal } from 'temporal-polyfill'
-import { leapMonth, lunar2solar, solar2lunar } from '../subscriptions/lunar'
+import { leapMonth, lunar2solar, solar2lunar } from './lunar'
 
 export const COUNTDOWN_REPEATS = ['none', 'yearly', 'lunar'] as const
 export type CountdownRepeat = (typeof COUNTDOWN_REPEATS)[number]

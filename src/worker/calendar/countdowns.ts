@@ -13,7 +13,7 @@
 
 import type { CalendarCountdownDto, CalendarCountdownInput, CountdownRepeat } from '@shared/calendar/countdown'
 import { MAX_COUNTDOWNS } from '@shared/calendar/countdown'
-import { solar2lunar } from '@shared/subscriptions/lunar'
+import { solar2lunar } from '@shared/calendar/lunar'
 import { ApiError } from '../lib/errors'
 
 interface CountdownRow {

@@ -643,6 +643,7 @@ export const ZH_CN_CALENDAR = {
   'calendar.almanac.badge_off': '休',
   'calendar.almanac.badge_makeup': '班',
   'calendar.almanac.loading': '正在推算…',
+  'calendar.almanac.detail_failed': '黄历详情加载失败，请关闭后重新打开这一天以重试。',
   'calendar.almanac.inferred': '推算',
   'calendar.almanac.inferred_hint': '宜忌与吉时由传统规则推算，仅供查阅，不是权威择日结果。',
   'calendar.almanac.ganzhi': '干支',

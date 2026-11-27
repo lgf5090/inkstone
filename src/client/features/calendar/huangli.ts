@@ -13,6 +13,8 @@
  * lying.
  */
 
+import { lunarOf, solarTermOf } from '@shared/calendar/lunar'
+
 export interface AlmanacHour {
   /** The double-hour's earthly branch. */
   zhi: string
@@ -50,7 +52,6 @@ export interface AlmanacDetail {
 }
 
 interface LunarLike {
-  getYearInGanZhi(): string
   getMonthInGanZhi(): string
   getDayInGanZhi(): string
   getDayNaYin(): string
@@ -67,8 +68,6 @@ interface LunarLike {
   getDayJiShen(): string[]
   getDayXiongSha(): string[]
   getTimes(): AlmanacHourLike[]
-  getJieQi(): string
-  getJieQiTable(): Record<string, unknown>
 }
 
 interface AlmanacHourLike {
@@ -102,16 +101,19 @@ function hourOf(hour: AlmanacHourLike): AlmanacHour {
 /**
  * The day's rules, from the maintained implementation.
  *
- * A date outside the library's supported range throws inside it; the caller treats that as "no
- * detail" rather than as an error, because the lunar tables here only promise 1900–2100.
+ * Dates outside the shared table return null before the package loads. Package or chunk failures
+ * propagate so the panel can show a retryable error instead of masquerading as an unsupported date.
  */
 export async function loadAlmanacDetail(date: Date): Promise<AlmanacDetail | null> {
+  const calendarLunar = lunarOf(date)
+  if (!calendarLunar)
+    return null
+  const calendarTerm = solarTermOf(date)
   try {
     const { Solar } = await import('lunar-typescript')
     const lunar = Solar.fromYmd(date.getFullYear(), date.getMonth() + 1, date.getDate()).getLunar() as unknown as LunarLike
-    const term = lunar.getJieQi()
     return {
-      ganZhiYear: lunar.getYearInGanZhi(),
+      ganZhiYear: calendarLunar.ganzhi,
       ganZhiMonth: lunar.getMonthInGanZhi(),
       ganZhiDay: lunar.getDayInGanZhi(),
       naYin: lunar.getDayNaYin(),
@@ -128,12 +130,12 @@ export async function loadAlmanacDetail(date: Date): Promise<AlmanacDetail | nul
       jiShen: lunar.getDayJiShen(),
       xiongSha: lunar.getDayXiongSha(),
       hours: lunar.getTimes().map(hourOf),
-      terms: term ? [term] : [],
+      terms: calendarTerm ? [calendarTerm] : [],
     }
-  } catch {
-    // The library refuses dates outside 1900–2100 and a few malformed ones; the panel then shows the
-    // lunar date it already has and no inferred line, which is honest rather than empty.
-    return null
+  } catch (cause) {
+    // The shared table already checked the date; a failure here is a broken rule chunk or library bug.
+    console.error('[inkstone] Almanac rule details could not be loaded.', cause)
+    throw cause
   }
 }
 
