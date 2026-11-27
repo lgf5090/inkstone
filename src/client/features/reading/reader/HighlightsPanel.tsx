@@ -16,12 +16,13 @@ import type { Highlight } from '../types'
 export interface HighlightsPanelProps {
   book: { id: string; toc: { label: string; position: BookPosition | null }[] }
   list: Highlight[]
+  positionFor: (chapter: number, start: number) => BookPosition
   onJump: (position: BookPosition) => void
   onRemove: (id: string) => void
   onComment: (id: string, comment: string) => void
 }
 
-export function HighlightsPanel({ book, list, onJump, onRemove, onComment }: HighlightsPanelProps) {
+export function HighlightsPanel({ book, list, positionFor, onJump, onRemove, onComment }: HighlightsPanelProps) {
   if (!list.length) {
     return <p className="px-3 py-6 text-center text-[length:var(--text-12)] opacity-60">{t('reading.no_highlights')}</p>
   }
@@ -44,7 +45,7 @@ export function HighlightsPanel({ book, list, onJump, onRemove, onComment }: Hig
                     type="button"
                     className="block w-full border-s-2 ps-2 text-start text-[length:var(--text-12-5)] leading-snug"
                     style={{ borderInlineStartWidth: 2, borderInlineStartColor: DEFAULT_HIGHLIGHT_PAINT[highlight.color] }}
-                    onClick={() => onJump({ kind: 'epub', chapter: highlight.chapter, offset: highlight.start })}
+                    onClick={() => onJump(positionFor(highlight.chapter, highlight.start))}
                   >
                     {highlight.quote}
                   </button>

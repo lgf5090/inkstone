@@ -66,6 +66,14 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const [zoom, setZoom] = useState(1)
   const [moreAt, setMoreAt] = useState<{ x: number; y: number } | null>(null)
   const isFixed = book.format !== 'epub'
+  const activeStage = isFixed ? fixedStage : stage
+  const goToPosition = useCallback((position: BookPosition, fragment?: string) => {
+    if (isFixed) {
+      if (position.kind === 'fixed') fixedStage.current?.goTo(position)
+      return
+    }
+    if (position.kind === 'epub') stage.current?.goTo(position, fragment)
+  }, [isFixed])
   // Below the desktop breakpoint the bar keeps only where the reader is and one menu, because seven
   // icons leave no room for the title they are supposed to be beside.
   const narrow = useMedia('(max-width: 767px)')
@@ -292,7 +300,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
       toast({ title: t('reading.no_highlights'), tone: 'warning' })
       return
     }
-    const here = stage.current?.current() ?? fixedStage.current?.current()
+    const here = activeStage.current?.current()
     const unit = here?.kind === 'epub' ? here.chapter : here?.kind === 'fixed' ? here.page - 1 : 0
     const offset = here?.kind === 'epub' ? here.offset : 0
     const standing = cursorRef.current
@@ -307,10 +315,9 @@ export function ReaderView({ book }: { book: BookRecord }) {
       if (one.chapter < from.chapter || (one.chapter === from.chapter && one.start < from.start)) { before = i; break }
     }
     const next = direction > 0 ? ordered[after < 0 ? 0 : after] : ordered[before < 0 ? ordered.length - 1 : before]
-    if (isFixed) fixedStage.current?.goTo({ kind: 'fixed', page: next.chapter + 1 })
-    else stage.current?.goTo({ kind: 'epub', chapter: next.chapter, offset: next.start })
+    goToPosition(isFixed ? { kind: 'fixed', page: next.chapter + 1 } : { kind: 'epub', chapter: next.chapter, offset: next.start })
     pendingStepRef.current = isFixed ? null : { chapter: next.chapter, start: next.start }
-  }, [isFixed, list, progress?.position, toast])
+  }, [activeStage, goToPosition, isFixed, list, progress?.position, toast])
 
   const reportChapter = useCallback((index: number) => {
     setChapter(index)
@@ -421,12 +428,12 @@ export function ReaderView({ book }: { book: BookRecord }) {
   }
 
   async function addMark(): Promise<void> {
-    const position = stage.current?.current()
+    const position = activeStage.current?.current()
     if (!position) return
     const { prompt } = await import('../../../components/overlay')
     const label = await prompt({
       title: t('reading.new_location_mark'),
-      defaultValue: t('reading.mark_default_label_value0', { value0: chapter + 1 }),
+      defaultValue: t('reading.mark_default_label_value0', { value0: position.kind === 'fixed' ? position.page : position.chapter + 1 }),
       confirmLabel: t('common.save'),
     })
     if (!label?.trim()) return
@@ -756,7 +763,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           fraction={progress?.fraction ?? 0}
           chapterTitle={currentChapterTitle}
           minutesLeft={minutesLeft}
-          onJump={(position, fragment) => (isFixed ? fixedStage.current?.goTo(position) : stage.current?.goTo(position, fragment))}
+          onJump={goToPosition}
         />
         <IconButton label={t('reading.next_page')} size="sm" onClick={() => turn(1)}>
           <ArrowRight size={15} />
@@ -817,8 +824,8 @@ export function ReaderView({ book }: { book: BookRecord }) {
             />
           ) : null}
           {panel === 'appearance' ? <AppearancePanel /> : null}
-          {panel === 'highlights' ? <HighlightsPanel book={book} list={list} onJump={(position) => stage.current?.goTo(position)} onRemove={(id) => removeHighlight(book.id, id)} onComment={(id, comment) => updateHighlight(book.id, id, { comment })} /> : null}
-          {panel === 'marks' ? <MarksPanel bookId={book.id} onJump={(position) => stage.current?.goTo(position)} onRemove={(id) => useLibrary.getState().removeMark(book.id, id)} /> : null}
+          {panel === 'highlights' ? <HighlightsPanel book={book} list={list} onJump={goToPosition} positionFor={(chapter, start) => isFixed ? { kind: 'fixed', page: chapter + 1 } : { kind: 'epub', chapter, offset: start }} onRemove={(id) => removeHighlight(book.id, id)} onComment={(id, comment) => updateHighlight(book.id, id, { comment })} /> : null}
+          {panel === 'marks' ? <MarksPanel bookId={book.id} onJump={goToPosition} onRemove={(id) => useLibrary.getState().removeMark(book.id, id)} /> : null}
           {panel === 'shortcuts' ? <ShortcutsPanel /> : null}
           {panel === 'stats' ? <StatsPanel bookId={book.id} goalMinutes={settings.dailyGoalMinutes} /> : null}
           {panel === 'search' ? (
@@ -829,7 +836,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
               unitLabel={(unit) => (isFixed
                 ? t('reading.page_value0', { value0: unit })
                 : t('reading.chapter_value0', { value0: unit + 1 }))}
-              onJump={(position) => (isFixed ? fixedStage.current?.goTo(position) : stage.current?.goTo(position))}
+              onJump={goToPosition}
             />
           ) : null}
         </ReaderPanel>

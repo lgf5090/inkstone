@@ -14,7 +14,7 @@ import { createContextualNote, useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { folderPathLabel } from '../../lib/folders'
-import { formatPercent, type BookPosition } from './position'
+import { formatPercent } from './position'
 import { useLibrary } from './store/library'
 import { useReaderSettings } from './store/reader-settings'
 import type { BookRecord, Highlight } from './types'
@@ -22,11 +22,12 @@ import type { BookRecord, Highlight } from './types'
 export const NOTE_BEGIN = '<!-- inkstone:reading:begin -->'
 export const NOTE_END = '<!-- inkstone:reading:end -->'
 
-/** The address that opens this book, optionally at one position. */
-export function bookLink(bookId: string, position?: BookPosition | null): string {
-  const path = `/reading/${encodeURIComponent(bookId)}`
+/** The address that opens this book, optionally at one chapter or page. */
+export function bookLink(book: Pick<BookRecord, 'id' | 'format'>, position?: Pick<Highlight, 'chapter' | 'start'> | null): string {
+  const path = `/reading/${encodeURIComponent(book.id)}`
   if (!position) return path
-  return `${path}?p=${encodeURIComponent(position.kind === 'epub' ? `e:${position.chapter}:${position.offset}` : `f:${position.page}`)}`
+  const code = book.format === 'epub' ? `e:${position.chapter}:${position.start}` : `f:${position.chapter + 1}`
+  return `${path}?p=${encodeURIComponent(code)}`
 }
 
 function frontmatter(book: BookRecord, highlights: Highlight[], fraction: number): string {
@@ -70,7 +71,7 @@ export function renderReadingSection(
   out.push('')
   out.push(`> ${t('reading.note_summary_value0', { value0: highlights.length })} · ${formatPercent(fraction)}`)
   out.push('>')
-  out.push(`> [${t('reading.note_open_book')}](${bookLink(book.id)})`)
+  out.push(`> [${t('reading.note_open_book')}](${bookLink(book)})`)
   out.push('')
   if (!highlights.length) {
     out.push(t('reading.note_no_highlights'))
@@ -88,7 +89,7 @@ export function renderReadingSection(
     out.push(`## ${title || t('reading.chapter_value0', { value0: chapter + 1 })}`)
     out.push('')
     for (const highlight of list) {
-      const link = options.backlinks ? ` [↩](${bookLink(book.id, { kind: 'epub', chapter: highlight.chapter, offset: highlight.start })})` : ''
+      const link = options.backlinks ? ` [↩](${bookLink(book, highlight)})` : ''
       const quote = options.colors ? `<mark data-hl="${highlight.color}">${escapeQuote(highlight.quote)}</mark>` : escapeQuote(highlight.quote)
       out.push(`> ${quote}${link}`)
       const comment = highlight.comment.trim()
