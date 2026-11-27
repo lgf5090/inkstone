@@ -30,7 +30,7 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
     autoRenew: true,
     notes: '',
     lastPaymentDate: null,
-    trialEndsAt: null,
+    trialEndsAt: null, paymentMethod: '', managementUrl: '', pausedUntil: null, fixedTerm: false, introPrice: null,
     trialDaysRemaining: null,
     deletedAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -69,6 +69,12 @@ describe('export', () => {
   it('writes dates in the account timezone rather than UTC', () => {
     const csv = toCsv([item({ expiryDate: '2026-06-01T00:00:00.000Z' })], 'America/New_York')
     expect(csv).toContain('2026-05-31')
+  })
+
+  it('round-trips plan metadata without losing dates or prices', () => {
+    const csv = toCsv([item({ paymentMethod: 'Card', managementUrl: 'https://example.com/manage', pausedUntil: '2026-06-10T00:00:00.000Z', fixedTerm: true, introPrice: 9 })], 'UTC')
+    const input = rowToInput(parseCsv(csv)[0]!)
+    expect(input).toMatchObject({ paymentMethod: 'Card', managementUrl: 'https://example.com/manage', pausedUntil: '2026-06-10', fixedTerm: true, introPrice: 9 })
   })
 
   it('names the file by the day it was taken', () => {

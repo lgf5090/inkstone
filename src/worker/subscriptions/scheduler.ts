@@ -42,6 +42,7 @@ export async function sweepSubscriptions(env: Env, now = Date.now()): Promise<Sw
     SELECT DISTINCT i.user_id
       FROM sub_item i
      WHERE i.deleted_at IS NULL AND i.is_active = 1
+       AND (i.paused_until IS NULL OR i.paused_until <= ?1)
        AND (
          (i.auto_renew = 1 AND (i.expiry_date <= ?1 OR (i.trial_ends_at IS NOT NULL AND i.trial_ends_at <= ?1)))
          OR (i.trial_ends_at IS NOT NULL AND i.trial_ends_at <= ?1)
@@ -105,7 +106,7 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
   let renewed = 0
   const current: SubscriptionItem[] = []
   for (const item of items) {
-    if (item.isActive && item.autoRenew && (item.daysRemaining < 0 || (item.trialEndsAt !== null && Date.parse(item.trialEndsAt) <= now))) {
+    if (item.isActive && (item.autoRenew || (item.fixedTerm && item.trialEndsAt !== null)) && (item.daysRemaining < 0 || (item.trialEndsAt !== null && Date.parse(item.trialEndsAt) <= now))) {
       const next = await store.autoRenew(item.id, context)
       if (next) {
         renewed++
@@ -126,7 +127,7 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
   let matched = 0
   const candidates: Candidate[] = []
   for (const item of current) {
-    if (!item.isActive) continue
+    if (!item.isActive || (item.pausedUntil !== null && Date.parse(item.pausedUntil) > now)) continue
     checked++
     const expiry = Date.parse(item.expiryDate)
     if (!Number.isFinite(expiry)) continue

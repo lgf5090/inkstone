@@ -65,6 +65,11 @@ interface ItemRow {
   notes: string
   last_payment_date: number | null
   trial_ends_at: number | null
+  payment_method: string
+  management_url: string
+  paused_until: number | null
+  fixed_term: number
+  intro_price: number | null
   deleted_at: number | null
   created_at: number
   updated_at: number
@@ -101,7 +106,8 @@ interface RuleRow {
 
 const ITEM_COLUMNS = `user_id, id, name, custom_type, category, amount, currency, start_date, expiry_date,
   period_value, period_unit, subscription_mode, use_lunar, is_active, auto_renew, notes,
-  last_payment_date, trial_ends_at, deleted_at, created_at, updated_at`
+  last_payment_date, trial_ends_at, payment_method, management_url, paused_until, fixed_term, intro_price,
+  deleted_at, created_at, updated_at`
 
 const PAYMENT_COLUMNS = `user_id, id, subscription_id, paid_at, amount, currency, kind, note,
   period_start, period_end, period_count, created_at`
@@ -329,7 +335,7 @@ export class SubscriptionsStore {
 
     const statements = [
       this.db.prepare(
-        `INSERT INTO sub_item (${ITEM_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, NULL, ?19, ?20)`,
+        `INSERT INTO sub_item (${ITEM_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)`,
       ).bind(
         this.userId,
         id,
@@ -345,10 +351,16 @@ export class SubscriptionsStore {
         input.subscriptionMode ?? 'cycle',
         input.useLunar ? 1 : 0,
         input.isActive === false ? 0 : 1,
-        input.autoRenew === false ? 0 : 1,
+        input.fixedTerm === true ? 0 : input.autoRenew === false ? 0 : 1,
         input.notes ?? '',
         startDate ?? createdAt,
         trialEnd,
+        (input.paymentMethod ?? '').trim(),
+        (input.managementUrl ?? '').trim(),
+        toMs(input.pausedUntil ?? null, context.timezone),
+        input.fixedTerm === true ? 1 : 0,
+        input.introPrice === undefined || input.introPrice === null ? null : roundMoney(input.introPrice),
+        null,
         createdAt,
         createdAt,
       ),
@@ -362,7 +374,7 @@ export class SubscriptionsStore {
         newId(),
         id,
         startDate ?? createdAt,
-        amount,
+        input.introPrice === undefined || input.introPrice === null ? amount : roundMoney(input.introPrice),
         currency,
         'initial',
         '',
@@ -408,7 +420,8 @@ export class SubscriptionsStore {
       `UPDATE sub_item SET name = ?3, custom_type = ?4, category = ?5, amount = ?6, currency = ?7,
          start_date = ?8, expiry_date = ?9, period_value = ?10, period_unit = ?11,
          subscription_mode = ?12, use_lunar = ?13, is_active = ?14, auto_renew = ?15, notes = ?16,
-         last_payment_date = ?17, trial_ends_at = ?19, updated_at = ?18
+         last_payment_date = ?17, trial_ends_at = ?19, payment_method = ?20, management_url = ?21,
+         paused_until = ?22, fixed_term = ?23, intro_price = ?24, updated_at = ?18
        WHERE user_id = ?1 AND id = ?2`,
     ).bind(
       this.userId,
@@ -425,13 +438,22 @@ export class SubscriptionsStore {
       input.subscriptionMode ?? existing.subscription_mode,
       (input.useLunar ?? existing.use_lunar === 1) ? 1 : 0,
       (input.isActive ?? existing.is_active === 1) ? 1 : 0,
-      (input.autoRenew ?? existing.auto_renew === 1) ? 1 : 0,
+      (input.fixedTerm ?? existing.fixed_term === 1) ? 0 : (input.autoRenew ?? existing.auto_renew === 1) ? 1 : 0,
       input.notes ?? existing.notes,
       existing.last_payment_date,
       now,
       input.trialEndsAt === undefined
         ? existing.trial_ends_at
         : toMs(input.trialEndsAt, context.timezone),
+      input.paymentMethod === undefined ? existing.payment_method : input.paymentMethod.trim(),
+      input.managementUrl === undefined ? existing.management_url : input.managementUrl.trim(),
+      input.pausedUntil === undefined
+        ? existing.paused_until
+        : toMs(input.pausedUntil, context.timezone),
+      input.fixedTerm === undefined ? existing.fixed_term : input.fixedTerm ? 1 : 0,
+      input.introPrice === undefined
+        ? existing.intro_price
+        : input.introPrice === null ? null : roundMoney(input.introPrice),
     ).run()
 
     // An absent `reminderRules` means "not what this edit is about"; an empty array means "no rules",
@@ -626,7 +648,8 @@ export class SubscriptionsStore {
   async autoRenew(id: string, context: StoreContext): Promise<SubscriptionItem | null> {
     const now = context.now ?? Date.now()
     const existing = await this.itemRow(id)
-    if (!existing || existing.auto_renew !== 1 || existing.deleted_at !== null || existing.is_active !== 1) return null
+    if (!existing || (existing.auto_renew !== 1 && (existing.fixed_term !== 1 || existing.trial_ends_at === null)) || existing.deleted_at !== null || existing.is_active !== 1) return null
+    if (existing.paused_until !== null && existing.paused_until > now) return null
     if (existing.trial_ends_at !== null && existing.trial_ends_at > now) return null
 
     const trialPaymentId = existing.trial_ends_at === null ? null : `trial:${id}:${existing.trial_ends_at}`
@@ -635,11 +658,16 @@ export class SubscriptionsStore {
       : await this.db.prepare(`SELECT id FROM sub_payment WHERE user_id = ?1 AND subscription_id = ?2 AND id = ?3`)
         .bind(this.userId, id, trialPaymentId).first<{ id: string }>()
     const convertingTrial = trialPaymentId !== null && priorTrialPayment === null
+    if (existing.fixed_term === 1 && !convertingTrial) return null
     if (!convertingTrial && existing.expiry_date > now) return null
 
     const mode = existing.subscription_mode === 'reset' ? 'reset' : 'cycle'
     const unit = existing.period_unit as 'day' | 'week' | 'month' | 'year'
-    let expiry = convertingTrial ? existing.trial_ends_at! : existing.expiry_date
+    let expiry = convertingTrial
+      ? Math.max(existing.trial_ends_at!, existing.paused_until ?? 0)
+      : existing.paused_until !== null && existing.paused_until > existing.expiry_date
+        ? existing.paused_until
+        : existing.expiry_date
     const previousExpiry = expiry
     let lastStart = existing.expiry_date
     let periods = 0
@@ -665,7 +693,7 @@ export class SubscriptionsStore {
         paymentId,
         id,
         now,
-        roundMoney((existing.amount ?? 0) * periods),
+        roundMoney((convertingTrial ? (existing.intro_price ?? existing.amount ?? 0) : (existing.amount ?? 0)) * periods),
         existing.currency,
         convertingTrial ? 'initial' : 'auto',
         '',
@@ -675,8 +703,9 @@ export class SubscriptionsStore {
         now,
       ),
       this.db.prepare(
-        `UPDATE sub_item SET start_date = ?3, expiry_date = ?4, last_payment_date = ?5, updated_at = ?6
-          WHERE user_id = ?1 AND id = ?2 AND expiry_date = ?7 AND auto_renew = 1 AND is_active = 1 AND deleted_at IS NULL`,
+        `UPDATE sub_item SET start_date = ?3, expiry_date = ?4, last_payment_date = ?5, paused_until = NULL, updated_at = ?6
+          WHERE user_id = ?1 AND id = ?2 AND expiry_date = ?7 AND is_active = 1 AND deleted_at IS NULL
+            AND (auto_renew = 1 OR (fixed_term = 1 AND trial_ends_at IS NOT NULL))`,
       ).bind(this.userId, id, lastStart, expiry, now, now, existing.expiry_date),
       this.clearAcknowledgementsStatement(id),
     ])
@@ -1038,9 +1067,11 @@ export class SubscriptionsStore {
     const daysRemaining = Math.round(
       (getTimezoneMidnightTimestamp(expiry, context.timezone) - getTimezoneMidnightTimestamp(now, context.timezone)) / 86_400_000,
     )
-    const next = rules.length > 0
-      ? soonestFire(rules, new Date(expiry).toISOString(), new Date(now).toISOString(), { timezone: context.timezone, notificationHours: context.notificationHours ?? [] }, toIso(row.trial_ends_at))
-      : null
+    const next = row.paused_until !== null && row.paused_until > now
+      ? null
+      : rules.length > 0
+        ? soonestFire(rules, new Date(expiry).toISOString(), new Date(now).toISOString(), { timezone: context.timezone, notificationHours: context.notificationHours ?? [] }, toIso(row.trial_ends_at))
+        : null
     return {
       id: row.id,
       name: row.name,
@@ -1059,6 +1090,11 @@ export class SubscriptionsStore {
       notes: row.notes,
       lastPaymentDate: toIso(row.last_payment_date),
       trialEndsAt: toIso(row.trial_ends_at),
+      paymentMethod: row.payment_method,
+      managementUrl: row.management_url,
+      pausedUntil: toIso(row.paused_until),
+      fixedTerm: row.fixed_term === 1,
+      introPrice: row.intro_price === null ? null : roundMoney(row.intro_price),
       deletedAt: toIso(row.deleted_at),
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),

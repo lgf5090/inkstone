@@ -147,6 +147,16 @@ function positiveInt(value: unknown, max: number): number | undefined {
   return Math.min(max, numeric)
 }
 
+function optionalUrl(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  const url = text(value, 2048, 'Management URL')
+  if (!url) return ''
+  let parsed: URL
+  try { parsed = new URL(url) } catch { throw ApiError.badRequest('That management URL is not valid') }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw ApiError.badRequest('That management URL must use HTTP or HTTPS')
+  return parsed.toString()
+}
+
 function inputOf(raw: Record<string, unknown>): SubscriptionInput {
   const name = text(raw.name, NAME_MAX, 'Name')
   if (!name) throw ApiError.badRequest('A name is required')
@@ -173,6 +183,11 @@ function inputOf(raw: Record<string, unknown>): SubscriptionInput {
     autoRenew: raw.autoRenew === undefined ? undefined : raw.autoRenew === true,
     notes: optionalText(raw.notes, NOTES_MAX, 'Notes'),
     trialEndsAt: optionalDate(raw.trialEndsAt, 'Trial end date'),
+    paymentMethod: optionalText(raw.paymentMethod, 80, 'Payment method'),
+    managementUrl: optionalUrl(raw.managementUrl),
+    pausedUntil: optionalDate(raw.pausedUntil, 'Pause until'),
+    fixedTerm: raw.fixedTerm === undefined ? undefined : raw.fixedTerm === true,
+    introPrice: amountOf(raw.introPrice),
     reminderRules: Array.isArray(raw.reminderRules) ? raw.reminderRules as SubscriptionInput['reminderRules'] : undefined,
   }
 }

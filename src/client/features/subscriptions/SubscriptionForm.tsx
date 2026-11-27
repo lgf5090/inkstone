@@ -55,6 +55,11 @@ interface Draft {
   autoRenew: boolean
   notes: string
   trialEndsAt: string
+  paymentMethod: string
+  managementUrl: string
+  pausedUntil: string
+  fixedTerm: boolean
+  introPrice: string
   rules: ReminderRuleInput[]
 }
 
@@ -77,6 +82,11 @@ function draftOf(detail: SubscriptionDetail | null, timezone: string): Draft {
       autoRenew: true,
       notes: '',
       trialEndsAt: '',
+      paymentMethod: '',
+      managementUrl: '',
+      pausedUntil: '',
+      fixedTerm: false,
+      introPrice: '',
       rules: PRESET_RULE_DRAFTS.map((rule) => ({ ...rule })),
     }
   }
@@ -97,6 +107,11 @@ function draftOf(detail: SubscriptionDetail | null, timezone: string): Draft {
     autoRenew: item.autoRenew,
     notes: item.notes,
     trialEndsAt: item.trialEndsAt ? formatDateInputInTimezone(item.trialEndsAt, timezone) : '',
+    paymentMethod: item.paymentMethod,
+    managementUrl: item.managementUrl,
+    pausedUntil: item.pausedUntil ? formatDateInputInTimezone(item.pausedUntil, timezone) : '',
+    fixedTerm: item.fixedTerm,
+    introPrice: item.introPrice === null ? '' : String(item.introPrice),
     // Carried with their ids so the worker replaces this set rather than appending a second copy of it.
     rules: detail.rules.map((rule) => ({ ...rule })),
   }
@@ -192,6 +207,11 @@ export function SubscriptionForm({
       autoRenew: draft.autoRenew,
       notes: draft.notes.trim(),
       trialEndsAt: draft.trialEndsAt || null,
+      paymentMethod: draft.paymentMethod.trim(),
+      managementUrl: draft.managementUrl.trim(),
+      pausedUntil: draft.pausedUntil || null,
+      fixedTerm: draft.fixedTerm,
+      introPrice: draft.introPrice === '' ? null : Number(draft.introPrice),
       reminderRules: draft.rules,
     })
     if (ok) onClose()
@@ -333,6 +353,22 @@ export function SubscriptionForm({
               onChange={(date) => set('trialEndsAt', date)}
             />
           </Field>
+          <Field label={t('subscriptions.form.payment_method')}>
+            <Input value={draft.paymentMethod} maxLength={80} onChange={(event) => set('paymentMethod', event.target.value)} />
+          </Field>
+          <Field label={t('subscriptions.form.management_url')} hint={t('subscriptions.form.management_url_hint')}>
+            <Input type="url" value={draft.managementUrl} maxLength={2048} onChange={(event) => set('managementUrl', event.target.value)} placeholder="https://" />
+          </Field>
+          <Field label={t('subscriptions.form.intro_price')} hint={t('subscriptions.form.intro_price_hint')}>
+            <Input type="number" min={0} step="0.01" inputMode="decimal" value={draft.introPrice} onChange={(event) => set('introPrice', event.target.value)} />
+          </Field>
+          <Field label={t('subscriptions.form.paused_until')} hint={t('subscriptions.form.paused_until_hint')}>
+            <DatePicker label={t('subscriptions.form.paused_until')} value={draft.pausedUntil} onChange={(date) => set('pausedUntil', date)} />
+          </Field>
+          <label className="flex items-center gap-1.5 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+            <Switch checked={draft.fixedTerm} onChange={(next) => set('fixedTerm', next)} label={t('subscriptions.form.fixed_term')} />
+            {t('subscriptions.form.fixed_term')}
+          </label>
         </section>
 
         <section className="space-y-2.5">

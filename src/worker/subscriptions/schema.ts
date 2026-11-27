@@ -39,6 +39,11 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     notes TEXT NOT NULL DEFAULT '',
     last_payment_date INTEGER,
     trial_ends_at INTEGER,
+    payment_method TEXT NOT NULL DEFAULT '',
+    management_url TEXT NOT NULL DEFAULT '',
+    paused_until INTEGER,
+    fixed_term INTEGER NOT NULL DEFAULT 0,
+    intro_price REAL,
     deleted_at INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -243,7 +248,8 @@ export const SUBSCRIPTIONS_REQUIRED_COLUMNS: Readonly<Record<string, readonly st
   sub_item: [
     'user_id', 'id', 'name', 'custom_type', 'category', 'amount', 'currency', 'start_date',
     'expiry_date', 'period_value', 'period_unit', 'subscription_mode', 'use_lunar', 'is_active',
-    'auto_renew', 'notes', 'last_payment_date', 'trial_ends_at', 'deleted_at', 'created_at', 'updated_at',
+    'auto_renew', 'notes', 'last_payment_date', 'trial_ends_at', 'payment_method', 'management_url',
+    'paused_until', 'fixed_term', 'intro_price', 'deleted_at', 'created_at', 'updated_at',
   ],
   sub_payment: [
     'user_id', 'id', 'subscription_id', 'paid_at', 'amount', 'currency', 'kind', 'note',

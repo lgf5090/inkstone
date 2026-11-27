@@ -22,6 +22,7 @@ function item(id: string, isActive = true): SubscriptionItem {
     id, name: id, customType: '', category: '', amount: 10, currency: 'CNY', startDate: null,
     expiryDate: '2027-01-01T00:00:00.000Z', periodValue: 1, periodUnit: 'month', subscriptionMode: 'cycle',
     useLunar: false, isActive, autoRenew: false, notes: '', lastPaymentDate: null, trialEndsAt: null,
+    paymentMethod: '', managementUrl: '', pausedUntil: null, fixedTerm: false, introPrice: null,
     deletedAt: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
     daysRemaining: 10, hoursRemaining: 240, trialDaysRemaining: null, nextReminderAt: null,
     paymentCount: 0, paidByCurrency: [],

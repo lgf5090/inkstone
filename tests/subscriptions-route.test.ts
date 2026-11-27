@@ -114,6 +114,18 @@ describe('creating a subscription', () => {
     expect(detail.item.daysRemaining).toBeGreaterThanOrEqual(19)
   })
 
+  it('stores plan metadata and uses the intro price for the opening receipt', async () => {
+    const detail = await create({ paymentMethod: 'Card', managementUrl: 'https://example.com/manage', pausedUntil: inDays(5), fixedTerm: true, introPrice: 9 })
+    expect(detail.item).toMatchObject({ paymentMethod: 'Card', managementUrl: 'https://example.com/manage', fixedTerm: true, introPrice: 9 })
+    expect(detail.item.pausedUntil).not.toBeNull()
+    expect(detail.payments[0].amount).toBe(9)
+  })
+
+  it('refuses non-web management URLs', async () => {
+    const response = await send('POST', '/', { name: 'Bad link', expiryDate: inDays(3), managementUrl: 'javascript:alert(1)' })
+    expect(response.status).toBe(400)
+  })
+
   it('reads a bare expiry date in the account timezone', async () => {
     await send('PUT', '/settings', { timezone: 'Asia/Shanghai' })
     const detail = await create({ expiryDate: '2027-12-21' })

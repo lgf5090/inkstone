@@ -219,6 +219,11 @@ export interface SubscriptionItem {
   lastPaymentDate: string | null
   /** When a free trial stops being free, or null when this is not a trial. */
   trialEndsAt: string | null
+  paymentMethod: string
+  managementUrl: string
+  pausedUntil: string | null
+  fixedTerm: boolean
+  introPrice: number | null
   /** When this went to the trash, or null while it is live. A trashed row is never in the list. */
   deletedAt: string | null
   createdAt: string
@@ -265,6 +270,11 @@ export interface SubscriptionInput {
   autoRenew?: boolean
   notes?: string
   trialEndsAt?: string | null
+  paymentMethod?: string
+  managementUrl?: string
+  pausedUntil?: string | null
+  fixedTerm?: boolean
+  introPrice?: number | null
   reminderRules?: ReminderRuleInput[]
 }
 

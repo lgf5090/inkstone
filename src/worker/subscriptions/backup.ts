@@ -65,7 +65,8 @@ async function tableRows(db: D1Database, userId: string): Promise<TableRows> {
   const [items, payments, rules, categories, types, settings] = await Promise.all([
     db.prepare(`SELECT id, name, custom_type, category, amount, currency, start_date, expiry_date,
                        period_value, period_unit, subscription_mode, use_lunar, is_active, auto_renew,
-                       notes, last_payment_date, trial_ends_at, deleted_at, created_at, updated_at
+                       notes, last_payment_date, trial_ends_at, payment_method, management_url,
+                       paused_until, fixed_term, intro_price, deleted_at, created_at, updated_at
                   FROM sub_item WHERE user_id = ?1 ORDER BY created_at`).bind(userId).all(),
     db.prepare(`SELECT id, subscription_id, paid_at, amount, currency, kind, note,
                        period_start, period_end, period_count, created_at
@@ -131,6 +132,11 @@ export async function applyBackupSubscriptions(
       notes: bounded(String(row.notes ?? ''), NOTES_MAX),
       last_payment_date: numberOrNull(row.last_payment_date),
       trial_ends_at: numberOrNull(row.trial_ends_at),
+      payment_method: bounded(String(row.payment_method ?? ''), 80),
+      management_url: safeManagementUrl(row.management_url),
+      paused_until: numberOrNull(row.paused_until),
+      fixed_term: truthy(row.fixed_term) ? 1 : 0,
+      intro_price: numberOrNull(row.intro_price),
       deleted_at: numberOrNull(row.deleted_at),
       created_at: numberOrNull(row.created_at) ?? Date.now(),
       updated_at: numberOrNull(row.updated_at) ?? Date.now(),
@@ -326,6 +332,17 @@ function cleanRows(value: unknown, limit: number, label: string): Array<Record<s
 
 function bounded(value: string, max: number): string {
   return value.length > max ? value.slice(0, max) : value
+}
+
+function safeManagementUrl(value: unknown): string {
+  const raw = bounded(String(value ?? ''), 2048)
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : ''
+  } catch {
+    return ''
+  }
 }
 
 function numberOrNull(value: unknown): number | null {

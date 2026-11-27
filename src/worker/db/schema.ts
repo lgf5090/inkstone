@@ -4972,6 +4972,17 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 443,
     statements: [`CREATE INDEX IF NOT EXISTS idx_sub_rule_due ON sub_reminder_rule(user_id, subscription_id, enabled, kind, value, unit)`],
   },
+  {
+    version: 444,
+    skipIfColumnExists: { table: 'sub_item', column: 'payment_method' },
+    statements: [
+      `ALTER TABLE sub_item ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE sub_item ADD COLUMN management_url TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE sub_item ADD COLUMN paused_until INTEGER`,
+      `ALTER TABLE sub_item ADD COLUMN fixed_term INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE sub_item ADD COLUMN intro_price REAL`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

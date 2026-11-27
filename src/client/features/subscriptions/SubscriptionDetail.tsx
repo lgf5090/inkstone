@@ -6,7 +6,7 @@
  * left" means something different on a monthly plan than on a three-year one. It is derived from the
  * subscription's own start and expiry, so a plan with no start date simply does not draw one.
  */
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import { Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -122,6 +122,13 @@ export function SubscriptionDetail({
           <Fact label={t('subscriptions.detail.auto_renew')} value={item.autoRenew ? t('subscriptions.detail.yes') : t('subscriptions.detail.no')} />
           <Fact label={t('subscriptions.detail.paid_total')} value={formatPaid(item.paidByCurrency) || '—'} />
           {committedYear && <Fact label={t('subscriptions.detail.cost_per_year')} value={committedYear} />}
+          {item.paymentMethod && <Fact label={t('subscriptions.detail.payment_method')} value={item.paymentMethod} />}
+          {item.managementUrl && (
+            <Fact label={t('subscriptions.detail.management_url')} value={<a className="text-[var(--accent)] underline underline-offset-2" href={item.managementUrl} target="_blank" rel="noreferrer noopener">{t('subscriptions.detail.management_url')}</a>} />
+          )}
+          {item.pausedUntil && <Fact label={t('subscriptions.detail.paused_until')} value={formatLocalDate(item.pausedUntil, timezone, 'date')} />}
+          {item.fixedTerm && <Fact label={t('subscriptions.detail.fixed_term')} value={t('subscriptions.detail.yes')} />}
+          {item.introPrice !== null && <Fact label={t('subscriptions.detail.intro_price')} value={formatAmount(item.introPrice, item.currency)} />}
           {item.trialEndsAt && (
             <Fact
               label={t('subscriptions.detail.trial_ends')}
@@ -319,7 +326,7 @@ function Fact({
   tone,
 }: {
   label: string
-  value: string
+  value: ReactNode
   strong?: boolean
   tone?: 'danger' | 'warning'
 }): ReactElement {

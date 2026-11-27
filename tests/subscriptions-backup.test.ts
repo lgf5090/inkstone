@@ -53,6 +53,11 @@ async function seed(): Promise<void> {
     periodValue: 1,
     periodUnit: 'month',
     notes: 'family plan',
+    paymentMethod: 'Card',
+    managementUrl: 'https://example.com/manage',
+    pausedUntil: new Date(NOW + 2 * DAY).toISOString(),
+    fixedTerm: true,
+    introPrice: 9,
     reminderRules: [
       { type: 'before_expiry', value: 7, unit: 'days' },
       { type: 'after_expiry', value: 0, unit: 'days', repeatInterval: 24, repeatUntil: 'acknowledged' },

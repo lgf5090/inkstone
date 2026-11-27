@@ -109,6 +109,15 @@ async function boot(): Promise<void> {
 }
 
 describe('an existing subscriptions database', () => {
+  it('gains plan metadata columns without disturbing an existing subscription', async () => {
+    await boot()
+    for (const column of ['payment_method', 'management_url', 'paused_until', 'fixed_term', 'intro_price']) {
+      expect(columnsOf(sqlite, 'sub_item')).toContain(column)
+    }
+    const row = sqlite.prepare(`SELECT name, payment_method, management_url, paused_until, fixed_term, intro_price FROM sub_item WHERE id = 's1'`).get()
+    expect(row).toEqual({ name: 'Netflix', payment_method: '', management_url: '', paused_until: null, fixed_term: 0, intro_price: null })
+  })
+
   it('gains the identity columns and keeps the name that was already registered', async () => {
     expect(columnsOf(sqlite, 'sub_category')).not.toContain('icon')
     await boot()

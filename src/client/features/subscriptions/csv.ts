@@ -16,7 +16,8 @@ import { formatLocalDate } from '@shared/subscriptions/time'
 export const CSV_COLUMNS = [
   'name', 'customType', 'category', 'amount', 'currency',
   'startDate', 'expiryDate', 'periodValue', 'periodUnit', 'subscriptionMode',
-  'useLunar', 'autoRenew', 'isActive', 'trialEndsAt', 'reminderRules', 'notes',
+  'useLunar', 'autoRenew', 'isActive', 'trialEndsAt', 'paymentMethod', 'managementUrl',
+  'pausedUntil', 'fixedTerm', 'introPrice', 'reminderRules', 'notes',
 ] as const
 
 export type CsvColumn = (typeof CSV_COLUMNS)[number]
@@ -59,6 +60,11 @@ function csvValue(item: SubscriptionItem, column: CsvColumn, timezone: string): 
     case 'autoRenew': return item.autoRenew ? 'true' : 'false'
     case 'isActive': return item.isActive ? 'true' : 'false'
     case 'trialEndsAt': return item.trialEndsAt ? formatLocalDate(item.trialEndsAt, timezone, 'date') : ''
+    case 'paymentMethod': return item.paymentMethod
+    case 'managementUrl': return item.managementUrl
+    case 'pausedUntil': return item.pausedUntil ? formatLocalDate(item.pausedUntil, timezone, 'date') : ''
+    case 'fixedTerm': return item.fixedTerm ? 'true' : 'false'
+    case 'introPrice': return item.introPrice === null ? '' : String(item.introPrice)
     case 'reminderRules': return JSON.stringify(item.reminderRules ?? [])
     case 'notes': return item.notes
   }
@@ -160,6 +166,11 @@ export function rowToInput(row: CsvRow): Record<string, unknown> {
     autoRenew: isYes(row.autoRenew),
     isActive: isYes(row.isActive),
     trialEndsAt: row.trialEndsAt || null,
+    paymentMethod: row.paymentMethod ?? '',
+    managementUrl: row.managementUrl ?? '',
+    pausedUntil: row.pausedUntil || null,
+    fixedTerm: isYes(row.fixedTerm),
+    introPrice: row.introPrice ? Number(row.introPrice) : null,
     reminderRules: parseReminderRules(row.reminderRules),
     notes: row.notes ?? '',
   }
