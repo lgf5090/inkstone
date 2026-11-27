@@ -15,7 +15,7 @@
  * monitor with an article open beside it, and only the reader knows which they are doing.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { CheckCheck, RefreshCw, Settings2 } from 'lucide-react'
+import { CheckCheck, Eye, RefreshCw, Settings2 } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { compileQuery } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
@@ -44,6 +44,7 @@ import { useRss } from './store'
 import { channelCachedSince } from './cacheLine'
 import { vaultEntries, vaultFeedId } from './vault'
 import { useNotes } from '../../store/notes'
+import { useUi } from '../../store/ui'
 import { openSavedNote } from './notes'
 import { shortSince } from '../../lib/time'
 import { isEnterKey } from '../../lib/ime'
@@ -300,6 +301,20 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
         <div className="ml-auto flex items-center gap-1">
           <SortButton sort={view.sort} onPick={state.setSort} />
           <PlatformButton value={view.platform} counts={platforms} onPick={state.setPlatform} />
+          {state.channel.kind === 'hidden' && state.library.hiddenIds.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<Eye size={13} />}
+              onClick={() => {
+                const count = state.library.hiddenIds.length
+                state.hideEntries(state.library.hiddenIds, false)
+                useUi.getState().toast({ title: t('rss.restored_toast', { n: count }), tone: 'success' })
+              }}
+            >
+              {t('rss.restore_hidden')}
+            </Button>
+          )}
           {!vaultFolderId && unreadIds.length > 0 && (
             <Tooltip
               label={markArmed ? t('rss.mark_channel_read_confirm', { n: unreadIds.length }) : t('rss.mark_channel_read')}
@@ -397,6 +412,7 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
             setMenuEntry(null)
           }}
           items={entryMenuItems(menuEntry, state.library, {
+            hidden: state.channel.kind === 'hidden',
             onOpen: () => {
               state.openEntry(menuEntry.id)
               onOpen()
@@ -430,6 +446,7 @@ function channelTitle(state: ReturnType<typeof useRss.getState>): string {
   if (channel.kind === 'starred') return t('rss.channel_starred')
   if (channel.kind === 'later') return t('rss.channel_later')
   if (channel.kind === 'unread') return t('rss.channel_unread')
+  if (channel.kind === 'hidden') return t('rss.channel_hidden')
   if (channel.kind === 'recent') return t('rss.channel_recent')
   return t('rss.channel_all')
 }

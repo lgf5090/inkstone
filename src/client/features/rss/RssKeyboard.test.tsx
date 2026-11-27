@@ -95,6 +95,19 @@ describe('RSS document shortcuts', () => {
     expect(document.body.textContent).toContain(t('rss.keys_disabled'))
   })
 
+  it('offers a visible way to restore articles from the hidden channel', () => {
+    useRss.setState({
+      channel: { kind: 'hidden' },
+      library: { ...useRss.getState().library, hiddenIds: [entry.id] },
+    })
+    const container = mount()
+    const button = [...container.querySelectorAll<HTMLButtonElement>('button')]
+      .find(node => node.textContent?.includes(t('rss.restore_hidden')))
+    if (!button) throw new Error('the hidden channel has no restore action')
+    act(() => { button.click() })
+    expect(useRss.getState().library.hiddenIds).toEqual([])
+  })
+
   it('still walks the list from the reading surface', () => {
     const container = mount()
     press(container, 'j')

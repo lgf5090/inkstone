@@ -35,6 +35,7 @@ export type RssSort = 'newest' | 'oldest' | 'source'
 export type RssChannel
   = | { kind: 'all' }
     | { kind: 'unread' }
+    | { kind: 'hidden' }
     | { kind: 'recent' }
     | { kind: 'group', groupId: string }
     | { kind: 'tag', tag: string }
@@ -71,6 +72,7 @@ export function parseChannelKey(key: string): RssChannel {
   if (key === 'starred') return { kind: 'starred' }
   if (key === 'later') return { kind: 'later' }
   if (key === 'unread') return { kind: 'unread' }
+  if (key === 'hidden') return { kind: 'hidden' }
   if (key === 'recent') return { kind: 'recent' }
   return { kind: 'all' }
 }
@@ -155,6 +157,7 @@ export function channelEntries(view: RssView, channel: RssChannel, options: Chan
     if (channel.kind === 'vault') return []
     if (channel.kind === 'starred') return byNewest(allEntries(view).filter(entry => marks.starred.has(entry.id) && keep(entry)))
     if (channel.kind === 'later') return byNewest(allEntries(view).filter(entry => marks.later.has(entry.id) && keep(entry)))
+    if (channel.kind === 'hidden') return byNewest(allEntries(view).filter(entry => hidden.has(entry.id)))
     if (channel.kind === 'unread') return byNewest(allEntries(view).filter(entry => !marks.read.has(entry.id) && keep(entry))).slice(0, UNREAD_CHANNEL_SIZE)
     if (channel.kind === 'recent') {
       const opened = view.library.opened

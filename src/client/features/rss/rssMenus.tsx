@@ -8,7 +8,7 @@
  * its own descendant.
  */
 import type { ReactNode } from 'react'
-import { BookOpen, Bookmark, CalendarPlus, CheckCheck, ExternalLink, EyeOff, FolderInput, Hash, Link2, NotebookPen, Plus, RefreshCw, Star } from 'lucide-react'
+import { BookOpen, Bookmark, CalendarPlus, CheckCheck, ExternalLink, Eye, EyeOff, FolderInput, Hash, Link2, NotebookPen, Plus, RefreshCw, Star } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { useUi, type ToastInput } from '../../store/ui'
 import { appendToDailyNote, openSavedNote, savedNoteId, saveArticleAsNote } from './notes'
@@ -190,7 +190,7 @@ export function reloadEntry(entry: RssEntry): void {
  * toolbar. Hiding is the one that needs an undo: it is the only action whose effect outlives the
  * refresh that brought the article in.
  */
-export function entryMenuItems(entry: RssEntry, library: RssLibrary, actions: { onOpen: () => void }): MenuItem[] {
+export function entryMenuItems(entry: RssEntry, library: RssLibrary, actions: { onOpen: () => void, hidden?: boolean }): MenuItem[] {
   const state = useRss.getState()
   const read = state.library.readIds.includes(entry.id)
   const starred = state.library.favorites.includes(entry.id)
@@ -273,20 +273,31 @@ export function entryMenuItems(entry: RssEntry, library: RssLibrary, actions: { 
       icon: <RefreshCw size={13} />,
       onSelect: () => reloadEntry(entry),
     },
-    {
-      id: 'hide',
-      label: t('rss.hide_article'),
-      icon: <EyeOff size={13} />,
-      tone: 'danger',
-      separatorBefore: true,
-      onSelect: () => {
-        state.hideEntries([entry.id], true)
-        useUi.getState().toast({
-          title: t('rss.hidden_toast', { n: 1 }),
-          tone: 'default',
-          action: { label: t('rss.undo'), run: () => state.hideEntries([entry.id], false) },
-        })
-      },
-    },
+    actions.hidden
+      ? {
+          id: 'restore',
+          label: t('rss.restore_article'),
+          icon: <Eye size={13} />,
+          separatorBefore: true,
+          onSelect: () => {
+            state.hideEntries([entry.id], false)
+            toast({ title: t('rss.restored_toast', { n: 1 }), tone: 'success' })
+          },
+        }
+      : {
+          id: 'hide',
+          label: t('rss.hide_article'),
+          icon: <EyeOff size={13} />,
+          tone: 'danger' as const,
+          separatorBefore: true,
+          onSelect: () => {
+            state.hideEntries([entry.id], true)
+            toast({
+              title: t('rss.hidden_toast', { n: 1 }),
+              tone: 'default',
+              action: { label: t('rss.undo'), run: () => state.hideEntries([entry.id], false) },
+            })
+          },
+        },
   ]
 }

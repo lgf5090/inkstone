@@ -349,6 +349,7 @@ function channelTitle(library: ReturnType<typeof useRss.getState>['library'], ch
     return folder?.name ?? t('rss.vault_channels')
   }
   if (channel.kind === 'unread') return t('rss.channel_unread')
+  if (channel.kind === 'hidden') return t('rss.channel_hidden')
   if (channel.kind === 'recent') return t('rss.channel_recent')
   if (channel.kind === 'starred') return t('rss.channel_starred')
   if (channel.kind === 'later') return t('rss.channel_later')

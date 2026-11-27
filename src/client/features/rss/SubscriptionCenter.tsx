@@ -22,7 +22,7 @@ import { Menu, Modal, confirm, prompt, submenuFor, type MenuItem } from '../../c
 import { FilterInput } from '../../components/FilterInput'
 import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
-import { exportOpml, parseOpml } from '../../lib/rss/feed'
+import { exportOpml, parseOpml, type OpmlFeed } from '../../lib/rss/feed'
 import { canonicalFeedUrl, RSS_LIMITS, safeHttpUrl, type RssFeed } from '@shared/rss/model'
 import { groupedFeeds } from '@shared/rss/reading'
 import { shortSince } from '../../lib/time'
@@ -248,10 +248,22 @@ async function removeGroup(id: string, name: string): Promise<void> {
   }
 }
 
-async function readOpml(file: File | undefined): Promise<string | null> {
+const OPML_MAX_BYTES = 5 * 1024 * 1024
+
+export async function readOpml(file: File | undefined): Promise<string | null> {
   if (!file) return null
-  // A 5 MB OPML is a large library; the preview reads it all, so the ceiling is the file reader's, not ours.
-  return file.text()
+  if (file.size > OPML_MAX_BYTES) {
+    useUi.getState().toast({ title: t('rss.opml_too_large'), tone: 'danger' })
+    return null
+  }
+  try {
+    return await file.text()
+  }
+  catch (error) {
+    console.warn('[inkstone] OPML file could not be read', error)
+    useUi.getState().toast({ title: t('rss.opml_read_failed'), tone: 'danger' })
+    return null
+  }
 }
 
 function FeedRow({ feed, group, selected, menuOpen, onToggleSelect, onMenu }: {
@@ -438,18 +450,20 @@ function AddFeedForm({ onDone, onAdded }: { onDone: () => void, onAdded: () => v
   )
 }
 
+export function parseOpmlPreview(text: string): { feeds: OpmlFeed[], skipped: number, error?: string } | null {
+  if (!text.trim()) return null
+  try {
+    return parseOpml(text)
+  }
+  catch {
+    return { feeds: [], skipped: 0, error: t('rss.opml_invalid') }
+  }
+}
+
 function OpmlImport({ initial, onClose, onFile }: { initial: string, onClose: () => void, onFile: () => void }): ReactElement {
   const [text, setText] = useState(initial)
   const store = useRss()
-  const parsed = useMemo(() => {
-    if (!text.trim()) return null
-    try {
-      return parseOpml(text)
-    }
-    catch {
-      return { feeds: [], skipped: 0 }
-    }
-  }, [text])
+  const parsed = useMemo(() => parseOpmlPreview(text), [text])
 
   const run = async (): Promise<void> => {
     if (!parsed?.feeds.length) return
@@ -478,7 +492,9 @@ function OpmlImport({ initial, onClose, onFile }: { initial: string, onClose: ()
       {parsed && (
         <div className="mt-2 flex items-center gap-2">
           <span className="text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
-            {parsed.feeds.length ? t('rss.opml_preview', { n: parsed.feeds.length, skipped: parsed.skipped }) : t('rss.opml_empty')}
+            {parsed.error
+              ? <span className="text-[length:var(--text-11-5)] text-[var(--danger)]">{parsed.error}</span>
+              : parsed.feeds.length ? t('rss.opml_preview', { n: parsed.feeds.length, skipped: parsed.skipped }) : t('rss.opml_empty')}
           </span>
           <Button size="sm" className="ml-auto" disabled={!parsed.feeds.length} onClick={() => void run()}>{t('rss.add')}</Button>
         </div>

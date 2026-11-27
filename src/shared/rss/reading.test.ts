@@ -317,6 +317,13 @@ describe('nested folders, tags and the saved channels', () => {
     expect(channelEntries(view, { kind: 'unread' }).map(item => item.id).sort()).toEqual(['a1', 'b2'])
   })
 
+  it('answers the hidden channel with only dismissed articles', () => {
+    const view = shelf()
+    view.library.hiddenIds = ['a2']
+    expect(channelEntries(view, { kind: 'hidden' }).map(item => item.id)).toEqual(['a2'])
+    expect(parseChannelKey(channelKey({ kind: 'hidden' }))).toEqual({ kind: 'hidden' })
+  })
+
   it('bounds the unread channel to a usable work queue', () => {
     const view = shelf()
     view.articles.fa = Array.from({ length: UNREAD_CHANNEL_SIZE + 50 }, (_, index) => entry('fa', `u${index}`, index))

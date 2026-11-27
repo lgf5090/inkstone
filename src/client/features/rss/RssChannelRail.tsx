@@ -187,7 +187,7 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
         <Row label={t('rss.channel_later')} icon={Bookmark} count={library.readLater.length} active={active === 'later'} onSelect={() => go({ kind: 'later' })} />
         <Row label={t('rss.channel_recent')} icon={Clock} count={Object.keys(library.opened).length} active={active === 'recent'} onSelect={() => go({ kind: 'recent' })} />
         {hiddenCount > 0 && (
-          <Row label={t('rss.channel_hidden')} icon={FolderMinus} count={hiddenCount} active={active === 'hidden'} onSelect={() => go({ kind: 'all' })} onContextMenu={event => openMenu(event, { kind: 'blank' })} />
+          <Row label={t('rss.channel_hidden')} icon={FolderMinus} count={hiddenCount} active={active === 'hidden'} onSelect={() => go({ kind: 'hidden' })} onContextMenu={event => openMenu(event, { kind: 'blank' })} />
         )}
 
         <div className="mt-4 mb-1 flex items-center gap-1 px-2">
