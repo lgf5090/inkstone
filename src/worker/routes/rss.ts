@@ -22,7 +22,7 @@ import { accountExists, loadRssLibrary, saveRssReadingFeed, storeRssLibrary, sto
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
-import { JSON_BODY_LIMITS, readJson, readStreamTextWithinLimit } from '../lib/request'
+import { JSON_BODY_LIMITS, readJson, readStreamWithinLimit } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 
@@ -77,6 +77,25 @@ function looksLikeFeed(contentType: string): boolean {
   return /xml|rss|atom|rdf|text\/|application\/json/.test(type)
 }
 
+function feedEncoding(bytes: Uint8Array, contentType: string): string {
+  const header = /charset\s*=\s*["']?([A-Za-z0-9._-]+)/i.exec(contentType)?.[1]
+  if (header) return header
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return 'utf-16le'
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return 'utf-16be'
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return 'utf-8'
+  const head = new TextDecoder('latin1').decode(bytes.subarray(0, 256))
+  return /^<\?xml[^>]*encoding\s*=\s*["']([^"']+)["']/i.exec(head)?.[1] ?? 'utf-8'
+}
+
+function decodeFeedDocument(bytes: Uint8Array, contentType: string): string | null {
+  try {
+    return new TextDecoder(feedEncoding(bytes, contentType)).decode(bytes)
+  }
+  catch {
+    return null
+  }
+}
+
 /**
  * One feed, start to finish.
  *
@@ -121,9 +140,10 @@ async function fetchFeed(input: FeedRequestInput): Promise<RssFetchResult> {
       if (!looksLikeFeed(response.headers.get('content-type') || '')) {
         return { url: requested, status: response.status, ok: false, reason: 'not-a-feed' }
       }
-      const xml = await readStreamTextWithinLimit(response.body, MAX_FEED_BYTES)
-      if (xml === null) return { url: requested, status: response.status, ok: false, reason: 'too-large' }
-      if (!xml.trim()) return { url: requested, status: response.status, ok: false, reason: 'not-a-feed' }
+      const bytes = await readStreamWithinLimit(response.body, MAX_FEED_BYTES)
+      if (bytes === null) return { url: requested, status: response.status, ok: false, reason: 'too-large' }
+      const xml = decodeFeedDocument(bytes, response.headers.get('content-type') || '')
+      if (xml === null || !xml.trim()) return { url: requested, status: response.status, ok: false, reason: 'not-a-feed' }
       return {
         url: requested,
         status: response.status,

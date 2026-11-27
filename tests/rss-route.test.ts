@@ -300,6 +300,18 @@ describe('the feed relay', () => {
     expect(results[0].lastModified).toContain('2025')
   })
 
+  it('decodes a feed from its declared charset', async () => {
+    const prefix = '<?xml version="1.0" encoding="GBK"?><rss version="2.0"><channel><title>'
+    const suffix = '</title><link>https://example.com/</link><item><title>A</title><link>https://example.com/a</link></item></channel></rss>'
+    const bytes = Uint8Array.from([...prefix].map(char => char.charCodeAt(0)).concat([0xd6, 0xd0, 0xce, 0xc4], [...suffix].map(char => char.charCodeAt(0))))
+    stubFetch(() => new Response(bytes, { headers: { 'content-type': 'application/rss+xml; charset=GBK' } }))
+    const { results } = (await (await request('/fetch', json({ requests: [{ url: 'https://example.com/feed.xml' }] }))).json()) as {
+      results: Array<{ ok: boolean, xml?: string }>
+    }
+    expect(results[0].ok).toBe(true)
+    expect(results[0].xml).toContain('中文')
+  })
+
   it('sends the validators back as a conditional request and passes a 304 through', async () => {
     const calls = stubFetch(() => new Response(null, { status: 304 }))
     const { results } = (await (await request('/fetch', json({
