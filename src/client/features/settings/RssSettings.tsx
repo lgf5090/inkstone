@@ -34,6 +34,7 @@ import { useAssistant } from '../chat/assistant-store'
 import { useRss } from '../rss/store'
 import { SourceHealth } from '../rss/SourceHealth'
 import { RssRules } from '../rss/RssRules'
+import { RssStats } from '../rss/RssStats'
 
 export function RssSettings(): ReactElement {
   const rss = useSession(state => state.settings.rss)
@@ -334,6 +335,7 @@ export function RssSettings(): ReactElement {
       </section>
 
       <RssRules />
+      <RssStats />
 
       <SourceHealth />
 

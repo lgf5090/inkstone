@@ -857,3 +857,44 @@ export async function createRssRule(db: D1Database, userId: string, feedId: stri
 export async function deleteRssRule(db: D1Database, userId: string, id: string): Promise<void> {
   await db.prepare('DELETE FROM rss_rule WHERE user_id = ?1 AND id = ?2').bind(userId, id).run()
 }
+
+export interface RssReadingStats {
+  total: number
+  read: number
+  unread: number
+  favorites: number
+  later: number
+  feeds: Array<{ feedId: string, total: number, read: number }>
+  daily: Array<{ date: string, count: number }>
+}
+
+export async function loadRssReadingStats(db: D1Database, userId: string): Promise<RssReadingStats> {
+  const summary = await db.prepare(
+    `SELECT COUNT(*) AS total,
+       SUM(CASE WHEN EXISTS (SELECT 1 FROM rss_mark m WHERE m.user_id = a.user_id AND m.kind = 'read' AND m.entry_id = a.entry_id) THEN 1 ELSE 0 END) AS read,
+       SUM(CASE WHEN EXISTS (SELECT 1 FROM rss_mark m WHERE m.user_id = a.user_id AND m.kind = 'star' AND m.entry_id = a.entry_id) THEN 1 ELSE 0 END) AS favorites,
+       SUM(CASE WHEN EXISTS (SELECT 1 FROM rss_mark m WHERE m.user_id = a.user_id AND m.kind = 'later' AND m.entry_id = a.entry_id) THEN 1 ELSE 0 END) AS later
+       FROM rss_article a WHERE a.user_id = ?1`,
+  ).bind(userId).first<{ total: number, read: number, favorites: number, later: number }>()
+  const feeds = await db.prepare(
+    `SELECT a.feed_id, COUNT(*) AS total,
+       SUM(CASE WHEN EXISTS (SELECT 1 FROM rss_mark m WHERE m.user_id = a.user_id AND m.kind = 'read' AND m.entry_id = a.entry_id) THEN 1 ELSE 0 END) AS read
+       FROM rss_article a WHERE a.user_id = ?1 GROUP BY a.feed_id ORDER BY total DESC, a.feed_id ASC LIMIT 20`,
+  ).bind(userId).all<{ feed_id: string, total: number, read: number }>()
+  const daily = await db.prepare(
+    `SELECT strftime('%Y-%m-%d', at / 1000, 'unixepoch') AS date, COUNT(*) AS count
+       FROM rss_mark WHERE user_id = ?1 AND kind = 'opened' AND at >= ?2
+      GROUP BY date ORDER BY date ASC`,
+  ).bind(userId, Date.now() - 6 * 86_400_000).all<{ date: string, count: number }>()
+  const total = Number(summary?.total ?? 0)
+  const read = Number(summary?.read ?? 0)
+  return {
+    total,
+    read,
+    unread: Math.max(0, total - read),
+    favorites: Number(summary?.favorites ?? 0),
+    later: Number(summary?.later ?? 0),
+    feeds: feeds.results.map(row => ({ feedId: row.feed_id, total: Number(row.total), read: Number(row.read) })),
+    daily: daily.results.map(row => ({ date: row.date, count: Number(row.count) })),
+  }
+}

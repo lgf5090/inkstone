@@ -17,7 +17,7 @@
 import { Hono } from 'hono'
 import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, safeHttpUrl, type RssFeed, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty, patchIsMarksOnly } from '@shared/rss/patch'
-import { accountExists, createRssRule, deleteRssReadingFeed, deleteRssRule, listRssRules, loadRssLibrary, loadServerRssArticles, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, searchServerRssArticles, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
+import { accountExists, createRssRule, deleteRssReadingFeed, deleteRssRule, listRssRules, loadRssLibrary, loadRssReadingStats, loadServerRssArticles, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, searchServerRssArticles, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -149,6 +149,8 @@ rssRoutes.post('/fetch', async (c) => {
   await Promise.all(Array.from({ length: Math.min(BATCH_CONCURRENCY, queue.length) }, worker))
   return c.json({ results })
 })
+
+rssRoutes.get('/stats', async (c) => c.json(await loadRssReadingStats(c.env.DB, c.get('userId'))))
 
 rssRoutes.get('/rules', async (c) => c.json({ rules: await listRssRules(c.env.DB, c.get('userId')) }))
 

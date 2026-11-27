@@ -1447,6 +1447,7 @@ export const api = {
     addRule: (keyword: string, feedId = '') =>
       request<{ rule: { id: string, feedId: string, keyword: string, enabled: boolean, createdAt: number } }>('/api/rss/rules', { method: 'POST', body: { keyword, feedId } }),
     deleteRule: (id: string) => request<{ ok: true }>(`/api/rss/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    stats: () => request<{ total: number, read: number, unread: number, favorites: number, later: number, feeds: Array<{ feedId: string, total: number, read: number }>, daily: Array<{ date: string, count: number }> }>('/api/rss/stats'),
     /**
      * Hand one feed's articles to the account, so the assistant can read them.
      *

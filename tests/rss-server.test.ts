@@ -5,7 +5,7 @@ import { emptyLibrary, newFeed } from '../src/shared/rss/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { parseServerFeed } from '../src/worker/lib/rss-parse'
 import { runRssSchedulerTick } from '../src/worker/lib/rss-scheduler'
-import { createRssRule, loadServerRssArticles, saveServerRssArticles, searchServerRssArticles, storeRssLibrary } from '../src/worker/lib/rss-store'
+import { createRssRule, loadRssReadingStats, loadServerRssArticles, saveServerRssArticles, searchServerRssArticles, storeRssLibrary } from '../src/worker/lib/rss-store'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'server-rss-user'
@@ -51,6 +51,19 @@ describe('server feed parsing and storage', () => {
       version: 'https://jsonfeed.org/version/1.1', title: 'JSON', items: [{ id: '1', title: 'One', content_text: 'Body' }],
     }), 'f1', 'https://example.com/feed.json')
     expect(parsed.entries[0].content).toContain('Body')
+  })
+
+  it('summarizes reading state and recent opens', async () => {
+    const feed = newFeed('f1', 'https://example.com/feed', 'Example', 0)
+    const library = { ...emptyLibrary(), feeds: [feed], readIds: ['e1'], favorites: ['e1'], opened: { e1: Date.now() } }
+    await storeRssLibrary(db, USER, library, 1)
+    await saveServerRssArticles(db, USER, 'f1', [
+      { id: 'e1', feedId: 'f1', title: 'One', link: 'https://example.com/1', author: '', publishedTs: 2, summary: '', content: '', imageUrl: '', audioUrl: '' },
+      { id: 'e2', feedId: 'f1', title: 'Two', link: 'https://example.com/2', author: '', publishedTs: 1, summary: '', content: '', imageUrl: '', audioUrl: '' },
+    ], 1)
+    const stats = await loadRssReadingStats(db, USER)
+    expect(stats).toMatchObject({ total: 2, read: 1, unread: 1, favorites: 1 })
+    expect(stats.daily.reduce((sum, day) => sum + day.count, 0)).toBe(1)
   })
 
   it('refuses entity declarations', () => {
