@@ -434,6 +434,19 @@ describe('the media relay', () => {
     expect((await relay('https://example.com/huge.mp3')).status).toBe(413)
   })
 
+  it('cuts a chunked media body that exceeds the ceiling', async () => {
+    stubFetch(() => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(24 * 1024 * 1024))
+        controller.enqueue(new Uint8Array(1))
+        controller.close()
+      },
+    }), { headers: { 'content-type': 'audio/mpeg' } }))
+    const res = await relay('https://cdn.example.com/stream.mp3')
+    expect(res.status).toBe(200)
+    await expect(res.arrayBuffer()).rejects.toThrow()
+  })
+
   it('says unreachable rather than leaking the failure', async () => {
     stubFetch(() => { throw new Error('upstream detail with a token') })
     const res = await relay('https://example.com/gone.mp3')

@@ -156,6 +156,21 @@ async function spendBudget(db: D1Database, key: string, maxAttempts: number, mes
   )
 }
 
+function capMediaBody(body: ReadableStream<Uint8Array>, maxBytes: number, abort: () => void): ReadableStream<Uint8Array> {
+  let bytes = 0
+  return body.pipeThrough(new TransformStream({
+    transform(chunk, controller) {
+      bytes += chunk.byteLength
+      if (bytes <= maxBytes) {
+        controller.enqueue(chunk)
+        return
+      }
+      abort()
+      controller.error(new Error('media_too_large'))
+    },
+  }))
+}
+
 rssRoutes.post('/fetch', async (c) => {
   await spendBudget(c.env.DB, `rss-fetch:${c.get('userId')}`, 60, 'Too many feed requests')
   const body = await readJson<{ requests?: unknown }>(c, 64 * 1024)
@@ -341,5 +356,6 @@ rssRoutes.get('/relay', async (c) => {
   ] as const) {
     if (value) out.set(name, value)
   }
-  return new Response(upstream.body, { status: upstream.status, headers: out })
+  const body = upstream.body ? capMediaBody(upstream.body, MAX_RELAY_BYTES, () => controller.abort()) : null
+  return new Response(body, { status: upstream.status, headers: out })
 })
