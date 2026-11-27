@@ -13,8 +13,15 @@
  * payload stops at the name, the price and the cycle.
  */
 import ICAL from 'ical.js'
-import type { SubscriptionItem } from '@shared/subscriptions/model'
+import type { ReminderRule, ReminderUnit, SubscriptionItem } from '@shared/subscriptions/model'
 import { formatLocalDate } from '@shared/subscriptions/time'
+
+type RecurrenceFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+
+interface ReminderAlarm {
+  value: number
+  unit: ReminderUnit
+}
 
 export interface ICalEvent {
   /** Stable across fetches, so a client updates the event instead of duplicating it. */
@@ -23,6 +30,8 @@ export interface ICalEvent {
   day: string
   title: string
   detail: string
+  recurrence?: { frequency: RecurrenceFrequency, interval: number }
+  alarms?: readonly ReminderAlarm[]
 }
 
 /** ical.js escapes LF but not a lone CR; normalize every newline form before handing it TEXT values. */
@@ -37,17 +46,81 @@ function nextDay(day: string): string {
   return new Date(stamp + 86_400_000).toISOString().slice(0, 10)
 }
 
-/** One all-day event per plan still running. A stopped plan has no date the reader is waiting for. */
-export function buildEvents(items: readonly SubscriptionItem[], timezone = 'UTC'): ICalEvent[] {
-  return items
-    .filter((item) => item.isActive)
-    .map((item) => ({
+const RECURRENCE_FREQUENCIES = {
+  day: 'DAILY',
+  week: 'WEEKLY',
+  month: 'MONTHLY',
+  year: 'YEARLY',
+} as const
+
+/** One all-day event per plan still running. Stopped and currently paused plans have no date to wait for. */
+export function buildEvents(items: readonly SubscriptionItem[], timezone = 'UTC', now = Date.now()): ICalEvent[] {
+  const events: ICalEvent[] = []
+  for (const item of items) {
+    const expiry = Date.parse(item.expiryDate)
+    if (!item.isActive || !Number.isFinite(expiry)) continue
+    if (item.pausedUntil !== null && Date.parse(item.pausedUntil) > now) continue
+
+    events.push({
       uid: `${item.id}@inkstone.subscriptions`,
       day: formatLocalDate(item.expiryDate, timezone, 'date'),
       title: item.name,
-      detail: `${item.periodValue} ${item.periodUnit}`
-        + (item.amount ? ` · ${item.amount} ${item.currency}` : ''),
-    }))
+      detail: detailOf(item),
+      ...recurrenceOf(item),
+      alarms: alarmsFor(item, item.expiryDate, now, 'before_expiry'),
+    })
+
+    // A trial ends on its own date, not on the expiry series. Keeping it separate means its alarms are
+    // anchored to the right day and disappear after conversion instead of recurring with every renewal.
+    if (item.trialEndsAt !== null) {
+      const trialAlarms = alarmsFor(item, item.trialEndsAt, now, 'before_trial_end')
+      if (trialAlarms.length > 0) {
+        events.push({
+          uid: `${item.id}-trial@inkstone.subscriptions`,
+          day: formatLocalDate(item.trialEndsAt, timezone, 'date'),
+          title: item.name,
+          detail: detailOf(item),
+          alarms: trialAlarms,
+        })
+      }
+    }
+  }
+  return events
+}
+
+function detailOf(item: SubscriptionItem): string {
+  return `${item.periodValue} ${item.periodUnit}`
+    + (item.amount ? ` · ${item.amount} ${item.currency}` : '')
+}
+
+/**
+ * Only a solar cycle has a stable RRULE anchor. Reset terms start on the actual payment day, lunar dates
+ * need calendar conversion, and fixed/manual plans have no next term to promise.
+ */
+function recurrenceOf(item: SubscriptionItem): Pick<ICalEvent, 'recurrence'> {
+  if (item.useLunar || item.subscriptionMode !== 'cycle' || !item.autoRenew || item.fixedTerm) return {}
+  const interval = Math.trunc(item.periodValue)
+  if (!Number.isFinite(interval) || interval < 1) return {}
+  return { recurrence: { frequency: RECURRENCE_FREQUENCIES[item.periodUnit], interval } }
+}
+
+/** Future enabled rules only; duplicate lead times need only one alarm. */
+function alarmsFor(item: SubscriptionItem, target: string, now: number, type: ReminderRule['type']): ReminderAlarm[] {
+  const targetAt = Date.parse(target)
+  if (!Number.isFinite(targetAt)) return []
+  const alarms: ReminderAlarm[] = []
+  const seen = new Set<string>()
+  for (const rule of item.reminderRules ?? []) {
+    if (!rule.isEnabled || (rule.type !== type && !(type === 'before_expiry' && rule.type === 'on_expiry'))) continue
+    if (!Number.isInteger(rule.value) || rule.value < 0 || (rule.unit !== 'days' && rule.unit !== 'hours')) continue
+    const lead = rule.value * (rule.unit === 'hours' ? 3_600_000 : 86_400_000)
+    if (targetAt - lead < now) continue
+    const key = `${rule.value}${rule.unit}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    alarms.push({ value: rule.value, unit: rule.unit })
+  }
+  return alarms
 }
 
 /**
@@ -76,7 +149,29 @@ export function toICal(events: readonly ICalEvent[], options: { name: string, st
     vevent.updatePropertyWithValue('summary', text(event.title))
     vevent.updatePropertyWithValue('description', text(event.detail))
     vevent.updatePropertyWithValue('transp', 'TRANSPARENT')
+    if (event.recurrence) {
+      vevent.updatePropertyWithValue('rrule', new ICAL.Recur({
+        freq: event.recurrence.frequency,
+        interval: event.recurrence.interval,
+      }))
+    }
+    for (const alarm of event.alarms ?? []) {
+      const trigger = alarmTrigger(alarm)
+      if (!trigger) continue
+      const valarm = new ICAL.Component('valarm')
+      valarm.updatePropertyWithValue('action', 'DISPLAY')
+      valarm.updatePropertyWithValue('description', text(event.title))
+      // ical.js rejects the widely used zero spelling "0"; the strict values built above are safe jCal.
+      valarm.addProperty(new ICAL.Property(['trigger', {}, 'duration', trigger]))
+      vevent.addSubcomponent(valarm)
+    }
     calendar.addSubcomponent(vevent)
+  }
+
+  function alarmTrigger(alarm: ReminderAlarm): string | null {
+    if (!Number.isInteger(alarm.value) || alarm.value < 0) return null
+    if (alarm.value === 0) return '0'
+    return alarm.unit === 'hours' ? `-PT${alarm.value}H` : `-P${alarm.value}D`
   }
 
   // ical.js counts its continuation marker outside foldLength; 74 keeps every physical line within
