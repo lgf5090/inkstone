@@ -330,6 +330,20 @@ describe('the change set', () => {
   })
 })
 
+describe('feed discovery', () => {
+  it('finds alternate feed links in a web page and resolves relative addresses', async () => {
+    stubFetch(() => new Response('<html><head><title>A blog</title><link rel="alternate" type="application/rss+xml" href="/feed.xml"><link rel="alternate" type="application/feed+json" href="feed.json"></head></html>', { headers: { 'content-type': 'text/html' } }))
+    const res = await request('/discover?url=https%3A%2F%2Fexample.com%2Fblog%2F')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ url: 'https://example.com/blog/', title: 'A blog', feeds: ['https://example.com/feed.xml', 'https://example.com/blog/feed.json'] })
+  })
+
+  it('refuses an internal web address', async () => {
+    const res = await request('/discover?url=http%3A%2F%2F127.0.0.1%2F')
+    expect(res.status).toBe(400)
+  })
+})
+
 describe('the feed relay', () => {
   it('refuses an address inside the deployment', async () => {
     stubFetch(() => response('<rss/>'))

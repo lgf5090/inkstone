@@ -1437,6 +1437,8 @@ export const api = {
       request<{ savedAt: number; rows: number }>('/api/rss/patch', { method: 'POST', body: { patch }, keepalive }),
     fetch: (requests: Array<{ url: string; etag?: string; lastModified?: string }>) =>
       request<{ results: RssFetchResult[] }>('/api/rss/fetch', { method: 'POST', body: { requests } }),
+    discover: (url: string) =>
+      request<{ url: string; title: string; feeds: string[] }>(`/api/rss/discover?url=${encodeURIComponent(url)}`),
     /**
      * Hand one feed's articles to the account, so the assistant can read them.
      *

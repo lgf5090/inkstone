@@ -376,13 +376,21 @@ function AddFeedForm({ onDone, onAdded }: { onDone: () => void, onAdded: () => v
     const timer = window.setTimeout(async () => {
       setBusy(true)
       try {
-        const result = (await api.rss.fetch([{ url: written.href }])).results[0]
+        let result = (await api.rss.fetch([{ url: written.href }])).results[0]
+        let sourceUrl = written.href
+        if (result?.reason === 'not-a-feed') {
+          const discovered = await api.rss.discover(written.href)
+          if (discovered.feeds[0]) {
+            sourceUrl = discovered.feeds[0]
+            result = (await api.rss.fetch([{ url: sourceUrl }])).results[0]
+          }
+        }
         if (!result?.ok || !result.xml) {
           setError(result?.reason ? reasonText(result.reason) : t('rss.error.unreachable'))
           return
         }
         const { parseFeed } = await import('../../lib/rss/feed')
-        const parsed = parseFeed(result.xml, written.href)
+        const parsed = parseFeed(result.xml, sourceUrl)
         setPreview({ name: parsed.title, count: parsed.entries.length, newest: parsed.entries[0]?.publishedTs ?? 0 })
       }
       catch (error: unknown) {

@@ -16,7 +16,7 @@
  */
 import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
-import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, type RssFeed, type RssFetchResult } from '@shared/rss/model'
+import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, safeHttpUrl, type RssFeed, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty, patchIsMarksOnly } from '@shared/rss/patch'
 import { accountExists, deleteRssReadingFeed, loadRssLibrary, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
@@ -37,6 +37,7 @@ const FETCH_TIMEOUT_MS = 15_000
 const MAX_HOPS = 3
 const BATCH_CONCURRENCY = 5
 const MAX_BATCH = 25
+const MAX_DISCOVER_BYTES = 1024 * 1024
 
 const FEED_ACCEPT = 'application/rss+xml, application/atom+xml, application/xml, text/xml, rdf/xml, */*'
 const READER_AGENT = 'Inkstone RSS reader'
@@ -211,6 +212,52 @@ function capMediaBody(body: ReadableStream<Uint8Array>, maxBytes: number, abort:
     },
   }))
 }
+
+function htmlAttribute(tag: string, name: string): string {
+  const match = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(tag)
+  return (match?.[1] ?? match?.[2] ?? match?.[3] ?? '').trim()
+}
+
+rssRoutes.get('/discover', async (c) => {
+  const userId = c.get('userId')
+  let url: URL
+  try {
+    url = assertFeedUrl(c.req.query('url'))
+  }
+  catch {
+    throw ApiError.badRequest('A valid web address is required')
+  }
+  await spendFetchBudget(c.env.DB, userId, [{ url: url.href }])
+  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
+  let response: Response
+  try {
+    for (let hop = 0;; hop++) {
+      response = await fetch(url.href, { headers: { accept: 'text/html,application/xhtml+xml', 'user-agent': READER_AGENT }, redirect: NO_REDIRECT, signal })
+      if (!isRedirectResponse(response) || response.status === 304) break
+      const location = response.headers.get('location')
+      if (!location || hop >= MAX_HOPS) throw ApiError.badRequest('The web page could not be reached')
+      url = assertFeedUrl(new URL(location, url).href)
+    }
+  }
+  catch {
+    throw ApiError.badRequest('The web page could not be reached')
+  }
+  if (!response.ok) throw ApiError.badRequest('The web page could not be reached')
+  const bytes = await readStreamWithinLimit(response.body, MAX_DISCOVER_BYTES)
+  if (bytes === null) throw ApiError.tooLarge('The web page is too large to inspect')
+  const html = new TextDecoder().decode(bytes)
+  const feeds: string[] = []
+  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
+    const rel = htmlAttribute(tag, 'rel').toLowerCase()
+    const type = htmlAttribute(tag, 'type').toLowerCase()
+    if (rel !== 'alternate' || !/(?:rss|atom|feed\+json)/.test(type)) continue
+    const href = safeHttpUrl(htmlAttribute(tag, 'href'), url.href)?.href ?? ''
+    if (href && !feeds.includes(href)) feeds.push(href)
+    if (feeds.length >= 10) break
+  }
+  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.replace(/<[^>]*>/g, '').trim().slice(0, 200) ?? ''
+  return c.json({ url: url.href, title, feeds })
+})
 
 rssRoutes.post('/fetch', async (c) => {
   const body = await readJson<{ requests?: unknown }>(c, 64 * 1024)

@@ -1110,7 +1110,7 @@ export const useRss = create<RssState>((set, get) => {
       // and asking for the folded form can get a refusal the written form never would.
       const written = safeHttpUrl((rawUrl || '').trim())
       if (!written) return { ok: false, error: t('rss.error.url_invalid') }
-      const url = written.href
+      let url = written.href
       if (get().library.feeds.some(feed => canonicalFeedUrl(feed.url) === canonicalFeedUrl(url))) {
         return { ok: false, error: t('rss.error.already_subscribed') }
       }
@@ -1123,6 +1123,18 @@ export const useRss = create<RssState>((set, get) => {
       }
       catch (error) {
         return { ok: false, error: error instanceof Error && error.message ? error.message : t('rss.error.unreachable') }
+      }
+      if (result?.reason === 'not-a-feed') {
+        try {
+          const discovered = await api.rss.discover(url)
+          if (discovered.feeds[0]) {
+            url = discovered.feeds[0]
+            result = (await api.rss.fetch([{ url }])).results[0]
+          }
+        }
+        catch (error) {
+          return { ok: false, error: error instanceof Error && error.message ? error.message : t('rss.error.unreachable') }
+        }
       }
       if (!result?.ok || !result.xml) {
         return { ok: false, error: result?.reason ? reasonMessage(result.reason) : t('rss.error.unreachable') }
