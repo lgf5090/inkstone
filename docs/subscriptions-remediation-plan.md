@@ -26,7 +26,7 @@ These three are marked `external-product-decision`, not silently skipped.
 
 | ID | Status | Task | Primary files | Verification | Commit |
 |---|---|---|---|---|---|
-| SUB-001 | in_progress | Create branch, worktree, and living plan | `docs/subscriptions-remediation-plan.md` | git worktree/branch checks | pending |
+| SUB-001 | completed | Create branch, worktree, and living plan | `docs/subscriptions-remediation-plan.md` | git worktree/branch checks | `17dc3d608` |
 | SUB-002 | pending | Unify date parsing and local display | `SubscriptionForm`, `routes/subions`, `store`, `SubscriptionDetail`, `csv`, `calendar` | Shanghai/New York/Sydney round-trip tests + browser | pending |
 | SUB-003 | pending | Deduplicate before/on reminders by local day and compute next fire inside notification window | `reminder-engine`, `scheduler`, `store`, `SubscriptionDetail` | cross-hour scheduler test + browser | pending |
 | SUB-004 | pending | Fix multi-period renewal amounts, period metadata, price normalization, and auto-renew concurrency | `store`, `currency`, schema/migration | API tests for multiplier/catch-up/concurrency | pending |
@@ -66,4 +66,5 @@ For each task:
 ### 2026-11-27
 
 - Created worktree and branch from the requested base.
+- Committed the living plan as `17dc3d608`.
 - Began dependency installation and task decomposition.
