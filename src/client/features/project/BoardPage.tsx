@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { ArrowLeft, Bell, FileDown, History, PanelLeft, Plus, Settings2, Share2, Sparkles, SquareKanban, Trash2, Users } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Bell, CloudOff, FileDown, History, PanelLeft, Plus, Settings2, Share2, Sparkles, SquareKanban, Trash2, Users } from 'lucide-react'
 import type { ProjectActivityEntry, ProjectCard, ProjectProperty, ProjectView, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { projectRoleAtLeast, emptyProjectViewFields } from '@shared/project/model'
 import { projectFilterPrefill } from '@shared/project/view-eval'
@@ -8,7 +8,9 @@ import type { AssistantPageContext } from '@shared/assistant'
 import { t, useLocale } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { PROJECT_OUTBOX_CHANGED_EVENT, PROJECT_OUTBOX_FLUSHED_EVENT } from '../../lib/runtime'
-import { pendingProjectWrites } from './offline-outbox'
+import { discardProjectWriteConflict, pendingProjectWrites, projectWriteConflicts } from './offline-outbox'
+import type { OutboxItem } from '../../lib/db'
+import { ApiError } from '../../lib/api'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
 import { useUi } from '../../store/ui'
@@ -32,6 +34,7 @@ import { ImportDialog } from './ImportDialog'
 import { BoardViews } from './BoardViews'
 import { BoardPropertiesDialog } from './BoardPropertiesDialog'
 import { CardDialog } from './CardDialog'
+import { ProjectConflictsDialog } from './ProjectConflictsDialog'
 import { ShareDialog } from './ShareDialog'
 import { MembersDialog } from './MembersDialog'
 import { TrashDialog } from './TrashDialog'
@@ -40,6 +43,12 @@ import { useAssistantToolRefresh } from '../chat/tool-refresh'
 import { PROJECT_WRITE_TOOL_NAMES } from '@shared/project/assistant-tools'
 
 type Status = 'loading' | 'ready' | 'error' | 'notfound'
+
+function isOfflineReadFailure(reason: unknown): boolean {
+  if (reason instanceof ApiError && (reason.status === 401 || reason.status === 403 || reason.status === 404)) return false
+  return (typeof navigator !== 'undefined' && !navigator.onLine)
+    || (reason instanceof ApiError && (reason.isOffline || reason.status === 429 || reason.status >= 500))
+}
 
 const ACTIVITY_VERB: Record<string, Parameters<typeof t>[0]> = {
   post: 'project.dashboard.act_created',
@@ -71,7 +80,7 @@ function cardPatchSnapshot(card: ProjectCard, valuePatch?: Record<string, unknow
 export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [openCardId, setOpenCardId] = useState<string | null>(null)
   const {
-    bundle, setBundle, bundleRef, refresh, loadMoreCards, loadingMore, cardsError,
+    bundle, setBundle, bundleRef, refresh, loadMoreCards, loadingMore, cardsError, usingCachedBundle,
     detailCardId, refreshBoard, boardEpoch, forgetCard,
   } = useBoardSession(boardId, setOpenCardId)
   const [status, setStatus] = useState<Status>('loading')
@@ -88,11 +97,13 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   activityBoard.current = boardId
   const activityGeneration = useRef(0)
   const [pendingWrites, setPendingWrites] = useState(0)
+  const [conflicts, setConflicts] = useState<OutboxItem[]>([])
+  const [showConflicts, setShowConflicts] = useState(false)
   useEffect(() => {
     let alive = true
     const read = (): void => {
-      void pendingProjectWrites()
-        .then((count) => { if (alive) setPendingWrites(count) })
+      void Promise.all([pendingProjectWrites(), projectWriteConflicts()])
+        .then(([count, items]) => { if (alive) { setPendingWrites(count); setConflicts(items) } })
         .catch((cause: unknown) => { console.warn('[inkstone] project outbox count failed:', cause) })
     }
     const onFlushed = (): void => { read(); void refresh() }
@@ -154,6 +165,11 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       .then(() => { if (generation === loadGeneration.current && refreshBoard.current === boardId) setStatus('ready') })
       .catch((reason: unknown) => {
         if (generation !== loadGeneration.current || refreshBoard.current !== boardId) return
+        if (bundleRef.current && isOfflineReadFailure(reason)) {
+          setStatus('ready')
+          setError(null)
+          return
+        }
         const isNotFound = typeof reason === 'object' && reason !== null && 'status' in reason && (reason as { status: number }).status === 404
         setStatus(isNotFound ? 'notfound' : 'error')
         setError(reason instanceof Error ? reason.message : String(reason))
@@ -176,6 +192,16 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const exportMarkdown = () => {
     window.open(`/api/project/boards/${encodeURIComponent(boardId)}/markdown`, '_blank')
   }
+  const discardConflict = async (item: OutboxItem): Promise<void> => {
+    const ok = await confirm({ title: t('project.offline.conflict_discard_confirm'), tone: 'danger', confirmLabel: t('project.offline.conflict_discard') })
+    if (!ok) return
+    try {
+      await discardProjectWriteConflict(item.id, item.writeId)
+      if (conflicts.length <= 1) setShowConflicts(false)
+    } catch (reason) {
+      useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -186,6 +212,11 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
       .then(() => { if (alive && generation === loadGeneration.current) setStatus('ready') })
       .catch((err: unknown) => {
         if (!alive || generation !== loadGeneration.current) return
+        if (bundleRef.current && isOfflineReadFailure(err)) {
+          setStatus('ready')
+          setError(null)
+          return
+        }
         const isNotFound = typeof err === 'object' && err !== null && 'status' in err && (err as { status: number }).status === 404
         setStatus(isNotFound ? 'notfound' : 'error')
         setError(err instanceof Error ? err.message : String(err))
@@ -537,7 +568,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     return <Empty art="select" title={t('project.board.load_failed')} description={error ?? undefined} action={<div className="flex flex-wrap justify-center gap-2"><Button variant="primary" onClick={retryBoard}>{t('project.common.retry')}</Button><Button variant="ghost" onClick={() => navigateToPath('/project')}>{t('project.board.back')}</Button></div>} />
   }
 
-  const canEdit = projectRoleAtLeast(bundle.role, 'editor')
+  const canEdit = !usingCachedBundle && projectRoleAtLeast(bundle.role, 'editor')
   const isOwner = bundle.board.ownerId === currentUserId
   const openCard = bundle.cards.find((card) => card.id === openCardId) ?? null
 
@@ -545,6 +576,14 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
     <div className="flex h-full w-full min-w-0 bg-[var(--bg-base)]" data-project-board-page={boardId}>
       {sidebarOpen && <ProjectSidebar boards={boards} onImport={() => setShowImport(true)} />}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {usingCachedBundle && (
+          <div role="status" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--accent-soft)] px-3 py-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+            <CloudOff size={15} aria-hidden="true" />
+            <span className="font-medium">{t('project.offline.cached_title')}</span>
+            <span>{t('project.offline.cached_description')}</span>
+            <Button size="sm" variant="ghost" onClick={retryBoard}>{t('project.common.retry')}</Button>
+          </div>
+        )}
         <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
           <IconButton label={t('project.board.back')} size="sm" onClick={() => navigateToPath('/project')}>
             <ArrowLeft size={16} />
@@ -567,6 +606,12 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
             <span role="status" className="shrink-0 rounded-[var(--r-sm)] bg-[var(--accent-soft)] px-2 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)]">
               {t('project.offline.pending', { count: pendingWrites })}
             </span>
+          )}
+          {conflicts.length > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => setShowConflicts(true)}>
+              <AlertTriangle size={14} className="text-[var(--danger)]" aria-hidden="true" />
+              {t('project.offline.conflicts_badge', { count: conflicts.length })}
+            </Button>
           )}
           <span className="ml-auto shrink-0 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {bundle.cardsHasMore
@@ -599,7 +644,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
               <Share2 size={16} />
             </IconButton>
           )}
-          {boardWatch.status === 'error' && (
+          {boardWatch.status === 'error' && !usingCachedBundle && (
             <span role="alert" className="flex items-center gap-1">
               <span className="sr-only text-[length:var(--text-11)] text-[var(--danger)] xl:not-sr-only">{t('project.common.load_failed')}</span>
               <Button size="sm" variant="ghost" onClick={boardWatch.retry}>{t('project.common.retry')}</Button>
@@ -631,11 +676,12 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           <Input
             className="min-w-0 flex-1"
             value={title}
+            disabled={!canEdit || busy}
             placeholder={t('project.board.card_placeholder')}
             aria-label={t('project.board.card_placeholder')}
             onChange={(event) => setTitle(event.target.value)}
           />
-          <Button type="submit" variant="primary" disabled={busy || !title.trim()} icon={<Plus size={15} />}>
+          <Button type="submit" variant="primary" disabled={!canEdit || busy || !title.trim()} icon={<Plus size={15} />}>
             {t('project.board.new_card')}
           </Button>
           {canEdit && bundle.cards.some((card) => card.isTemplate) && (
@@ -741,6 +787,9 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
                 </ul>
               )}
         </Modal>
+      )}
+      {showConflicts && (
+        <ProjectConflictsDialog items={conflicts} onDiscard={(item) => void discardConflict(item)} onClose={() => setShowConflicts(false)} />
       )}
       {openCard && (
         <CardDialog

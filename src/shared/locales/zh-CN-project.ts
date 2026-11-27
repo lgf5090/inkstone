@@ -631,6 +631,14 @@ export const ZH_CN_PROJECT = {
     "project.offline.queued": "当前离线，改动已保存在本地，恢复网络后会自动同步。",
     "project.offline.pending": "{count} 项待同步",
     "project.offline.replay_failed": "待同步改动无法提交：{message}",
+    "project.offline.cached_title": "正在查看离线缓存",
+    "project.offline.cached_description": "这是最近保存的只读副本，恢复网络后即可继续编辑。",
+    "project.offline.conflicts_badge": "{count} 项写入冲突",
+    "project.offline.conflicts_title": "{count} 项写入需要处理",
+    "project.offline.conflicts_description": "这些本地修改与服务器状态冲突，仍保留在队列中。请核对后再放弃。",
+    "project.offline.conflict_unknown": "服务器拒绝了此项修改。",
+    "project.offline.conflict_discard": "放弃此项写入",
+    "project.offline.conflict_discard_confirm": "放弃这项本地写入？此操作无法撤销。",
 } as const
 
 /** zh strings for the built-in board templates' demo content, keyed by the English source string. */

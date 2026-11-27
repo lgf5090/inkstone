@@ -4,6 +4,8 @@ import type { ProjectBoardBundle, ProjectCard } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
 import { initI18n, t } from '../../lib/i18n'
 import { navigateToAddress } from '../../lib/app-history'
+import { ApiError } from '../../lib/api'
+import { localDb } from '../../lib/db'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { useAssistant } from '../chat/assistant-store'
 import { BoardPage } from './BoardPage'
@@ -76,6 +78,32 @@ describe('board read failures', () => {
     await act(async () => { [...view.container.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
     expect(api.fetchProjectBoardBundle).toHaveBeenCalledTimes(2)
     expect(view.container.textContent).toContain('Roadmap')
+  })
+
+  it('opens a cached board read-only when the network is offline', async () => {
+    const cache = vi.spyOn(localDb, 'getProjectBoardCache').mockResolvedValue({ bundle: bundle(), loadedCursors: [], savedAt: 1 })
+    vi.mocked(api.fetchProjectBoardBundle).mockRejectedValue(new ApiError(0, 'offline', 'offline'))
+    try {
+      await mount()
+      expect(view.container.textContent).toContain(t('project.offline.cached_title'))
+      expect(view.container.textContent).toContain('Roadmap')
+      const add = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent.includes(t('project.board.new_card')))
+      expect(add).toBeUndefined()
+    } finally {
+      cache.mockRestore()
+    }
+  })
+
+  it('does not expose a cached board after the server says it is gone', async () => {
+    const cache = vi.spyOn(localDb, 'getProjectBoardCache').mockResolvedValue({ bundle: bundle(), loadedCursors: [], savedAt: 1 })
+    vi.mocked(api.fetchProjectBoardBundle).mockRejectedValue(new ApiError(404, 'not_found', 'Board not found'))
+    try {
+      await mount()
+      expect(view.container.textContent).toContain(t('project.board.not_found'))
+      expect(view.container.textContent).not.toContain(t('project.offline.cached_title'))
+    } finally {
+      cache.mockRestore()
+    }
   })
 
   it('ignores activity from the previous board after switching boards', async () => {

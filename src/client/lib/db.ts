@@ -2,6 +2,7 @@ import { clear as clearStore, createStore, del, get, getMany, set, setMany, upda
 import * as idbKeyval from 'idb-keyval'
 import type { UseStore } from 'idb-keyval'
 import type { Folder, Note, NoteSummary, NoteTemplate, NoteTemplateCategory, PublicUser, SessionInfo, SiteInfo, Tag } from '@shared/types'
+import type { ProjectBoardBundle } from '@shared/project/model'
 import { parseQuickAddRecord } from '@shared/quickadd'
 import { parseFeedCache, type RssFeedCache } from '@shared/rss/model'
 import type { QuickAddChoice, QuickAddSettings } from '@shared/quickadd'
@@ -29,6 +30,7 @@ const KEY = {
   omnisearchHistory: 'omnisearchHistory',
   outbox: 'outbox',
   outboxReplayLease: 'outboxReplayLease',
+  projectBoard: (id: string) => `projectBoard:${id}`,
   templateLibrary: 'templateLibrary',
   quickadd: 'quickadd',
   rssArticles: (id: string) => `rssArticles:${id}`,
@@ -83,7 +85,14 @@ export interface OutboxItem {
   createdAt: number
   lastError?: string
   failed?: boolean
+  conflict?: boolean
   nextAttemptAt?: number
+}
+
+export interface CachedProjectBoard {
+  bundle: ProjectBoardBundle
+  loadedCursors: string[]
+  savedAt: number
 }
 
 export const OUTBOX_MAX_ATTEMPTS = 5
@@ -165,6 +174,7 @@ export function normalizeOutboxItem(value: unknown): OutboxItem | null {
     createdAt: candidate.createdAt,
     ...(typeof candidate.lastError === 'string' ? { lastError: candidate.lastError } : {}),
     ...(candidate.failed === true ? { failed: true } : {}),
+    ...(candidate.conflict === true ? { conflict: true } : {}),
     ...(typeof candidate.nextAttemptAt === 'number' && Number.isFinite(candidate.nextAttemptAt)
       ? { nextAttemptAt: candidate.nextAttemptAt }
       : {}),
@@ -605,6 +615,31 @@ export const localDb = {
   },
   saveRssResults: (value: unknown) => safeSet(userScopedKey(KEY.rssResults), value),
 
+  async getProjectBoardCache(boardId: string): Promise<CachedProjectBoard | undefined> {
+    const value = await safeGet<unknown>(userScopedKey(KEY.projectBoard(boardId)))
+    if (!isRecord(value) || !isRecord(value.bundle)) return undefined
+    const bundle = value.bundle
+    if (!isRecord(bundle.board) || bundle.board.id !== boardId || typeof bundle.cursor !== 'number'
+      || !Array.isArray(bundle.cards) || !Array.isArray(bundle.properties) || !Array.isArray(bundle.views)
+      || !Array.isArray(bundle.contents) || !Array.isArray(bundle.comments) || !Array.isArray(bundle.members)) return undefined
+    return {
+      bundle: bundle as unknown as ProjectBoardBundle,
+      loadedCursors: Array.isArray(value.loadedCursors) ? value.loadedCursors.filter((cursor): cursor is string => typeof cursor === 'string') : [],
+      savedAt: typeof value.savedAt === 'number' ? value.savedAt : 0,
+    }
+  },
+  async setProjectBoardCache(boardId: string, value: CachedProjectBoard): Promise<void> {
+    try {
+      await update<CachedProjectBoard>(userScopedKey(KEY.projectBoard(boardId)), (current) => {
+        if (isRecord(current) && isRecord(current.bundle) && typeof current.bundle.cursor === 'number'
+          && current.bundle.cursor >= value.bundle.cursor) return current
+        return value
+      }, store)
+    } catch (error) {
+      console.warn('[inkstone] project board cache write failed:', error)
+    }
+  },
+
   getOutbox: async (): Promise<OutboxItem[]> => normalizeOutbox(await safeGet<unknown>(userScopedKey(KEY.outbox))),
 
   enqueueOutbox(item: OutboxItem): Promise<void> {
@@ -774,7 +809,7 @@ export const localDb = {
     )
   },
 
-  markOutboxFailure(id: string, writeId: string, message: string, options: { permanent?: boolean, retryAfterMs?: number } = {}): Promise<void> {
+  markOutboxFailure(id: string, writeId: string, message: string, options: { permanent?: boolean, conflict?: boolean, retryAfterMs?: number } = {}): Promise<void> {
     return update<OutboxItem[]>(
       userScopedKey(KEY.outbox),
       (current) => normalizeOutbox(current)
@@ -787,6 +822,7 @@ export const localDb = {
             attempts,
             lastError: message,
             failed,
+            ...(options.conflict ? { conflict: true } : {}),
             nextAttemptAt: failed ? undefined : Date.now() + (options.retryAfterMs ?? outboxRetryDelay(attempts)),
           }
         }),
@@ -799,7 +835,7 @@ export const localDb = {
       userScopedKey(KEY.outbox),
       (current) => normalizeOutbox(current)
         .map((item) => item.id === id && item.writeId === writeId
-          ? { ...item, attempts: 0, failed: false, nextAttemptAt: undefined, lastError: undefined }
+          ? { ...item, attempts: 0, failed: false, conflict: undefined, nextAttemptAt: undefined, lastError: undefined }
           : item),
       store,
     )

@@ -13136,12 +13136,12 @@ const allowed = new Map([
     "/** The card a project notice points at, or null when the tail is not this app's pair. */",
   ]],
   ["src/client/features/project/offline-outbox.ts", [
-    "/**\n * Project writes that failed on the network are kept in the account's IndexedDB outbox and replayed\n * in order. The queued row's write id becomes the server's Idempotency-Key, so a create whose answer\n * was lost cannot be repeated by the replay. A permanent refusal is announced and then dropped —\n * keeping it forever would retry a request the server has already rejected.\n */",
     "/** Ask the service worker for a Background Sync pass in case the tab is closed before it reconnects. */",
     "/**\n * The queue row is removed by the store that owns the replay loop, after this module has returned,\n * so the \"one fewer pending\" event has to come from there rather than from the replay itself.\n */",
     "// Background Sync is a best-effort extra: `serviceWorker.ready` never settles when no worker is",
     "// registered (the dev server, or a browser that refused the registration), and awaiting it here",
     "// would keep the failed write from ever reaching the caller as an error.",
+    "/**\n * Project writes that failed on the network are kept in the account's IndexedDB outbox and replayed\n * in order. The queued row's write id becomes the server's Idempotency-Key, so a create whose answer\n * was lost cannot be repeated by the replay. A conflict is kept for the reader to resolve; other\n * permanent refusals are announced and then dropped rather than retried forever.\n */",
   ]],
   ["src/client/features/project/people-context.tsx", [
     "/**\n * The board's people directory, for the surfaces that draw a card without holding the bundle.\n *\n * A card face is drawn by the board, the list, the gallery and the day panel, none of which receive\n * the whole bundle; the directory is board-scoped, so it travels as context rather than as a prop on\n * every view in between.\n */",

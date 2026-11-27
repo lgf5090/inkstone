@@ -631,4 +631,12 @@ export const EN_US_PROJECT = {
     "project.offline.queued": "You are offline. The change is saved locally and will sync when the connection returns.",
     "project.offline.pending": "{count} pending changes",
     "project.offline.replay_failed": "A queued change could not be synced: {message}",
+    "project.offline.cached_title": "Viewing the offline cache",
+    "project.offline.cached_description": "This is the latest saved copy and is read-only until the connection returns.",
+    "project.offline.conflicts_badge": "{count} write conflicts",
+    "project.offline.conflicts_title": "{count} writes need attention",
+    "project.offline.conflicts_description": "These local changes conflict with the server and remain in your queue. Review them before discarding.",
+    "project.offline.conflict_unknown": "The server rejected this change.",
+    "project.offline.conflict_discard": "Discard this write",
+    "project.offline.conflict_discard_confirm": "Discard this local write? This cannot be undone.",
 } as const

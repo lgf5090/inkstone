@@ -3,6 +3,7 @@ import type { ProjectBoardBundle, ProjectCard } from '@shared/project/model'
 import { useSearch } from '../../lib/app-history'
 import { createRefreshQueue } from '../../lib/refresh-queue'
 import { useUi } from '../../store/ui'
+import { localDb } from '../../lib/db'
 import { fetchProjectBoardBundle, fetchProjectBoardCards, fetchProjectCard } from './api'
 
 function mergeProjectCardPage(current: ProjectBoardBundle, page: ProjectBoardBundle): ProjectBoardBundle {
@@ -32,6 +33,7 @@ export function useBoardSession(boardId: string, setOpenCardId: (id: string | nu
   const [bundle, setBundle] = useState<ProjectBoardBundle | null>(null)
   const bundleRef = useRef<ProjectBoardBundle | null>(null)
   bundleRef.current = bundle
+  const cachedBundleRef = useRef<ProjectBoardBundle | null>(null)
   const pendingCardRef = useRef<ProjectCard | null>(null)
   const loadedCardCursors = useRef<string[]>([])
   const cardPageQueue = useRef<Promise<void>>(Promise.resolve())
@@ -43,6 +45,8 @@ export function useBoardSession(boardId: string, setOpenCardId: (id: string | nu
   const [loadingMore, setLoadingMore] = useState(false)
   const loadingMoreRef = useRef(false)
   const [cardsError, setCardsError] = useState(false)
+  const [usingCachedBundle, setUsingCachedBundle] = useState(false)
+  const hydrationRef = useRef<Promise<void>>(Promise.resolve())
   const [detailCardId, setDetailCardId] = useState<string | null>(null)
   const refreshBoard = useRef(boardId)
   refreshBoard.current = boardId
@@ -56,10 +60,13 @@ export function useBoardSession(boardId: string, setOpenCardId: (id: string | nu
   const refresh = useMemo(
     () => createRefreshQueue(
       () => enqueueCardOperation(async () => {
+        await hydrationRef.current
         let result = await fetchProjectBoardBundle(boardId)
         for (const cursor of loadedCardCursors.current) {
           result = mergeProjectCardPage(result, await fetchProjectBoardCards(boardId, cursor))
         }
+        cachedBundleRef.current = null
+        setUsingCachedBundle(false)
         return result
       }),
       (result) => setBundle((current) => {
@@ -74,13 +81,41 @@ export function useBoardSession(boardId: string, setOpenCardId: (id: string | nu
     [boardId, enqueueCardOperation],
   )
   useEffect(() => {
+    let alive = true
+    let finishHydration = (): void => undefined
+    hydrationRef.current = new Promise<void>((resolve) => { finishHydration = resolve })
     pendingCardRef.current = null
+    bundleRef.current = null
+    cachedBundleRef.current = null
     loadedCardCursors.current = []
     loadingMoreRef.current = false
     setLoadingMore(false)
     setCardsError(false)
     setDetailCardId(null)
+    setUsingCachedBundle(false)
+    void localDb.getProjectBoardCache(boardId)
+      .then((cached) => {
+        if (!alive || !cached) return
+        loadedCardCursors.current = cached.loadedCursors
+        cachedBundleRef.current = cached.bundle
+        if (!bundleRef.current) bundleRef.current = cached.bundle
+        setBundle((current) => current ?? cached.bundle)
+        setUsingCachedBundle(true)
+      })
+      .catch((cause: unknown) => { console.warn('[inkstone] project board cache read failed:', cause) })
+      .finally(finishHydration)
+    return () => {
+      alive = false
+      finishHydration()
+    }
   }, [boardId])
+  useEffect(() => {
+    if (!bundle) return
+    const timer = window.setTimeout(() => {
+      void localDb.setProjectBoardCache(boardId, { bundle, loadedCursors: [...loadedCardCursors.current], savedAt: Date.now() })
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [boardId, bundle])
   useEffect(() => {
     const id = new URLSearchParams(search).get('card')
     const request = ++deepLinkGeneration.current
@@ -88,10 +123,13 @@ export function useBoardSession(boardId: string, setOpenCardId: (id: string | nu
     setDetailCardId(null)
     if (!id) return
     setOpenCardId(id)
-    if (bundleRef.current?.cards.some((card) => card.id === id)) return
     const epoch = boardEpoch.current
-    void fetchProjectCard(boardId, id)
-      .then((card) => {
+    void hydrationRef.current
+      .then(async () => {
+        if (request !== deepLinkGeneration.current || refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
+        if (new URLSearchParams(window.location.search).get('card') !== id) return
+        if (bundleRef.current?.cards.some((card) => card.id === id)) return
+        const card = await fetchProjectCard(boardId, id)
         if (request !== deepLinkGeneration.current || refreshBoard.current !== boardId || boardEpoch.current !== epoch) return
         if (new URLSearchParams(window.location.search).get('card') !== id) return
         pendingCardRef.current = card
@@ -131,7 +169,7 @@ export function useBoardSession(boardId: string, setOpenCardId: (id: string | nu
     setDetailCardId((current) => current === cardId ? null : current)
   }, [])
   return {
-    bundle, setBundle, bundleRef, refresh, loadMoreCards, loadingMore, cardsError,
+    bundle, setBundle, bundleRef, refresh, loadMoreCards, loadingMore, cardsError, usingCachedBundle,
     detailCardId, refreshBoard, boardEpoch, forgetCard,
   }
 }

@@ -1,8 +1,8 @@
 /**
  * Project writes that failed on the network are kept in the account's IndexedDB outbox and replayed
  * in order. The queued row's write id becomes the server's Idempotency-Key, so a create whose answer
- * was lost cannot be repeated by the replay. A permanent refusal is announced and then dropped —
- * keeping it forever would retry a request the server has already rejected.
+ * was lost cannot be repeated by the replay. A conflict is kept for the reader to resolve; other
+ * permanent refusals are announced and then dropped rather than retried forever.
  */
 import { ApiError, CLIENT_ID, request as baseRequest } from '../../lib/api'
 import { localDb, type OutboxItem } from '../../lib/db'
@@ -19,7 +19,7 @@ interface ProjectOutboxPayload {
   body?: unknown
 }
 
-export type ProjectOutboxOutcome = { status: 'done' } | { status: 'retry' } | { status: 'offline' }
+export type ProjectOutboxOutcome = { status: 'done' } | { status: 'retry' } | { status: 'offline' } | { status: 'conflict' }
 
 function isProjectOutboxPayload(payload: unknown): payload is ProjectOutboxPayload {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
@@ -89,6 +89,16 @@ export async function pendingProjectWrites(): Promise<number> {
   return items.filter((item) => item.entity === 'project').length
 }
 
+export async function projectWriteConflicts(): Promise<OutboxItem[]> {
+  const items = await localDb.getOutbox()
+  return items.filter((item) => item.entity === 'project' && item.conflict)
+}
+
+export async function discardProjectWriteConflict(id: string, writeId: string): Promise<void> {
+  await localDb.discardOutboxItem(id, writeId)
+  emit(PROJECT_OUTBOX_CHANGED_EVENT)
+}
+
 export async function replayProjectOutboxItem(item: OutboxItem): Promise<ProjectOutboxOutcome> {
   const payload = item.payload
   if (!isProjectOutboxPayload(payload)) {
@@ -116,6 +126,13 @@ export async function replayProjectOutboxItem(item: OutboxItem): Promise<Project
         console.warn('[inkstone] project outbox retry could not be recorded:', cause)
       })
       return { status: 'retry' }
+    }
+    if (error instanceof ApiError && (error.status === 409 || error.status === 412)) {
+      await localDb.markOutboxFailure(item.id, item.writeId, error.message, { permanent: true, conflict: true }).catch((cause: unknown) => {
+        console.warn('[inkstone] project outbox conflict could not be recorded:', cause)
+      })
+      emit(PROJECT_OUTBOX_CHANGED_EVENT)
+      return { status: 'conflict' }
     }
     useUi.getState().toast({
       title: t('project.offline.replay_failed', { message: error instanceof Error ? error.message : String(error) }),
