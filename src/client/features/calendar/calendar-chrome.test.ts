@@ -61,11 +61,14 @@ describe('calendar chrome bridge', () => {
       onRecurring,
       onSelect,
       onOpenDetail,
+      isSelected: id => id === 'event-1',
     })
 
     expect(event.tabIndex).toBe(0)
     expect(event.getAttribute('role')).toBe('button')
     expect(event.getAttribute('aria-label')).toBe('Review 10:00')
+    expect(event.getAttribute('data-inkstone-selected')).toBe('')
+    expect(event.getAttribute('aria-pressed')).toBe('true')
     expect(root.querySelector('#dayflow-add-event-btn')?.getAttribute('title')).toBe('新建日程')
     expect(root.querySelector('#dayflow-add-event-btn')?.getAttribute('aria-label')).toBe('新建日程')
     expect([...root.querySelectorAll('.df-compact-header-label')].map(node => node.textContent))
@@ -76,6 +79,10 @@ describe('calendar chrome bridge', () => {
     expect(app.highlightEvent).toHaveBeenCalledWith('event-1')
     expect(onSelect).toHaveBeenCalledWith('event-1')
     expect(onOpenDetail).not.toHaveBeenCalled()
+
+    event.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }))
+    expect(onSelect).toHaveBeenLastCalledWith('event-1', { shift: false, meta: true })
+    expect(app.selectEvent).toHaveBeenCalledTimes(1)
 
     event.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
     expect(onOpenDetail).toHaveBeenCalledWith('event-1')

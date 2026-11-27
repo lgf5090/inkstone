@@ -13,6 +13,7 @@
 import { getCalendarColorsForHex, type ICalendarApp } from '@dayflow/react'
 import type { CalendarWorkingHours } from '@shared/calendar/model'
 import { narrowWeekdayLabel, narrowWeekdayLabels, type WeekStartDay } from '../../lib/time'
+import type { EventSelectionModifiers } from './event-selection'
 
 const EVENT_SELECTOR = '.df-event'
 const REPEAT_MARKER = '::repeat-'
@@ -36,8 +37,9 @@ export interface CalendarChromeOptions {
   onAdd: () => void
   onRecurring: (id: string) => void
   /** The reader pointed at this event; the surface owns the extras card and its dismissed state. */
-  onSelect: (id: string) => void
+  onSelect: (id: string, modifiers?: EventSelectionModifiers) => void
   onOpenDetail: (id: string) => void
+  isSelected?: (id: string) => boolean
 }
 
 function elementOf(target: EventTarget | null): Element | null {
@@ -195,10 +197,14 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
       // DayFlow renders events as divs and exposes no semantic event slot. This bridge supplies the
       // equivalent button role, focus stop and keyboard activation because the app intercepts selection.
       if (element.getAttribute('role') !== 'button') element.setAttribute('role', 'button')
+      const id = element.getAttribute('data-event-id')
+      const selected = id ? options.isSelected?.(id) === true : false
+      element.toggleAttribute('data-inkstone-selected', selected)
+      element.setAttribute('aria-pressed', String(selected))
       const name = eventAccessibleName(element, options.untitledLabel, options.allDayLabel)
       if (name && element.getAttribute('aria-label') !== name) element.setAttribute('aria-label', name)
-      const id = element.getAttribute('data-event-id')
-      const color = id ? byId.get(id)?.meta?.color : undefined
+      const eventId = element.getAttribute('data-event-id')
+      const color = eventId ? byId.get(eventId)?.meta?.color : undefined
       const hex = typeof color === 'string' ? color : ''
       const applied = element.dataset.inkstoneColor
       // The library paints the block's own colour inline. On the first pass there is nothing of ours
@@ -249,10 +255,15 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
       options.onRecurring(id)
       return
     }
-    options.app.selectEvent(id)
-    options.app.highlightEvent(id)
-    options.onSelect(id)
-    if (options.detailTrigger === 'click') options.onOpenDetail(id)
+    const modifiers = { shift: nativeEvent.shiftKey, meta: nativeEvent.metaKey || nativeEvent.ctrlKey }
+    if (!modifiers.shift && !modifiers.meta) {
+      options.app.selectEvent(id)
+      options.app.highlightEvent(id)
+      options.onSelect(id)
+    } else {
+      options.onSelect(id, modifiers)
+    }
+    if (options.detailTrigger === 'click' && !modifiers.shift && !modifiers.meta) options.onOpenDetail(id)
   }
 
   const onDoubleClick = (nativeEvent: MouseEvent): void => {
@@ -280,10 +291,15 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
         options.onRecurring(id)
         return
       }
-      options.app.selectEvent(id)
-      options.app.highlightEvent(id)
-      options.onSelect(id)
-      options.onOpenDetail(id)
+      const modifiers = { shift: nativeEvent.shiftKey, meta: nativeEvent.metaKey || nativeEvent.ctrlKey }
+      if (!modifiers.shift && !modifiers.meta) {
+        options.app.selectEvent(id)
+        options.app.highlightEvent(id)
+        options.onSelect(id)
+      } else {
+        options.onSelect(id, modifiers)
+      }
+      if (!modifiers.shift && !modifiers.meta) options.onOpenDetail(id)
       return
     }
     if (nativeEvent.key !== 'ArrowDown' && nativeEvent.key !== 'ArrowRight'

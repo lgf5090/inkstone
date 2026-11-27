@@ -422,6 +422,15 @@ export function CalendarSidebar({
         },
       ]
     }
+    const groupItems = [
+      { id: 'none', label: t('calendar.calendar.no_group'), checked: dto?.groupId == null, onSelect: () => { if (dto) void moveToGroup(dto, null) } },
+      ...groups.map(group => ({
+        id: group.id,
+        label: group.name,
+        checked: dto?.groupId === group.id,
+        onSelect: () => { if (dto) void moveToGroup(dto, group.id) },
+      })),
+    ]
     const items: MenuItem[] = [
       {
         id: 'default',
@@ -446,19 +455,8 @@ export function CalendarSidebar({
         id: 'group',
         label: t('calendar.calendar.move_to_group'),
         disabled: !dto,
-        submenu: submenuFor([
-          { id: 'none', label: t('calendar.calendar.no_group'), checked: dto?.groupId == null, onSelect: () => { if (dto) void moveToGroup(dto, null) } },
-          ...groups.map(group => ({
-            id: group.id,
-            label: group.name,
-            checked: dto?.groupId === group.id,
-            onSelect: () => { if (dto) void moveToGroup(dto, group.id) },
-          })),
-        ]),
-        subItems: [
-          { id: 'none', label: t('calendar.calendar.no_group'), onSelect: () => { if (dto) void moveToGroup(dto, null) } },
-          ...groups.map(group => ({ id: group.id, label: group.name, onSelect: () => { if (dto) void moveToGroup(dto, group.id) } })),
-        ],
+        submenu: submenuFor(groupItems),
+        subItems: groupItems,
       },
       {
         id: 'move-up',
