@@ -387,12 +387,8 @@ export class SubscriptionsStore {
     const existing = await this.itemRow(id)
     if (!existing) return null
 
-    const expiry = this.resolveExpiry({
-      ...input,
-      periodValue: input.periodValue ?? existing.period_value,
-      periodUnit: (input.periodUnit ?? existing.period_unit) as SubscriptionInput['periodUnit'],
-      useLunar: input.useLunar ?? existing.use_lunar === 1,
-    }, context, now)
+    const expiry = toMs(input.expiryDate, context.timezone)
+    if (expiry === null) throw new Error('invalid_expiry')
 
     const amount = input.amount === undefined
       ? existing.amount
@@ -431,7 +427,6 @@ export class SubscriptionsStore {
         : toMs(input.trialEndsAt, context.timezone),
     ).run()
 
-    await this.syncInitialPayment(id, existing, amount, currency, startDate, expiry, now)
     // An absent `reminderRules` means "not what this edit is about"; an empty array means "no rules",
     // which is a thing a reader can genuinely decide and must be able to say.
     if (input.reminderRules) await this.replaceRules(id, input.reminderRules)
@@ -1098,41 +1093,6 @@ export class SubscriptionsStore {
     const solar = lunar2solar(next)
     if (!solar) throw new Error('lunar_out_of_range')
     return getTimestampForTimezoneParts(solar, timezone)
-  }
-
-  /**
-   * Keep the first receipt in step with the subscription's price.
-   *
-   * The initial receipt is what a reader's own history starts from, so a price they typed wrong should
-   * be correctable — but only that one row: every later receipt records what was actually charged and
-   * must not be rewritten by an edit to today's price.
-   */
-  private async syncInitialPayment(
-    id: string,
-    existing: ItemRow,
-    amount: number | null,
-    currency: string,
-    startDate: number | null,
-    expiry: number,
-    now: number,
-  ): Promise<void> {
-    const initial = await this.db.prepare(
-      `SELECT ${PAYMENT_COLUMNS} FROM sub_payment WHERE user_id = ?1 AND subscription_id = ?2 AND kind = 'initial' ORDER BY paid_at LIMIT 1`,
-    ).bind(this.userId, id).first<PaymentRow>()
-
-    const priceChanged = amount !== existing.amount || currency !== existing.currency
-    if (initial && priceChanged) {
-      await this.db.prepare(`UPDATE sub_payment SET amount = ?4, currency = ?5 WHERE user_id = ?1 AND subscription_id = ?2 AND id = ?3`)
-        .bind(this.userId, id, initial.id, amount ?? 0, currency)
-        .run()
-      return
-    }
-    if (!initial && amount !== null && amount > 0) {
-      const paidAt = startDate ?? existing.created_at
-      await this.db.prepare(
-        `INSERT INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
-      ).bind(this.userId, newId(), id, paidAt, amount, currency, 'initial', '', paidAt, expiry, 1, now).run()
-    }
   }
 
   /**

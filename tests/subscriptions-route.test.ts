@@ -202,7 +202,7 @@ describe('the bundle', () => {
 })
 
 describe('updating', () => {
-  it('keeps the opening receipt in step with a corrected price', async () => {
+  it('does not rewrite the opening receipt when the plan price changes', async () => {
     const created = await create()
     const detail = await json<any>(await send('PUT', `/${created.item.id}`, {
       name: 'Netflix',
@@ -211,7 +211,20 @@ describe('updating', () => {
     }))
     expect(detail.item.amount).toBe(88)
     expect(detail.payments).toHaveLength(1)
-    expect(detail.payments[0].amount).toBe(88)
+    expect(detail.payments[0].amount).toBe(60)
+  })
+
+  it('keeps an expired subscription expired when only its metadata is edited', async () => {
+    const created = await create()
+    const past = inDays(-5)
+    sqlite.prepare('UPDATE sub_item SET expiry_date = ? WHERE id = ?').run(Date.parse(past), created.item.id)
+    const detail = await json<any>(await send('PUT', `/${created.item.id}`, {
+      name: 'Netflix renamed',
+      amount: 60,
+      expiryDate: past,
+    }))
+    expect(detail.item.expiryDate).toBe(new Date(past).toISOString())
+    expect(detail.payments).toHaveLength(1)
   })
 
   it('toggles the subscription off without touching its dates', async () => {
