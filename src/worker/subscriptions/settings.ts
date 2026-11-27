@@ -157,13 +157,6 @@ export async function loadSettings(db: D1Database, userId: string): Promise<Subs
   return row ? toSettings(row) : { ...DEFAULT_SETTINGS }
 }
 
-/** Every account's settings, for the scheduler's single pass. */
-export async function loadAllSettings(db: D1Database): Promise<Array<{ userId: string; settings: SubscriptionSettings }>> {
-  const { results } = await db.prepare(`SELECT ${SETTINGS_COLUMNS} FROM sub_settings`)
-    .all<SettingsRow>()
-  return results.map((row) => ({ userId: row.user_id, settings: toSettings(row) }))
-}
-
 export interface SettingsPatch {
   timezone?: unknown
   notificationHours?: unknown
