@@ -161,7 +161,7 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
   // Keyboard: j/k walk the list, Enter opens, x picks, s stars, Escape leaves the selection.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || hasOpenLayer()) return
+      if (!settings.keyboardShortcuts || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || hasOpenLayer()) return
       // The article marks have no meaning for a note row, and writing one would put a note id into
       // the account's list of read articles.
       if (vaultFolderId && (event.key === 'r' || event.key === 'm' || event.key === 's' || event.key === 'x' || event.key === 'v')) return
@@ -223,7 +223,7 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [entries, selected, limit, state, onOpen, picked, readIds, channelFeeds, vaultFolderId])
+  }, [entries, selected, limit, state, onOpen, picked, readIds, channelFeeds, vaultFolderId, settings.keyboardShortcuts])
 
   // Scrolling past a row is how a reader finishes a channel: the list marks what has gone above the
   // top edge, so a long morning of reading does not end with forty rows still showing as new.

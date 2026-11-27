@@ -27,21 +27,25 @@ const KEYS: Array<[string, MessageKey]> = [
   ['Escape', 'rss.key_escape'],
 ]
 
-export function RssKeys({ open, onClose }: { open: boolean, onClose: () => void }): ReactElement {
+export function RssKeys({ open, onClose, enabled }: { open: boolean, onClose: () => void, enabled: boolean }): ReactElement {
   return (
     <Modal open={open} onClose={onClose} title={t('rss.keys_title')} width={460}>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[length:var(--text-12-5)]">
-        {KEYS.map(([key, label]) => (
-          <div key={key} className="contents">
-            <dt>
-              <kbd className="rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-sunken)] px-1.5 py-0.5 font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]">
-                {key}
-              </kbd>
-            </dt>
-            <dd className="text-[var(--text-secondary)]">{t(label)}</dd>
-          </div>
-        ))}
-      </dl>
+      {!enabled ? (
+        <p className="text-[length:var(--text-12-5)] leading-relaxed text-[var(--text-tertiary)]">{t('rss.keys_disabled')}</p>
+      ) : (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[length:var(--text-12-5)]">
+          {KEYS.map(([key, label]) => (
+            <div key={key} className="contents">
+              <dt>
+                <kbd className="rounded-[var(--r-sm)] border border-[var(--border-default)] bg-[var(--bg-sunken)] px-1.5 py-0.5 font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]">
+                  {key}
+                </kbd>
+              </dt>
+              <dd className="text-[var(--text-secondary)]">{t(label)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </Modal>
   )
 }

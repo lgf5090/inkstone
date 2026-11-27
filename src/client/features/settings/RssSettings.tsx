@@ -168,6 +168,9 @@ export function RssSettings(): ReactElement {
         <SettingRow title={t('rss.settings.mark_read_scroll')} description={t('rss.settings.mark_read_scroll_desc')}>
           <Switch checked={rss.markReadOnScroll} onChange={markReadOnScroll => patch({ markReadOnScroll })} label={t('rss.settings.mark_read_scroll')} />
         </SettingRow>
+        <SettingRow title={t('rss.settings.keyboard_shortcuts')} description={t('rss.settings.keyboard_shortcuts_desc')}>
+          <Switch checked={rss.keyboardShortcuts} onChange={keyboardShortcuts => patch({ keyboardShortcuts })} label={t('rss.settings.keyboard_shortcuts')} />
+        </SettingRow>
         <SettingRow title={t('rss.settings.mark_read')} description={t('rss.settings.mark_read_desc')}>
           <Switch checked={rss.markReadOnOpen} onChange={markReadOnOpen => patch({ markReadOnOpen })} label={t('rss.settings.mark_read')} />
         </SettingRow>

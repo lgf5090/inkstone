@@ -615,6 +615,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     listWidth: 320,
     customFont: '',
     markReadOnScroll: false,
+    keyboardShortcuts: true,
     articleFolder: 'RSS',
     dailyNoteTitle: 'YYYY-MM-DD',
     aiEnabled: false,
@@ -1601,6 +1602,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.rss.listWidth = integerInRange(rss.listWidth, RSS_LIST_WIDTH_RANGE[0], RSS_LIST_WIDTH_RANGE[1], DEFAULT_SETTINGS.rss.listWidth)
   base.rss.customFont = typeof rss.customFont === 'string' ? rss.customFont.slice(0, 80) : DEFAULT_SETTINGS.rss.customFont
   base.rss.markReadOnScroll = booleanValue(rss.markReadOnScroll, DEFAULT_SETTINGS.rss.markReadOnScroll)
+  base.rss.keyboardShortcuts = booleanValue(rss.keyboardShortcuts, DEFAULT_SETTINGS.rss.keyboardShortcuts)
   base.rss.articleFolder = trimmedText(rss.articleFolder, 120)
   base.rss.dailyNoteTitle = trimmedText(rss.dailyNoteTitle, 60) || DEFAULT_SETTINGS.rss.dailyNoteTitle
   base.rss.aiEnabled = booleanValue(rss.aiEnabled, DEFAULT_SETTINGS.rss.aiEnabled)

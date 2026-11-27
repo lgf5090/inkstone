@@ -1,12 +1,15 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { emptyLibrary, newFeed, type RssEntry } from '@shared/rss/model'
+import { mergeSettings } from '@shared/constants'
 import { channelKey } from '@shared/rss/reading'
 import { Modal } from '../../components/overlay'
-import { initI18n } from '../../lib/i18n'
+import { initI18n, t } from '../../lib/i18n'
+import { useSession } from '../../store/session'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { useRss } from './store'
 import { RssArticleList } from './RssArticleList'
+import { RssKeys } from './RssKeys'
 
 const feed = newFeed('feed-1', 'https://example.com/feed.xml', 'Example', 0)
 const entry: RssEntry = {
@@ -17,6 +20,7 @@ const channel = { kind: 'feed', feedId: feed.id } as const
 let rendered: RenderedElement | null = null
 const openEntry = vi.fn()
 const onOpen = vi.fn()
+const originalSession = useSession.getState()
 
 function mount(withDialog = false): HTMLElement {
   rendered = renderElement(createElement('div', null,
@@ -35,6 +39,7 @@ function press(target: Element, key: string): KeyboardEvent {
 beforeAll(async () => { await initI18n() })
 
 beforeEach(() => {
+  useSession.setState({ settings: mergeSettings({}) })
   useRss.getState().reset()
   useRss.setState({
     status: 'ready',
@@ -53,6 +58,7 @@ afterEach(() => {
   rendered?.unmount()
   rendered = null
   useRss.getState().reset()
+  useSession.setState(originalSession)
 })
 
 describe('RSS document shortcuts', () => {
@@ -74,6 +80,19 @@ describe('RSS document shortcuts', () => {
     const event = press(dialog, 'j')
     expect(event.defaultPrevented).toBe(false)
     expect(openEntry).not.toHaveBeenCalled()
+  })
+
+  it('does not run character shortcuts after the reader turns them off', () => {
+    useSession.setState({ settings: mergeSettings({ rss: { keyboardShortcuts: false } }) })
+    const container = mount()
+    const event = press(container, 'j')
+    expect(event.defaultPrevented).toBe(false)
+    expect(openEntry).not.toHaveBeenCalled()
+  })
+
+  it('tells the reader in the shortcut sheet when the keys are off', () => {
+    rendered = renderElement(createElement(RssKeys, { open: true, onClose: vi.fn(), enabled: false }))
+    expect(document.body.textContent).toContain(t('rss.keys_disabled'))
   })
 
   it('still walks the list from the reading surface', () => {

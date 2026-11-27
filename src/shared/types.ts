@@ -831,6 +831,8 @@ export interface RssSettings {
   customFont: string
   /** Scrolling past a row marks it read, which is how a reader finishes a channel. */
   markReadOnScroll: boolean
+  /** Character-key shortcuts are optional because they can conflict with assistive input. */
+  keyboardShortcuts: boolean
   /** The folder a saved article is written to, by name. Empty asks the notebook's current one. */
   articleFolder: string
   /** The title of the note an article link is appended to, as a date pattern. Empty turns it off. */

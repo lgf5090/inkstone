@@ -60,6 +60,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'rss', titleKey: 'rss.settings.sort', detailKey: 'rss.settings.sort_desc', termKeys: ['rss.sort_newest', 'rss.sort_oldest', 'rss.sort_source'] },
   { section: 'rss', titleKey: 'rss.settings.density', detailKey: 'rss.settings.density_desc', termKeys: ['rss.settings.density_comfortable', 'rss.settings.density_compact'] },
   { section: 'rss', titleKey: 'rss.settings.mark_read_scroll', detailKey: 'rss.settings.mark_read_scroll_desc' },
+  { section: 'rss', titleKey: 'rss.settings.keyboard_shortcuts', detailKey: 'rss.settings.keyboard_shortcuts_desc' },
   { section: 'rss', titleKey: 'rss.settings.mark_read', detailKey: 'rss.settings.mark_read_desc' },
   { section: 'rss', titleKey: 'rss.settings.thumbnails', detailKey: 'rss.settings.thumbnails_desc' },
   { section: 'rss', titleKey: 'rss.settings.images', detailKey: 'rss.settings.images_desc', termKeys: ['rss.settings.images_relay', 'rss.settings.images_direct', 'rss.settings.images_off'] },
