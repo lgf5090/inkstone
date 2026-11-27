@@ -352,7 +352,7 @@ rssRoutes.get('/relay', async (c) => {
     ['content-length', upstream.headers.get('content-length') || ''],
     ['content-range', upstream.headers.get('content-range') || ''],
     ['accept-ranges', upstream.headers.get('accept-ranges') || 'bytes'],
-    ['cache-control', 'private, max-age=86400'],
+    ['cache-control', 'private, no-store'],
   ] as const) {
     if (value) out.set(name, value)
   }

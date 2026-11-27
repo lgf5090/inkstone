@@ -425,7 +425,7 @@ describe('the media relay', () => {
     expect(res.status).toBe(206)
     expect(res.headers.get('content-type')).toBe('audio/mpeg')
     expect(res.headers.get('content-range')).toBe('bytes 0-11/12')
-    expect(res.headers.get('cache-control')).toContain('private')
+    expect(res.headers.get('cache-control')).toContain('no-store')
     await expect(res.text()).resolves.toBe('partial-audio')
   })
 
