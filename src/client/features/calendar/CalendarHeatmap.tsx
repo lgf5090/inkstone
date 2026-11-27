@@ -11,7 +11,7 @@
  * signal.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { ChevronLeft, ChevronRight, ExternalLink, Flame } from 'lucide-react'
 import {
   ACTIVITY_KINDS,
@@ -21,12 +21,13 @@ import {
   type HeatmapResponse,
 } from '@shared/activity/heatmap'
 import { cn } from '../../lib/cn'
-import { t } from '../../lib/i18n'
+import { t, useLocale } from '../../lib/i18n'
 import type { MessageKey } from '@shared/locales/en-US'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Modal, Tooltip } from '../../components/overlay'
 import { request } from '../../lib/api'
 import { navigateToPath } from '../../lib/app-history'
+import { calendarStorageKey } from '../../lib/calendar-storage'
 
 const KIND_KEYS: Record<ActivityKind, MessageKey> = {
   notes: 'calendar.heatmap.kind.notes',
@@ -50,18 +51,22 @@ const KIND_PATHS: Record<ActivityKind, string> = {
   chat: '/chat',
 }
 
-const KINDS_STORAGE_KEY = 'inkstone:calendar:heatmap-kinds'
+const KINDS_STORAGE_KEY = calendarStorageKey('heatmap-kinds')
+const LEGACY_KINDS_STORAGE_KEY = 'inkstone:calendar:heatmap-kinds'
 const CELL = 12
 const ROWS = 7
+const HEAT_LEVEL_ACCENTS = [0, 18, 34, 52, 70, 88] as const
 
 function readKinds(): ActivityKind[] {
   try {
-    const raw = localStorage.getItem(KINDS_STORAGE_KEY)
+    const raw = localStorage.getItem(KINDS_STORAGE_KEY) ?? localStorage.getItem(LEGACY_KINDS_STORAGE_KEY)
     const parsed: unknown = raw ? JSON.parse(raw) : null
     if (!Array.isArray(parsed)) return [...ACTIVITY_KINDS]
     const chosen = parsed.filter((value): value is ActivityKind => (ACTIVITY_KINDS as readonly string[]).includes(value as string))
     return chosen.length > 0 ? chosen : [...ACTIVITY_KINDS]
-  } catch {
+  } catch (cause) {
+    // A corrupt filter should leave every activity kind visible rather than show an empty grid.
+    console.debug('[inkstone] Activity heatmap filters could not be read; using every kind.', cause)
     return [...ACTIVITY_KINDS]
   }
 }
@@ -69,6 +74,7 @@ function readKinds(): ActivityKind[] {
 function writeKinds(kinds: ActivityKind[]): void {
   try {
     localStorage.setItem(KINDS_STORAGE_KEY, JSON.stringify(kinds))
+    localStorage.removeItem(LEGACY_KINDS_STORAGE_KEY)
   } catch {
     // The selection is a convenience; a full quota must not stop the grid from drawing.
   }
@@ -204,7 +210,7 @@ function buildMiniGrid(
         y: rowIndex * cellSize,
         fill: level === 0
           ? 'color-mix(in oklab, var(--text-quaternary) 14%, var(--bg-base))'
-          : `color-mix(in oklab, var(--accent) ${[0, 18, 34, 52, 70, 88][level]}%, var(--bg-base))`,
+          : `color-mix(in oklab, var(--accent) ${HEAT_LEVEL_ACCENTS[level]}%, var(--bg-base))`,
       })
     })
   })
@@ -223,6 +229,8 @@ function HeatmapDialog({ year: initialYear, today, kinds, onKindsChange, onClose
   onKindsChange: (kinds: ActivityKind[]) => void
   onClose: () => void
 }) {
+  const locale = useLocale()
+  const dateFormatter = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }), [locale])
   const currentYear = today.getFullYear()
   const [year, setYear] = useState(initialYear)
   const [loading, setLoading] = useState(true)
@@ -353,14 +361,14 @@ function HeatmapDialog({ year: initialYear, today, kinds, onKindsChange, onClose
             <div
               role="group"
               aria-label={t('calendar.heatmap.grid', { year })}
-              className="grid w-max gap-[3px]"
-              style={{ gridTemplateRows: `repeat(${ROWS}, ${CELL}px)`, gridAutoFlow: 'column', gridAutoColumns: `${CELL}px` }}
+              className="grid w-max grid-flow-col gap-[3px] [grid-template-rows:repeat(var(--heatmap-rows),var(--heatmap-cell))] [grid-auto-columns:var(--heatmap-cell)]"
+              style={{ '--heatmap-rows': ROWS, '--heatmap-cell': `${CELL}px` } as CSSProperties}
             >
               {grid.flatMap((column, columnIndex) => column.map((cell, rowIndex) => {
                 if (!cell.date) return <span key={`pad-${columnIndex}-${rowIndex}`} aria-hidden="true" />
                 const count = dayTotal(response, cell.date, kinds)
                 const level = heatLevel(count, max)
-                const label = t('calendar.heatmap.cell', { date: cell.date, count })
+                const label = t('calendar.heatmap.cell', { date: dateFormatter.format(new Date(`${cell.date}T00:00:00Z`)), count })
                 return (
                   <Tooltip key={cell.date} label={label}>
                     <button
@@ -388,7 +396,7 @@ function HeatmapDialog({ year: initialYear, today, kinds, onKindsChange, onClose
                           rx={2}
                           style={{ fill: level === 0
                             ? 'color-mix(in oklab, var(--text-quaternary) 14%, var(--bg-base))'
-                            : `color-mix(in oklab, var(--accent) ${[0, 18, 34, 52, 70, 88][level]}%, var(--bg-base))` }}
+                            : `color-mix(in oklab, var(--accent) ${HEAT_LEVEL_ACCENTS[level]}%, var(--bg-base))` }}
                         />
                       </svg>
                     </button>
@@ -410,7 +418,7 @@ function HeatmapDialog({ year: initialYear, today, kinds, onKindsChange, onClose
                   rx={2}
                   style={{ fill: level === 0
                     ? 'color-mix(in oklab, var(--text-quaternary) 14%, var(--bg-base))'
-                    : `color-mix(in oklab, var(--accent) ${[0, 18, 34, 52, 70, 88][level]}%, var(--bg-base))` }}
+                    : `color-mix(in oklab, var(--accent) ${HEAT_LEVEL_ACCENTS[level]}%, var(--bg-base))` }}
                 />
               </svg>
             ))}

@@ -19,7 +19,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { Modal, confirm } from '../../components/overlay'
 import { Checkbox, Field, Input, Segmented, Select } from '../../components/form'
 import { ColorWellField } from '../../components/color-field'
-import { CALENDAR_COLOR_PRESETS, deriveDarkColor } from './model'
+import { CALENDAR_COLOR_LABEL_KEYS, CALENDAR_COLOR_PRESETS, deriveDarkColor } from './model'
 import { CalendarFilePicker } from './CalendarFilePicker'
 import * as api from './api'
 
@@ -87,22 +87,9 @@ async function closeAfterRefresh(onSaved: () => void | Promise<void>, onClose: (
   onClose()
 }
 
-const COLOR_KEYS = {
-  '#e5484d': 'calendar.color.red',
-  '#f76b15': 'calendar.color.orange',
-  '#f5b800': 'calendar.color.yellow',
-  '#46a758': 'calendar.color.green',
-  '#12a594': 'calendar.color.teal',
-  '#0091ff': 'calendar.color.blue',
-  '#3e63dd': 'calendar.color.indigo',
-  '#8e4ec6': 'calendar.color.purple',
-  '#d6409f': 'calendar.color.pink',
-  '#8d8d8d': 'calendar.color.gray',
-} as const
-
 function colorLabel(color: string): string {
-  const key = COLOR_KEYS[color as keyof typeof COLOR_KEYS]
-  return t(key ?? 'calendar.calendar.custom_color')
+  const index = CALENDAR_COLOR_PRESETS.findIndex(preset => preset === color)
+  return t(index < 0 ? 'calendar.calendar.custom_color' : CALENDAR_COLOR_LABEL_KEYS[index]!)
 }
 
 function ColorPresets({ value, onChange }: { value: string; onChange: (color: string) => void }) {

@@ -299,7 +299,7 @@ export function CountdownDialog({ open, item, timeZone, onClose, onSaved }: Coun
                 color === '' && 'ring-2 ring-[var(--accent)] ring-offset-1',
               )}
             >
-              —
+              <span aria-hidden="true">—</span>
             </button>
             {CALENDAR_COLOR_PRESETS.map((hex, index) => (
               <button

@@ -104,6 +104,14 @@ describe('calendar DTO mapping', () => {
     expect(event.calendarIds).toContain('cal_work')
   })
 
+  it('maps a date-only task completion to midnight in the calendar zone', () => {
+    const event = toDayFlowEvent(eventDto({
+      kind: 'task',
+      task: { completed: true, completedAt: { value: '2026-10-25', type: 'date' } },
+    }), 'America/New_York')
+    expect(event.task?.completedAt?.toString()).toBe('2026-10-25T00:00:00-04:00[America/New_York]')
+  })
+
   it('drops a conference URL the client cannot safely render', () => {
     const event = toDayFlowEvent(eventDto({
       conference: { provider: 'custom', joinUrl: 'javascript:alert(1)' },

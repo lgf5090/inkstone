@@ -16,6 +16,7 @@ import { Modal } from '../../components/overlay'
 import { Checkbox, Field, Input, Segmented, Select, Textarea } from '../../components/form'
 import { DatePicker } from '../../components/date-picker'
 import { addWallMinutes, wallClockInZone } from './timezone'
+import { CALENDAR_BLOCK_COLORS } from './model'
 
 export interface NewCalendarEvent {
   title: string
@@ -165,7 +166,9 @@ export function CalendarEventDialog({
         location: location.trim(),
         color,
       })
-    } catch {
+    } catch (cause) {
+      // Keep the form copy stable while retaining the parsing or persistence cause in diagnostics.
+      console.debug('[inkstone] Calendar event creation failed.', cause)
       setError(t('calendar.event.create_failed'))
     }
   }
@@ -207,7 +210,7 @@ export function CalendarEventDialog({
               setBlock(next)
               const presetTitle = next === 'focus' ? t('calendar.block.focus') : next === 'ooo' ? t('calendar.block.ooo') : ''
               setTitle(current => current === '' || current === t('calendar.block.focus') || current === t('calendar.block.ooo') ? presetTitle : current)
-              setColor(next === 'focus' ? '#8b5cf6' : next === 'ooo' ? '#f59e0b' : null)
+              setColor(next === 'focus' ? CALENDAR_BLOCK_COLORS.focus : next === 'ooo' ? CALENDAR_BLOCK_COLORS.outOfOffice : null)
             }}
           />
         </Field>

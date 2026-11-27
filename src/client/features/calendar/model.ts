@@ -35,7 +35,7 @@ import {
 export const INITIAL_RANGE_DAYS = 14
 /** Extra days fetched on either side of a visible range, so a small scroll does not refetch. */
 export const RANGE_PADDING_DAYS = 30
-/** Events drawn per row in the month grid; the rest live behind DayFlow's "more" popup. */
+/** Pixel height of one event row in the month grid; the rest live behind DayFlow's "more" popup. */
 export const MONTH_EVENT_HEIGHT = 18
 /** The three density choices the settings panel offers. */
 export const DAY_HOUR_HEIGHTS = [48, 72, 96] as const
@@ -62,6 +62,8 @@ export const CALENDAR_COLOR_PRESETS = [
   '#d6409f',
   '#8d8d8d',
 ] as const
+
+export const CALENDAR_BLOCK_COLORS = { focus: '#8b5cf6', outOfOffice: '#f59e0b' } as const
 
 const KNOWN_MEETING_PROVIDERS = new Set<KnownMeetingProviderId>([
   'google-meet',
@@ -126,15 +128,7 @@ function zonedAt(value: TemporalValue, timeZone: string): Temporal.ZonedDateTime
     const parsed = parseTemporalValue(value)
     if (parsed instanceof Temporal.ZonedDateTime) return parsed
     if (parsed instanceof Temporal.PlainDateTime) return parsed.toZonedDateTime(timeZone)
-    return Temporal.ZonedDateTime.from({
-      timeZone,
-      year: parsed.year,
-      month: parsed.month,
-      day: parsed.day,
-      hour: 0,
-      minute: 0,
-      second: 0,
-    })
+    return parsed.toZonedDateTime(timeZone)
   } catch {
     // A timestamp the API could not validate is not worth failing the whole event load over; the
     // server is the final validator, and losing only "completed at" keeps the task readable.
@@ -247,7 +241,7 @@ export function toDayFlowEvent(dto: CalendarEventDto, timeZone: string = default
   if (recurrenceRule) meta.recurrenceRule = recurrenceRule
   else delete meta.recurrenceRule
   if (dto.color) meta.color = dto.color
-  const calendarIds = [dto.calendarId, ...dto.calendarIds].filter((id, index, all) => id.length > 0 && all.indexOf(id) === index)
+  const calendarIds = eventCalendarIds(dto)
   return {
     id: dto.id,
     title: dto.title,
