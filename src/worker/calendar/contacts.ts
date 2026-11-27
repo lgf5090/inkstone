@@ -6,6 +6,7 @@
  * and the birthday sweep has a date to turn into a yearly event.
  */
 import type { CalendarContactDto } from '@shared/calendar/model'
+import { Temporal } from 'temporal-polyfill'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 
@@ -58,9 +59,10 @@ function parseBirthday(value: unknown): string | null {
   if (typeof value !== 'string' || !BIRTHDAY_RE.test(value)) {
     throw ApiError.badRequest('birthday must be a YYYY-MM-DD date')
   }
-  const [year, month, day] = value.split('-').map(Number)
-  const check = new Date(year!, month! - 1, day!)
-  if (check.getFullYear() !== year || check.getMonth() !== month! - 1 || check.getDate() !== day) {
+  try {
+    const date = Temporal.PlainDate.from(value)
+    if (date.toString() !== value) throw new Error('invalid')
+  } catch {
     throw ApiError.badRequest('birthday must be a real date')
   }
   return value

@@ -46,10 +46,13 @@ type Ctx = Context<AppBindings>
 
 /** Enough for a fast client dragging events and checking boxes. */
 export const CALENDAR_WRITE_BUDGET_PER_MINUTE = 120
+/** A search box and range navigation are cheap; a scripted loop is not. */
+export const CALENDAR_READ_BUDGET_PER_MINUTE = 240
+/** Snoozing beyond one day is a reminder edit, not a snooze. */
+export const MAX_CALENDAR_SNOOZE_MINUTES = 1440
 
 const writeBudget = createMinuteBudget(CALENDAR_WRITE_BUDGET_PER_MINUTE, 'Too many calendar changes at once. Try again in a minute.')
-/** A search box and range navigation are cheap; a scripted loop is not. */
-const readBudget = createMinuteBudget(240, 'Too many calendar reads at once. Try again in a minute.')
+const readBudget = createMinuteBudget(CALENDAR_READ_BUDGET_PER_MINUTE, 'Too many calendar reads at once. Try again in a minute.')
 
 /** A single event can carry a 20k description and a 16 KiB meta object. */
 const EVENT_BODY_LIMIT = 64 * 1024
@@ -472,8 +475,8 @@ calendarRoutes.post('/events/:id/snooze', async (c) => {
   }
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.small)
   const minutes = body.minutes
-  if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
-    throw ApiError.badRequest('minutes must be a whole number between 1 and 1440')
+  if (typeof minutes !== 'number' || !Number.isInteger(minutes) || minutes < 1 || minutes > MAX_CALENDAR_SNOOZE_MINUTES) {
+    throw ApiError.badRequest(`minutes must be a whole number between 1 and ${MAX_CALENDAR_SNOOZE_MINUTES}`)
   }
   const target = await sharedEventTarget(c, id)
   const event = target ? target.event : await store(c).getEvent(id)

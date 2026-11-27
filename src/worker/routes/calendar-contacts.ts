@@ -11,6 +11,7 @@ import { ApiError } from '../lib/errors'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
+import { Temporal } from 'temporal-polyfill'
 import { CalendarStore } from '../calendar/store'
 import { createContact, deleteContact, listContacts, updateContact } from '../calendar/contacts'
 import { parseCalendarInput } from '../calendar/validation'
@@ -68,15 +69,13 @@ calendarContactRoutes.post('/birthdays/sync', async (c) => {
     calendar = await store.createCalendar(parseCalendarInput({ name: label, color: '#d6409f' }))
   }
   const contacts = (await listContacts(c.env.DB, userId)).filter(contact => contact.birthday)
-  const now = new Date()
+  const preferences = await store.preferences()
+  const now = Temporal.Now.zonedDateTimeISO(preferences.timeZone)
   const inputs: CalendarEventInput[] = []
   const wanted = new Set<string>()
   for (const contact of contacts) {
-    const [year, month, day] = contact.birthday!.split('-').map(Number)
-    const date = new Date(year!, month! - 1, day!)
-    const thisYear = new Date(now.getFullYear(), date.getMonth(), date.getDate())
-    if (thisYear.getMonth() !== date.getMonth()) thisYear.setDate(0)
-    const key = `${thisYear.getFullYear()}-${String(thisYear.getMonth() + 1).padStart(2, '0')}-${String(thisYear.getDate()).padStart(2, '0')}`
+    const birthday = Temporal.PlainDate.from(contact.birthday!)
+    const key = birthday.with({ year: now.year }).toString()
     const id = `birthday-${contact.id}`
     wanted.add(id)
     inputs.push({

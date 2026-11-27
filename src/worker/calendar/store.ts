@@ -359,19 +359,14 @@ function ruleParts(rule: string): string[] {
   return rule.split(';').map(part => part.trim()).filter(Boolean)
 }
 
-function formatRuleUntil(value: Date, start: TemporalValue, fallbackZone: string): string {
-  if (start.type === 'date') return value.toISOString().slice(0, 10).replaceAll('-', '')
-  const plain = Temporal.PlainDateTime.from({
-    year: value.getUTCFullYear(), month: value.getUTCMonth() + 1, day: value.getUTCDate(),
-    hour: value.getUTCHours(), minute: value.getUTCMinutes(), second: value.getUTCSeconds(),
-  })
-  if (start.type === 'datetime') return plain.toString({ smallestUnit: 'second' }).replaceAll('-', '').replaceAll(':', '')
-  const zoned = Temporal.ZonedDateTime.from({
-    timeZone: start.timeZone ?? fallbackZone, year: plain.year, month: plain.month, day: plain.day,
-    hour: plain.hour, minute: plain.minute, second: plain.second,
-  })
-  return zoned.toInstant()
-    .toString({ smallestUnit: 'second' }).replaceAll('-', '').replaceAll(':', '').replace('.000', '')
+function formatRuleUntil(value: Date, start: TemporalValue): string {
+  const instant = Temporal.Instant.from(value.getTime())
+  if (start.type === 'date') return instant.toZonedDateTimeISO('UTC').toPlainDate().toString().replaceAll('-', '')
+  if (start.type === 'datetime') {
+    return instant.toZonedDateTimeISO('UTC').toPlainDateTime()
+      .toString({ smallestUnit: 'second' }).replaceAll('-', '').replaceAll(':', '')
+  }
+  return instant.toString({ smallestUnit: 'second' }).replaceAll('-', '').replaceAll(':', '')
 }
 
 function splitRule(
@@ -403,7 +398,7 @@ function splitRule(
   const past = pastCount === 0 || !previous
     ? rule
     : [...base, originalCount === null
-      ? `UNTIL=${formatRuleUntil(previous, start, fallbackZone)}`
+      ? `UNTIL=${formatRuleUntil(previous, start)}`
       : `COUNT=${pastCount}`].join(';')
   const futureCount = originalCount === null ? null : Math.max(0, originalCount - pastCount)
   const future = futureCount === 0
