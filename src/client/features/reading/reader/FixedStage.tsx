@@ -25,6 +25,7 @@ import { Button } from '../../../components/primitives'
 import { useAssistant } from '../../chat/assistant-store'
 import { useUi } from '../../../store/ui'
 import { api } from '../../../lib/api'
+import { PageUrlCache } from '../engine/page-url-cache'
 
 export interface FixedStageHandle {
   next(): void
@@ -47,6 +48,12 @@ interface FixedHit {
   before: string
   match: string
   after: string
+}
+
+const CBZ_PAGE_URL_LIMIT = 6
+const CBZ_MIME_BY_EXTENSION: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp',
 }
 
 interface FixedStageProps {
@@ -93,12 +100,22 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
     onCenterTap: paging.onCenterTap,
   })
   const docRef = useRef<PdfHandle | null>(null)
-  /** A CBZ's pages are pictures; they are handed out as blob URLs instead of being painted. */
-  const images = useRef<string[]>([])
+  /** A CBZ keeps only member names until a visible page asks for its picture. */
+  const pagePaths = useRef<string[]>([])
+  const pageUrls = useRef<PageUrlCache | null>(null)
+  const loadPageUrl = useCallback((index: number): Promise<string> => {
+    const cache = pageUrls.current
+    const path = pagePaths.current[index - 1]
+    if (!cache || !path) return Promise.reject(new Error('The CBZ page is not available'))
+    return cache.load(path)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
-    let opened: { destroy: () => Promise<void> } | null = null
+    let dispose: (() => void) | null = null
+    docRef.current = null
+    pagePaths.current = []
+    pageUrls.current = null
     setReady(false)
     setError(null)
     clearFixedPageText(book.id)
@@ -111,20 +128,27 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
       const bytes = new Uint8Array(await blob.arrayBuffer())
       if (book.format === 'cbz') {
         const { openZip } = await import('../engine/zip')
-        const { createResourcePool } = await import('../engine/chapter')
         const archive = await openZip(bytes)
-        const members = archive.entries
+        if (cancelled) return
+        const paths = archive.entries
           .filter((entry) => /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(entry.name))
           .sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }))
-        const pool = createResourcePool(archive, { byPath: new Map() } as never)
-        const urls: string[] = []
-        for (const member of members) urls.push(await pool.urlFor(member.name))
-        images.current = urls
-        if (!cancelled) {
-          docRef.current = { destroy: async () => pool.revokeAll(), document: null as never }
-          setPages(urls.length)
-          setReady(true)
+          .map((entry) => entry.name)
+        const cache = new PageUrlCache(async (path) => {
+          const page = await archive.read(path)
+          const extension = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+          return new Blob([page as unknown as BlobPart], { type: CBZ_MIME_BY_EXTENSION[extension] })
+        }, CBZ_PAGE_URL_LIMIT)
+        dispose = () => cache.clear()
+        if (cancelled) {
+          cache.clear()
+          return
         }
+        pagePaths.current = paths
+        pageUrls.current = cache
+        docRef.current = { destroy: async () => cache.clear(), document: null as never }
+        setPages(paths.length)
+        setReady(true)
         return
       }
       const { openPdfDocument } = await import('../engine/pdf')
@@ -133,7 +157,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
         await handle.destroy()
         return
       }
-      opened = handle
+      dispose = () => { void handle.destroy() }
       docRef.current = handle
       if (!cancelled) {
         setPages(handle.document.numPages)
@@ -147,8 +171,10 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
     })
     return () => {
       cancelled = true
-      void opened?.destroy()
-      images.current = []
+      dispose?.()
+      docRef.current = null
+      pagePaths.current = []
+      pageUrls.current = null
     }
   }, [book.format, book.id, userId])
 
@@ -364,7 +390,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
               index={index}
               bookId={book.id}
               getPage={getPage}
-              image={images.current[index - 1]}
+              loadPageUrl={book.format === 'cbz' ? loadPageUrl : undefined}
               marks={marksFor(index)}
               theme={theme}
               zoom={zoom}
@@ -382,7 +408,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
               index={index}
               bookId={book.id}
               getPage={getPage}
-              image={images.current[index - 1]}
+              loadPageUrl={book.format === 'cbz' ? loadPageUrl : undefined}
               marks={marksFor(index)}
               theme={theme}
               zoom={zoom}
@@ -405,11 +431,11 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
  * painted *inside* it by splitting its spans, which is the same routine a flowing chapter uses. That is
  * what keeps a highlight on a PDF and a highlight on an EPUB in one data model.
  */
-function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWidth, targetHeight, fit, onMarkClick }: {
+function FixedPage({ index, bookId, getPage, loadPageUrl, marks, theme, zoom, targetWidth, targetHeight, fit, onMarkClick }: {
   index: number
   bookId: string
   getPage: (index: number) => Promise<unknown>
-  image?: string
+  loadPageUrl?: (index: number) => Promise<string>
   marks: Highlight[]
   theme: ReaderTheme
   zoom: number
@@ -463,21 +489,30 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
     // Only the layer this effect appends is cleared: the canvas belongs to React, and removing it here
     // would leave the component painting into a node that is no longer on the page.
     for (const stale of Array.from(element.querySelectorAll('.reader-pdf-text'))) stale.remove()
-    if (image) {
+    if (loadPageUrl) {
+      let picture: HTMLImageElement | null = null
       surface.style.display = 'none'
-      const picture = document.createElement('img')
-      picture.src = image
-      picture.alt = ''
-      picture.className = 'reader-pdf-image'
-      // A comic page is sized to the frame rather than to its own pixels, in both directions: a panel
-      // scanned at 800px should fill a tablet, and one captured at 240px should not sit in the middle of
-      // a desktop page. The aspect is kept and the letterboxing left to `object-fit`.
-      picture.style.width = `${targetWidth}px`
-      if (fit === 'page' && targetHeight) picture.style.height = `${targetHeight}px`
-      element.appendChild(picture)
-      setState('scan')
+      void loadPageUrl(index).then((url) => {
+        if (cancelled) return
+        picture = document.createElement('img')
+        picture.src = url
+        picture.alt = ''
+        picture.className = 'reader-pdf-image'
+        // A comic page is sized to the frame rather than to its own pixels, in both directions: a panel
+        // scanned at 800px should fill a tablet, and one captured at 240px should not sit in the middle of
+        // a desktop page. The aspect is kept and the letterboxing left to `object-fit`.
+        picture.style.width = `${targetWidth}px`
+        if (fit === 'page' && targetHeight) picture.style.height = `${targetHeight}px`
+        element.appendChild(picture)
+        setState('scan')
+      }).catch((err) => {
+        if (cancelled) return
+        console.warn('[reading] the comic page could not be loaded', err)
+        setState('scan')
+      })
       return () => {
-        picture.remove()
+        cancelled = true
+        picture?.remove()
       }
     }
     surface.style.display = ''
@@ -527,7 +562,7 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
       cancelled = true
       painted?.task.cancel()
     }
-  }, [bookId, fit, getPage, image, index, targetHeight, targetWidth, zoom])
+  }, [bookId, fit, getPage, loadPageUrl, index, targetHeight, targetWidth, zoom])
 
   /** The marks go on after the layer exists, because the layer is what their offsets index into. */
   useEffect(() => {
