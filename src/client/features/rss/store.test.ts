@@ -662,6 +662,23 @@ describe('marks', () => {
     expect(readIds).not.toContain('old4999')
   })
 
+  it('marks articles before a per-feed timestamp read and persists the watermark', async () => {
+    fetchResults = [{ url: feed.url, status: 200, ok: true, xml: atom }]
+    await boot()
+    await vi.waitFor(() => expect(useRss.getState().articles.f1).toHaveLength(2))
+    const [newer, older] = useRss.getState().articles.f1
+    const feedId = newer.feedId
+    useRss.setState(state => ({ library: { ...state.library, feeds: state.library.feeds.map(feed => ({ ...feed, id: feedId })) } }))
+    const before = Math.floor((newer.publishedTs! + older.publishedTs!) / 2)
+    useRss.getState().markReadBefore([feedId], before)
+    expect(useRss.getState().library.feeds[0]?.readBefore).toBe(before)
+    expect(useRss.getState().library.readIds).toContain(older.id)
+    expect(useRss.getState().library.readIds).not.toContain(newer.id)
+    await useRss.getState().flush()
+    const server = parseRssLibrary(cache.get('library')).data
+    expect(server?.feeds[0]?.readBefore).toBe(before)
+  })
+
   it('un-reading removes the mark rather than adding a second one', async () => {
     await boot()
     useRss.getState().markRead(['a', 'b'], true)

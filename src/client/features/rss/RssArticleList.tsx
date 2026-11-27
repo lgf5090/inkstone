@@ -29,6 +29,7 @@ import {
   channelEntries,
   feedsForChannel,
   findFeed,
+  isEntryRead,
   selectEntries,
   sortEntries,
   stepIndex,
@@ -90,7 +91,16 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
   const platforms = useMemo(() => platformCounts(listed), [listed])
   const entries = useMemo(() => filterByPlatform(listed, view.platform), [listed, view.platform])
 
-  const readIds = useMemo(() => new Set(state.library.readIds), [state.library.readIds])
+  const readIds = useMemo(() => {
+    const read = new Set(state.library.readIds)
+    const feeds = new Map(state.library.feeds.map(feed => [feed.id, feed]))
+    for (const list of Object.values(state.articles)) {
+      for (const entry of list) {
+        if (isEntryRead(entry, read, feeds.get(entry.feedId)?.readBefore)) read.add(entry.id)
+      }
+    }
+    return read
+  }, [state.library.readIds, state.library.feeds, state.articles])
   const starred = useMemo(() => new Set(state.library.favorites), [state.library.favorites])
   const shown = entries.slice(0, limit)
   const selected = view.entryId

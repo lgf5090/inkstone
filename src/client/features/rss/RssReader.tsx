@@ -53,7 +53,7 @@ import { Field, Input, Segmented, Select, Slider } from '../../components/form'
 import { fullTime, shortSince } from '../../lib/time'
 import { RSS_COLUMN_WIDTHS, RSS_FONT_SIZE_RANGE, RSS_LINE_HEIGHT_RANGE } from '@shared/constants'
 import { readingMinutes, wordCount } from './sanitize'
-import { channelEntries, channelKey, findFeed, remoteContentKey, stepIndex } from '@shared/rss/reading'
+import { channelEntries, channelKey, findFeed, isEntryRead, remoteContentKey, stepIndex } from '@shared/rss/reading'
 import { api } from '../../lib/api'
 import { articleDisplayHtml } from './sanitize'
 import { appendToDailyNote, dailyNoteTitle, openSavedNote, savedNoteId, saveArticleAsNote } from './notes'
@@ -123,7 +123,7 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
   }, [entries, articles, view.entryId])
   const feed = entry ? findFeed(library, entry.feedId) : undefined
   const index = entry ? entries.findIndex(item => item.id === entry.id) : -1
-  const read = entry ? library.readIds.includes(entry.id) : false
+  const read = entry ? isEntryRead(entry, new Set(library.readIds), feed?.readBefore) : false
   const starred = entry ? library.favorites.includes(entry.id) : false
   const later = entry ? library.readLater.includes(entry.id) : false
   const version: RssReadingVersion = view.version

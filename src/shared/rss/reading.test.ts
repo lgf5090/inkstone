@@ -300,6 +300,14 @@ describe('nested folders, tags and the saved channels', () => {
     expect(channelEntries(view, { kind: 'unread' }).map(item => item.id).sort()).toEqual(['a1', 'b2'])
   })
 
+  it('keeps cached articles at or before a feed watermark read', () => {
+    const view = shelf()
+    view.library.feeds[0]!.readBefore = 1_700_000_000_000
+    view.articles.fa = [entry('fa', 'old', 1_699_999_999_999), entry('fa', 'new', 1_700_000_000_001)]
+    expect(selectEntries(channelEntries(view, { kind: 'feed', feedId: 'fa' }), { filter: 'unread' }, view).map(item => item.id)).toEqual(['new'])
+    expect(channelEntries(view, { kind: 'unread' }).map(item => item.id)).not.toContain('old')
+  })
+
   it('answers the hidden channel with only dismissed articles', () => {
     const view = shelf()
     view.library.hiddenIds = ['a2']

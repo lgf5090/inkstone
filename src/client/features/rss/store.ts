@@ -157,6 +157,7 @@ export interface RssState {
   closeEntry: () => void
   view: () => RssChannelView
   markRead: (entryIds: string[], read: boolean) => void
+  markReadBefore: (feedIds: string[], before: number) => void
   toggleFavorite: (entryId: string) => void
   toggleLater: (entryId: string) => void
   markOpened: (entryId: string) => void
@@ -1038,6 +1039,21 @@ export const useRss = create<RssState>((set, get) => {
         // Read marks are kept newest-first so the ceiling drops the oldest history, not today's.
         const readIds = read ? [...new Set([...entryIds, ...kept])].slice(0, RSS_LIMITS.readIds) : kept
         return { library: { ...state.library, readIds } }
+      })
+      scheduleSave()
+    },
+
+    markReadBefore(feedIds, before) {
+      const wanted = new Set(feedIds)
+      if (!wanted.size || !Number.isFinite(before) || before <= 0) return
+      set((state) => {
+        const feeds = state.library.feeds.map(feed => wanted.has(feed.id)
+          ? { ...feed, readBefore: Math.max(feed.readBefore ?? 0, before) }
+          : feed)
+        const older = Object.values(state.articles).flat().filter(entry => wanted.has(entry.feedId)
+          && entry.publishedTs !== null && entry.publishedTs <= before).map(entry => entry.id)
+        const readIds = [...new Set([...older, ...state.library.readIds])].slice(0, RSS_LIMITS.readIds)
+        return { library: { ...state.library, feeds, readIds } }
       })
       scheduleSave()
     },

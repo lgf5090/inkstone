@@ -135,6 +135,11 @@ function marksFor(view: RssView, options: ChannelOptions): { read: Set<string>, 
   }
 }
 
+/** Individual read ids are finite; a per-feed watermark keeps older cached articles read after they age out. */
+export function isEntryRead(entry: RssEntry, read: ReadonlySet<string>, readBefore = 0): boolean {
+  return read.has(entry.id) || (readBefore > 0 && entry.publishedTs !== null && entry.publishedTs <= readBefore)
+}
+
 /**
  * The entries a channel answers with, before any search or filter is applied.
  *
@@ -150,6 +155,7 @@ export function channelEntries(view: RssView, channel: RssChannel, options: Chan
   const hidden = new Set(view.library.hiddenIds)
   const keep = (entry: RssEntry): boolean => !hidden.has(entry.id)
   const feeds = feedsForChannel(view.library, channel)
+  const feedById = new Map(view.library.feeds.map(feed => [feed.id, feed]))
   const limit = options.perFeedLimit ?? MERGED_PER_FEED
   const listed = (): RssEntry[] => {
     // A note folder is not a question about the article library; its rows are built by the client
@@ -158,7 +164,7 @@ export function channelEntries(view: RssView, channel: RssChannel, options: Chan
     if (channel.kind === 'starred') return byNewest(allEntries(view).filter(entry => marks.starred.has(entry.id) && keep(entry)))
     if (channel.kind === 'later') return byNewest(allEntries(view).filter(entry => marks.later.has(entry.id) && keep(entry)))
     if (channel.kind === 'hidden') return byNewest(allEntries(view).filter(entry => hidden.has(entry.id)))
-    if (channel.kind === 'unread') return byNewest(allEntries(view).filter(entry => !marks.read.has(entry.id) && keep(entry))).slice(0, UNREAD_CHANNEL_SIZE)
+    if (channel.kind === 'unread') return byNewest(allEntries(view).filter(entry => keep(entry) && !isEntryRead(entry, marks.read, feedById.get(entry.feedId)?.readBefore))).slice(0, UNREAD_CHANNEL_SIZE)
     if (channel.kind === 'recent') {
       const opened = view.library.opened
       return allEntries(view)
@@ -298,9 +304,10 @@ export function selectEntries(
   const feedTitles = query.fields === 'entry-and-feed' && query.terms?.length
     ? new Map(view.library.feeds.map(feed => [feed.id, feed.title.toLowerCase()]))
     : null
+  const feedById = new Map(view.library.feeds.map(feed => [feed.id, feed]))
   const terms = query.terms ?? []
   const matched = entries.filter((entry) => {
-    if (query.filter === 'unread' && (marks.read.has(entry.id) || readKeys?.has(remoteContentKey(entry.link)))) return false
+    if (query.filter === 'unread' && (isEntryRead(entry, marks.read, feedById.get(entry.feedId)?.readBefore) || readKeys?.has(remoteContentKey(entry.link)))) return false
     if (query.filter === 'starred' && !marks.starred.has(entry.id)) return false
     if (query.filter === 'later' && !marks.later.has(entry.id)) return false
     if (!terms.length) return true
@@ -331,7 +338,7 @@ export function unreadCounts(view: RssView, options: { merged?: boolean } = {}):
   for (const feed of view.library.feeds) {
     const entries = uniqueRemoteEntries(view.articles[feed.id] ?? [])
     const readKeys = readKeysFor(entries, read)
-    const unreadEntries = entries.filter(entry => !read.has(entry.id) && !hidden.has(entry.id) && !readKeys.has(remoteContentKey(entry.link)))
+    const unreadEntries = entries.filter(entry => !hidden.has(entry.id) && !isEntryRead(entry, read, feed.readBefore) && !readKeys.has(remoteContentKey(entry.link)))
     const unread = merged ? unreadEntries.slice(0, MERGED_PER_FEED).length : unreadEntries.length
     feeds.set(feed.id, unreadEntries.length)
     total += unread

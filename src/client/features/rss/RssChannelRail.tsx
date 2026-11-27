@@ -22,6 +22,7 @@ import {
   ArrowDown,
   ArrowUp,
   Bookmark,
+  CheckCheck,
   ChevronRight,
   CircleDot,
   Clock,
@@ -48,7 +49,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
-import { confirm, prompt, Tooltip, type MenuItem } from '../../components/overlay'
+import { confirm, prompt, submenuFor, Tooltip, type MenuItem } from '../../components/overlay'
 import { TREE_INDENT_STEP, treeIndent, treeItemProps, useTreeKeyboard } from '../../lib/tree'
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus'
 import { buildFolderTree, type FolderNode } from '../../store/notes'
@@ -58,6 +59,7 @@ import { channelKey, feedShelfOrder, tagCounts, unreadCounts, type RssChannel } 
 import { ExternalLink } from 'lucide-react'
 import { RSS_LIMITS, safeHttpUrl, type RssEntry, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
 import { useSession } from '../../store/session'
+import { useUi } from '../../store/ui'
 import { api } from '../../lib/api'
 import { displayImageUrl } from './sanitize'
 import { copyFeedUrlItem, moveToFolderItem, RssContextMenu, tagsItem } from './rssMenus'
@@ -95,7 +97,7 @@ interface MenuState {
 type RssRailState = Pick<ReturnType<typeof useRss.getState>,
   | 'library' | 'articles' | 'channel' | 'cache' | 'open' | 'addGroup' | 'toggleGroupCollapsed'
   | 'moveFeedTo' | 'moveGroupTo' | 'refresh' | 'renameFeed' | 'setFeedTags' | 'setPinned'
-  | 'setPaused' | 'removeFeed' | 'renameGroup' | 'setGroupAppearance' | 'removeGroup' | 'hideEntries'>
+  | 'setPaused' | 'removeFeed' | 'renameGroup' | 'setGroupAppearance' | 'removeGroup' | 'hideEntries' | 'markReadBefore'>
 
 export function RssChannelRail({ onPick }: { onPick?: () => void }) {
   const state = useRss(useShallow((current): RssRailState => ({
@@ -118,6 +120,7 @@ export function RssChannelRail({ onPick }: { onPick?: () => void }) {
     setGroupAppearance: current.setGroupAppearance,
     removeGroup: current.removeGroup,
     hideEntries: current.hideEntries,
+    markReadBefore: current.markReadBefore,
   })))
   const library = state.library
   const counts = useMemo(() => unreadCounts({ library, articles: state.articles }), [library, state.articles])
@@ -590,6 +593,14 @@ function buildMenuItems(
       .filter(item => item.groupId === feed.groupId)
       .sort(feedShelfOrder)
     const at = siblings.findIndex(item => item.id === feed.id)
+    const olderChoices = [1, 7, 30].map(days => ({
+      id: `days-${days}`,
+      label: t('rss.mark_older_days', { n: days }),
+      onSelect: () => {
+        state.markReadBefore([feed.id], Date.now() - days * 24 * 60 * 60 * 1000)
+        useUi.getState().toast({ title: t('rss.marked_older_read', { n: days }), tone: 'success' })
+      },
+    }))
     return [
       {
         id: 'refresh',
@@ -644,6 +655,13 @@ function buildMenuItems(
         icon: feed.paused ? <Play size={13} /> : <Pause size={13} />,
         separatorBefore: true,
         onSelect: () => state.setPaused(feed.id, !feed.paused),
+      },
+      {
+        id: 'mark-older',
+        label: t('rss.mark_older_read'),
+        icon: <CheckCheck size={13} />,
+        submenu: submenuFor(olderChoices, 3),
+        subItems: olderChoices,
       },
       {
         id: 'up',

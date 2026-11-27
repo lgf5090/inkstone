@@ -82,6 +82,8 @@ export interface RssFeed {
   pinned: boolean
   /** A reader-supplied title survives source refreshes. */
   titleLocked: boolean
+  /** Articles at or before this timestamp stay read even after their individual ids are evicted. */
+  readBefore?: number
 }
 
 /**
@@ -154,6 +156,7 @@ export function newFeed(id: string, url: string, title: string, order: number): 
     paused: false,
     pinned: false,
     titleLocked: false,
+    readBefore: 0,
   }
 }
 
@@ -322,6 +325,7 @@ function normaliseFeed(value: unknown, order: number): RssFeed | null {
     paused: flag(value.paused),
     pinned: flag(value.pinned),
     titleLocked: flag(value.titleLocked),
+    readBefore: integer(value.readBefore),
   }
 }
 

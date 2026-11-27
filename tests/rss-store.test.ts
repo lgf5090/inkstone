@@ -81,6 +81,14 @@ describe('the row store', () => {
     expect(got.library).toEqual(want)
   })
 
+  it('round-trips a per-feed read watermark', async () => {
+    const base = library()
+    base.feeds[0]!.readBefore = 1_700_000_000_000
+    await storeRssLibrary(db, USER, base, 1)
+    const got = await loadRssLibrary(db, USER)
+    expect(got.library?.feeds[0]?.readBefore).toBe(1_700_000_000_000)
+  })
+
   it('answers null for an account that has never saved', async () => {
     expect(await loadRssLibrary(db, USER)).toEqual({ savedAt: 0, library: null })
   })

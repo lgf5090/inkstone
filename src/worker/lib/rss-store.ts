@@ -36,7 +36,7 @@ const FEED_ROW: RowSpec = {
   columns: [
     'id', 'url', 'title', 'site_url', 'image_url', 'group_id', 'position', 'updated_at',
     'last_attempt_at', 'error', 'error_count', 'last_error_at', 'etag', 'last_modified',
-    'paused', 'pinned', 'title_locked',
+    'paused', 'pinned', 'title_locked', 'read_before',
   ],
   key: ['id'],
 }
@@ -83,6 +83,7 @@ interface FeedRecord extends Row {
   paused: number
   pinned: number
   title_locked: number
+  read_before: number
 }
 
 interface GroupRecord extends Row {
@@ -175,6 +176,7 @@ function feedFromRow(row: FeedRecord, tags: string[]): RssFeed {
     paused: Number(row.paused) === 1,
     pinned: Number(row.pinned) === 1,
     titleLocked: Number(row.title_locked) === 1,
+    readBefore: Number(row.read_before ?? 0),
   }
 }
 
@@ -274,6 +276,7 @@ function feedValues(feed: RssFeed): SqlValue[] {
     feed.id, feed.url, feed.title, feed.siteUrl, feed.imageUrl, feed.groupId, feed.order,
     feed.updatedAt, feed.lastAttemptAt, feed.error, feed.errorCount, feed.lastErrorAt, feed.etag,
     feed.lastModified, feed.paused ? 1 : 0, feed.pinned ? 1 : 0, feed.titleLocked ? 1 : 0,
+    feed.readBefore ?? 0,
   ]
 }
 
