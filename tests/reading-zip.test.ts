@@ -31,6 +31,23 @@ describe('openZip', () => {
     expect(await read(archive, 'three.txt')).toBe('3')
   })
 
+  it('reads a view without copying its backing buffer', async () => {
+    const archive = makeZip([{ name: 'a.txt', raw: bytes('hello'), payload: bytes('hello'), method: 0 }])
+    const padded = new Uint8Array(archive.bytes.length + 16)
+    padded.set(archive.bytes, 8)
+    const opened = await openZip(padded.subarray(8, 8 + archive.bytes.length))
+    expect(await read(opened, 'a.txt')).toBe('hello')
+  })
+
+  it('enforces entry and total expanded-size budgets', async () => {
+    const archive = makeZip([
+      { name: 'a.txt', raw: bytes('hello'), payload: bytes('hello'), method: 0 },
+      { name: 'b.txt', raw: bytes('world'), payload: bytes('world'), method: 0 },
+    ])
+    await expect(openZip(archive.bytes, { maxEntries: 1 })).rejects.toThrow(/too many/)
+    await expect(openZip(archive.bytes, { maxTotalInflatedBytes: 9 })).rejects.toThrow(/expands/)
+  })
+
   it('answers a percent-encoded reference for a decoded member name', async () => {
     const data = bytes('ok')
     const archive = await openZip(makeZip([{ name: 'OEBPS/第 1 章.xhtml', raw: data, payload: data, method: 0 }]).bytes)
