@@ -30,7 +30,7 @@ import {
   type ShelfProgressInput,
   type ShelfStatInput,
 } from '../reader/store'
-import { assertReaderRoom, readerUsage } from '../db/quota'
+import { readerUsage, releaseReaderUpload, reserveReaderUpload } from '../db/quota'
 import { LIMITS, READER_COVER_TYPES } from '@shared/constants'
 
 type BookFormat = 'epub' | 'pdf' | 'cbz'
@@ -236,11 +236,29 @@ function downloadFilename(stored: string, id: string, extension: string): string
 
 function contentDisposition(full: string): string {
   const ascii = full.replace(/[^\x20-\x7e]|["\\]/g, '_')
-  return `inline; filename="${ascii}"; filename*=UTF-8''${rfc5987(full)}`
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${rfc5987(full)}`
 }
 
 function store(c: Context<AppBindings>, userId: string): ReaderLibraryStore {
   return new ReaderLibraryStore(c.env.DB, userId)
+}
+
+async function drainStorageDeletions(c: Context<AppBindings>, userId: string): Promise<void> {
+  const library = store(c, userId)
+  for (const row of await library.storageDeletions()) {
+    try {
+      await c.env.FILES?.delete(row.object_key)
+      await library.finishStorageDeletion(row.object_key)
+    } catch (error) {
+      console.warn('[reading] could not delete a stored book object', row.object_key, error)
+      break
+    }
+  }
+}
+
+function hasBookMagic(format: BookFormat, bytes: Uint8Array): boolean {
+  if (format === 'pdf') return bytes.length >= 5 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2d
+  return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04
 }
 
 interface LibraryTombstone {
@@ -349,6 +367,7 @@ function group<TRow, TShape>(
 
 readerLibraryRoutes.get('/library', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
+  await drainStorageDeletions(c, userId)
   return c.json({
     ok: true as const,
     library: await loadLibrary(c, userId),
@@ -574,6 +593,7 @@ readerLibraryRoutes.put('/library', async (c) => {
     books: bookRows, progress, highlights, marks, stats, notes, groups,
     vocabulary, vocabularyUpdatedAt, deleted,
   })
+  await drainStorageDeletions(c, userId)
   return c.json({
     ok: true as const,
     updatedAt: Date.now(),
@@ -600,15 +620,25 @@ readerLibraryRoutes.put('/books/:id/blob', async (c) => {
   if (bytes.byteLength > MAX_BOOK_BYTES) {
     throw new ApiError(413, 'reader_book_too_large', `A book may be at most ${MAX_BOOK_BYTES} bytes`)
   }
-  // The account's budget, charged for the difference the new file makes rather than its whole size.
-  await assertReaderRoom(c.env.DB, userId, bytes.byteLength, 0, row.size ?? 0)
+  const view = new Uint8Array(bytes)
+  if (!hasBookMagic(format, view)) throw ApiError.badRequest('The upload does not match the book format')
 
   const r2 = c.env.FILES
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
+  const reservation = `blob:${id}`
+  await reserveReaderUpload(c.env.DB, userId, reservation, bytes.byteLength, row.size ?? 0)
   const key = readerBookKey(userId, id, EXTENSIONS[format])
-  await r2.put(key, bytes, { httpMetadata: { contentType: CONTENT_TYPES[format] } })
-  await library.markBlobStored(id, key, bytes.byteLength)
-  return c.json({ ok: true as const, size: bytes.byteLength, key })
+  let stored = false
+  try {
+    await r2.put(key, bytes, { httpMetadata: { contentType: CONTENT_TYPES[format] } })
+    stored = true
+    await library.markBlobStored(id, key, bytes.byteLength)
+    await releaseReaderUpload(c.env.DB, userId, reservation)
+    return c.json({ ok: true as const, size: bytes.byteLength, key })
+  } catch (error) {
+    if (!stored) await releaseReaderUpload(c.env.DB, userId, reservation)
+    throw error
+  }
 })
 
 /** The bytes back, with a length a download can measure itself against. */
@@ -627,7 +657,9 @@ readerLibraryRoutes.get('/books/:id/blob', async (c) => {
       'Content-Type': CONTENT_TYPES[format] ?? 'application/octet-stream',
       'Content-Length': String(object.size),
       'Content-Disposition': contentDisposition(downloadFilename(row.filename ?? '', id, EXTENSIONS[format])),
-      'Cache-Control': 'private, max-age=3600',
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
     },
   })
 })
@@ -675,15 +707,24 @@ readerLibraryRoutes.put('/books/:id/cover', async (c) => {
   if (!buffer.byteLength) throw ApiError.badRequest('The cover was empty')
   if (!isDeclaredImage(type, bytes)) throw ApiError.badRequest('The cover is not the image its type claims')
   if (buffer.byteLength > MAX_COVER_BYTES) throw ApiError.badRequest('That cover is too large')
-  await assertReaderRoom(c.env.DB, userId, buffer.byteLength, 0, row.cover_size ?? 0)
-
   const r2 = c.env.FILES
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
+  const reservation = `cover:${id}`
+  await reserveReaderUpload(c.env.DB, userId, reservation, buffer.byteLength, row.cover_size ?? 0)
   const key = readerCoverKey(userId, id, extension)
-  if (row.cover_key && row.cover_key !== key) await r2.delete(row.cover_key).catch(() => {})
-  await r2.put(key, buffer, { httpMetadata: { contentType: type } })
-  await library.setCover(id, key, buffer.byteLength)
-  return c.json({ ok: true as const, size: buffer.byteLength, key })
+  let stored = false
+  try {
+    await r2.put(key, buffer, { httpMetadata: { contentType: type } })
+    stored = true
+    await library.setCover(id, key, buffer.byteLength)
+    if (row.cover_key && row.cover_key !== key) await library.queueStorageDeletion(row.cover_key, row.cover_size)
+    await releaseReaderUpload(c.env.DB, userId, reservation)
+    await drainStorageDeletions(c, userId)
+    return c.json({ ok: true as const, size: buffer.byteLength, key })
+  } catch (error) {
+    if (!stored) await releaseReaderUpload(c.env.DB, userId, reservation)
+    throw error
+  }
 })
 
 readerLibraryRoutes.get('/books/:id/cover', async (c) => {
@@ -699,7 +740,8 @@ readerLibraryRoutes.get('/books/:id/cover', async (c) => {
       // predates that, and it beats claiming every unknown cover is a PNG.
       'Content-Type': object.httpMetadata?.contentType ?? COVER_MIME_BY_EXTENSION[row.cover_key.slice(row.cover_key.lastIndexOf('.') + 1)] ?? 'application/octet-stream',
       'Content-Length': String(object.size),
-      'Cache-Control': 'private, max-age=604800',
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 })
@@ -710,10 +752,7 @@ readerLibraryRoutes.delete('/books/:id', async (c) => {
   const library = store(c, userId)
   const row = await library.bookObjects(id)
   if (!row) return c.json({ ok: true as const, removed: false })
-  await Promise.all([
-    c.env.FILES?.delete(row.r2_key),
-    row.cover_key ? c.env.FILES?.delete(row.cover_key) : Promise.resolve(),
-  ])
   await library.deleteBook(id)
+  await drainStorageDeletions(c, userId)
   return c.json({ ok: true as const, removed: true })
 })

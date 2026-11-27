@@ -75,13 +75,15 @@ export async function readerUsage(db: D1Database, userId: string): Promise<Reade
   const row = await db
     .prepare(`SELECT COUNT(*) AS books,
                      COALESCE(SUM(size), 0) AS bytes,
-                     COALESCE(SUM(cover_size), 0) AS covers
+                     COALESCE(SUM(cover_size), 0) AS covers,
+                     COALESCE((SELECT SUM(bytes) FROM reader_upload_reservations WHERE user_id = ?1), 0) AS reserved,
+                     COALESCE((SELECT SUM(bytes) FROM reader_storage_deletions WHERE user_id = ?1), 0) AS pending_deletes
                 FROM reader_books WHERE user_id = ?1`)
     .bind(userId)
-    .first<{ books: number; bytes: number; covers: number }>()
+    .first<{ books: number; bytes: number; covers: number; reserved: number; pending_deletes: number }>()
   return {
     books: row?.books ?? 0,
-    bytes: row?.bytes ?? 0,
+    bytes: (row?.bytes ?? 0) + (row?.reserved ?? 0) + (row?.pending_deletes ?? 0),
     covers: row?.covers ?? 0,
     quotaBytes: LIMITS.readerQuotaBytes,
     maxBooks: LIMITS.readerBooksMaxPerUser,
@@ -117,4 +119,41 @@ export async function assertReaderRoom(
       `This account's shelf has ${Math.max(0, LIMITS.readerQuotaBytes - usage.bytes - usage.covers)} bytes free and the file needs ${addingBytes}`,
     )
   }
+}
+
+/** Reserve an upload before R2 is touched so concurrent uploads cannot oversubscribe the account. */
+export async function reserveReaderUpload(
+  db: D1Database,
+  userId: string,
+  id: string,
+  bytes: number,
+  replacingBytes: number,
+): Promise<boolean> {
+  const existing = await db.prepare(
+    'SELECT bytes FROM reader_upload_reservations WHERE user_id = ?1 AND id = ?2',
+  ).bind(userId, id).first<{ bytes: number }>()
+  if (existing) {
+    if (existing.bytes !== bytes) throw new ApiError(409, 'reader_upload_conflict', 'This upload id already reserves a different size')
+    return false
+  }
+  const result = await db.prepare(
+    `INSERT INTO reader_upload_reservations (user_id, id, bytes, created_at)
+     SELECT ?1, ?2, ?3, ?4
+     WHERE (
+       COALESCE((SELECT SUM(size) FROM reader_books WHERE user_id = ?1), 0)
+       + COALESCE((SELECT SUM(cover_size) FROM reader_books WHERE user_id = ?1), 0)
+       + COALESCE((SELECT SUM(bytes) FROM reader_upload_reservations WHERE user_id = ?1), 0)
+       + COALESCE((SELECT SUM(bytes) FROM reader_storage_deletions WHERE user_id = ?1), 0)
+       + ?3 - ?5
+     ) <= ?6
+     ON CONFLICT(user_id, id) DO NOTHING`,
+  ).bind(userId, id, bytes, Date.now(), replacingBytes, LIMITS.readerQuotaBytes).run()
+  if (!result.meta.changes) {
+    throw new ApiError(403, 'reader_space_exceeded', 'This upload would exceed the account book budget')
+  }
+  return true
+}
+
+export async function releaseReaderUpload(db: D1Database, userId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM reader_upload_reservations WHERE user_id = ?1 AND id = ?2').bind(userId, id).run()
 }

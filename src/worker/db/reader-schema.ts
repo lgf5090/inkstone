@@ -64,6 +64,22 @@ export const READER_SYNC_VERSION_TABLE = `CREATE TABLE IF NOT EXISTS reader_sync
   PRIMARY KEY (user_id, entity, entity_id)
 )`
 
+export const READER_UPLOAD_RESERVATION_TABLE = `CREATE TABLE IF NOT EXISTS reader_upload_reservations (
+  user_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, id)
+)`
+
+export const READER_STORAGE_DELETION_TABLE = `CREATE TABLE IF NOT EXISTS reader_storage_deletions (
+  user_id TEXT NOT NULL,
+  object_key TEXT NOT NULL,
+  bytes INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, object_key)
+)`
+
 export const READER_SCHEMA_STATEMENTS: readonly string[] = [
   READER_SYNC_VERSION_TABLE,
   READER_BOOK_TABLE,
@@ -127,6 +143,9 @@ export const READER_SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, key)
   )`,
+  READER_SYNC_VERSION_TABLE,
+  READER_UPLOAD_RESERVATION_TABLE,
+  READER_STORAGE_DELETION_TABLE,
 ]
 
 /** Where a book's bytes live. Built from the row, never accepted from a client. */

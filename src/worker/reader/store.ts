@@ -138,6 +138,7 @@ export interface StoredBookRow {
   has_blob: number
   cover_key: string | null
   cover_size: number
+  size: number
 }
 
 /**
@@ -351,7 +352,7 @@ export class ReaderLibraryStore {
   async merge(input: ShelfMergeInput): Promise<ShelfMergeResult> {
     const [existing, versionRows, highlightRows, markRows, knowledgeIndex] = await Promise.all([
       this.db.prepare(
-        'SELECT id, format, r2_key, has_blob, cover_key, cover_size FROM reader_books WHERE user_id = ?1',
+        'SELECT id, format, r2_key, has_blob, cover_key, cover_size, size FROM reader_books WHERE user_id = ?1',
       ).bind(this.userId).all<StoredBookRow>(),
       this.db.prepare(
         'SELECT entity, entity_id, book_id, updated_at, deleted FROM reader_sync_versions WHERE user_id = ?1',
@@ -370,6 +371,13 @@ export class ReaderLibraryStore {
     const highlightBooks = new Map(highlightRows.results.map((row) => [row.id, row.book_id]))
     const markBooks = new Map(markRows.results.map((row) => [row.id, row.book_id]))
     const statements: D1PreparedStatement[] = []
+    const queueDeletion = (objectKey: string, bytes: number): void => {
+      statements.push(this.db.prepare(
+        `INSERT INTO reader_storage_deletions (user_id, object_key, bytes, created_at)
+         VALUES (?1, ?2, ?3, ?4) ON CONFLICT(user_id, object_key) DO UPDATE SET
+           bytes = MAX(reader_storage_deletions.bytes, excluded.bytes)`,
+      ).bind(this.userId, objectKey, Math.max(0, bytes), Date.now()))
+    }
 
     const isNewer = (entity: ReaderSyncEntity, entityId: string, updatedAt: number): boolean => {
       const current = versions.get(versionKey(entity, entityId))
@@ -433,7 +441,7 @@ export class ReaderLibraryStore {
       const coverSize = formatChanged ? 0 : current?.cover_size ?? 0
       if (!hasBlob) missingBlobs.push(book.id)
       if (book.wantsCover && !cover) missingCovers.push(book.id)
-      writeLive('books', book.id, '', book.updatedAt, this.db.prepare(
+      const written = writeLive('books', book.id, '', book.updatedAt, this.db.prepare(
         `INSERT OR REPLACE INTO reader_books (id, user_id, title, author, format, filename, language, publisher, size, unit_count, r2_key, has_cover, toc, added_at, updated_at, has_blob, cover_key, cover_size)
          SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
          WHERE ?15 > COALESCE((SELECT updated_at FROM reader_sync_versions
@@ -445,6 +453,10 @@ export class ReaderLibraryStore {
         book.wantsCover ? 1 : 0, book.tocJson, book.addedAt, book.updatedAt,
         hasBlob ? 1 : 0, cover, coverSize,
       ))
+      if (written && formatChanged && current) {
+        queueDeletion(current.r2_key, current.size)
+        if (current.cover_key) queueDeletion(current.cover_key, current.cover_size)
+      }
     }
 
     const deletedBooks = new Map<string, number>()
@@ -454,6 +466,11 @@ export class ReaderLibraryStore {
            AND ?3 > COALESCE((SELECT updated_at FROM reader_sync_versions
                                WHERE user_id = ?1 AND entity = 'books' AND entity_id = ?2), -1)`,
       ).bind(this.userId, id, input.deleted.books.updatedAt))) continue
+      const removed = books.get(id)
+      if (removed) {
+        queueDeletion(removed.r2_key, removed.size)
+        if (removed.cover_key) queueDeletion(removed.cover_key, removed.cover_size)
+      }
       deletedBooks.set(id, input.deleted.books.updatedAt)
     }
 
@@ -640,6 +657,26 @@ export class ReaderLibraryStore {
   async bookObjects(bookId: string): Promise<{ r2_key: string; cover_key: string | null } | null> {
     return this.db.prepare('SELECT r2_key, cover_key FROM reader_books WHERE user_id = ?1 AND id = ?2')
       .bind(this.userId, bookId).first<{ r2_key: string; cover_key: string | null }>()
+  }
+
+  async queueStorageDeletion(objectKey: string, bytes: number): Promise<void> {
+    await this.db.prepare(
+      `INSERT INTO reader_storage_deletions (user_id, object_key, bytes, created_at)
+       VALUES (?1, ?2, ?3, ?4) ON CONFLICT(user_id, object_key) DO UPDATE SET
+         bytes = MAX(reader_storage_deletions.bytes, excluded.bytes)`,
+    ).bind(this.userId, objectKey, Math.max(0, bytes), Date.now()).run()
+  }
+
+  async storageDeletions(limit = 100): Promise<Array<{ object_key: string; bytes: number }>> {
+    const rows = await this.db.prepare(
+      'SELECT object_key, bytes FROM reader_storage_deletions WHERE user_id = ?1 ORDER BY created_at LIMIT ?2',
+    ).bind(this.userId, limit).all<{ object_key: string; bytes: number }>()
+    return rows.results
+  }
+
+  async finishStorageDeletion(objectKey: string): Promise<void> {
+    await this.db.prepare('DELETE FROM reader_storage_deletions WHERE user_id = ?1 AND object_key = ?2')
+      .bind(this.userId, objectKey).run()
   }
 
   /**

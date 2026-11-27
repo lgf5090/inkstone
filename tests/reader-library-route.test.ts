@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { LIMITS } from '../src/shared/constants'
+import { readerUsage } from '../src/worker/db/quota'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { readerLibraryRoutes } from '../src/worker/routes/reader-library'
@@ -11,6 +12,7 @@ import { makeD1 } from './doubles/d1-sqlite'
 
 const ALICE = 'user-alice'
 const BOB = 'user-bob'
+const BOOK_BYTES = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3])
 
 const mocks = vi.hoisted(() => ({ userId: '' }))
 
@@ -56,6 +58,12 @@ let db: D1Database
 const app = new Hono<AppBindings>()
 app.onError((err, c) => errorResponse(c, err))
 app.route('/api/reader', readerLibraryRoutes)
+
+function bookBytes(size: number): Uint8Array {
+  const bytes = new Uint8Array(size)
+  bytes.set(BOOK_BYTES.subarray(0, Math.min(size, BOOK_BYTES.length)))
+  return bytes
+}
 
 function book(overrides: Record<string, unknown> = {}) {
   return {
@@ -203,7 +211,7 @@ describe('what a client is not allowed to choose', () => {
       books: [book({ id })], progress: {}, highlights: {}, marks: {}, stats: {}, notes: { byBook: {} },
     }) })
     expect(response.status).toBe(200)
-    await send('PUT', `/books/${encodeURIComponent(id)}/blob`, undefined, new Uint8Array([1, 2]))
+    await send('PUT', `/books/${encodeURIComponent(id)}/blob`, undefined, BOOK_BYTES)
     const got = await send('GET', `/books/${encodeURIComponent(id)}/blob`)
     expect(got.status).toBe(200)
     expect(buckets.has(`reader/${ALICE}/${id}.epub`)).toBe(true)
@@ -346,17 +354,24 @@ describe('the book bytes', () => {
     expect(oversized.status).toBe(400)
   })
 
+  it('refuses bytes that do not match the row format', async () => {
+    await send('PUT', '/library', { library: library() })
+    const response = await send('PUT', '/books/book-1/blob', undefined, new TextEncoder().encode('<html>not a book</html>'))
+    expect(response.status).toBe(400)
+    expect(buckets.size).toBe(0)
+  })
+
   it('names the files the device still has to send, and stops once they arrive', async () => {
     const first = await (await send('PUT', '/library', { library: library() })).json() as { missingBlobs: string[] }
     expect(first.missingBlobs).toEqual(['book-1'])
-    await send('PUT', '/books/book-1/blob', undefined, new Uint8Array([1, 2, 3]))
+    await send('PUT', '/books/book-1/blob', undefined, BOOK_BYTES)
     const again = await (await send('PUT', '/library', { library: library() })).json() as { missingBlobs: string[] }
     expect(again.missingBlobs).toEqual([])
   })
 
   it('takes the file and the reading with it when a book is removed', async () => {
     await send('PUT', '/library', { library: library() })
-    await send('PUT', '/books/book-1/blob', undefined, new Uint8Array([1, 2, 3]))
+    await send('PUT', '/books/book-1/blob', undefined, BOOK_BYTES)
     expect((await send('DELETE', '/books/book-1')).status).toBe(200)
     expect(buckets.size).toBe(0)
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM reader_books').get()).toEqual({ n: 0 })
@@ -371,7 +386,7 @@ describe('the book bytes', () => {
 describe('the account budget', () => {
   it('reports what the shelf is using', async () => {
     await send('PUT', '/library', { library: library() })
-    await send('PUT', '/books/book-1/blob', undefined, new Uint8Array(1000))
+    await send('PUT', '/books/book-1/blob', undefined, bookBytes(1000))
     const answer = await (await send('GET', '/library')).json() as { usage: any }
     expect(answer.usage).toMatchObject({ books: 1, bytes: 1000, covers: 0 })
     expect(answer.usage.quotaBytes).toBeGreaterThan(0)
@@ -385,7 +400,7 @@ describe('the account budget', () => {
     // the reader sends now is what tips the account over.
     sqlite.prepare('UPDATE reader_books SET size = ? WHERE id = ?').run(NEAR_FULL, 'book-2')
     sqlite.prepare('UPDATE reader_books SET size = 0 WHERE id = ?').run('book-1')
-    const response = await send('PUT', '/books/book-1/blob', undefined, new Uint8Array(4096))
+    const response = await send('PUT', '/books/book-1/blob', undefined, bookBytes(4096))
     expect(response.status).toBe(403)
     expect(await response.json()).toMatchObject({ error: { code: 'reader_space_exceeded' } })
   })
@@ -395,11 +410,32 @@ describe('the account budget', () => {
     sqlite.prepare('UPDATE reader_books SET size = ? WHERE id = ?').run(NEAR_FULL - 4096, 'book-2')
     sqlite.prepare('UPDATE reader_books SET size = ? WHERE id = ?').run(4096, 'book-1')
     // The same size again: the old bytes are given back before the new ones are charged.
-    expect((await send('PUT', '/books/book-1/blob', undefined, new Uint8Array(4096))).status).toBe(200)
+    expect((await send('PUT', '/books/book-1/blob', undefined, bookBytes(4096))).status).toBe(200)
     // A bigger file has to pay the difference, and there is none left to pay it with.
-    const bigger = await send('PUT', '/books/book-1/blob', undefined, new Uint8Array(1024 * 1024))
+    const bigger = await send('PUT', '/books/book-1/blob', undefined, bookBytes(1024 * 1024))
     expect(bigger.status).toBe(403)
     expect(await bigger.json()).toMatchObject({ error: { code: 'reader_space_exceeded' } })
+  })
+
+  it('does not let concurrent uploads oversubscribe the budget', async () => {
+    await send('PUT', '/library', { library: library({ books: [book({ id: 'book-1', size: 0 }), book({ id: 'book-2', size: 0 }), book({ id: 'book-3', size: 0 })] }) })
+    sqlite.prepare('UPDATE reader_books SET size = ? WHERE id = ?').run(LIMITS.readerQuotaBytes - 8, 'book-3')
+    const responses = await Promise.all([
+      send('PUT', '/books/book-1/blob', undefined, bookBytes(8)),
+      send('PUT', '/books/book-2/blob', undefined, bookBytes(8)),
+    ])
+    expect(responses.map((one) => one.status).sort()).toEqual([200, 403])
+    const usage = await readerUsage(db, ALICE)
+    expect(usage.bytes + usage.covers).toBeLessThanOrEqual(LIMITS.readerQuotaBytes)
+  })
+
+  it('counts pending upload reservations and deletion outbox against the budget', async () => {
+    sqlite.prepare('INSERT INTO reader_upload_reservations (user_id, id, bytes, created_at) VALUES (?, ?, ?, ?)')
+      .run(ALICE, 'pending', 123, Date.now())
+    sqlite.prepare('INSERT INTO reader_storage_deletions (user_id, object_key, bytes, created_at) VALUES (?, ?, ?, ?)')
+      .run(ALICE, 'reader/user-alice/old.epub', 456, Date.now())
+    const usage = await readerUsage(db, ALICE)
+    expect(usage.bytes).toBe(579)
   })
 
   it('caps a single file before the budget is even consulted', async () => {

@@ -4,7 +4,7 @@ import { localDate } from '@shared/assistant-time'
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
 import { storedObject } from '../lib/json'
-import { READER_BOOK_INDEX, READER_BOOK_TABLE, READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS, READER_SYNC_VERSION_TABLE } from './reader-schema'
+import { READER_BOOK_INDEX, READER_BOOK_TABLE, READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS, READER_STORAGE_DELETION_TABLE, READER_SYNC_VERSION_TABLE, READER_UPLOAD_RESERVATION_TABLE } from './reader-schema'
 import {
   ASSISTANT_REQUIRED_COLUMNS,
   ASSISTANT_REQUIRED_INDEXES,
@@ -4945,6 +4945,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 440,
     statements: [READER_SYNC_VERSION_TABLE],
   },
+  {
+    // Upload reservations and deletion outboxes keep R2 bytes inside the account budget until the
+    // matching D1 transition has completed. Both tables are idempotent for fresh and existing databases.
+    version: 441,
+    statements: [READER_UPLOAD_RESERVATION_TABLE, READER_STORAGE_DELETION_TABLE],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -5087,6 +5093,8 @@ export const REQUIRED_TABLES = [
   'reader_books',
   'reader_groups',
   'reader_sync_versions',
+  'reader_upload_reservations',
+  'reader_storage_deletions',
   'reader_progress',
   'reader_highlights',
   'reader_marks',

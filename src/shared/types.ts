@@ -1648,6 +1648,7 @@ export type ApiErrorCode =
   | 'organizer_quota_exceeded'
   | 'reader_book_quota_exceeded'
   | 'reader_space_exceeded'
+  | 'reader_upload_conflict'
   | 'reader_book_too_large'
   | 'reader_fetch_failed'
   | 'realtime_refused'
