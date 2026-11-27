@@ -79,6 +79,36 @@ describe('parseFeed', () => {
     expect(feed.entries[0].author).toBe('Ada')
   })
 
+  it('reads JSON Feed 1.1 content, authors, images and audio attachments', () => {
+    const feed = parseFeed(JSON.stringify({
+      version: 'https://jsonfeed.org/version/1.1',
+      title: 'JSON Weekly',
+      home_page_url: 'https://example.com/',
+      icon: 'https://example.com/icon.png',
+      authors: [{ name: 'Ada' }],
+      items: [
+        {
+          id: 'one', url: 'https://example.com/one', title: 'One', content_html: '<p>Body</p>',
+          date_published: '2025-09-02T10:00:00Z', image: 'https://example.com/one.png',
+          attachments: [{ url: 'https://cdn.example.com/one.mp3', mime_type: 'audio/mpeg' }],
+        },
+        { id: 'two', title: 'Two', content_text: 'Plain text', date_modified: '2025-09-01T10:00:00Z' },
+      ],
+    }), 'https://example.com/feed.json')
+    expect(feed.title).toBe('JSON Weekly')
+    expect(feed.siteUrl).toBe('https://example.com/')
+    expect(feed.imageUrl).toBe('https://example.com/icon.png')
+    expect(feed.entries.map(entry => entry.title)).toEqual(['One', 'Two'])
+    expect(feed.entries[0]).toEqual(expect.objectContaining({ author: 'Ada', audioUrl: 'https://cdn.example.com/one.mp3', imageUrl: 'https://example.com/one.png' }))
+    expect(feed.entries[0].content).toContain('<p>Body</p>')
+    expect(feed.entries[1].content).toContain('Plain text')
+  })
+
+  it('refuses malformed JSON Feed documents', () => {
+    expect(() => parseFeed('{bad json', 'https://example.com/feed.json')).toThrow(FeedParseError)
+    expect(() => parseFeed(JSON.stringify({ version: '1.1', items: [] }), 'https://example.com/feed.json')).toThrow(FeedParseError)
+  })
+
   it('reads items that sit directly under an RDF root', () => {
     const xml = `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
       <channel rdf:about="https://example.com/"><title>RDF</title><link>https://example.com/</link></channel>

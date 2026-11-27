@@ -374,6 +374,7 @@ function readItems(root: Element, atom: boolean, feedUrl: string): RawItem[] {
  * ceiling — shipping a whole archive in one document is common enough to be worth surviving.
  */
 export function parseFeed(xml: string, feedUrl: string, parser: DOMParser = new DOMParser()): ParsedFeed {
+  if (xml.replace(/^\uFEFF/, '').trimStart().startsWith('{')) return parseJsonFeed(xml, feedUrl)
   const parsed = doc(xml, parser)
   const root = parsed.documentElement
   const atom = root.localName === 'feed'
@@ -429,6 +430,97 @@ export function parseFeed(xml: string, feedUrl: string, parser: DOMParser = new 
     title: title.slice(0, RSS_LIMITS.nameChars),
     siteUrl,
     imageUrl: feedImage(host, feedUrl),
+    entries,
+    skipped,
+  }
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function jsonText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function jsonAuthor(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  const first = Array.isArray(value) ? jsonRecord(value[0]) : jsonRecord(value)
+  return jsonText(first?.name)
+}
+
+/** JSON Feed 1.1, mapped into the same normalized shape as RSS and Atom. */
+export function parseJsonFeed(xml: string, feedUrl: string): ParsedFeed {
+  let value: unknown
+  try {
+    value = JSON.parse(xml.replace(/^\uFEFF/, ''))
+  }
+  catch {
+    throw new FeedParseError('document is not readable JSON')
+  }
+  const feed = jsonRecord(value)
+  const version = jsonText(feed?.version)
+  if (!feed || !/^(?:https?:\/\/jsonfeed\.org\/version\/)?1\./.test(version) || !jsonText(feed.title) || !Array.isArray(feed.items)) {
+    throw new FeedParseError('document is not a JSON Feed')
+  }
+  const title = jsonText(feed.title) || safeHttpUrl(feedUrl)?.hostname.replace(/^www\./, '') || ''
+  const siteUrl = absolute(jsonText(feed.home_page_url) || jsonText(feed.feed_url), feedUrl)
+  const feedId = `f${rssHash(canonicalFeedUrl(feedUrl) || feedUrl)}`
+  const items = feed.items.map(jsonRecord).filter((item): item is Record<string, unknown> => item !== null)
+    .map(item => ({
+      id: jsonText(item.id),
+      title: jsonText(item.title),
+      url: absolute(jsonText(item.url), feedUrl),
+      published: jsonText(item.date_published) || jsonText(item.date_modified),
+      author: jsonAuthor(item.authors) || jsonAuthor(item.author) || jsonAuthor(feed.authors) || jsonAuthor(feed.author),
+      content: jsonText(item.content_html) || (jsonText(item.content_text) ? `<p>${escapeHtml(jsonText(item.content_text))}</p>` : ''),
+      summary: jsonText(item.summary),
+      image: absolute(jsonText(item.image), feedUrl),
+      audio: (Array.isArray(item.attachments) ? item.attachments : [])
+        .map(jsonRecord)
+        .filter((attachment): attachment is Record<string, unknown> => attachment !== null)
+        .filter(attachment => {
+          const mime = jsonText(attachment.mime_type).toLowerCase()
+          return !mime || mime.startsWith('audio/')
+        })
+        .map(attachment => absolute(jsonText(attachment.url), feedUrl))
+        .find(url => url.startsWith('https://')) || '',
+    }))
+    .sort((a, b) => (parseFeedDate(b.published) ?? 0) - (parseFeedDate(a.published) ?? 0))
+  const entries: RssEntry[] = []
+  const seen = new Set<string>()
+  let bytes = 0
+  let skipped = 0
+  for (const item of items) {
+    const identity = item.id || item.url || `${item.title}\n${item.published}`
+    const id = entryIdFor(feedId, identity)
+    if (!item.title && !item.url && !item.content) { skipped++; continue }
+    if (seen.has(id)) { skipped++; continue }
+    seen.add(id)
+    const content = item.content.length > RSS_LIMITS.contentChars
+      ? `${item.content.slice(0, RSS_LIMITS.contentChars)}<p>…</p>`
+      : item.content
+    const summary = (plainText(content) || item.summary).slice(0, RSS_LIMITS.summaryChars)
+    const entry: RssEntry = {
+      id,
+      feedId,
+      title: (item.title || summary.slice(0, 80)).slice(0, RSS_LIMITS.titleChars),
+      link: item.url || siteUrl || feedUrl,
+      author: item.author.slice(0, RSS_LIMITS.nameChars),
+      publishedTs: parseFeedDate(item.published),
+      summary,
+      content,
+      imageUrl: item.image || firstImage(content, feedUrl),
+      audioUrl: item.audio,
+    }
+    bytes += entry.content.length + entry.summary.length
+    if (bytes > RSS_LIMITS.feedBytes || entries.length >= RSS_LIMITS.entriesPerFeed) { skipped++; continue }
+    entries.push(entry)
+  }
+  return {
+    title: title.slice(0, RSS_LIMITS.nameChars),
+    siteUrl,
+    imageUrl: absolute(jsonText(feed.icon) || jsonText(feed.logo) || jsonText(feed.favicon), feedUrl),
     entries,
     skipped,
   }
