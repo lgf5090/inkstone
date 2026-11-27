@@ -23,7 +23,7 @@ import { t } from '../../lib/i18n'
 import { htmlToMarkdown } from './markdown'
 import { useRss } from './store'
 
-export type AppendOutcome = 'added' | 'already' | 'missing' | 'off'
+export type AppendOutcome = 'added' | 'already' | 'missing' | 'conflict' | 'off'
 
 /** `YYYY`, `MM` and `DD` are the only tokens: enough to spell a date the reader's way. */
 export function dailyNoteTitle(pattern: string, now = new Date()): string {
@@ -203,18 +203,26 @@ export async function appendToDailyNote(entry: RssEntry, feed: RssFeed | undefin
     const noteId = await useNotes.getState().createNote({ title, content: `# ${title}\n\n${block}\n`, open: false })
     return noteId ? 'added' : 'missing'
   }
+  let changed = false
   const outcome = await useNotes.getState().editRemoteContent(existing.id, (current) => {
-    const at = current.split('\n').findIndex(row => entry.link && row.includes(entry.link))
-    if (at < 0) return `${current.replace(/\s+$/, '')}\n${block}\n`
-    if (!quoted) return null
+    const marker = entry.link ? `](${entry.link})` : ''
+    const at = marker ? current.split('\n').findIndex(row => row.includes(marker)) : -1
+    if (at < 0) {
+      changed = true
+      return `${current.replace(/\s+$/, '')}\n${block}\n`
+    }
+    if (!quoted) return current
     const lines = current.split('\n')
     let cursor = at + 1
     while (cursor < lines.length && /^\s+>/.test(lines[cursor])) cursor++
-    if (lines.slice(at + 1, cursor).join('\n') === quoted) return null
+    if (lines.slice(at + 1, cursor).join('\n') === quoted) return current
     lines.splice(cursor, 0, quoted)
+    changed = true
     return lines.join('\n')
   })
-  return outcome === 'written' ? 'added' : outcome === 'conflict' ? 'already' : 'missing'
+  if (outcome === 'conflict') return 'conflict'
+  if (outcome === 'missing') return 'missing'
+  return changed ? 'added' : 'already'
 }
 
 /** Free text a reader selected in the article, appended under a heading of its own. */
@@ -230,5 +238,5 @@ export async function excerptToNote(text: string): Promise<AppendOutcome> {
     return noteId ? 'added' : 'missing'
   }
   const outcome = await useNotes.getState().editRemoteContent(existing.id, current => `${current.replace(/\s+$/, '')}\n\n${body}\n`)
-  return outcome === 'written' ? 'added' : outcome === 'conflict' ? 'already' : 'missing'
+  return outcome === 'written' ? 'added' : outcome === 'conflict' ? 'conflict' : 'missing'
 }

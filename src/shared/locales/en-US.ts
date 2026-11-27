@@ -7202,6 +7202,7 @@ const CORE_MESSAGES_TAIL = {
     "rss.append_daily": "Add to today’s note",
     "rss.appended_daily": "Added to {title}",
     "rss.daily_note_missing": "Today’s note could not be made",
+    "rss.daily_note_conflict": "Today’s note changed on another device. Please try again.",
     "rss.already_added": "It is already in today’s note",
     "rss.typography": "Reading settings",
     "rss.font": "Typeface",

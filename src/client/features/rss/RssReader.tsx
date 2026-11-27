@@ -255,7 +255,9 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
       ? { title: t('rss.appended_daily', { title: dailyNoteTitle(settings.dailyNoteTitle) }), tone: 'success' }
       : outcome === 'already'
         ? { title: t('rss.already_added') }
-        : { title: t('rss.daily_note_missing'), tone: 'danger' })
+        : outcome === 'conflict'
+          ? { title: t('rss.daily_note_conflict'), tone: 'danger' }
+          : { title: t('rss.daily_note_missing'), tone: 'danger' })
   }
 
   const copy = async (): Promise<void> => {

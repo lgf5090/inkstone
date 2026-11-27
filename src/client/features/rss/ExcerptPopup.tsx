@@ -136,7 +136,9 @@ export function ExcerptPopup({ rootRef }: { rootRef: RefObject<HTMLElement | nul
         ? { title: t('rss.excerpt_added', { title: todayTitle() }), tone: 'success' }
         : outcome === 'already'
           ? { title: t('rss.already_added') }
-          : { title: t('rss.daily_note_missing'), tone: 'danger' })
+          : outcome === 'conflict'
+            ? { title: t('rss.daily_note_conflict'), tone: 'danger' }
+            : { title: t('rss.daily_note_missing'), tone: 'danger' })
     }
     else {
       const result = await saveArticleAsNote(entry, feed, placed.text)
@@ -191,7 +193,9 @@ export function ExcerptPopup({ rootRef }: { rootRef: RefObject<HTMLElement | nul
       ? { title: t('rss.excerpt_added', { title: todayTitle() }), tone: 'success' }
       : outcome === 'already'
         ? { title: t('rss.already_added') }
-        : { title: t('rss.daily_note_missing'), tone: 'danger' })
+        : outcome === 'conflict'
+          ? { title: t('rss.daily_note_conflict'), tone: 'danger' }
+          : { title: t('rss.daily_note_missing'), tone: 'danger' })
   }
 
   const closeAsk = (): void => {

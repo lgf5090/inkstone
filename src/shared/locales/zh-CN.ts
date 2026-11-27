@@ -7193,6 +7193,7 @@ console.log(\`Hello, \${name}!\`)
     "rss.append_daily": "加入今日笔记",
     "rss.appended_daily": "已加入「{title}」",
     "rss.daily_note_missing": "无法创建今日笔记",
+    "rss.daily_note_conflict": "今日笔记正被其他设备修改，请重试",
     "rss.already_added": "今日笔记里已经有了",
     "rss.typography": "阅读设置",
     "rss.font": "字体",

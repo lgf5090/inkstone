@@ -14,6 +14,9 @@ const library = { ...emptyLibrary(), savedNotes: {} as Record<string, string> }
 const created: Array<{ title: string, content: string, folderId?: string | null }> = []
 const rewritten: Array<{ id: string, content: string }> = []
 const moved: Array<{ id: string, folderId: string | null }> = []
+let dailyExists = false
+let dailyBody = ''
+let editOutcome: 'written' | 'conflict' = 'written'
 const notes: Record<string, { id: string, title: string, folderId: string, deletedAt: number | null }> = {
   n1: { id: 'n1', title: 'Alpha', folderId: 'f-a', deletedAt: null },
 }
@@ -23,7 +26,7 @@ function rememberSavedNote(entryId: string, kind: string, noteId: string): void 
 }
 
 vi.mock('../../store/notes', () => ({
-  findNoteByTitle: () => null,
+  findNoteByTitle: () => dailyExists ? { id: 'daily', title: 'Today', folderId: null, deletedAt: null } : null,
   useNotes: {
     getState: () => ({
       notes,
@@ -34,9 +37,9 @@ vi.mock('../../store/notes', () => ({
       }),
       createFolder: vi.fn(() => 'f-made'),
       editRemoteContent: vi.fn(async (id: string, transform: (current: string) => string | null) => {
-        const next = transform('the previous body')
+        const next = transform(dailyBody)
         if (next !== null) rewritten.push({ id, content: next })
-        return 'written'
+        return editOutcome
       }),
       patchNote: vi.fn(async (id: string, patch: { folderId?: string | null }) => {
         moved.push({ id, folderId: patch.folderId ?? null })
@@ -49,7 +52,7 @@ vi.mock('./store', () => ({ useRss: { getState: () => ({ library, rememberSavedN
 vi.mock('../../store/session', () => ({ useSession: { getState: () => ({ settings: { rss: { articleFolder: 'Alpha', dailyNoteTitle: 'YYYY-MM-DD' } } }) } }))
 vi.mock('../../store/ui', () => ({ useUi: { getState: () => ({ toast: vi.fn() }) } }))
 
-const { saveArticleAsNote } = await import('./notes')
+const { appendToDailyNote, saveArticleAsNote } = await import('./notes')
 
 const feed: RssFeed = { id: 'f1', url: 'https://x.test/feed', title: 'A weekly', siteUrl: '', imageUrl: '', groupId: '', tags: [], order: 0, updatedAt: 0, lastAttemptAt: 0, error: '', errorCount: 0, lastErrorAt: 0, etag: '', lastModified: '', paused: false, pinned: false, titleLocked: false }
 const entry: RssEntry = { id: 'e1', feedId: 'f1', title: 'An article', link: 'https://x.test/1', author: 'A', publishedTs: 1, summary: '', content: '<p>Words.</p>', imageUrl: '', audioUrl: '' }
@@ -59,6 +62,9 @@ beforeEach(async () => {
   created.length = 0
   rewritten.length = 0
   moved.length = 0
+  dailyExists = false
+  dailyBody = ''
+  editOutcome = 'written'
   for (const key of Object.keys(library.savedNotes)) delete library.savedNotes[key]
 })
 
@@ -102,5 +108,20 @@ describe('saving an article as a note', () => {
     expect(rewritten, 'the reading note is left alone').toEqual([])
     expect(library.savedNotes['e1|copy']).toBe('n-new')
     expect(library.savedNotes['e1|note']).toBe('n1')
+  })
+
+  it('deduplicates the exact article link in today’s note', async () => {
+    dailyExists = true
+    dailyBody = '- [Other](https://x.test/1-long)'
+    expect(await appendToDailyNote(entry, feed)).toBe('added')
+    dailyBody = '- [An article](https://x.test/1)'
+    expect(await appendToDailyNote(entry, feed)).toBe('already')
+  })
+
+  it('reports a today-note edit conflict instead of claiming it was added', async () => {
+    dailyExists = true
+    dailyBody = ''
+    editOutcome = 'conflict'
+    expect(await appendToDailyNote(entry, feed)).toBe('conflict')
   })
 })
