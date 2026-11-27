@@ -897,10 +897,11 @@ if (noteId) {
       spoofedAttachment?.mime === 'application/octet-stream' &&
       spoofedDownload?.headers.get('content-disposition')?.startsWith('attachment;') === true,
   )
-  // The reader's own copy may be held for a year because only that reader can delete the bytes; a
-  // share grant is revocable, so its reads are asserted no-store further below.
-  check('owner attachment reads are cached privately, never by a shared cache',
-    spoofedDownload?.headers.get('cache-control') === 'private, max-age=31536000, immutable')
+  // Owners may keep a private copy, but replacement can change bytes and encryption under the same
+  // id, so the response must revalidate with its ETag. Share reads remain no-store further below.
+  check('owner attachment reads revalidate privately, never by a shared cache',
+    spoofedDownload?.headers.get('cache-control') === 'private, no-cache' &&
+    Boolean(spoofedDownload.headers.get('etag')))
   if (spoofedAttachment?.id) await owner.req('DELETE', `/api/files/${spoofedAttachment.id}`)
 
   const form = new FormData()
