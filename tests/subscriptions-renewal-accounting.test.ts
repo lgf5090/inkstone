@@ -42,6 +42,22 @@ describe('renewal accounting', () => {
     expect(detail!.payments.find((payment) => payment.kind === 'auto')).toMatchObject({ amount: 180, periodCount: 3, kind: 'auto', note: '' })
   })
 
+  it('limits visible receipts without deleting lifetime totals', async () => {
+    const store = new SubscriptionsStore(db, 'u1')
+    const limitedContext = { ...context, paymentLimit: 10 }
+    const created = await store.create({
+      name: 'History', amount: 60, expiryDate: '2026-12-21', periodValue: 1, periodUnit: 'month', autoRenew: false,
+    }, limitedContext)
+    for (let index = 0; index < 10; index++) {
+      await store.renew(created.item.id, { paymentDate: '2026-11-25', amount: 60, periodMultiplier: 1 }, limitedContext)
+    }
+    const detail = await store.get(created.item.id, limitedContext)
+    expect(detail!.payments).toHaveLength(10)
+    expect(detail!.item.paymentCount).toBe(11)
+    expect(detail!.item.paidByCurrency).toEqual([{ currency: 'CNY', amount: 660 }])
+    expect(detail!.yearlySpend).toEqual([{ year: 2026, currency: 'CNY', amount: 660, receipts: 11 }])
+  })
+
   it('does not duplicate an automatic renewal when two sweeps overlap', async () => {
     const store = new SubscriptionsStore(db, 'u1')
     const created = await create()

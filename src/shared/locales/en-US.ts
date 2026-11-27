@@ -10124,7 +10124,7 @@ const CORE_MESSAGES_TAIL = {
     "subscriptions.settings.copy_failed": "The browser would not take the copy. Select the address and copy it yourself.",
     "subscriptions.settings.diagnostics": "Time zone diagnostics",
     "subscriptions.settings.general": "General",
-    "subscriptions.settings.history_limit": "Receipts kept per subscription",
+    "subscriptions.settings.history_limit": "Receipts shown per subscription",
     "subscriptions.settings.hours": "Notification hours",
     "subscriptions.settings.hours_hint": "Read in the zone above. Leave empty, or write *, to allow any hour.",
     "subscriptions.settings.hours_placeholder": "e.g. 08, 20",

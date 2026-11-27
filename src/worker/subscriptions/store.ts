@@ -294,7 +294,7 @@ export class SubscriptionsStore {
     const nowIso = new Date(now).toISOString()
     return {
       item: this.toItem(row, context, now, paid, mapped),
-      payments: payments.map(toPayment),
+      payments: payments.slice(0, context.paymentLimit).map(toPayment),
       rules: mapped,
       yearlySpend: spendingByYear(payments.map((payment) => ({
         paidAt: payment.paid_at,
@@ -601,7 +601,6 @@ export class SubscriptionsStore {
       ).bind(this.userId, id, lastStart, expiry, paymentAt, now),
       this.clearAcknowledgementsStatement(id),
     ])
-    await this.trimPayments(id, context.paymentLimit)
     return this.get(id, context)
   }
 
@@ -665,7 +664,6 @@ export class SubscriptionsStore {
       this.clearAcknowledgementsStatement(id),
     ])
     if ((results[1]?.meta.changes ?? 0) === 0) return null
-    await this.trimPayments(id, context.paymentLimit)
     const detail = await this.get(id, context)
     return detail?.item ?? null
   }
@@ -1093,29 +1091,6 @@ export class SubscriptionsStore {
     const solar = lunar2solar(next)
     if (!solar) throw new Error('lunar_out_of_range')
     return getTimestampForTimezoneParts(solar, timezone)
-  }
-
-  /**
-   * Trim a history to the account's ceiling, always keeping the first receipt.
-   *
-   * Without the exception, a subscription older than the ceiling would lose the row that records when
-   * it started — and the "initial" receipt is the only thing that says so.
-   */
-  private async trimPayments(id: string, limit: number): Promise<void> {
-    const rows = await this.db.prepare(
-      `SELECT id, paid_at, kind FROM sub_payment WHERE user_id = ?1 AND subscription_id = ?2 ORDER BY paid_at ASC`,
-    ).bind(this.userId, id).all<{ id: string; paid_at: number; kind: string }>()
-    const total = rows.results.length
-    if (total <= limit) return
-    const initial = rows.results.find((row) => row.kind === 'initial')
-    const keep = new Set<string>()
-    if (initial) keep.add(initial.id)
-    for (const row of rows.results.slice(total - (limit - keep.size))) keep.add(row.id)
-    const doomed = rows.results.filter((row) => !keep.has(row.id))
-    if (doomed.length === 0) return
-    await this.db.batch(doomed.map((row) => this.db.prepare(
-      `DELETE FROM sub_payment WHERE user_id = ?1 AND subscription_id = ?2 AND id = ?3`,
-    ).bind(this.userId, id, row.id)))
   }
 }
 

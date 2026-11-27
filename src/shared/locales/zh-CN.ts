@@ -10116,7 +10116,7 @@ console.log(\`Hello, \${name}!\`)
     "subscriptions.settings.copy_failed": "浏览器不允许写入剪贴板，请手动选中地址复制。",
     "subscriptions.settings.diagnostics": "时区诊断",
     "subscriptions.settings.general": "常规",
-    "subscriptions.settings.history_limit": "每个订阅保留的支付记录",
+    "subscriptions.settings.history_limit": "每个订阅显示的支付记录",
     "subscriptions.settings.hours": "通知时段",
     "subscriptions.settings.hours_hint": "按上面的时区解释；留空或写 * 表示全天可发。",
     "subscriptions.settings.hours_placeholder": "例如 08, 20",
