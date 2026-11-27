@@ -128,8 +128,8 @@ const allowed = new Map([
     "// envelope, and a chunked request carries no declared length to check first — so the fixture has",
     "// to clear that ceiling to be testing the counter at all. Eleven MiB only ever proved it against",
     "// the 10 MiB single-file limit this app had before the ceiling moved to 25 MiB.",
-    "// The reader's own copy may be held for a year because only that reader can delete the bytes; a",
-    "// share grant is revocable, so its reads are asserted no-store further below.",
+    "// Owners may keep a private copy, but replacement can change bytes and encryption under the same",
+    "// id, so the response must revalidate with its ETag. Share reads remain no-store further below.",
   ]],
   ["scripts/excalidraw-patch.mjs", [
     "/**\n * The vendored engine build is a minified IIFE that was written for Obsidian, so six of its teardown\n * and asset paths throw when it is hosted by this app instead. The only way in is exact-string\n * replacement on minified text, which fails silently: rename one local and the `.replace()` becomes a\n * no-op that ships an unpatched bundle, and every gate still passes because nothing reads the result.\n *\n * This module is the single source for those edits (they used to be duplicated verbatim in\n * `vite.config.ts` and `scripts/patch-excalidraw.mjs`), and it reports every patch as applied,\n * already-present or unmatched so the caller can refuse to build on a miss.\n */",
