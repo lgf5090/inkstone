@@ -85,7 +85,7 @@ vi.mock('../src/client/features/reading/reader/EpubStage', async () => {
     EpubStage: forwardRef(function EpubStage(_props: unknown, ref) {
       useImperativeHandle(ref, () => ({
         next: vi.fn(), prev: vi.fn(), current: mocks.epubCurrent, goTo: mocks.epubGoTo,
-        goToFraction: vi.fn(), chapterIndex: () => 0, relayout: vi.fn(),
+        goToFraction: vi.fn(), chapterIndex: () => 0, relayout: vi.fn(), readAloud: vi.fn(() => ({ text: '第一句', offset: 0, language: 'zh-CN' })),
       }))
       return null
     }),

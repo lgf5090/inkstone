@@ -68,7 +68,7 @@ export interface EpubStageHandle {
   chapterIndex(): number
   /** Re-run the layout pass, which is what a settings change or a font arriving needs. */
   relayout(): void
-}
+  readAloud(): { text: string; offset: number; language: string } | null}
 
 interface EpubStageProps {
   handle: EpubHandle
@@ -584,6 +584,12 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     current: () => ({ kind: 'epub', chapter: slot, offset: currentOffset() }),
     chapterIndex: () => slot,
     relayout,
+    readAloud: () => {
+      const index = indexRef.current
+      if (!index) return null
+      const offset = currentOffset()
+      return { text: index.text.slice(offset), offset, language: handle.pkg.metadata.language || 'und' }
+    },
   }), [currentOffset, jump, jumpToFraction, relayout, slot, turnPage])
 
   /**

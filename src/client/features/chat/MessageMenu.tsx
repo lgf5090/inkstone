@@ -23,7 +23,7 @@ import { copyText } from '../../lib/clipboard'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
 import { saveReplyAsNote } from './save-to-note'
-import { canSpeak, speak, stopSpeaking } from './speech'
+import { canSpeak, speak, stopSpeaking } from '../../lib/speech'
 
 /** A point on screen, in the shape `Menu` anchors to. */
 export interface MenuPoint {

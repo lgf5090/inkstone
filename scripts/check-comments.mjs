@@ -5837,14 +5837,6 @@ const allowed = new Map([
     "/**\n * The readable list behind the source chips.\n *\n * It is a rendering of what the turn stored: a web source keeps its link and excerpt, a note source keeps\n * its note id and opens the notebook rather than a url. Nothing here fetches anything.\n */",
     "// The note is a button, not a link: the notebook opens by id.",
   ]],
-  ["src/client/features/chat/speech.ts", [
-    "/**\n * Reading a reply aloud.\n *\n * The browser's own speech synthesis is the only engine available without a key and without shipping a\n * voice, so this is a thin wrapper rather than a feature: it strips the Markdown first, because a\n * screen reader that spells out `##` and `**` is worse than not offering the button, and it refuses\n * quietly where the API is missing instead of throwing inside a click handler.\n */",
-    "/** Whether this browser can read anything aloud. */",
-    "/** Stops whatever is being read, if anything is. */",
-    "/**\n * Reads `text` in `language`, replacing whatever was being read.\n *\n * Replacing rather than queueing: a reader who presses read on a second reply wants that one, and two\n * voices talking over each other is the failure this avoids.\n */",
-    "/** The voice finished the whole utterance. A cancelled utterance may not call this. */",
-    "/** The engine refused or stopped with an error. */",
-  ]],
   ["src/client/features/chat/start-chat.test.ts", [
     "/**\n * Starting a thread that is about one note, or one folder.\n *\n * The command is small and its contract is what matters: a *new* thread (a chip describes what one thread\n * was asked about, so it must not follow the reader into another), the scope already pinned, and the\n * assistant in front of them — the dock in the notebook, the chat tab everywhere else.\n */",
     "/**\n * The same command asked while an answer is on its way.\n *\n * A new conversation is refused then, so without a guard of its own this command half-applies: the thread\n * stays the live one and the chip lands on it, which re-scopes a conversation the reader was mid-way\n * through and looks, to them, like a menu entry that does nothing. Both entry points are reached from the\n * list and the tree directly, so the refusal has to live here rather than in the one caller that already\n * checks.\n */",

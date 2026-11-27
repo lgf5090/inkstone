@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import type { AnswerResult } from './editor-ai'
-import type { SpeakHandlers } from './speech'
+import type { SpeakHandlers } from '../../lib/speech'
 import { VoiceTurnController, type VoiceTurnDeps } from './voice-turn'
 import type { SpeechEngine, SpeechResultEvent } from './voice-engine'
 

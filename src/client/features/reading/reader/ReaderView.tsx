@@ -8,7 +8,7 @@
  */
 import { Z_INDEX } from '../../../lib/z-index'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Bookmark, Clock, Database, FileText, List, Maximize2, MoreHorizontal, PenLine, Search, Settings2, Sparkles } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bookmark, Clock, Database, FileText, List, Maximize2, MoreHorizontal, PenLine, Search, Settings2, Sparkles, Volume2 } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
 import { Menu, Tooltip, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
@@ -43,12 +43,14 @@ import { useReadingTimer } from './useReadingTimer'
 import { useAutoReadingNote } from './use-auto-reading-note'
 import { shortcutAllowedWhilePanelOpen, shortcutFor } from './shortcuts'
 import { ShortcutsPanel } from './ShortcutsPanel'
+import { SpeechPanel } from './SpeechPanel'
+import { useReadAloud } from './use-read-aloud'
 import { StatsPanel } from './StatsPanel'
 import { lookupSelection, vocabularyEntry, hasLegacyLocalAiKey, type LookupOutcome } from '../lookup'
 import { ensureVocabularyNote } from '../vocabulary'
 import { useReadingPage } from '../page-context'
 
-type PanelName = 'toc' | 'search' | 'marks' | 'highlights' | 'appearance' | 'shortcuts' | 'stats' | null
+type PanelName = 'toc' | 'search' | 'marks' | 'highlights' | 'appearance' | 'shortcuts' | 'stats' | 'speech' | null
 
 /** Once per session: the migration is news, not a modal that follows the reader around. */
 let legacyAiKeyNoticeShown = false
@@ -65,6 +67,16 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const fixedSearch = useRef<((query: string) => Promise<PanelHit[]>) | null>(null)
   const indexAbort = useRef<AbortController | null>(null)
   const [indexProgress, setIndexProgress] = useState<{ done: number; total: number } | null>(null)
+  const [speechRate, setSpeechRate] = useState(1)
+  const [speechSleepMinutes, setSpeechSleepMinutes] = useState(0)
+  const readAloud = useReadAloud({
+    stage,
+    bookId: book.id,
+    language: book.language,
+    rate: speechRate,
+    sleepMinutes: speechSleepMinutes,
+    onError: (message) => toast({ title: t('reading.speech_failed'), description: message, tone: 'danger' }),
+  })
   const [zoom, setZoom] = useState(1)
   const [moreAt, setMoreAt] = useState<{ x: number; y: number } | null>(null)
   const isFixed = book.format !== 'epub'
@@ -672,6 +684,9 @@ export function ReaderView({ book }: { book: BookRecord }) {
               </span>
             </Tooltip>
           ) : null}
+          <IconButton label={t('reading.speech_title')} size="sm" active={panel === 'speech' || readAloud.playing} onClick={() => setPanel((current) => current === 'speech' ? null : 'speech')}>
+            <Volume2 size={15} />
+          </IconButton>
           <IconButton label={t('assistant.dock.toggle')} size="sm" active={assistantOpen} onClick={() => toggleAssistant()}>
             <Sparkles size={15} />
           </IconButton>
@@ -832,6 +847,21 @@ export function ReaderView({ book }: { book: BookRecord }) {
           {panel === 'marks' ? <MarksPanel bookId={book.id} onJump={goToPosition} onRemove={(id) => useLibrary.getState().removeMark(book.id, id)} /> : null}
           {panel === 'shortcuts' ? <ShortcutsPanel /> : null}
           {panel === 'stats' ? <StatsPanel bookId={book.id} goalMinutes={settings.dailyGoalMinutes} /> : null}
+      {panel === 'speech' ? (
+        <SpeechPanel
+          playing={readAloud.playing}
+          paused={readAloud.paused}
+          sentence={readAloud.sentences[readAloud.index]?.text ?? ''}
+          index={readAloud.index}
+          total={readAloud.sentences.length}
+          rate={speechRate}
+          sleepMinutes={speechSleepMinutes}
+          onRate={setSpeechRate}
+          onSleep={setSpeechSleepMinutes}
+          onPlayPause={readAloud.playing && !readAloud.paused ? readAloud.pause : readAloud.play}
+          onStop={readAloud.stop}
+        />
+      ) : null}
           {panel === 'search' ? (
             <SearchPanel
               search={search}
@@ -923,6 +953,7 @@ function panelTitle(panel: PanelName): string {
   if (panel === 'marks') return t('reading.location_marks')
   if (panel === 'shortcuts') return t('reading.shortcuts')
   if (panel === 'stats') return t('reading.stats_title')
+  if (panel === 'speech') return t('reading.speech_title')
   return t('reading.reading_settings')
 }
 
