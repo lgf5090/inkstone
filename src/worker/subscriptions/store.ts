@@ -81,6 +81,7 @@ interface PaymentRow {
   note: string
   period_start: number | null
   period_end: number | null
+  period_count: number
   created_at: number
 }
 
@@ -103,7 +104,7 @@ const ITEM_COLUMNS = `user_id, id, name, custom_type, category, amount, currency
   last_payment_date, trial_ends_at, deleted_at, created_at, updated_at`
 
 const PAYMENT_COLUMNS = `user_id, id, subscription_id, paid_at, amount, currency, kind, note,
-  period_start, period_end, created_at`
+  period_start, period_end, period_count, created_at`
 
 const RULE_COLUMNS = `user_id, id, subscription_id, kind, value, unit, repeat_interval, repeat_until,
   acknowledged_at, enabled, created_at`
@@ -129,6 +130,7 @@ function toPayment(row: PaymentRow): PaymentRecord {
     note: row.note,
     periodStart: toIso(row.period_start),
     periodEnd: toIso(row.period_end),
+    periodCount: Math.max(1, row.period_count),
   }
 }
 
@@ -352,7 +354,7 @@ export class SubscriptionsStore {
 
     if (amount !== null) {
       statements.push(this.db.prepare(
-        `INSERT INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+        `INSERT INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
       ).bind(
         this.userId,
         newId(),
@@ -364,6 +366,7 @@ export class SubscriptionsStore {
         '',
         startDate ?? createdAt,
         expiry,
+        1,
         createdAt,
       ))
     }
@@ -560,7 +563,7 @@ export class SubscriptionsStore {
     const paymentAt = toMs(options.paymentDate, context.timezone) ?? now
     const multiplier = Math.min(PERIOD_MULTIPLIER_MAX, Math.max(1, Math.trunc(options.periodMultiplier ?? 1)))
     const amount = options.amount === undefined
-      ? existing.amount ?? 0
+      ? roundMoney((existing.amount ?? 0) * multiplier)
       : roundMoney(options.amount)
     const mode = existing.subscription_mode === 'reset' ? 'reset' : 'cycle'
     const currentExpiry = existing.expiry_date
@@ -568,22 +571,21 @@ export class SubscriptionsStore {
       ? paymentAt
       : currentExpiry > paymentAt ? currentExpiry : paymentAt
 
-    let expiry: number
-    if (existing.use_lunar === 1) {
-      expiry = this.addLunarPeriods(startAt, existing.period_value * multiplier, existing.period_unit as 'day' | 'month' | 'year', context.timezone)
-    } else {
-      expiry = addCalendarPeriodInTimezone(
-        startAt,
-        existing.period_value * multiplier,
+    const advance = (from: number, count: number): number => existing.use_lunar === 1
+      ? this.addLunarPeriods(from, existing.period_value * count, existing.period_unit as 'day' | 'month' | 'year', context.timezone)
+      : addCalendarPeriodInTimezone(
+        from,
+        existing.period_value * count,
         existing.period_unit as 'day' | 'month' | 'year',
         context.timezone,
       ).getTime()
-    }
+    const expiry = advance(startAt, multiplier)
+    const lastStart = multiplier > 1 ? advance(startAt, multiplier - 1) : startAt
 
     const paymentId = newId()
     await this.db.batch([
       this.db.prepare(
-        `INSERT INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+        `INSERT INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
       ).bind(
         this.userId,
         paymentId,
@@ -593,14 +595,15 @@ export class SubscriptionsStore {
         existing.currency,
         'manual',
         options.note ?? '',
-        startAt,
+        lastStart,
         expiry,
+        multiplier,
         now,
       ),
       this.db.prepare(
         `UPDATE sub_item SET start_date = ?3, expiry_date = ?4, last_payment_date = ?5, updated_at = ?6
           WHERE user_id = ?1 AND id = ?2`,
-      ).bind(this.userId, id, startAt, expiry, paymentAt, now),
+      ).bind(this.userId, id, lastStart, expiry, paymentAt, now),
       this.clearAcknowledgementsStatement(id),
     ])
     await this.trimPayments(id, context.paymentLimit)
@@ -627,42 +630,46 @@ export class SubscriptionsStore {
     const mode = existing.subscription_mode === 'reset' ? 'reset' : 'cycle'
     const unit = existing.period_unit as 'day' | 'month' | 'year'
     let expiry = existing.expiry_date
+    let lastStart = existing.expiry_date
     let periods = 0
     const ceiling = existing.use_lunar === 1 ? 60 : 120
 
     while (expiry <= now && periods < ceiling) {
-      if (mode === 'reset' && existing.use_lunar !== 1) expiry = now
+      if (mode === 'reset') expiry = now
+      const previous = expiry
       expiry = existing.use_lunar === 1
         ? this.addLunarPeriods(expiry, existing.period_value, unit, context.timezone)
         : addCalendarPeriodInTimezone(expiry, existing.period_value, unit, context.timezone).getTime()
+      lastStart = previous
       periods++
     }
     if (periods === 0) return null
 
-    const startAt = mode === 'reset' ? now : existing.expiry_date
-    const note = periods > 1 ? `${mode === 'reset' ? 'reset' : 'cycle'} x${periods}` : mode
-    await this.db.batch([
+    const paymentId = `auto:${id}:${existing.expiry_date}`
+    const results = await this.db.batch([
       this.db.prepare(
-        `INSERT INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+        `INSERT OR IGNORE INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
       ).bind(
         this.userId,
-        newId(),
+        paymentId,
         id,
         now,
-        existing.amount ?? 0,
+        roundMoney((existing.amount ?? 0) * periods),
         existing.currency,
         'auto',
-        note,
-        startAt,
+        '',
+        lastStart,
         expiry,
+        periods,
         now,
       ),
       this.db.prepare(
         `UPDATE sub_item SET start_date = ?3, expiry_date = ?4, last_payment_date = ?5, updated_at = ?6
-          WHERE user_id = ?1 AND id = ?2`,
-      ).bind(this.userId, id, startAt, expiry, now, now),
+          WHERE user_id = ?1 AND id = ?2 AND expiry_date = ?7 AND auto_renew = 1 AND is_active = 1 AND deleted_at IS NULL`,
+      ).bind(this.userId, id, lastStart, expiry, now, now, existing.expiry_date),
       this.clearAcknowledgementsStatement(id),
     ])
+    if ((results[1]?.meta.changes ?? 0) === 0) return null
     await this.trimPayments(id, context.paymentLimit)
     const detail = await this.get(id, context)
     return detail?.item ?? null
@@ -957,17 +964,18 @@ export class SubscriptionsStore {
   }
 
   /** Every payment the account has, newest first, for the dashboard's aggregates. */
-  async allPayments(): Promise<Array<{ subscriptionId: string; paidAt: number; amount: number; currency: string; note: string }>> {
+  async allPayments(): Promise<Array<{ subscriptionId: string; paidAt: number; amount: number; currency: string; note: string; periodCount: number }>> {
     const { results } = await this.db.prepare(
-      `SELECT subscription_id, paid_at, amount, currency, note FROM sub_payment
+      `SELECT subscription_id, paid_at, amount, currency, note, period_count FROM sub_payment
         WHERE user_id = ?1 AND amount > 0 ORDER BY paid_at DESC`,
-    ).bind(this.userId).all<{ subscription_id: string; paid_at: number; amount: number; currency: string; note: string }>()
+    ).bind(this.userId).all<{ subscription_id: string; paid_at: number; amount: number; currency: string; note: string; period_count: number }>()
     return results.map((row) => ({
       subscriptionId: row.subscription_id,
       paidAt: row.paid_at,
       amount: row.amount,
       currency: row.currency,
       note: row.note,
+      periodCount: Math.max(1, row.period_count),
     }))
   }
 
@@ -1122,8 +1130,8 @@ export class SubscriptionsStore {
     if (!initial && amount !== null && amount > 0) {
       const paidAt = startDate ?? existing.created_at
       await this.db.prepare(
-        `INSERT INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
-      ).bind(this.userId, newId(), id, paidAt, amount, currency, 'initial', '', paidAt, expiry, now).run()
+        `INSERT INTO sub_payment (${PAYMENT_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+      ).bind(this.userId, newId(), id, paidAt, amount, currency, 'initial', '', paidAt, expiry, 1, now).run()
     }
   }
 

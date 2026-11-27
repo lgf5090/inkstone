@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_ASSISTANT_SETTINGS } from '../src/shared/assistant'
+import { formatLocalDate } from '../src/shared/subscriptions/time'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { ToolExecutor, type ToolContext } from '../src/worker/assistant/tools'
 import type { NoteScope } from '../src/worker/assistant/note-scope'
@@ -171,7 +172,7 @@ describe('writing from a conversation', () => {
     const { store: subStore, context } = store()
     const saved = (await subStore.list(context)).find((item) => item.name === 'Nintendo')
     expect(saved, 'a switched-off plan stays off').toMatchObject({ useLunar: true, autoRenew: false, isActive: false })
-    expect(saved?.startDate?.slice(0, 10)).toBe('2026-10-01')
+    expect(saved?.startDate ? formatLocalDate(saved.startDate, context.timezone, 'date') : null).toBe('2026-10-01')
 
     const moved = await run('update_subscription', { ref: 'Nintendo', startDate: '2026-11-11', useLunar: false }) as { updated: { startDate: string | null, useLunar: boolean } }
     expect(moved.updated).toMatchObject({ startDate: '2026-11-11', useLunar: false })

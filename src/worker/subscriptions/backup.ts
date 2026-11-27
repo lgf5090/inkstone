@@ -16,7 +16,7 @@
  * hands out a new URL. That is correct — an old URL that still worked after a restore would be a
  * second, undocumented way into the account.
  */
-import { normalizeNotificationHours, normalizeRateOverrides, normalizeBudgetCategories, clampPaymentLimit, isCurrencyCode, isPeriodUnit, isSubscriptionMode, LABEL_MAX, NAME_MAX, NOTES_MAX } from '@shared/subscriptions/model'
+import { normalizeNotificationHours, normalizeRateOverrides, normalizeBudgetCategories, clampPaymentLimit, isCurrencyCode, isPeriodUnit, isSubscriptionMode, LABEL_MAX, NAME_MAX, NOTES_MAX, PERIOD_MULTIPLIER_MAX } from '@shared/subscriptions/model'
 
 export const SUBSCRIPTIONS_BACKUP_VERSION = 1 as const
 
@@ -67,7 +67,7 @@ async function tableRows(db: D1Database, userId: string): Promise<TableRows> {
                        notes, last_payment_date, trial_ends_at, deleted_at, created_at, updated_at
                   FROM sub_item WHERE user_id = ?1 ORDER BY created_at`).bind(userId).all(),
     db.prepare(`SELECT id, subscription_id, paid_at, amount, currency, kind, note,
-                       period_start, period_end, created_at
+                       period_start, period_end, period_count, created_at
                   FROM sub_payment WHERE user_id = ?1 ORDER BY paid_at`).bind(userId).all(),
     db.prepare(`SELECT id, subscription_id, kind, value, unit, repeat_interval, repeat_until,
                        acknowledged_at, enabled, created_at
@@ -161,8 +161,8 @@ export async function applyBackupSubscriptions(
   for (const row of owned) {
     statements.push(db.prepare(
       `INSERT INTO sub_payment (user_id, id, subscription_id, paid_at, amount, currency, kind, note,
-        period_start, period_end, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+        period_start, period_end, period_count, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
     ).bind(
       userId,
       bounded(String(row.id), 64),
@@ -174,6 +174,7 @@ export async function applyBackupSubscriptions(
       bounded(String(row.note ?? ''), 200),
       numberOrNull(row.period_start),
       numberOrNull(row.period_end),
+      intAtLeast(row.period_count, 1, PERIOD_MULTIPLIER_MAX),
       numberOrNull(row.created_at) ?? Date.now(),
     ))
   }

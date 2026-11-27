@@ -44,6 +44,7 @@ export interface PaymentSample {
   amount: number
   currency: CurrencyCode
   note?: string
+  periodCount?: number
 }
 
 /** Whether this table can price one unit of `code` at all. */
@@ -550,9 +551,9 @@ export function findPriceChanges(
     if (!previous || latest.amount === previous.amount) continue
     // A renewal that bought several periods costs more without the plan being dearer, so the comparison
     // is only honest per period.
-    const latestPerPeriod = latest.amount
-    const previousPerPeriod = previous.amount
-    if (previousPerPeriod <= 0) continue
+    const latestPerPeriod = latest.amount / Math.max(1, latest.periodCount ?? 1)
+    const previousPerPeriod = previous.amount / Math.max(1, previous.periodCount ?? 1)
+    if (previousPerPeriod <= 0 || latestPerPeriod === previousPerPeriod) continue
     out.push({
       id: item.id,
       name: item.name,
@@ -581,13 +582,13 @@ export interface PricePoint {
  * oldest points fall off when the history is longer than the plot can hold.
  */
 export function priceHistory(
-  payments: readonly { paidAt: string | number; amount: number; currency: string }[],
+  payments: readonly { paidAt: string | number; amount: number; currency: string; periodCount?: number }[],
   currency: string,
   limit = 12,
 ): PricePoint[] {
   const points = payments
     .filter((payment) => payment.currency === currency && payment.amount > 0)
-    .map((payment) => ({ at: typeof payment.paidAt === 'number' ? new Date(payment.paidAt).toISOString() : payment.paidAt, amount: payment.amount }))
+    .map((payment) => ({ at: typeof payment.paidAt === 'number' ? new Date(payment.paidAt).toISOString() : payment.paidAt, amount: payment.amount / Math.max(1, payment.periodCount ?? 1) }))
     .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
   return points.slice(Math.max(0, points.length - limit))
 }

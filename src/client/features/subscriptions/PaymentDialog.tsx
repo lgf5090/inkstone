@@ -61,7 +61,7 @@ export function PaymentDialog({
           <Field label={t('subscriptions.renew.date')}>
             <DatePicker label={t('subscriptions.renew.date')} value={date} onChange={setDate} />
           </Field>
-          <Field label={t('subscriptions.renew.amount')}>
+          <Field label={t('subscriptions.payments.amount')}>
             <Input type="number" min={0} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
           </Field>
         </div>

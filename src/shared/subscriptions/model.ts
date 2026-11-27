@@ -277,6 +277,7 @@ export interface PaymentRecord {
   note: string
   periodStart: string | null
   periodEnd: string | null
+  periodCount?: number
 }
 
 export interface ReminderRule {

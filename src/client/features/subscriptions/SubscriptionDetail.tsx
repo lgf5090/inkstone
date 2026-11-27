@@ -229,7 +229,7 @@ export function SubscriptionDetail({
                     />
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="text-[length:var(--text-12)] tabular-nums text-[var(--text-primary)]">
-                        {formatAmount(payment.amount, payment.currency)}
+                        {formatAmount(payment.amount, payment.currency)}{(payment.periodCount ?? 1) > 1 ? ` ×${payment.periodCount}` : ''}
                       </span>
                       <span className="flex items-center gap-1">
                         <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">

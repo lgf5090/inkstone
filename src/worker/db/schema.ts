@@ -4940,6 +4940,11 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `INSERT OR IGNORE INTO app_meta (key, value) VALUES ('calendar-attendees-v1', '1')`,
     ],
   },
+  {
+    version: 440,
+    skipIfColumnExists: { table: 'sub_payment', column: 'period_count' },
+    statements: [`ALTER TABLE sub_payment ADD COLUMN period_count INTEGER NOT NULL DEFAULT 1`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -373,6 +373,13 @@ describe('the price changes in a receipt history', () => {
     expect(changes[0]).toMatchObject({ currency: 'CNY', previous: 60, current: 75, change: 25 })
   })
 
+  it('compares per-period prices instead of multi-period receipt totals', () => {
+    expect(findPriceChanges([item()], [
+      payment({ amount: 120, periodCount: 2, paidAt: Date.parse('2026-05-10T00:00:00Z') }),
+      payment({ amount: 60, periodCount: 1, paidAt: Date.parse('2026-04-10T00:00:00Z') }),
+    ])).toEqual([])
+  })
+
   it('says nothing when the two newest receipts are in different currencies', () => {
     expect(findPriceChanges([item()], [
       payment({ currency: 'USD', amount: 10, paidAt: Date.parse('2026-05-10T00:00:00Z') }),
@@ -429,6 +436,11 @@ describe('the price history of one plan', () => {
       { at: '2026-01-01T00:00:00.000Z', amount: 60 },
       { at: '2026-03-01T00:00:00.000Z', amount: 75 },
     ])
+  })
+
+  it('normalises a multi-period receipt to its per-period price', () => {
+    const points = priceHistory([{ paidAt: '2026-05-01T00:00:00.000Z', amount: 120, currency: 'CNY', periodCount: 2 }], 'CNY')
+    expect(points).toEqual([{ at: '2026-05-01T00:00:00.000Z', amount: 60 }])
   })
 
   it('keeps the newest charges when the history is longer than the plot', () => {

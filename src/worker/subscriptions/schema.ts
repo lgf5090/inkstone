@@ -60,6 +60,7 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     note TEXT NOT NULL DEFAULT '',
     period_start INTEGER,
     period_end INTEGER,
+    period_count INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
@@ -231,7 +232,7 @@ export const SUBSCRIPTIONS_REQUIRED_COLUMNS: Readonly<Record<string, readonly st
   ],
   sub_payment: [
     'user_id', 'id', 'subscription_id', 'paid_at', 'amount', 'currency', 'kind', 'note',
-    'period_start', 'period_end', 'created_at',
+    'period_start', 'period_end', 'period_count', 'created_at',
   ],
   sub_reminder_rule: [
     'user_id', 'id', 'subscription_id', 'kind', 'value', 'unit', 'repeat_interval',

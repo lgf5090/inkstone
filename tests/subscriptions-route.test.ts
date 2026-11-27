@@ -249,6 +249,8 @@ describe('renewing', () => {
     expect(after).toBeGreaterThan(before)
     expect(detail.payments).toHaveLength(2)
     expect(detail.payments[0].kind).toBe('manual')
+    expect(detail.payments[0].amount).toBe(120)
+    expect(detail.payments[0].periodCount).toBe(2)
   })
 
   it('starts a fresh term from the payment date in reset mode', async () => {

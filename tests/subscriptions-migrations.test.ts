@@ -60,6 +60,21 @@ const OLD_SUB_ITEM = `CREATE TABLE sub_item (
   PRIMARY KEY (user_id, id)
 )`
 
+const OLD_SUB_PAYMENT = `CREATE TABLE sub_payment (
+  user_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  subscription_id TEXT NOT NULL,
+  paid_at INTEGER NOT NULL,
+  amount REAL NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'CNY',
+  kind TEXT NOT NULL DEFAULT 'manual',
+  note TEXT NOT NULL DEFAULT '',
+  period_start INTEGER,
+  period_end INTEGER,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, id)
+)`
+
 function columnsOf(sqlite: DatabaseSync, table: string): string[] {
   return sqlite.prepare(`SELECT name FROM pragma_table_info(?)`).all(table)
     .map((row) => (row as { name: string }).name)
@@ -135,6 +150,18 @@ describe('an existing subscriptions database', () => {
     expect(before.n).toBe(0)
     await boot()
     expect(columnsOf(sqlite, 'sub_type')).toEqual(['user_id', 'name', 'icon', 'color', 'created_at'])
+  })
+
+  it('adds period_count to existing receipts without changing their amount', async () => {
+    sqlite.exec('DROP TABLE sub_payment')
+    sqlite.exec(OLD_SUB_PAYMENT)
+    sqlite.exec(`INSERT INTO sub_payment (user_id, id, subscription_id, paid_at, amount, currency, kind, note, created_at)
+      VALUES ('u1', 'p1', 's1', 1, 60, 'CNY', 'initial', '', 1)`)
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 440')
+    sqlite.exec(`DELETE FROM app_meta WHERE key = 'database-state-v1'`)
+    await boot()
+    const row = sqlite.prepare("SELECT amount, period_count FROM sub_payment WHERE id = 'p1'").get()
+    expect(row).toEqual({ amount: 60, period_count: 1 })
   })
 
   it('settles into the same shape twice, so a second boot changes nothing', async () => {
