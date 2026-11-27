@@ -194,6 +194,17 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id, subscription_id, rule_id, hour_key)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_sub_dedupe_created ON sub_notify_dedupe(user_id, created_at)`,
+
+  `CREATE TABLE IF NOT EXISTS sub_restore_stage (
+    user_id TEXT NOT NULL,
+    restore_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, restore_id, kind, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_sub_restore_stage_cleanup ON sub_restore_stage(created_at)`,
 ]
 
 export const SUBSCRIPTIONS_REQUIRED_TABLES: readonly string[] = [
@@ -206,7 +217,7 @@ export const SUBSCRIPTIONS_REQUIRED_TABLES: readonly string[] = [
   'sub_settings',
   'sub_notify_log',
   'sub_schedule_log',
-  'sub_notify_dedupe',
+  'sub_notify_dedupe', 'sub_restore_stage',
 ]
 
 export const SUBSCRIPTIONS_REQUIRED_INDEXES: readonly string[] = [
@@ -221,7 +232,7 @@ export const SUBSCRIPTIONS_REQUIRED_INDEXES: readonly string[] = [
   'idx_sub_notify_log_recent',
   'idx_sub_notify_log_sub',
   'idx_sub_schedule_log_recent',
-  'idx_sub_dedupe_created',
+  'idx_sub_dedupe_created', 'idx_sub_restore_stage_cleanup',
 ]
 
 export const SUBSCRIPTIONS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -259,4 +270,5 @@ export const SUBSCRIPTIONS_REQUIRED_COLUMNS: Readonly<Record<string, readonly st
     'reason', 'detail',
   ],
   sub_notify_dedupe: ['user_id', 'subscription_id', 'rule_id', 'hour_key', 'created_at'],
+  sub_restore_stage: ['user_id', 'restore_id', 'kind', 'id', 'payload', 'created_at'],
 }

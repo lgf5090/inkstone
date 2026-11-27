@@ -164,6 +164,14 @@ describe('an existing subscriptions database', () => {
     expect(row).toEqual({ amount: 60, period_count: 1 })
   })
 
+  it('creates the restore staging table on an existing database', async () => {
+    sqlite.exec('DROP TABLE sub_restore_stage')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 441')
+    sqlite.exec(`DELETE FROM app_meta WHERE key = 'database-state-v1'`)
+    await boot()
+    expect(columnsOf(sqlite, 'sub_restore_stage')).toEqual(['user_id', 'restore_id', 'kind', 'id', 'payload', 'created_at'])
+  })
+
   it('settles into the same shape twice, so a second boot changes nothing', async () => {
     await boot()
     const first = ['sub_category', 'sub_settings', 'sub_item', 'sub_type'].map((table) => columnsOf(sqlite, table))

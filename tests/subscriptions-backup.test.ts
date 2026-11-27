@@ -201,6 +201,23 @@ describe('restore', () => {
     expect(restored.budgetCategories).toEqual({ family: 500, travel: 1200 })
   })
 
+  it('leaves the old library intact when the final atomic switch fails', async () => {
+    await seed()
+    const before = rows('sub_item')
+    const text = await readBackupSubscriptions(env.DB, USER)!
+    const originalBatch = env.DB.batch.bind(env.DB)
+    let batchCalls = 0
+    const failingDb = Object.create(env.DB) as D1Database
+    failingDb.batch = async (statements) => {
+      batchCalls++
+      if (batchCalls === 2) throw new Error('injected final switch failure')
+      return originalBatch(statements)
+    }
+    await expect(applyBackupSubscriptions(failingDb, USER, text)).rejects.toThrow('injected final switch failure')
+    expect(rows('sub_item')).toEqual(before)
+    expect(rows('sub_restore_stage')).toEqual([])
+  })
+
   it('replaces the current library rather than adding to it', async () => {
     await seed()
     const text = await readBackupSubscriptions(env.DB, USER)!

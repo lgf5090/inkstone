@@ -4945,6 +4945,21 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'sub_payment', column: 'period_count' },
     statements: [`ALTER TABLE sub_payment ADD COLUMN period_count INTEGER NOT NULL DEFAULT 1`],
   },
+  {
+    version: 441,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS sub_restore_stage (
+        user_id TEXT NOT NULL,
+        restore_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, restore_id, kind, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_sub_restore_stage_cleanup ON sub_restore_stage(created_at)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -17,6 +17,7 @@
  * second, undocumented way into the account.
  */
 import { normalizeNotificationHours, normalizeRateOverrides, normalizeBudgetCategories, clampPaymentLimit, isCurrencyCode, isPeriodUnit, isSubscriptionMode, LABEL_MAX, NAME_MAX, NOTES_MAX, PERIOD_MULTIPLIER_MAX } from '@shared/subscriptions/model'
+import { newId } from '../lib/id'
 
 export const SUBSCRIPTIONS_BACKUP_VERSION = 1 as const
 
@@ -110,142 +111,173 @@ export async function applyBackupSubscriptions(
     throw new Error(`Unsupported subscription backup version: ${String(source.version)}`)
   }
 
-  const items = cleanRows(source.items, MAX_ITEMS, 'subscriptions')
+  const items = uniqueById(cleanRows(source.items, MAX_ITEMS, 'subscriptions')
     .filter((row) => typeof row.id === 'string' && typeof row.name === 'string' && row.name.trim())
-  const payments = cleanRows(source.payments, MAX_PAYMENTS, 'payments')
-  const rules = cleanRows(source.rules, MAX_RULES, 'reminder rules')
+    .map((row) => ({
+      id: bounded(String(row.id), 64),
+      name: bounded(String(row.name).trim(), NAME_MAX),
+      custom_type: bounded(String(row.custom_type ?? ''), LABEL_MAX),
+      category: bounded(String(row.category ?? ''), LABEL_MAX * 4),
+      amount: numberOrNull(row.amount),
+      currency: isCurrencyCode(row.currency) ? row.currency : 'CNY',
+      start_date: numberOrNull(row.start_date),
+      expiry_date: numberOrNull(row.expiry_date) ?? numberOrNull(row.start_date) ?? Date.now(),
+      period_value: intAtLeast(row.period_value, 1, 120),
+      period_unit: isPeriodUnit(row.period_unit) ? row.period_unit : 'month',
+      subscription_mode: isSubscriptionMode(row.subscription_mode) ? row.subscription_mode : 'cycle',
+      use_lunar: truthy(row.use_lunar) ? 1 : 0,
+      is_active: truthy(row.is_active) ? 1 : 0,
+      auto_renew: truthy(row.auto_renew) ? 1 : 0,
+      notes: bounded(String(row.notes ?? ''), NOTES_MAX),
+      last_payment_date: numberOrNull(row.last_payment_date),
+      trial_ends_at: numberOrNull(row.trial_ends_at),
+      deleted_at: numberOrNull(row.deleted_at),
+      created_at: numberOrNull(row.created_at) ?? Date.now(),
+      updated_at: numberOrNull(row.updated_at) ?? Date.now(),
+    })), 'subscription')
+  const ids = new Set(items.map((row) => row.id))
+  const payments = uniqueById(cleanRows(source.payments, MAX_PAYMENTS, 'payments')
+    .filter((row) => ids.has(bounded(String(row.subscription_id ?? ''), 64)))
+    .map((row) => ({
+      id: bounded(String(row.id), 64),
+      subscription_id: bounded(String(row.subscription_id), 64),
+      paid_at: numberOrNull(row.paid_at) ?? Date.now(),
+      amount: numberOrNull(row.amount) ?? 0,
+      currency: isCurrencyCode(row.currency) ? row.currency : 'CNY',
+      kind: ['initial', 'manual', 'auto'].includes(String(row.kind)) ? row.kind : 'manual',
+      note: bounded(String(row.note ?? ''), 200),
+      period_start: numberOrNull(row.period_start),
+      period_end: numberOrNull(row.period_end),
+      period_count: intAtLeast(row.period_count, 1, PERIOD_MULTIPLIER_MAX),
+      created_at: numberOrNull(row.created_at) ?? Date.now(),
+    })), 'payment')
+  const rules = uniqueById(cleanRows(source.rules, MAX_RULES, 'reminder rules')
+    .filter((row) => ids.has(bounded(String(row.subscription_id ?? ''), 64)))
+    .map((row) => ({
+      id: bounded(String(row.id), 64),
+      subscription_id: bounded(String(row.subscription_id), 64),
+      kind: ['before_expiry', 'on_expiry', 'after_expiry'].includes(String(row.kind)) ? row.kind : 'before_expiry',
+      value: intAtLeast(row.value, 0, 3650),
+      unit: row.unit === 'hours' ? 'hours' : 'days',
+      repeat_interval: numberOrNull(row.repeat_interval),
+      repeat_until: ['renewed', 'acknowledged', 'never'].includes(String(row.repeat_until)) ? row.repeat_until : 'renewed',
+      acknowledged_at: numberOrNull(row.acknowledged_at),
+      enabled: truthy(row.enabled) ? 1 : 0,
+      created_at: numberOrNull(row.created_at) ?? Date.now(),
+    })), 'reminder rule')
   const categories = cleanRows(source.categories, MAX_LABELS, 'categories')
+    .map((row) => ({ name: bounded(String(row.name ?? '').trim(), LABEL_MAX), icon: bounded(String(row.icon ?? ''), 40), color: bounded(String(row.color ?? ''), 7), created_at: numberOrNull(row.created_at) ?? Date.now() }))
+    .filter((row) => row.name)
   const types = cleanRows(source.types, MAX_LABELS, 'types')
+    .map((row) => ({ name: bounded(String(row.name ?? '').trim(), LABEL_MAX), icon: bounded(String(row.icon ?? ''), 40), color: bounded(String(row.color ?? ''), 7), created_at: numberOrNull(row.created_at) ?? Date.now() }))
+    .filter((row) => row.name)
 
-  // A receipt or a rule that points at a subscription the file does not carry is not restorable, so it
-  // is dropped here and the count says so — silently inserting orphans would make the history wrong.
-  const ids = new Set(items.map((row) => String(row.id)))
-  const owned = payments.filter((row) => ids.has(String(row.subscription_id ?? '')))
-  const ownedRules = rules.filter((row) => ids.has(String(row.subscription_id ?? '')))
+  const sourceSettings = source.settings
+  const settingsRow = sourceSettings && typeof sourceSettings === 'object' ? sourceSettings as Record<string, unknown> : null
+  const settings = settingsRow
+    ? {
+        timezone: bounded(String(settingsRow.timezone ?? 'Asia/Shanghai'), 64),
+        notification_hours: JSON.stringify(normalizeNotificationHours(carriedField(settingsRow.notification_hours))),
+        show_lunar: truthy(settingsRow.show_lunar) ? 1 : 0,
+        payment_history_limit: clampPaymentLimit(settingsRow.payment_history_limit),
+        locale: settingsRow.locale === 'en-US' ? 'en-US' : 'zh-CN',
+        base_currency: isCurrencyCode(settingsRow.base_currency) ? settingsRow.base_currency : 'CNY',
+        budget_monthly: numberOrNull(settingsRow.budget_monthly),
+        budget_yearly: numberOrNull(settingsRow.budget_yearly),
+        budget_categories: JSON.stringify(normalizeBudgetCategories(carriedField(settingsRow.budget_categories))),
+        rate_overrides: JSON.stringify(normalizeRateOverrides(carriedField(settingsRow.rate_overrides))),
+      }
+    : null
 
-  const statements: D1PreparedStatement[] = [
-    ...clearStatements(db, userId),
+  const restoreId = newId()
+  const staged: Array<{ kind: string; id: string; payload: unknown }> = [
+    ...items.map((row) => ({ kind: 'item', id: row.id, payload: row })),
+    ...payments.map((row) => ({ kind: 'payment', id: row.id, payload: row })),
+    ...rules.map((row) => ({ kind: 'rule', id: row.id, payload: row })),
+    ...categories.map((row) => ({ kind: 'category', id: row.name, payload: row })),
+    ...types.map((row) => ({ kind: 'type', id: row.name, payload: row })),
   ]
-  for (const row of items) {
-    statements.push(db.prepare(
-      `INSERT INTO sub_item (user_id, id, name, custom_type, category, amount, currency, start_date, expiry_date,
+  const stageStatements = staged.map((row) => db.prepare(
+    `INSERT INTO sub_restore_stage (user_id, restore_id, kind, id, payload, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+  ).bind(userId, restoreId, row.kind, row.id, JSON.stringify(row.payload), Date.now()))
+
+  try {
+    await batchInChunks(db, stageStatements)
+    const statements: D1PreparedStatement[] = [...clearStatements(db, userId)]
+    statements.push(
+      db.prepare(`INSERT INTO sub_item (user_id, id, name, custom_type, category, amount, currency, start_date, expiry_date,
         period_value, period_unit, subscription_mode, use_lunar, is_active, auto_renew, notes,
         last_payment_date, trial_ends_at, deleted_at, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)`,
-    ).bind(
-      userId,
-      bounded(String(row.id), 64),
-      bounded(String(row.name).trim(), NAME_MAX),
-      bounded(String(row.custom_type ?? ''), LABEL_MAX),
-      bounded(String(row.category ?? ''), LABEL_MAX * 4),
-      numberOrNull(row.amount),
-      isCurrencyCode(row.currency) ? row.currency : 'CNY',
-      numberOrNull(row.start_date),
-      // Expiry is NOT NULL and every reminder calculation reads it, so a row without one is not a
-      // subscription. It is dropped, and the summary reports how many were.
-      numberOrNull(row.expiry_date) ?? numberOrNull(row.start_date) ?? Date.now(),
-      intAtLeast(row.period_value, 1, 120),
-      isPeriodUnit(row.period_unit) ? row.period_unit : 'month',
-      isSubscriptionMode(row.subscription_mode) ? row.subscription_mode : 'cycle',
-      truthy(row.use_lunar) ? 1 : 0,
-      truthy(row.is_active) ? 1 : 0,
-      truthy(row.auto_renew) ? 1 : 0,
-      bounded(String(row.notes ?? ''), NOTES_MAX),
-      numberOrNull(row.last_payment_date),
-      numberOrNull(row.trial_ends_at),
-      numberOrNull(row.deleted_at),
-      numberOrNull(row.created_at) ?? Date.now(),
-      numberOrNull(row.updated_at) ?? Date.now(),
-    ))
-  }
-  for (const row of owned) {
-    statements.push(db.prepare(
-      `INSERT INTO sub_payment (user_id, id, subscription_id, paid_at, amount, currency, kind, note,
+        SELECT ?1, json_extract(payload,'$.id'), json_extract(payload,'$.name'), json_extract(payload,'$.custom_type'),
+          json_extract(payload,'$.category'), json_extract(payload,'$.amount'), json_extract(payload,'$.currency'),
+          json_extract(payload,'$.start_date'), json_extract(payload,'$.expiry_date'), json_extract(payload,'$.period_value'),
+          json_extract(payload,'$.period_unit'), json_extract(payload,'$.subscription_mode'), json_extract(payload,'$.use_lunar'),
+          json_extract(payload,'$.is_active'), json_extract(payload,'$.auto_renew'), json_extract(payload,'$.notes'),
+          json_extract(payload,'$.last_payment_date'), json_extract(payload,'$.trial_ends_at'), json_extract(payload,'$.deleted_at'),
+          json_extract(payload,'$.created_at'), json_extract(payload,'$.updated_at')
+        FROM sub_restore_stage WHERE user_id = ?2 AND restore_id = ?3 AND kind = 'item'`).bind(userId, userId, restoreId),
+      db.prepare(`INSERT INTO sub_payment (user_id, id, subscription_id, paid_at, amount, currency, kind, note,
         period_start, period_end, period_count, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
-    ).bind(
-      userId,
-      bounded(String(row.id), 64),
-      bounded(String(row.subscription_id), 64),
-      numberOrNull(row.paid_at) ?? Date.now(),
-      numberOrNull(row.amount) ?? 0,
-      isCurrencyCode(row.currency) ? row.currency : 'CNY',
-      ['initial', 'manual', 'auto'].includes(String(row.kind)) ? row.kind : 'manual',
-      bounded(String(row.note ?? ''), 200),
-      numberOrNull(row.period_start),
-      numberOrNull(row.period_end),
-      intAtLeast(row.period_count, 1, PERIOD_MULTIPLIER_MAX),
-      numberOrNull(row.created_at) ?? Date.now(),
-    ))
-  }
-  for (const row of ownedRules) {
-    statements.push(db.prepare(
-      `INSERT INTO sub_reminder_rule (user_id, id, subscription_id, kind, value, unit, repeat_interval,
+        SELECT ?1, json_extract(payload,'$.id'), json_extract(payload,'$.subscription_id'), json_extract(payload,'$.paid_at'),
+          json_extract(payload,'$.amount'), json_extract(payload,'$.currency'), json_extract(payload,'$.kind'), json_extract(payload,'$.note'),
+          json_extract(payload,'$.period_start'), json_extract(payload,'$.period_end'), json_extract(payload,'$.period_count'),
+          json_extract(payload,'$.created_at')
+        FROM sub_restore_stage WHERE user_id = ?2 AND restore_id = ?3 AND kind = 'payment'`).bind(userId, userId, restoreId),
+      db.prepare(`INSERT INTO sub_reminder_rule (user_id, id, subscription_id, kind, value, unit, repeat_interval,
         repeat_until, acknowledged_at, enabled, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
-    ).bind(
-      userId,
-      bounded(String(row.id), 64),
-      bounded(String(row.subscription_id), 64),
-      ['before_expiry', 'on_expiry', 'after_expiry'].includes(String(row.kind)) ? row.kind : 'before_expiry',
-      intAtLeast(row.value, 0, 3650),
-      row.unit === 'hours' ? 'hours' : 'days',
-      numberOrNull(row.repeat_interval),
-      ['renewed', 'acknowledged', 'never'].includes(String(row.repeat_until)) ? row.repeat_until : 'renewed',
-      numberOrNull(row.acknowledged_at),
-      truthy(row.enabled) ? 1 : 0,
-      numberOrNull(row.created_at) ?? Date.now(),
-    ))
-  }
-  for (const [table, rows] of [['sub_category', categories], ['sub_type', types]] as const) {
-    for (const row of rows) {
-      const name = String(row.name ?? '').trim()
-      if (!name) continue
-      statements.push(db.prepare(
-        `INSERT OR IGNORE INTO ${table} (user_id, name, icon, color, created_at) VALUES (?1, ?2, ?3, ?4, ?5)`,
-      ).bind(userId, bounded(name, LABEL_MAX), bounded(String(row.icon ?? ''), 40), bounded(String(row.color ?? ''), 7),
-        numberOrNull(row.created_at) ?? Date.now()))
+        SELECT ?1, json_extract(payload,'$.id'), json_extract(payload,'$.subscription_id'), json_extract(payload,'$.kind'),
+          json_extract(payload,'$.value'), json_extract(payload,'$.unit'), json_extract(payload,'$.repeat_interval'),
+          json_extract(payload,'$.repeat_until'), json_extract(payload,'$.acknowledged_at'), json_extract(payload,'$.enabled'),
+          json_extract(payload,'$.created_at')
+        FROM sub_restore_stage WHERE user_id = ?2 AND restore_id = ?3 AND kind = 'rule'`).bind(userId, userId, restoreId),
+    )
+    for (const [table, kind] of [['sub_category', 'category'], ['sub_type', 'type']] as const) {
+      statements.push(db.prepare(`INSERT OR IGNORE INTO ${table} (user_id, name, icon, color, created_at)
+        SELECT ?1, json_extract(payload,'$.name'), json_extract(payload,'$.icon'), json_extract(payload,'$.color'),
+          json_extract(payload,'$.created_at')
+        FROM sub_restore_stage WHERE user_id = ?2 AND restore_id = ?3 AND kind = '${kind}'`).bind(userId, userId, restoreId))
     }
+    if (settings) {
+      statements.push(db.prepare(
+        `INSERT INTO sub_settings (user_id, timezone, notification_hours, show_lunar, payment_history_limit,
+           locale, base_currency, budget_monthly, budget_yearly, budget_categories, rate_overrides, inbound_token_hash, inbound_token_hint, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, '', '', ?12)
+         ON CONFLICT(user_id) DO UPDATE SET
+           timezone = excluded.timezone, notification_hours = excluded.notification_hours,
+           show_lunar = excluded.show_lunar, payment_history_limit = excluded.payment_history_limit,
+           locale = excluded.locale, base_currency = excluded.base_currency,
+           budget_monthly = excluded.budget_monthly, budget_yearly = excluded.budget_yearly,
+           budget_categories = excluded.budget_categories, rate_overrides = excluded.rate_overrides,
+           updated_at = excluded.updated_at`,
+      ).bind(
+        userId, settings.timezone, settings.notification_hours, settings.show_lunar, settings.payment_history_limit,
+        settings.locale, settings.base_currency, settings.budget_monthly, settings.budget_yearly,
+        settings.budget_categories, settings.rate_overrides, Date.now(),
+      ))
+    }
+    statements.push(db.prepare('DELETE FROM sub_restore_stage WHERE user_id = ?1 AND restore_id = ?2').bind(userId, restoreId))
+    await db.batch(statements)
+  } catch (error) {
+    await db.prepare('DELETE FROM sub_restore_stage WHERE user_id = ?1 AND restore_id = ?2').bind(userId, restoreId).run()
+      .catch((cleanupError) => console.warn('[inkstone] Subscription restore staging cleanup failed:', cleanupError))
+    throw error
   }
 
-  const settings = source.settings
-  if (settings && typeof settings === 'object') {
-    const row = settings as Record<string, unknown>
-    statements.push(db.prepare(
-      `INSERT INTO sub_settings (user_id, timezone, notification_hours, show_lunar, payment_history_limit,
-         locale, base_currency, budget_monthly, budget_yearly, budget_categories, rate_overrides, inbound_token_hash, inbound_token_hint, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, '', '', ?12)
-       ON CONFLICT(user_id) DO UPDATE SET
-         timezone = excluded.timezone, notification_hours = excluded.notification_hours,
-         show_lunar = excluded.show_lunar, payment_history_limit = excluded.payment_history_limit,
-         locale = excluded.locale, base_currency = excluded.base_currency,
-         budget_monthly = excluded.budget_monthly, budget_yearly = excluded.budget_yearly,
-         budget_categories = excluded.budget_categories,
-         rate_overrides = excluded.rate_overrides,
-         updated_at = excluded.updated_at`,
-    ).bind(
-      userId,
-      bounded(String(row.timezone ?? 'Asia/Shanghai'), 64),
-      JSON.stringify(normalizeNotificationHours(carriedField(row.notification_hours))),
-      truthy(row.show_lunar) ? 1 : 0,
-      clampPaymentLimit(row.payment_history_limit),
-      row.locale === 'en-US' ? 'en-US' : 'zh-CN',
-      isCurrencyCode(row.base_currency) ? row.base_currency : 'CNY',
-      numberOrNull(row.budget_monthly),
-      numberOrNull(row.budget_yearly),
-      JSON.stringify(normalizeBudgetCategories(carriedField(row.budget_categories))),
-      JSON.stringify(normalizeRateOverrides(carriedField(row.rate_overrides))),
-      Date.now(),
-    ))
-  }
-
-  await batchInChunks(db, statements)
   return {
     items: items.length,
-    payments: owned.length,
-    rules: ownedRules.length,
+    payments: payments.length,
+    rules: rules.length,
     labels: categories.length + types.length,
   }
+
+function uniqueById<T extends { id: string }>(rows: T[], label: string): T[] {
+  const seen = new Set<string>()
+  return rows.filter((row) => {
+    if (!row.id || seen.has(row.id)) throw new Error(`The backup contains a duplicate ${label} id after normalisation`)
+    seen.add(row.id)
+    return true
+  })
+}
 }
 
 /** Everything the account has now, gone. The token columns go with it, which is the intent. */
