@@ -4963,37 +4963,59 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 442,
     skipIfColumnExists: { table: 'sub_settings', column: 'calendar_token_hash' },
-    statements: [
-      `ALTER TABLE sub_settings ADD COLUMN calendar_token_hash TEXT NOT NULL DEFAULT ''`,
-      `ALTER TABLE sub_settings ADD COLUMN calendar_token_hint TEXT NOT NULL DEFAULT ''`,
-    ],
+    statements: [`ALTER TABLE sub_settings ADD COLUMN calendar_token_hash TEXT NOT NULL DEFAULT ''`],
   },
   {
     version: 443,
-    statements: [`CREATE INDEX IF NOT EXISTS idx_sub_rule_due ON sub_reminder_rule(user_id, subscription_id, enabled, kind, value, unit)`],
+    skipIfColumnExists: { table: 'sub_settings', column: 'calendar_token_hint' },
+    statements: [`ALTER TABLE sub_settings ADD COLUMN calendar_token_hint TEXT NOT NULL DEFAULT ''`],
   },
   {
     version: 444,
-    skipIfColumnExists: { table: 'sub_item', column: 'payment_method' },
-    statements: [
-      `ALTER TABLE sub_item ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''`,
-      `ALTER TABLE sub_item ADD COLUMN management_url TEXT NOT NULL DEFAULT ''`,
-      `ALTER TABLE sub_item ADD COLUMN paused_until INTEGER`,
-      `ALTER TABLE sub_item ADD COLUMN fixed_term INTEGER NOT NULL DEFAULT 0`,
-      `ALTER TABLE sub_item ADD COLUMN intro_price REAL`,
-    ],
+    statements: [`CREATE INDEX IF NOT EXISTS idx_sub_rule_due ON sub_reminder_rule(user_id, subscription_id, enabled, kind, value, unit)`],
   },
   {
     version: 445,
-    skipIfColumnExists: { table: 'sub_settings', column: 'digest' },
-    statements: [
-      `ALTER TABLE sub_settings ADD COLUMN digest TEXT NOT NULL DEFAULT 'off'`,
-      `ALTER TABLE sub_settings ADD COLUMN digest_hour INTEGER NOT NULL DEFAULT 8`,
-      `ALTER TABLE sub_settings ADD COLUMN next_digest_at INTEGER NOT NULL DEFAULT 0`,
-    ],
+    skipIfColumnExists: { table: 'sub_item', column: 'payment_method' },
+    statements: [`ALTER TABLE sub_item ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''`],
   },
   {
     version: 446,
+    skipIfColumnExists: { table: 'sub_item', column: 'management_url' },
+    statements: [`ALTER TABLE sub_item ADD COLUMN management_url TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 447,
+    skipIfColumnExists: { table: 'sub_item', column: 'paused_until' },
+    statements: [`ALTER TABLE sub_item ADD COLUMN paused_until INTEGER`],
+  },
+  {
+    version: 448,
+    skipIfColumnExists: { table: 'sub_item', column: 'fixed_term' },
+    statements: [`ALTER TABLE sub_item ADD COLUMN fixed_term INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 449,
+    skipIfColumnExists: { table: 'sub_item', column: 'intro_price' },
+    statements: [`ALTER TABLE sub_item ADD COLUMN intro_price REAL`],
+  },
+  {
+    version: 450,
+    skipIfColumnExists: { table: 'sub_settings', column: 'digest' },
+    statements: [`ALTER TABLE sub_settings ADD COLUMN digest TEXT NOT NULL DEFAULT 'off'`],
+  },
+  {
+    version: 451,
+    skipIfColumnExists: { table: 'sub_settings', column: 'digest_hour' },
+    statements: [`ALTER TABLE sub_settings ADD COLUMN digest_hour INTEGER NOT NULL DEFAULT 8`],
+  },
+  {
+    version: 452,
+    skipIfColumnExists: { table: 'sub_settings', column: 'next_digest_at' },
+    statements: [`ALTER TABLE sub_settings ADD COLUMN next_digest_at INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 453,
     statements: [`CREATE INDEX IF NOT EXISTS idx_sub_settings_digest_due ON sub_settings(digest, next_digest_at)`],
   },
 ]

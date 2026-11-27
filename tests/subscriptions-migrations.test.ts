@@ -194,7 +194,7 @@ describe('an existing subscriptions database', () => {
 
   it('creates the scheduler due index on an existing database', async () => {
     sqlite.exec('DROP INDEX idx_sub_rule_due')
-    sqlite.exec('DELETE FROM schema_migrations WHERE version = 443')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 444')
     sqlite.exec(`DELETE FROM app_meta WHERE key = 'database-state-v1'`)
     await boot()
     const index = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sub_rule_due'").get()
