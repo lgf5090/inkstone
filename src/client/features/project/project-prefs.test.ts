@@ -72,7 +72,7 @@ describe('moving board marks into the account', () => {
     writePinnedBoardsPref(['b1'])
     writeStarredBoardsPref(['b2'])
     migrateProjectBoardMarks()
-    expect(useSession.getState().settings.project).toEqual({ pinnedBoards: ['b1'], starredBoards: ['b2'], notifications: {}, personalViews: {} })
+    expect(useSession.getState().settings.project).toEqual({ pinnedBoards: ['b1'], starredBoards: ['b2'], notifications: {}, personalViews: {}, capacityMinutesPerWeek: 2400 })
     expect(localStorage.getItem('inkstone.project.pinnedBoards')).toBeNull()
     expect(localStorage.getItem('inkstone.project.starredBoards')).toBeNull()
   })

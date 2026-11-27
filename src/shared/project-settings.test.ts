@@ -3,8 +3,8 @@ import { DEFAULT_SETTINGS, mergeSettings, mergeSettingsPatch } from './constants
 
 describe('project board marks in the account settings', () => {
   it('defaults to no marks and no notification overrides', () => {
-    expect(DEFAULT_SETTINGS.project).toEqual({ pinnedBoards: [], starredBoards: [], notifications: {}, personalViews: {} })
-    expect(mergeSettings({}).project).toEqual({ pinnedBoards: [], starredBoards: [], notifications: {}, personalViews: {} })
+    expect(DEFAULT_SETTINGS.project).toEqual({ pinnedBoards: [], starredBoards: [], notifications: {}, personalViews: {}, capacityMinutesPerWeek: 2400 })
+    expect(mergeSettings({}).project).toEqual({ pinnedBoards: [], starredBoards: [], notifications: {}, personalViews: {}, capacityMinutesPerWeek: 2400 })
   })
 
   it('keeps a per-board notification choice and drops junk levels', () => {
@@ -14,7 +14,7 @@ describe('project board marks in the account settings', () => {
 
   it('keeps the reader\'s pins and favourites', () => {
     const merged = mergeSettings({ project: { pinnedBoards: ['b1', 'b2'], starredBoards: ['b3'] } })
-    expect(merged.project).toEqual({ pinnedBoards: ['b1', 'b2'], starredBoards: ['b3'], notifications: {}, personalViews: {} })
+    expect(merged.project).toEqual({ pinnedBoards: ['b1', 'b2'], starredBoards: ['b3'], notifications: {}, personalViews: {}, capacityMinutesPerWeek: 2400 })
   })
 
   it('drops duplicates, non-strings and blanks, and caps the list', () => {

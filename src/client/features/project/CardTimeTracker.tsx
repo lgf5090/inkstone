@@ -5,7 +5,8 @@ import { t, useLocale } from '../../lib/i18n'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
-import { Input, Textarea } from '../../components/form'
+import { Textarea } from '../../components/form'
+import { DatePicker } from '../../components/date-picker'
 import { Modal } from '../../components/overlay'
 import { createCardTime, deleteCardTime, fetchCardTime, startCardTimer, stopCardTimer, updateCardTime } from './api'
 
@@ -146,14 +147,14 @@ export function CardTimeTracker({ cardId, canEdit }: { cardId: string, canEdit: 
               <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('project.time.note')}</span>
               <Textarea className="w-full" rows={2} value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} />
             </label>
-            <label className="block space-y-1">
+            <div className="space-y-1">
               <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('project.time.start_at')}</span>
-              <Input className="w-full" type="datetime-local" value={startedAt} onChange={(event) => setStartedAt(event.target.value)} />
-            </label>
-            <label className="block space-y-1">
+              <DatePicker className="w-full" label={t('project.time.start_at')} withTime value={startedAt} onChange={setStartedAt} />
+            </div>
+            <div className="space-y-1">
               <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('project.time.end_at')}</span>
-              <Input className="w-full" type="datetime-local" value={endedAt} onChange={(event) => setEndedAt(event.target.value)} />
-            </label>
+              <DatePicker className="w-full" label={t('project.time.end_at')} withTime value={endedAt} onChange={setEndedAt} />
+            </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setEditor(null)}>{t('common.cancel')}</Button>
               <Button type="submit" variant="primary" loading={busy} disabled={busy}>{t('common.save')}</Button>

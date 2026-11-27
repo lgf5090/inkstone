@@ -878,7 +878,7 @@ const PLAIN_Z_INDEX_BASELINE = new Map<string, { values: Record<string, number>;
   ['src/client/features/webssh/SftpPanel.tsx', { values: { '30': 1, '40': 1 }, reason: 'Mobile file pane and drag overlay are ordered inside the terminal workspace.' }],
   ['src/client/features/webssh/TerminalPane.tsx', { values: { '10': 1 }, reason: 'Active terminal pane lifted above its sibling panes inside the workspace.' }],
   ['src/client/features/webssh/TerminalWorkspace.tsx', { values: { '20': 4 }, reason: 'Mobile terminal, files and recordings panes are ordered inside the workspace.' }],
-  ['src/client/features/workspace/BacklinksPanel.tsx', { values: { '10': 5 }, reason: LOCAL_STICKY_REASON }],
+  ['src/client/features/workspace/BacklinksPanel.tsx', { values: { '10': 6 }, reason: LOCAL_STICKY_REASON }],
   ['src/client/features/youtube/discover/VideoRow.tsx', { values: { '0': 1, '10': 1 }, reason: 'Stretched video link and content form one local discovery-card stacking context.' }],
   ['src/client/lib/markdown/kanban/ui/kanban-calendar-view.tsx', { values: { '10': 3 }, reason: 'Drag handle and calendar grids are ordered within the kanban board’s local stacking context.' }],
 ])
@@ -1087,6 +1087,8 @@ describe('worker swallows state their reason beside the catch', () => {
  * rejection were both turned into visible feedback rather than baselined.
  */
 const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>([
+  ['src/client/features/project/offline-cache.test.tsx', { sites: 1, reason: 'The test deliberately drives refresh through its expected offline rejection and asserts the cached board remains visible.' }],
+  ['src/client/features/project/use-watch.test.tsx', { sites: 1, reason: 'The test rejects a superseded watch write on purpose and asserts the newer local watch state remains intact.' }],
   ['src/client/editor/paste.ts', { sites: 1, reason: 'settleUploads: a refused upload falls into the in-document upload_failed marker a few lines below, which is the report the reader sees; the catch keeps one bad file from cancelling every sibling of the same paste.' }],
   ['src/client/features/calendar/CalendarEventExtras.tsx', { sites: 1, reason: 'The address book only suggests attendee addresses; a failed suggestion load leaves the manual invite form usable and is logged for diagnostics.' }],
   ['src/client/features/chat/assistant-store.ts', { sites: 2, reason: 'dropAttachment releases an object the draft no longer references, and stop sends a cancel after the request was already aborted and the turn marked done locally; both are notices about work the reader can see finished.' }],
@@ -1170,6 +1172,13 @@ const INPUT_ELEMENTS = new Set(['input', 'Input'])
 
 /** Sites that keep a native date field, each with the reason it was not converged. */
 const NATIVE_DATE_BASELINE = new Map<string, { sites: number; reason: string }>([
+  [
+    'src/client/features/project/CardDialog.tsx',
+    {
+      sites: 1,
+      reason: 'The checklist due field preserves the browser badInput state so an invalid typed date remains distinct from clearing the field; the shared DatePicker only accepts complete calendar values.',
+    },
+  ],
   [
     'src/client/features/quickadd/prompts.tsx',
     {
