@@ -12,8 +12,9 @@
  */
 import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
-import { ApiError } from '../lib/errors'
-import { readJson } from '../lib/request'
+import { ApiError, errorLogContext } from '../lib/errors'
+import { readJson, requestClientIp } from '../lib/request'
+import { consumeCallerBudget } from '../lib/throttle'
 import { newId } from '../lib/id'
 import { requireAuth } from '../middleware/auth'
 import {
@@ -60,6 +61,13 @@ import { SubscriptionsStore, storeContext, SUBSCRIPTION_EXPIRY_LIMIT, type Store
 const BODY_LIMIT = 32 * 1024
 /** Rows one import may carry. Above this a reader is syncing, not migrating, and needs a real tool. */
 const IMPORT_LIMIT = 500
+const TEN_MINUTES = 10 * 60 * 1000
+const HOUR = 60 * 60 * 1000
+const WORK_BUDGETS = {
+  import: { maxAttempts: 5, windowMs: TEN_MINUTES },
+  notify: { maxAttempts: 10, windowMs: TEN_MINUTES },
+  rates: { maxAttempts: 12, windowMs: HOUR },
+} as const
 
 type Ctx = Context<AppBindings>
 
@@ -69,6 +77,17 @@ subscriptionRoutes.use('*', requireAuth)
 
 function storeOf(c: Ctx): SubscriptionsStore {
   return new SubscriptionsStore(c.env.DB, c.get('userId')!)
+}
+
+function enforceWorkBudget(c: Ctx, kind: keyof typeof WORK_BUDGETS): Promise<void> {
+  return consumeCallerBudget(
+    c.env.DB,
+    `subscriptions-${kind}`,
+    c.get('userId')!,
+    requestClientIp(c),
+    WORK_BUDGETS[kind],
+    'Too many subscription requests',
+  )
 }
 
 async function contextOf(c: Ctx): Promise<{ store: SubscriptionsStore; context: StoreContext; settings: SubscriptionSettings }> {
@@ -357,6 +376,7 @@ subscriptionRoutes.post('/bulk', async (c) => {
  * and a bad row is reported rather than half-written.
  */
 subscriptionRoutes.post('/import', async (c) => {
+  await enforceWorkBudget(c, 'import')
   const raw = await readJson<{ rows?: unknown }>(c, 512 * 1024)
   if (!Array.isArray(raw.rows)) throw ApiError.badRequest('rows must be a list')
   if (raw.rows.length > IMPORT_LIMIT) throw ApiError.badRequest(`A single import is limited to ${IMPORT_LIMIT} rows`)
@@ -373,12 +393,22 @@ subscriptionRoutes.post('/import', async (c) => {
       await store.create(inputOf(entry as Record<string, unknown>), context)
       created++
     } catch (error) {
-      // One bad line should not cost the reader the other two hundred, but it must not be swallowed
-      // either: the reason comes back so the import result can say what was not written.
-      skipped.push({
-        row: index + 1,
-        reason: error instanceof Error ? error.message.slice(0, 200) : 'Rejected',
-      })
+      // One bad line should not cost the reader the other two hundred. Only the store's explicit
+      // validation codes become row copy; an unexpected database or upstream error stays in the
+      // sanitized server log rather than being reflected into the import result.
+      try {
+        fail(error)
+      } catch (rejection) {
+        if (rejection === error) {
+          console.error('[inkstone] Subscription import row failed:', index + 1, errorLogContext(error))
+          skipped.push({ row: index + 1, reason: 'The row could not be saved' })
+        } else {
+          skipped.push({
+            row: index + 1,
+            reason: rejection instanceof Error ? rejection.message.slice(0, 200) : 'The row could not be saved',
+          })
+        }
+      }
     }
   }
   return c.json({ created, skipped })
@@ -406,6 +436,7 @@ subscriptionRoutes.put('/settings', async (c) => {
  * the picture beside it, presses to see the numbers move now rather than at the next TTL.
  */
 subscriptionRoutes.post('/rates/refresh', async (c) => {
+  await enforceWorkBudget(c, 'rates')
   const rates = await refreshRates(c.env)
   return c.json({ source: rates.source, at: rates.at })
 })
@@ -443,6 +474,7 @@ subscriptionRoutes.delete('/channels/:kind', async (c) => {
 subscriptionRoutes.post('/channels/:kind/test', async (c) => {
   const kind = c.req.param('kind')
   if (!isChannelKind(kind)) throw ApiError.notFound('Unknown channel')
+  await enforceWorkBudget(c, 'notify')
   const settings = await loadSettings(c.env.DB, c.get('userId')!)
   // A kind with no fields has no bundle to read, so its own switch is the whole configuration.
   const stored = channelHasSecrets(kind)
@@ -535,6 +567,7 @@ subscriptionRoutes.post('/:id/renew', async (c) => {
 })
 
 subscriptionRoutes.post('/:id/test-notify', async (c) => {
+  await enforceWorkBudget(c, 'notify')
   const { store, context, settings } = await contextOf(c)
   const detail = await store.get(c.req.param('id'), context)
   if (!detail) throw ApiError.notFound('That subscription does not exist')

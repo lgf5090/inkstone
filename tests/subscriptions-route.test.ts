@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
-import { errorResponse } from '../src/worker/lib/errors'
+import { errorResponse, errorLogContext } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { subscriptionRoutes } from '../src/worker/routes/subscriptions'
 import { enabledChannels } from '../src/worker/subscriptions/settings'
@@ -57,10 +57,10 @@ function env() {
   return { DB: db, CREDENTIAL_VAULT: vault } as unknown as AppBindings['Bindings']
 }
 
-async function send(method: string, path: string, body?: unknown) {
-  const init: RequestInit = { method }
+async function send(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
+  const init: RequestInit = { method, headers }
   if (body !== undefined) {
-    init.headers = { 'Content-Type': 'application/json' }
+    init.headers = { ...init.headers, 'Content-Type': 'application/json' }
     init.body = JSON.stringify(body)
   }
   return app.request(`/api/subscriptions${path === '/' ? '' : path}`, init, env())
@@ -499,6 +499,18 @@ describe('bulk actions', () => {
   })
 })
 
+describe('safe subscription errors', () => {
+  it('removes upstream URLs, credentials, SQL, and stack detail from log context', () => {
+    const context = errorLogContext(new Error('https://api.example.com/path?token=secret authorization=Bearer abc SELECT * FROM users\n at handler'))
+    expect(context.message).toContain('[url]')
+    expect(context.message).toContain('[redacted]')
+    expect(context.message).toContain('[sql]')
+    expect(context.message).not.toContain('secret')
+    expect(context.message).not.toContain('users')
+    expect(context.message).not.toContain('handler')
+  })
+})
+
 describe('the rate table behind the dashboard', () => {
   /**
    * Which of the two ways the numbers came in is asserted as a set rather than a value because the suite
@@ -511,6 +523,38 @@ describe('the rate table behind the dashboard', () => {
     expect(bundle.overview.rates.base).toBe('CNY')
     expect(bundle.overview.rates.basePriced).toBe(true)
     expect(bundle.overview.rates.unpriced).toEqual([])
+  })
+
+  it('shares one upstream refresh across overlapping requests', async () => {
+    const originalFetch = globalThis.fetch
+    let calls = 0
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    vi.stubGlobal('fetch', async () => {
+      calls++
+      await gate
+      return Response.json({ rates: { USD: 7 } })
+    })
+    try {
+      const first = send('POST', '/rates/refresh')
+      const second = send('POST', '/rates/refresh')
+      release()
+      expect((await first).status).toBe(200)
+      expect((await second).status).toBe(200)
+      expect(calls).toBe(1)
+    } finally {
+      vi.unstubAllGlobals()
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('limits repeated import work per account and caller', async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      expect((await send('POST', '/import', { rows: [] }, { 'CF-Connecting-IP': '203.0.113.8' })).status).toBe(200)
+    }
+    const limited = await send('POST', '/import', { rows: [] }, { 'CF-Connecting-IP': '203.0.113.8' })
+    expect(limited.status).toBe(429)
+    expect((await json<any>(limited)).error.code).toBe('too_many_attempts')
   })
 
   it('forgets the cached day when asked and answers with what it holds now', async () => {

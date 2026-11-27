@@ -42533,6 +42533,9 @@ const allowed = new Map([
   ["src/worker/lib/encoding.ts", [
     "/**\n * The five markup metacharacters, for a string headed into an HTML document.\n *\n * The share shells interpolate a note title into `<title>` and an `og:title` attribute, and a title is\n * author text: without this a title of `</title><script>` would close the tag the server just opened.\n * It lives here rather than beside each shell because three routes needed the same rule and a route may\n * not import another one.\n */",
   ]],
+  ["src/worker/lib/errors.ts", [
+    "/** A bounded, credential-free description for logs; never pass the original Error to the console. */",
+  ]],
   ["src/worker/lib/host-guard.ts", [
     "// An authoritative empty answer and a resolver that never answered are different facts, and the caller",
     "// has to be able to tell them apart: the first means the name has no address, the second means we do",
@@ -42667,6 +42670,7 @@ const allowed = new Map([
     "// The ladder is bound rather than spliced into the text: ?5..?8 are its steps and ?9 the lock they",
     "// stop at, so `LOCKOUT_LADDER_MS` stays the only place a duration is written down.",
     "/**\n * Count budget rows whose key falls in `[lowKey, highKey)` and were touched at or after `since`.\n *\n * `login_attempts` belongs to this module, so the only read of it that is not a lock check lives here\n * too rather than in the route that happens to want the number. The caller picks the range and the\n * window: a reader that keys a metric off the budget writes the prefix, and this just counts rows in\n * it. The range is spelled as `>= / <` (not `LIKE`) so a key that contains a SQL wildcard character\n * still only matches literally. The result column is named for the one caller that reads it.\n */",
+    "/** Spend independent account and caller-address budgets through the shared 429 mapping. */",
   ]],
   ["src/worker/lib/update-check.ts", [
     "/** Isolate-level TTL cache: the published version changes daily at most. */",
@@ -45117,14 +45121,15 @@ const allowed = new Map([
     "// said nothing about colour would clear it, and a colour change would quietly cost the reader an icon.",
     "/**\n * One action over a named set.\n *\n * `trash` rather than purge: a bulk operation is the one place where a wrong choice is multiplied by\n * however many rows were selected, so the recoverable verb is the only one offered.\n */",
     "/**\n * Rows from a CSV the browser parsed.\n *\n * The file is read on the client and the rows arrive as JSON so that every value goes through the same\n * `inputOf` guard a hand-typed form does — a spreadsheet is an untrusted input surface like any other,\n * and a bad row is reported rather than half-written.\n */",
-    "// One bad line should not cost the reader the other two hundred, but it must not be swallowed",
-    "// either: the reason comes back so the import result can say what was not written.",
     "// A kind with no fields has no bundle to read, so its own switch is the whole configuration.",
     "/** To the trash, not gone: the receipts and rules stay, and a restore is one column wide. */",
     "/**\n * The rows a global search can name.\n *\n * Registered above `/:id`, because a literal segment after a parameter route would be swallowed by it and\n * answer with whatever subscription happens to be called `search`. Live rows only: the trash is reached\n * from the app's own rail, and a search that silently resurrects deleted plans in its results is worse\n * than one that omits them.\n */",
     "// Refused rather than trimmed: a caller that named four hundred rows and had two hundred done would be",
     "// told \"200 changed\" and never learn the rest were never even looked at.",
     "/**\n * Forget the cached day of rates and take another.\n *\n * The feed publishes once a day, so this is not a button worth pressing twice in a minute; it is what a\n * reader who was offline when the app last looked, or who has just pinned a rate and wants the rest of\n * the picture beside it, presses to see the numbers move now rather than at the next TTL.\n */",
+    "// One bad line should not cost the reader the other two hundred. Only the store's explicit",
+    "// validation codes become row copy; an unexpected database or upstream error stays in the",
+    "// sanitized server log rather than being reflected into the import result.",
   ]],
   ["src/worker/routes/sync.ts", [
     "// A non-empty `after` key always means the caller is mid-way through a",

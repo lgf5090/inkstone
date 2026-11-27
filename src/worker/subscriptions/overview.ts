@@ -41,6 +41,7 @@ const RATES_KEY = 'subscriptions:rates-v2'
 const RATES_TTL_MS = 24 * 60 * 60 * 1000
 const RATES_ENDPOINT = 'https://api.frankfurter.dev/v1/latest?base=CNY'
 const RATES_TIMEOUT_MS = 10_000
+const rateRefreshes = new Map<string, Promise<RatesResult>>()
 
 /**
  * The day's rates against CNY, and how much they can be trusted.
@@ -99,9 +100,20 @@ export async function loadRates(env: Env, now = Date.now()): Promise<RatesResult
  * Writing an empty value rather than deleting the row is what `getMeta` treats as no entry: the refresh
  * button is a reader saying "the day I have is not the day I want", and it must not need a TTL to pass.
  */
-export async function refreshRates(env: Env, now = Date.now()): Promise<RatesResult> {
-  await setMeta(env.DB, RATES_KEY, '')
-  return loadRates(env, now)
+export function refreshRates(env: Env, now = Date.now()): Promise<RatesResult> {
+  const running = rateRefreshes.get(RATES_ENDPOINT)
+  if (running) return running
+  const refresh = (async () => {
+    await setMeta(env.DB, RATES_KEY, '')
+    return loadRates(env, now)
+  })()
+  rateRefreshes.set(RATES_ENDPOINT, refresh)
+  void refresh.then(() => {
+    if (rateRefreshes.get(RATES_ENDPOINT) === refresh) rateRefreshes.delete(RATES_ENDPOINT)
+  }, () => {
+    if (rateRefreshes.get(RATES_ENDPOINT) === refresh) rateRefreshes.delete(RATES_ENDPOINT)
+  })
+  return refresh
 }
 
 export async function buildOverview(
