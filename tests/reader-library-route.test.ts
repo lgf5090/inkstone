@@ -23,7 +23,7 @@ vi.mock('../src/worker/middleware/auth', () => ({
   },
 }))
 
-interface FakeObject { body: ReadableStream; size: number; httpMetadata?: { contentType?: string }; upload: (value: unknown) => Promise<void> }
+interface FakeObject { body: ReadableStream; size: number; etag: string; httpMetadata?: { contentType?: string }; upload: (value: unknown) => Promise<void> }
 
 const buckets = new Map<string, Uint8Array>()
 // Real R2 keeps the content type a put declared and hands it back on get, so the double has to or a
@@ -36,11 +36,13 @@ const r2 = {
     if (options?.httpMetadata?.contentType) types.set(key, options.httpMetadata.contentType)
     return { key }
   },
-  async get(key: string): Promise<FakeObject | null> {
-    const bytes = buckets.get(key)
-    if (!bytes) return null
+  async get(key: string, options?: { range?: { offset: number; length: number } }): Promise<FakeObject | null> {
+    const stored = buckets.get(key)
+    if (!stored) return null
+    const bytes = options?.range ? stored.subarray(options.range.offset, options.range.offset + options.range.length) : stored
     return {
       size: bytes.byteLength,
+      etag: '"reader-object"',
       httpMetadata: types.has(key) ? { contentType: types.get(key) } : undefined,
       body: new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } }),
       upload: async () => {},
@@ -341,6 +343,20 @@ describe('the book bytes', () => {
     const got = await send('GET', '/books/book-1/blob')
     expect(got.headers.get('content-length')).toBe(String(bytes.byteLength))
     expect(new Uint8Array(await got.arrayBuffer())).toEqual(bytes)
+  })
+
+  it('supports byte ranges and conditional downloads', async () => {
+    await send('PUT', '/library', { library: library() })
+    await send('PUT', '/books/book-1/blob', undefined, BOOK_BYTES)
+    const ranged = await app.request('/api/reader/books/book-1/blob', { headers: { Range: 'bytes=1-3' } }, env())
+    expect(ranged.status).toBe(206)
+    expect(ranged.headers.get('content-range')).toBe('bytes 1-3/7')
+    expect(new Uint8Array(await ranged.arrayBuffer())).toEqual(BOOK_BYTES.subarray(1, 4))
+    const etag = ranged.headers.get('etag')!
+    const cached = await app.request('/api/reader/books/book-1/blob', { headers: { 'If-None-Match': etag } }, env())
+    expect(cached.status).toBe(304)
+    const invalid = await app.request('/api/reader/books/book-1/blob', { headers: { Range: 'bytes=99-100' } }, env())
+    expect(invalid.status).toBe(416)
   })
 
   it('refuses an empty file and one that is too large to hold', async () => {

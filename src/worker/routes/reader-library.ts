@@ -641,6 +641,16 @@ readerLibraryRoutes.put('/books/:id/blob', async (c) => {
   }
 })
 
+function parseByteRange(value: string | null, size: number): { offset: number; length: number } | null {
+  if (!value) return null
+  const match = /^bytes=(\d+)-(\d*)$/.exec(value.trim())
+  if (!match) return undefined as unknown as null
+  const offset = Number(match[1])
+  const end = match[2] ? Number(match[2]) : size - 1
+  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(end) || offset < 0 || end < offset || offset >= size) return undefined as unknown as null
+  return { offset, length: end - offset + 1 }
+}
+
 /** The bytes back, with a length a download can measure itself against. */
 readerLibraryRoutes.get('/books/:id/blob', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
@@ -651,11 +661,23 @@ readerLibraryRoutes.get('/books/:id/blob', async (c) => {
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
   const object = await r2.get(row.r2_key)
   if (!object) throw ApiError.notFound('The file is not in storage')
+  const etag = object.etag
+  if (etag && c.req.header('if-none-match') === etag) return new Response(null, { status: 304, headers: { ETag: etag } })
+  const range = parseByteRange(c.req.header('range') ?? null, object.size)
+  if (range === undefined as unknown as null) {
+    return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${object.size}` } })
+  }
+  const body = range ? await r2.get(row.r2_key, { range }) : object
+  if (!body) throw ApiError.notFound('The file is not in storage')
   const format = row.format as BookFormat
-  return new Response(object.body, {
+  return new Response(body.body, {
+    status: range ? 206 : 200,
     headers: {
       'Content-Type': CONTENT_TYPES[format] ?? 'application/octet-stream',
-      'Content-Length': String(object.size),
+      'Content-Length': String(body.size),
+      ...(range ? { 'Content-Range': `bytes ${range.offset}-${range.offset + range.length - 1}/${object.size}` } : {}),
+      'Accept-Ranges': 'bytes',
+      ...(etag ? { ETag: etag } : {}),
       'Content-Disposition': contentDisposition(downloadFilename(row.filename ?? '', id, EXTENSIONS[format])),
       'Cache-Control': 'private, no-store',
       'X-Content-Type-Options': 'nosniff',
