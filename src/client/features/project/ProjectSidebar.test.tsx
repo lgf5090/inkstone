@@ -50,7 +50,7 @@ beforeEach(async () => {
 afterEach(() => {
   view?.unmount()
   useSession.setState({ user: null })
-  useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: [], starredBoards: [], notifications: {}, personalViews: {} } } }))
+  useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: [], starredBoards: [], notifications: {}, personalViews: {}, capacityMinutesPerWeek: 2400 } } }))
 })
 
 async function mount() {
@@ -229,7 +229,7 @@ describe('the project sidebar', () => {
   })
 
   it('renders pinned and favorites sections when preferences are present', async () => {
-    useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: ['b1'], starredBoards: ['b2'], notifications: {}, personalViews: {} } } }))
+    useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: ['b1'], starredBoards: ['b2'], notifications: {}, personalViews: {}, capacityMinutesPerWeek: 2400 } } }))
     await mount()
     const text = view.container.textContent ?? ''
     expect(text).toContain(t('project.sidebar.pinned'))
@@ -408,7 +408,7 @@ describe('the nested tree reads as a tree', () => {
   })
 
   it('gives repeated board entries unique ids and only one current marker', async () => {
-    useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: ['b1'], starredBoards: ['b1'], notifications: {}, personalViews: {} } } }))
+    useSession.setState((state) => ({ settings: { ...state.settings, project: { pinnedBoards: ['b1'], starredBoards: ['b1'], notifications: {}, personalViews: {}, capacityMinutesPerWeek: 2400 } } }))
     localStorage.setItem('inkstone.project.recentBoards.u1', JSON.stringify(['b1']))
     window.history.replaceState({}, '', '/project/boards/b1')
     await mount()

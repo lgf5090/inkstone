@@ -113,4 +113,19 @@ describe('time tracking', () => {
     expect((await req('alice', 'DELETE', `/cards/${card.id}/time/${started.id}`)).status).toBe(200)
     expect(((await (await req('alice', 'GET', `/cards/${card.id}/time`)).json()) as { entries: ProjectTimeEntry[] }).entries).toEqual([])
   })
+
+  it('creates and edits manual entries with strict interval validation', async () => {
+    const { card } = await boardWithCard()
+    const startedAt = Date.UTC(2026, 10, 25, 9)
+    const endedAt = startedAt + 90 * 60_000
+    const created = await req('alice', 'POST', `/cards/${card.id}/time`, { note: 'Manual', startedAt, endedAt })
+    expect(created.status, await created.clone().text()).toBe(201)
+    const entry = ((await created.json()) as { entry: ProjectTimeEntry }).entry
+    expect(entry).toMatchObject({ note: 'Manual', startedAt, endedAt, userId: 'alice' })
+    const updated = await req('alice', 'PATCH', `/cards/${card.id}/time/${entry.id}`, { note: 'Edited', endedAt: endedAt + 30 * 60_000 })
+    expect(updated.status).toBe(200)
+    expect(((await updated.json()) as { entry: ProjectTimeEntry }).entry.endedAt).toBe(endedAt + 30 * 60_000)
+    expect((await req('alice', 'PATCH', `/cards/${card.id}/time/${entry.id}`, { startedAt: endedAt, endedAt: startedAt })).status).toBe(400)
+    expect((await req('bob', 'POST', `/cards/${card.id}/time`, { startedAt, endedAt })).status).toBe(403)
+  })
 })

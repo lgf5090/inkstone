@@ -221,7 +221,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
           value={draft}
           disabled={disabled}
           aria-label={property.name}
-          inputMode={property.type === 'number' ? 'decimal' : undefined}
+          inputMode={property.type === 'number' || property.type === 'estimate' ? 'decimal' : undefined}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={commitText}
           onKeyDown={(event) => {

@@ -38,6 +38,8 @@ import {
   ProjectPublicIntakeSchema,
   ProjectGuestOpenSchema,
   ProjectGuestPatchSchema,
+  ProjectTimeEntryCreateSchema,
+  ProjectTimeEntryPatchSchema,
   ProjectSubscriptionCreateSchema,
   ProjectTodoLinkSchema,
   ProjectViewCreateSchema,
@@ -157,7 +159,7 @@ import { assertPublicIntakeValues } from './intake'
 import { createProjectIntakeGrant, openProjectGuestCard, readProjectIntakeGrant, assertProjectGuestValues } from './guests'
 import { projectStatistics } from './statistics'
 import { listProjectMyTasks } from './my-tasks'
-import { deleteTimeEntry, listCardTime, startCardTime, stopCardTime } from './time'
+import { deleteTimeEntry, listCardTime, startCardTime, stopCardTime, createManualTime, updateTimeEntry } from './time'
 import { assertProjectValuesWritable } from './property-access'
 import {
   assertProjectRelationValues,
@@ -185,6 +187,7 @@ import {
   undeleteProjectView,
 } from './views'
 import { projectCardForRole, projectPropertiesForRole } from './visibility'
+import { defaultWorkloadRange, readProjectWorkload } from './workload'
 
 export const projectRoutes = new Hono<AppBindings>()
 
@@ -689,6 +692,19 @@ projectRoutes.get('/statistics', async (c) => {
   return c.json(await projectStatistics(c.env.DB, projectUserId(c)))
 })
 
+projectRoutes.get('/workload', async (c) => {
+  const now = Date.now()
+  const fallback = defaultWorkloadRange(now)
+  const from = Number(c.req.query('from') ?? fallback.from)
+  const to = Number(c.req.query('to') ?? fallback.to)
+  try {
+    return c.json(await readProjectWorkload(c.env.DB, projectUserId(c), from, to, now))
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Invalid workload range') throw ApiError.badRequest(error.message)
+    throw error
+  }
+})
+
 projectRoutes.get('/search', async (c) => {
   const query = (c.req.query('q') ?? '').trim().slice(0, 200)
   if (!query) return c.json({ boards: [], cards: [] })
@@ -776,6 +792,28 @@ projectRoutes.post('/cards/:id/links', async (c) => {
 projectRoutes.get('/cards/:id/time', async (c) => {
   const { card } = await requireCard(c, c.req.param('id'), 'viewer')
   return c.json({ entries: await listCardTime(c.env.DB, card.id) })
+})
+
+projectRoutes.post('/cards/:id/time', async (c) => {
+  const { card, board } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectTimeEntryCreateSchema)
+  const entry = await createManualTime(c.env.DB, {
+    boardId: board.id,
+    cardId: card.id,
+    userId: projectUserId(c),
+    note: input.note,
+    startedAt: input.startedAt,
+    endedAt: input.endedAt,
+  })
+  return c.json({ entry }, 201)
+})
+
+projectRoutes.patch('/cards/:id/time/:entryId', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectTimeEntryPatchSchema)
+  const entry = await updateTimeEntry(c.env.DB, card.id, c.req.param('entryId'), input)
+  if (!entry) throw ApiError.notFound('Time entry not found')
+  return c.json({ entry })
 })
 
 projectRoutes.post('/cards/:id/time/start', async (c) => {

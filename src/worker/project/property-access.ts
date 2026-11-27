@@ -23,5 +23,12 @@ export async function assertProjectValuesWritable(
     if (!projectPropertyEditableBy(property, role)) {
       throw ApiError.forbidden(`property ${propertyId} is not editable by this role`)
     }
+    if (property.type === 'estimate' && values[propertyId] !== null) {
+      const raw = values[propertyId]
+      const numeric = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : Number.NaN
+      if (!Number.isFinite(numeric) || numeric < 0 || (typeof raw === 'string' && raw.trim() === '')) {
+        throw ApiError.badRequest(`property ${propertyId} must be a non-negative number`)
+      }
+    }
   }
 }

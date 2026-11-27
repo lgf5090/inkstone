@@ -58,7 +58,7 @@ describe('project-prefs', () => {
 
 describe('moving board marks into the account', () => {
   function signIn(pinnedBoards: string[] = [], starredBoards: string[] = []): void {
-    useSession.setState({ status: 'authed', settings: { ...DEFAULT_SETTINGS, project: { pinnedBoards, starredBoards, notifications: {}, personalViews: {} } } })
+    useSession.setState({ status: 'authed', settings: { ...DEFAULT_SETTINGS, project: { pinnedBoards, starredBoards, notifications: {}, personalViews: {}, capacityMinutesPerWeek: 2400 } } })
   }
 
   beforeEach(() => { installTestGlobals(); localStorage.clear() })

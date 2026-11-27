@@ -438,6 +438,21 @@ export const ProjectGuestPatchSchema = z.object({
 export type ProjectGuestOpenInput = z.infer<typeof ProjectGuestOpenSchema>
 export type ProjectGuestPatchInput = z.infer<typeof ProjectGuestPatchSchema>
 
+export const ProjectTimeEntryCreateSchema = z.object({
+  note: z.string().max(500).optional(),
+  startedAt: stamp,
+  endedAt: stamp,
+}).refine((input) => input.endedAt > input.startedAt, 'end time must be after start time')
+
+export const ProjectTimeEntryPatchSchema = z.object({
+  note: z.string().max(500).optional(),
+  startedAt: stamp.optional(),
+  endedAt: stamp.optional(),
+})
+
+export type ProjectTimeEntryCreateInput = z.infer<typeof ProjectTimeEntryCreateSchema>
+export type ProjectTimeEntryPatchInput = z.infer<typeof ProjectTimeEntryPatchSchema>
+
 export const ProjectCardLinkSchema = z.object({
   toCardId: projectId,
   kind: z.enum(PROJECT_CARD_LINK_KINDS),

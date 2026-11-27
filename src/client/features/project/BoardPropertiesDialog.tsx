@@ -14,7 +14,7 @@ import { fetchBoardProperties, fetchProjectBoards } from './api'
 import { AutomationsDialog } from './AutomationsDialog'
 import { IntegrationsDialog } from './IntegrationsDialog'
 
-const EDITABLE_TYPES: ProjectPropertyType[] = ['text', 'number', 'select', 'multiSelect', 'date', 'person', 'multiPerson', 'file', 'checkbox', 'url', 'email', 'phone', 'formula', 'relation', 'rollup']
+const EDITABLE_TYPES: ProjectPropertyType[] = ['text', 'number', 'estimate', 'select', 'multiSelect', 'date', 'person', 'multiPerson', 'file', 'checkbox', 'url', 'email', 'phone', 'formula', 'relation', 'rollup']
 const OPTION_TYPES = new Set(['select', 'multiSelect'])
 
 const typeOptions = () => EDITABLE_TYPES.map((type) => ({ value: type, label: t(`project.prop.type.${type.toLowerCase()}` as Parameters<typeof t>[0]) }))

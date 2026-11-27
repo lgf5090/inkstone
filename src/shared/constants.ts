@@ -649,6 +649,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     starredBoards: [],
     notifications: {},
     personalViews: {},
+    capacityMinutesPerWeek: 2400,
   },
 }
 
@@ -1126,6 +1127,7 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.project.starredBoards = projectBoardIds(project.starredBoards)
   base.project.notifications = projectNotificationSettings(project.notifications)
   base.project.personalViews = projectPersonalViews(project.personalViews)
+  base.project.capacityMinutesPerWeek = integerInRange(project.capacityMinutesPerWeek, 0, 10080, base.project.capacityMinutesPerWeek)
 
   base.appearance.theme = enumValue(appearance.theme, THEMES, base.appearance.theme)
   base.appearance.language = enumValue(
@@ -2287,6 +2289,7 @@ function cloneDefaultSettings(): UserSettings {
       starredBoards: [...DEFAULT_SETTINGS.project.starredBoards],
       notifications: { ...DEFAULT_SETTINGS.project.notifications },
       personalViews: { ...DEFAULT_SETTINGS.project.personalViews },
+      capacityMinutesPerWeek: DEFAULT_SETTINGS.project.capacityMinutesPerWeek,
     },
   }
 }

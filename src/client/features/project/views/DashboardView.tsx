@@ -81,7 +81,7 @@ export function DashboardView(props: DashboardProps): ReactElement {
   const statusProperty = properties.find((property) => property.type === 'select')
   const personProperty = properties.find((property) => property.type === 'person' || property.type === 'multiPerson')
   const priorityProperty = useMemo(() => projectPriorityProperty(properties), [properties])
-  const effortProperty = properties.find((property) => property.type === 'number')
+  const effortProperty = properties.find((property) => property.type === 'estimate') ?? properties.find((property) => property.type === 'number')
 
   useEffect(() => {
     if (props.publicView) { setActivity(null); return }

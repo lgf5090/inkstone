@@ -80,3 +80,35 @@ export async function stopCardTime(
 export async function deleteTimeEntry(db: D1Database, cardId: string, entryId: string): Promise<void> {
   await db.prepare('DELETE FROM project_time_entries WHERE id = ?1 AND card_id = ?2').bind(entryId, cardId).run()
 }
+
+export async function createManualTime(
+  db: D1Database,
+  input: { boardId: string, cardId: string, userId: string, note?: string, startedAt: number, endedAt: number },
+): Promise<ProjectTimeEntry> {
+  const entry: ProjectTimeEntry = {
+    id: newProjectId('time'), boardId: input.boardId, cardId: input.cardId, userId: input.userId,
+    note: (input.note ?? '').slice(0, 500), startedAt: input.startedAt, endedAt: input.endedAt, createdAt: Date.now(),
+  }
+  await db.prepare(
+    `INSERT INTO project_time_entries (id, board_id, card_id, user_id, note, started_at, ended_at, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+  ).bind(entry.id, entry.boardId, entry.cardId, entry.userId, entry.note, entry.startedAt, entry.endedAt, entry.createdAt).run()
+  return entry
+}
+
+export async function updateTimeEntry(
+  db: D1Database,
+  cardId: string,
+  entryId: string,
+  patch: { note?: string, startedAt?: number, endedAt?: number },
+): Promise<ProjectTimeEntry | null> {
+  const row = await db.prepare('SELECT * FROM project_time_entries WHERE id = ?1 AND card_id = ?2').bind(entryId, cardId).first<TimeRow>()
+  if (!row || row.ended_at === null) return null
+  const startedAt = patch.startedAt ?? row.started_at
+  const endedAt = patch.endedAt ?? row.ended_at
+  if (endedAt <= startedAt) throw ApiError.badRequest('end time must be after start time')
+  const note = patch.note ?? row.note
+  await db.prepare('UPDATE project_time_entries SET note = ?1, started_at = ?2, ended_at = ?3 WHERE id = ?4')
+    .bind(note, startedAt, endedAt, entryId).run()
+  return rowToEntry({ ...row, note, started_at: startedAt, ended_at: endedAt })
+}

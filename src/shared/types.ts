@@ -650,6 +650,7 @@ export interface ProjectSettings {
   starredBoards: string[]
   notifications: Record<string, 'all' | 'mentions' | 'off'>
   personalViews: Record<string, Partial<ProjectViewFields>>
+  capacityMinutesPerWeek: number
 }
 
 /**

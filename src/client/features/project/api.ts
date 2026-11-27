@@ -33,6 +33,7 @@ import type {
   ProjectView,
   ProjectViewPatch,
   ProjectViewType,
+  ProjectWorkloadReport,
 } from '@shared/project/model'
 import type { ProjectContentCreateInput, ProjectContentPatchInput } from '@shared/project/validation'
 import type { ProjectRelationOption } from '@shared/project/relation'
@@ -77,6 +78,10 @@ export async function fetchMyProjectTasks(signal?: AbortSignal): Promise<Project
   return body.tasks
 }
 
+export async function fetchProjectWorkload(from: number, to: number, signal?: AbortSignal): Promise<ProjectWorkloadReport> {
+  return request<ProjectWorkloadReport>(`/api/project/workload?from=${from}&to=${to}`, { signal })
+}
+
 export async function fetchCardTime(cardId: string, signal?: AbortSignal): Promise<ProjectTimeEntry[]> {
   const body = await request<{ entries: ProjectTimeEntry[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/time`, { signal })
   return body.entries
@@ -84,6 +89,16 @@ export async function fetchCardTime(cardId: string, signal?: AbortSignal): Promi
 
 export async function startCardTimer(cardId: string): Promise<ProjectTimeEntry> {
   const body = await request<{ entry: ProjectTimeEntry }>(`/api/project/cards/${encodeURIComponent(cardId)}/time/start`, { method: 'POST', body: {} })
+  return body.entry
+}
+
+export async function createCardTime(cardId: string, input: { note?: string, startedAt: number, endedAt: number }): Promise<ProjectTimeEntry> {
+  const body = await request<{ entry: ProjectTimeEntry }>(`/api/project/cards/${encodeURIComponent(cardId)}/time`, { method: 'POST', body: input })
+  return body.entry
+}
+
+export async function updateCardTime(cardId: string, entryId: string, input: { note?: string, startedAt?: number, endedAt?: number }): Promise<ProjectTimeEntry> {
+  const body = await request<{ entry: ProjectTimeEntry }>(`/api/project/cards/${encodeURIComponent(cardId)}/time/${encodeURIComponent(entryId)}`, { method: 'PATCH', body: input })
   return body.entry
 }
 

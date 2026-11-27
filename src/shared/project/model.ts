@@ -16,7 +16,7 @@ export type ProjectRole = (typeof PROJECT_ROLES)[number]
 export type ProjectMinimumRole = '' | ProjectRole
 
 export const PROJECT_PROPERTY_TYPES = [
-  'text', 'number', 'select', 'multiSelect', 'date', 'person', 'multiPerson', 'file',
+  'text', 'number', 'estimate', 'select', 'multiSelect', 'date', 'person', 'multiPerson', 'file',
   'checkbox', 'url', 'email', 'phone', 'formula', 'relation', 'rollup', 'createdTime', 'createdBy', 'updatedTime', 'updatedBy', 'unknown',
 ] as const
 export type ProjectPropertyType = (typeof PROJECT_PROPERTY_TYPES)[number]
@@ -78,6 +78,7 @@ const NUMBER: ProjectPropertyCapability = { canFilter: true, filterValueType: 'n
 export const PROJECT_PROPERTY_CAPABILITIES: Readonly<Record<ProjectPropertyType, ProjectPropertyCapability>> = {
   text: EDITABLE_TEXT,
   number: NUMBER,
+  estimate: NUMBER,
   select: OPTION_SINGLE,
   multiSelect: OPTION_MULTI,
   date: { canFilter: true, filterValueType: 'date', canGroup: false, readOnly: false },
@@ -602,6 +603,33 @@ export interface ProjectSubscription {
 export interface ProjectCardMarks {
   starred: string[]
   pinned: string[]
+}
+
+export interface ProjectWorkloadCard {
+  cardId: string
+  boardId: string
+  boardTitle: string
+  title: string
+  estimateMinutes: number
+  actualMinutes: number
+  assigneeIds: string[]
+}
+
+export interface ProjectWorkloadUser {
+  userId: string
+  name: string
+  avatarUrl: string
+  capacityMinutes: number
+  estimatedMinutes: number
+  actualMinutes: number
+  cardCount: number
+}
+
+export interface ProjectWorkloadReport {
+  from: number
+  to: number
+  users: ProjectWorkloadUser[]
+  cards: ProjectWorkloadCard[]
 }
 
 export interface ProjectGuestCard {
