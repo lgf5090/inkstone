@@ -18,6 +18,7 @@ import { LoadingBlock } from '../../components/feedback'
 import { Modal } from '../../components/overlay'
 import { readPublicProjectBoard } from './api'
 import { BoardViews } from './BoardViews'
+import { PublicIntakeDialog } from './PublicIntakeDialog'
 
 type ReadState = 'loading' | 'ready' | 'locked' | 'throttled' | 'gone' | 'error'
 
@@ -27,6 +28,7 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
   const [password, setPassword] = useState('')
   const [wrongPasscode, setWrongPasscode] = useState(false)
   const [openCardId, setOpenCardId] = useState<string | null>(null)
+  const [showIntake, setShowIntake] = useState(false)
   const loadGeneration = useRef(0)
 
   const load = useCallback(async (passcode: string) => {
@@ -108,6 +110,9 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
         <h1 className="min-w-0 truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
           {bundle.board.title || t('project.boards.untitled')}
         </h1>
+        {bundle.intake?.enabled && (
+          <Button size="sm" variant="primary" onClick={() => setShowIntake(true)}>{t('project.intake.open')}</Button>
+        )}
         <span className="ml-auto shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
           {t('project.share.page_readonly')}
         </span>
@@ -131,6 +136,7 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
         onRefresh={async () => {}}
       />
       {openCard && <PublicCardDetail card={openCard} bundle={bundle} onClose={() => setOpenCardId(null)} />}
+      {showIntake && <PublicIntakeDialog slug={slug} password={password || undefined} bundle={bundle} onClose={() => setShowIntake(false)} />}
     </main>
   )
 }

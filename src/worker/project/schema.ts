@@ -420,6 +420,7 @@ export const PROJECT_AUX_SCHEMA_STATEMENTS: readonly string[] = [
     expires_at INTEGER,
     views INTEGER NOT NULL DEFAULT 0,
     show_comments INTEGER NOT NULL DEFAULT 0,
+    intake_config TEXT NOT NULL DEFAULT '{"enabled":false,"title":"","propertyIds":[],"requiredPropertyIds":[]}',
     created_at INTEGER NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_shares_board
@@ -867,8 +868,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   ],
   project_reminders: ['card_id', 'property_id', 'due_at', 'board_id', 'notified_at', 'created_at'],
   project_shares: [
-    // The public link is read-only; comments are internal discussion unless the owner opts in.
-    'slug', 'board_id', 'user_id', 'password_hash', 'expires_at', 'views', 'show_comments', 'created_at',
+    'slug', 'board_id', 'user_id', 'password_hash', 'expires_at', 'views', 'show_comments', 'intake_config', 'created_at',
   ],
   project_settings: ['user_id', 'key', 'value', 'updated_at'],
   project_activity: ['board_id', 'id', 'actor_id', 'type', 'target_id', 'summary', 'created_at'],

@@ -21,7 +21,7 @@ vi.mock('../../components/overlay', async (importOriginal) => ({
 
 const share: ProjectShare = {
   slug: 'share-slug', boardId: 'b1', hasPassword: true, expiresAt: null, views: 3,
-  showComments: false, createdAt: 1,
+  showComments: false, intake: { enabled: false, title: '', propertyIds: [], requiredPropertyIds: [] }, createdAt: 1,
 }
 
 let view: RenderedElement

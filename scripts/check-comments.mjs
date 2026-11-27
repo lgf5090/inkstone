@@ -43281,7 +43281,6 @@ const allowed = new Map([
     "// No Category.sorting column: the reference declares it but never reads or writes it, so order is",
     "// carried entirely by project_category_boards.position.",
     "// No subscriber type column: the reference's `channel` subscribers have no counterpart here.",
-    "// The public link is read-only; comments are internal discussion unless the owner opts in.",
     "/** One row per worked interval on a card; `ended_at` null means the timer is still running. */",
     "/**\n * Per-property settings that are not part of the column list: which board a relation points at, a\n * formula, or which roles may read and edit the property. Kept beside `project_properties` so the\n * hot property table's shape does not change for every new capability.\n */",
     "/** Machine credentials and outbound deliveries. Token bytes are never stored; only their SHA-256. */",

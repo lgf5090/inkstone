@@ -5,8 +5,9 @@
  * board bundle at viewer role, trimmed to the entities the shared board actually renders: neither the
  * member roster nor names referenced only by hidden comments travel to an anonymous reader.
  */
-import type { ProjectBoard, ProjectBoardBundle, ProjectShare } from '@shared/project/model'
+import type { ProjectBoard, ProjectBoardBundle, ProjectIntakeConfig, ProjectShare } from '@shared/project/model'
 import { projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
+import { ProjectIntakeConfigSchema } from '@shared/project/validation'
 import { newSlug } from '../lib/id'
 import { hashPassword, verifyPassword } from '../lib/password'
 import { ApiError } from '../lib/errors'
@@ -23,7 +24,16 @@ interface ShareRow {
   expires_at: number | null
   views: number
   show_comments: number
+  intake_config: string
   created_at: number
+}
+
+const DEFAULT_INTAKE_CONFIG: ProjectIntakeConfig = { enabled: false, title: '', propertyIds: [], requiredPropertyIds: [] }
+
+function parseIntakeConfig(raw: string): ProjectIntakeConfig {
+  const parsed = ProjectIntakeConfigSchema.safeParse(JSON.parse(raw) as unknown)
+  if (!parsed.success) throw new Error('Invalid project share intake config')
+  return parsed.data
 }
 
 function rowToShare(row: ShareRow): ProjectShare {
@@ -34,6 +44,7 @@ function rowToShare(row: ShareRow): ProjectShare {
     expiresAt: row.expires_at,
     views: row.views,
     showComments: row.show_comments !== 0,
+    intake: parseIntakeConfig(row.intake_config),
     createdAt: row.created_at,
   }
 }
@@ -47,7 +58,7 @@ export async function putProjectShare(
   db: D1Database,
   board: ProjectBoard,
   userId: string,
-  input: { password?: string | null, expiresAt?: number | null, showComments?: boolean },
+  input: { password?: string | null, expiresAt?: number | null, showComments?: boolean, intake?: ProjectIntakeConfig },
   now: number,
 ): Promise<ProjectShare> {
   const existing = await db.prepare('SELECT * FROM project_shares WHERE board_id = ?1 AND user_id = ?2').bind(board.id, userId).first<ShareRow>()
@@ -56,17 +67,19 @@ export async function putProjectShare(
   else if (input.password !== undefined) passwordHash = await hashPassword(input.password)
   const expiresAt = input.expiresAt === undefined ? (existing?.expires_at ?? null) : input.expiresAt
   const showComments = input.showComments === undefined ? (existing?.show_comments ?? 0) : (input.showComments ? 1 : 0)
+  const intake = input.intake === undefined ? (existing ? parseIntakeConfig(existing.intake_config) : DEFAULT_INTAKE_CONFIG) : input.intake
+  const intakeConfig = JSON.stringify(intake)
   if (existing) {
     const slug = input.password === undefined ? existing.slug : newSlug()
-    await db.prepare('UPDATE project_shares SET slug = ?1, password_hash = ?2, expires_at = ?3, show_comments = ?4 WHERE slug = ?5')
-      .bind(slug, passwordHash, expiresAt, showComments, existing.slug).run()
-    return rowToShare({ ...existing, slug, password_hash: passwordHash, expires_at: expiresAt, show_comments: showComments })
+    await db.prepare('UPDATE project_shares SET slug = ?1, password_hash = ?2, expires_at = ?3, show_comments = ?4, intake_config = ?5 WHERE slug = ?6')
+      .bind(slug, passwordHash, expiresAt, showComments, intakeConfig, existing.slug).run()
+    return rowToShare({ ...existing, slug, password_hash: passwordHash, expires_at: expiresAt, show_comments: showComments, intake_config: intakeConfig })
   }
   const slug = newSlug()
   await db.prepare(
-    'INSERT INTO project_shares (slug, board_id, user_id, password_hash, expires_at, views, show_comments, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)',
-  ).bind(slug, board.id, userId, passwordHash, expiresAt, showComments, now).run()
-  return { slug, boardId: board.id, hasPassword: passwordHash !== null, expiresAt, views: 0, showComments: showComments !== 0, createdAt: now }
+    'INSERT INTO project_shares (slug, board_id, user_id, password_hash, expires_at, views, show_comments, intake_config, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8)',
+  ).bind(slug, board.id, userId, passwordHash, expiresAt, showComments, intakeConfig, now).run()
+  return { slug, boardId: board.id, hasPassword: passwordHash !== null, expiresAt, views: 0, showComments: showComments !== 0, intake, createdAt: now }
 }
 
 export async function deleteProjectShare(db: D1Database, boardId: string, userId: string): Promise<void> {
@@ -91,9 +104,25 @@ function projectShareThrottle(slug: string, ip: string): { lockTargets: string[]
   }
 }
 
-export async function readPublicProjectShare(db: D1Database, slug: string, password: string | undefined, now: number, ip: string): Promise<ProjectBoardBundle> {
+export interface PublicProjectShareContext {
+  row: ShareRow
+  board: ProjectBoard
+  intake: ProjectIntakeConfig
+}
+
+export async function authorizePublicProjectShare(
+  db: D1Database,
+  slug: string,
+  password: string | undefined,
+  now: number,
+  ip: string,
+  mode: 'read' | 'intake',
+): Promise<PublicProjectShareContext> {
   await assertAttemptBudget(async () => {
-    await consumeAttemptBudget(db, [
+    await consumeAttemptBudget(db, mode === 'intake' ? [
+      { key: `project-intake:${slug}:ip:${ip}`, maxAttempts: 10, windowMs: 10 * 60 * 1000 },
+      { key: `project-intake:ip:${ip}`, maxAttempts: 30, windowMs: 10 * 60 * 1000 },
+    ] : [
       { key: `project-share-read:${slug}:ip:${ip}`, maxAttempts: 20, windowMs: 10 * 60 * 1000 },
       { key: `project-share-read:ip:${ip}`, maxAttempts: 60, windowMs: 10 * 60 * 1000 },
     ])
@@ -118,13 +147,18 @@ export async function readPublicProjectShare(db: D1Database, slug: string, passw
     }
     await clearLoginFailures(db, [...targets.lockTargets, ...targets.workTargets.map((target) => target.key)])
   }
-  await db.prepare('UPDATE project_shares SET views = views + 1 WHERE slug = ?1').bind(slug).run()
   const board: ProjectBoard = {
     id: boardRow.id, ownerId: boardRow.owner_id, type: boardRow.type as ProjectBoard['type'], minimumRole: boardRow.minimum_role as ProjectBoard['minimumRole'],
     title: boardRow.title, description: boardRow.description, icon: boardRow.icon, showDescription: boardRow.show_description === 1,
     isTemplate: boardRow.is_template === 1, templateVersion: boardRow.template_version, createdBy: boardRow.created_by, modifiedBy: boardRow.modified_by,
     createAt: boardRow.create_at, updateAt: boardRow.update_at, deleteAt: boardRow.delete_at, archived: boardRow.archived !== 0,
   }
+  return { row, board, intake: parseIntakeConfig(row.intake_config) }
+}
+
+export async function readPublicProjectShare(db: D1Database, slug: string, password: string | undefined, now: number, ip: string): Promise<ProjectBoardBundle> {
+  const { row, board, intake } = await authorizePublicProjectShare(db, slug, password, now, ip, 'read')
+  await db.prepare('UPDATE project_shares SET views = views + 1 WHERE slug = ?1').bind(slug).run()
   const bundle = await readProjectBoardBundle(db, board, 'viewer')
   await redactHiddenRelations(db, bundle, undefined)
   const comments = row.show_comments === 0 ? [] : bundle.comments
@@ -139,5 +173,5 @@ export async function readPublicProjectShare(db: D1Database, slug: string, passw
   }
   for (const comment of comments) referenced.add(comment.authorId)
   const people = Object.fromEntries(Object.entries(bundle.people).filter(([id]) => referenced.has(id)))
-  return { ...bundle, members: [], comments, people }
+  return { ...bundle, members: [], comments, people, intake: intake.enabled ? intake : null }
 }

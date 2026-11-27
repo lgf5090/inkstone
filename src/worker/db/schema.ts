@@ -4910,6 +4910,11 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 439,
     statements: [...PROJECT_VERSION_SCHEMA_STATEMENTS],
   },
+  {
+    version: 440,
+    skipIfColumnExists: { table: 'project_shares', column: 'intake_config' },
+    statements: [`ALTER TABLE project_shares ADD COLUMN intake_config TEXT NOT NULL DEFAULT '{"enabled":false,"title":"","propertyIds":[],"requiredPropertyIds":[]}'`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

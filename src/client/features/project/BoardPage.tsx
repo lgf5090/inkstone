@@ -772,7 +772,7 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
         />
       )}
       {showTrash && <TrashDialog boardId={boardId} onClose={() => setShowTrash(false)} onRestored={() => { void refresh() }} />}
-      {showShare && <ShareDialog boardId={boardId} onClose={() => setShowShare(false)} />}
+      {showShare && <ShareDialog boardId={boardId} properties={bundle.properties} onClose={() => setShowShare(false)} />}
       {showMembers && (
         <MembersDialog
           boardId={boardId}

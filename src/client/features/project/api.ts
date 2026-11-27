@@ -25,6 +25,7 @@ import type {
   ProjectContent,
   ProjectPeople,
   ProjectProperty,
+  ProjectIntakeConfig,
   ProjectRole,
   ProjectShare,
   ProjectSubscription,
@@ -379,7 +380,7 @@ export async function getProjectShare(boardId: string): Promise<ProjectShare | n
   return body.share
 }
 
-export async function putProjectShare(boardId: string, input: { password?: string | null, expiresAt?: number | null, showComments?: boolean }): Promise<ProjectShare> {
+export async function putProjectShare(boardId: string, input: { password?: string | null, expiresAt?: number | null, showComments?: boolean, intake?: ProjectIntakeConfig }): Promise<ProjectShare> {
   const body = await request<{ share: ProjectShare }>(`/api/project/boards/${encodeURIComponent(boardId)}/share`, { method: 'PUT', body: input })
   return body.share
 }
@@ -391,6 +392,14 @@ export async function deleteProjectShare(boardId: string): Promise<void> {
 /** The stranger's read: no session, the slug and passcode are the whole capability. */
 export async function readPublicProjectBoard(slug: string, password?: string): Promise<ProjectBoardBundle> {
   return request<ProjectBoardBundle>(`/api/project/public/${encodeURIComponent(slug)}`, { method: 'POST', body: password ? { password } : {} })
+}
+
+export async function submitPublicProjectIntake(slug: string, input: { title: string, values: Record<string, string>, password?: string }, idempotencyKey: string): Promise<{ ok: true, cardId: string }> {
+  return request<{ ok: true, cardId: string }>(`/api/project/public/${encodeURIComponent(slug)}/intake`, {
+    method: 'POST',
+    body: input,
+    idempotencyKey,
+  })
 }
 
 export async function importProjectArchive(bytes: Uint8Array): Promise<ProjectBoardSummary> {

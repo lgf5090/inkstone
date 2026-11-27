@@ -100,9 +100,13 @@ describe('the project tables', () => {
     expect(migrated.prepare(`SELECT name FROM sqlite_master WHERE name = 'project_boards'`).get()).toBeUndefined()
     // The project block follows the ledger the rest of the app already spent, so it is found by the
     // statements it carries rather than by a version number another feature may claim first.
-    const projectMigrations = SCHEMA_MIGRATIONS.filter((entry) => entry.statements.some((statement) => PROJECT_STATEMENTS.includes(statement)))
-    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 397, 398, 401, 402, 403, 428, 435, 436, 437, 438, 439])
-    for (const entry of projectMigrations) migrated.exec(entry.statements.join(';'))
+    const projectMigrations = SCHEMA_MIGRATIONS.filter((entry) => entry.statements.some((statement) => PROJECT_STATEMENTS.includes(statement)
+      || statement.includes('ALTER TABLE project_shares ADD COLUMN intake_config')))
+    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 397, 398, 401, 402, 403, 428, 435, 436, 437, 438, 439, 440])
+    for (const entry of projectMigrations) {
+      if (entry.version === 440 && (migrated.prepare('PRAGMA table_info(project_shares)').all() as Array<{ name: string }>).some((column) => column.name === 'intake_config')) continue
+      migrated.exec(entry.statements.join(';'))
+    }
 
     const shape = (db: DatabaseSync): string[] =>
       (db.prepare(`SELECT name, sql FROM sqlite_master WHERE name LIKE 'project_%' ORDER BY name`).all() as Array<{ name: string; sql: string | null }>)

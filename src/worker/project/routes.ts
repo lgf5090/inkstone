@@ -35,6 +35,7 @@ import {
   ProjectAutomationCreateSchema,
   ProjectAutomationPatchSchema,
   ProjectSharePutSchema,
+  ProjectPublicIntakeSchema,
   ProjectSubscriptionCreateSchema,
   ProjectTodoLinkSchema,
   ProjectViewCreateSchema,
@@ -149,7 +150,8 @@ import { toICal } from '../subscriptions/calendar'
 import { parseProjectDateValue, projectStampToDay } from '@shared/project/date'
 import { projectBoardToMarkdown } from '@shared/project/markdown'
 import { deleteProjectAttachment, getProjectAttachment, listBoardAttachments, uploadProjectAttachment, PROJECT_UPLOAD_LIMIT, PROJECT_INLINE_MIMES } from './files'
-import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
+import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare, authorizePublicProjectShare } from './shares'
+import { assertPublicIntakeValues } from './intake'
 import { projectStatistics } from './statistics'
 import { listProjectMyTasks } from './my-tasks'
 import { deleteTimeEntry, listCardTime, startCardTime, stopCardTime } from './time'
@@ -1523,6 +1525,84 @@ projectPublicRoutes.post('/:slug', async (c) => {
     }
   }
   return c.json(await readPublicProjectShare(c.env.DB, c.req.param('slug'), password, Date.now(), requestClientIp(c)))
+})
+
+projectPublicRoutes.post('/:slug/intake', async (c) => {
+  const key = c.req.header('Idempotency-Key')
+  if (!key || !/^[A-Za-z0-9_-]{8,64}$/.test(key)) throw ApiError.badRequest('A valid Idempotency-Key is required')
+  assertDeclaredBodySize(c.req, JSON_BODY_LIMITS.project)
+  const bytes = await readBytesWithinLimit(c.req.raw.body, JSON_BODY_LIMITS.project)
+  let raw: unknown
+  try {
+    raw = JSON.parse(new TextDecoder().decode(bytes)) as unknown
+  } catch {
+    throw ApiError.badRequest('The request body is not valid JSON')
+  }
+  const parsed = ProjectPublicIntakeSchema.safeParse(raw)
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    throw ApiError.badRequest(issue ? `${issue.path.join('.')}: ${issue.message}` : 'Validation failed')
+  }
+  const input = parsed.data
+  const slug = c.req.param('slug')
+  const now = Date.now()
+  const context = await authorizePublicProjectShare(c.env.DB, slug, input.password, now, requestClientIp(c), 'intake')
+  const properties = await readBoardProperties(c.env.DB, context.board.id)
+  await assertPublicIntakeValues(c.env.DB, context.board.id, properties, context.intake, input.values)
+  const receiptUser = `public:intake:${slug}`
+  const bodyHash = await projectWriteFingerprint(bytes.buffer as ArrayBuffer)
+  const claim = {
+    method: 'POST',
+    path: `/api/project/public/${slug}/intake`,
+    bodyHash,
+    boardId: context.board.id,
+    requiredRole: '' as const,
+    ownerRequired: false,
+  }
+  let claimed = false
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    claimed = await claimProjectWriteReceipt(c.env.DB, receiptUser, key, claim, now)
+    if (claimed) break
+    const stored = await readProjectWriteReceipt(c.env.DB, receiptUser, key)
+    if (stored?.state === 'legacy' || (stored?.state === 'pending' && now - stored.createdAt > PROJECT_WRITE_CLAIM_TTL_MS)) {
+      await discardProjectWriteReceipt(c.env.DB, receiptUser, key)
+      continue
+    }
+    if (!stored || stored.state !== 'complete') throw ApiError.conflict('Intake submission is already in progress')
+    if (stored.method !== claim.method || stored.path !== claim.path || stored.bodyHash !== bodyHash || stored.boardId !== context.board.id) {
+      throw ApiError.conflict('Idempotency key was already used for a different request')
+    }
+    return c.json(JSON.parse(stored.body) as { ok: true, cardId: string }, 201)
+  }
+  if (!claimed) throw ApiError.conflict('Intake submission is already in progress')
+  try {
+    const cardInput = ProjectCardCreateSchema.parse({ title: input.title, values: input.values })
+    const card = await createProjectCard(c.env.DB, context.board, 'public:intake', cardInput, now)
+    const response = { ok: true as const, cardId: card.id }
+    await completeProjectWriteReceipt(c.env.DB, receiptUser, key, 201, JSON.stringify(response), now)
+    await touchProjectBoard(c.env.DB, context.board.id, now).catch((error: unknown) => {
+      console.warn('[inkstone] public intake board cursor bump failed:', error instanceof Error ? error.message : error)
+    })
+    const schedule = (task: Promise<unknown>): void => {
+      try { c.executionCtx?.waitUntil(task) } catch { /* no ExecutionContext in tests */ }
+    }
+    schedule(broadcastProjectChange(c.env, context.board.id, now, null, { entity: 'card', cardId: card.id }))
+    const activity = (async () => {
+      const activityId = await recordProjectActivity(c.env.DB, context.board.id, 'public:intake', 'post', card.id, 'Public intake created a card', now)
+      await recordProjectActivityChanges(c.env.DB, activityId, context.board.id, 'public:intake', [{
+        entity: 'card', entityId: card.id, field: 'created', newValue: true,
+      }], now)
+    })()
+    schedule(activity)
+    const webhook = enqueueProjectWebhookEvents(c.env.DB, context.board.id, 'card.created', {
+      boardId: context.board.id, event: 'card.created', targetId: card.id, method: 'POST', path: c.req.path, at: now,
+    }, now).then((ids) => Promise.all(ids.map((id) => deliverProjectWebhook(c.env.DB, c.env, id, now))))
+    schedule(webhook)
+    return c.json(response, 201)
+  } catch (error) {
+    await discardProjectWriteReceipt(c.env.DB, receiptUser, key)
+    throw error
+  }
 })
 
 projectRoutes.post('/categories', async (c) => {

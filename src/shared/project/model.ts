@@ -20,6 +20,9 @@ export const PROJECT_PROPERTY_TYPES = [
   'checkbox', 'url', 'email', 'phone', 'formula', 'relation', 'rollup', 'createdTime', 'createdBy', 'updatedTime', 'updatedBy', 'unknown',
 ] as const
 export type ProjectPropertyType = (typeof PROJECT_PROPERTY_TYPES)[number]
+export const PROJECT_INTAKE_PROPERTY_TYPES: readonly ProjectPropertyType[] = [
+  'text', 'number', 'select', 'multiSelect', 'date', 'checkbox', 'url', 'email', 'phone',
+]
 
 export const PROJECT_FILTER_VALUE_TYPES = ['none', 'options', 'boolean', 'text', 'date', 'person', 'number'] as const
 export type ProjectFilterValueType = (typeof PROJECT_FILTER_VALUE_TYPES)[number]
@@ -601,6 +604,13 @@ export interface ProjectCardMarks {
   pinned: string[]
 }
 
+export interface ProjectIntakeConfig {
+  enabled: boolean
+  title: string
+  propertyIds: string[]
+  requiredPropertyIds: string[]
+}
+
 export interface ProjectShare {
   slug: string
   boardId: string
@@ -608,6 +618,7 @@ export interface ProjectShare {
   expiresAt: number | null
   views: number
   showComments: boolean
+  intake: ProjectIntakeConfig
   createdAt: number
 }
 
@@ -684,6 +695,7 @@ export interface ProjectBoardBundle {
   role: ProjectRole
   cursor: number
   propertyRevision: number
+  intake?: ProjectIntakeConfig | null
 }
 
 const ROLE_RANK: Readonly<Record<ProjectMinimumRole, number>> = {

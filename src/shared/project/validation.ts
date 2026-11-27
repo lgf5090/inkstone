@@ -395,11 +395,29 @@ export const ProjectSubscriptionCreateSchema = z.object({
   blockId: projectId,
 })
 
+export const ProjectIntakeConfigSchema = z.object({
+  enabled: z.boolean(),
+  title: z.string().max(80),
+  propertyIds: z.array(projectId).max(PROJECT_LIMITS.propertiesPerBoard),
+  requiredPropertyIds: z.array(projectId).max(PROJECT_LIMITS.propertiesPerBoard),
+}).refine((config) => config.requiredPropertyIds.every((id) => config.propertyIds.includes(id)), 'required intake fields must be included')
+
+export type ProjectIntakeConfigInput = z.infer<typeof ProjectIntakeConfigSchema>
+
 export const ProjectSharePutSchema = z.object({
   password: z.string().min(4).max(128).nullable().optional(),
   expiresAt: stamp.nullable().optional(),
   showComments: z.boolean().optional(),
+  intake: ProjectIntakeConfigSchema.optional(),
 })
+
+export const ProjectPublicIntakeSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  values: z.record(projectId, propertyValue).refine((values) => Object.keys(values).length <= PROJECT_LIMITS.propertiesPerBoard, 'too many values'),
+  password: z.string().max(128).optional(),
+})
+
+export type ProjectPublicIntakeInput = z.infer<typeof ProjectPublicIntakeSchema>
 
 export const ProjectCardLinkSchema = z.object({
   toCardId: projectId,
