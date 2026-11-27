@@ -17,7 +17,7 @@ import { Modal } from '../../components/overlay'
 import { DatePicker } from '../../components/date-picker'
 import { formatAmount } from '@shared/subscriptions/format'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
-import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
+import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts, parseDateInputInTimezone } from '@shared/subscriptions/time'
 import {
   labelNamesOf,
   PERIOD_UNITS,
@@ -87,8 +87,8 @@ function draftOf(detail: SubscriptionDetail | null, timezone: string): Draft {
     category: item.category,
     amount: item.amount === null ? '' : String(item.amount),
     currency: item.currency,
-    startDate: item.startDate ? item.startDate.slice(0, 10) : '',
-    expiryDate: item.expiryDate.slice(0, 10),
+    startDate: item.startDate ? formatDateInputInTimezone(item.startDate, timezone) : '',
+    expiryDate: formatDateInputInTimezone(item.expiryDate, timezone),
     periodValue: String(item.periodValue),
     periodUnit: item.periodUnit,
     subscriptionMode: item.subscriptionMode,
@@ -96,7 +96,7 @@ function draftOf(detail: SubscriptionDetail | null, timezone: string): Draft {
     isActive: item.isActive,
     autoRenew: item.autoRenew,
     notes: item.notes,
-    trialEndsAt: item.trialEndsAt ? item.trialEndsAt.slice(0, 10) : '',
+    trialEndsAt: item.trialEndsAt ? formatDateInputInTimezone(item.trialEndsAt, timezone) : '',
     // Carried with their ids so the worker replaces this set rather than appending a second copy of it.
     rules: detail.rules.map((rule) => ({ ...rule })),
   }
@@ -146,7 +146,7 @@ export function SubscriptionForm({
 
   const hint = useMemo(() => {
     if (!draft.expiryDate) return ''
-    const parsed = Date.parse(`${draft.expiryDate}T00:00:00Z`)
+    const parsed = parseDateInputInTimezone(draft.expiryDate, timezone)
     if (!Number.isFinite(parsed)) return ''
     const parts = getTimezoneDateParts(parsed, timezone)
     const lunar = draft.useLunar ? solar2lunar(parts.year, parts.month, parts.day) : null
@@ -157,7 +157,7 @@ export function SubscriptionForm({
   }, [draft.expiryDate, draft.useLunar, timezone])
 
   const computeExpiry = (): void => {
-    const start = draft.startDate ? Date.parse(`${draft.startDate}T00:00:00Z`) : Date.now()
+    const start = draft.startDate ? parseDateInputInTimezone(draft.startDate, timezone).getTime() : Date.now()
     const value = Math.max(1, Math.trunc(Number(draft.periodValue) || 1))
     const unit = draft.periodUnit
     let next: number
@@ -183,7 +183,7 @@ export function SubscriptionForm({
       amount: draft.amount === '' ? null : Number(draft.amount),
       currency: draft.currency,
       startDate: draft.startDate || null,
-      expiryDate: `${draft.expiryDate}T00:00:00Z`,
+      expiryDate: draft.expiryDate,
       periodValue: Math.max(1, Math.trunc(Number(draft.periodValue) || 1)),
       periodUnit: draft.periodUnit,
       subscriptionMode: draft.subscriptionMode,

@@ -26,6 +26,7 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
   const clearSelection = useSubscriptions((state) => state.clearSelection)
   const bulk = useSubscriptions((state) => state.bulk)
   const importRows = useSubscriptions((state) => state.importRows)
+  const timezone = useSubscriptions((state) => state.settings?.timezone ?? 'UTC')
   const fileRef = useRef<HTMLInputElement>(null)
   const [categoryDraft, setCategoryDraft] = useState<string | null>(null)
   const [pending, setPending] = useState<{ rows: ReturnType<typeof parseCsv>; filename: string } | null>(null)
@@ -61,7 +62,7 @@ export function BulkBar({ items }: { items: readonly SubscriptionItem[] }): Reac
   const exportCsv = (): void => {
     // Excel reads a UTF-8 file in the local codepage unless the document opens with a byte-order mark,
     // which is how a plan named in Chinese comes back as mojibake; the importer strips the same mark.
-    downloadTextFile(csvFilename(), `${CSV_BOM}${toCsv(items)}`, 'text/csv;charset=utf-8')
+    downloadTextFile(csvFilename(), `${CSV_BOM}${toCsv(items, timezone)}`, 'text/csv;charset=utf-8')
   }
 
   const pickFile = async (file: File | undefined): Promise<void> => {

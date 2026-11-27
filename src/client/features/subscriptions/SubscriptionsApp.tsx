@@ -22,7 +22,8 @@ import { Drawer, Modal, Tooltip, confirm } from '../../components/overlay'
 import { Input, Select } from '../../components/form'
 import { formatAmount } from '@shared/subscriptions/format'
 import { FALLBACK_RATES } from '@shared/subscriptions/currency'
-import { NEW_RULE_DRAFT } from '@shared/subscriptions/model'
+import { NEW_RULE_DRAFT, hourIsOpen } from '@shared/subscriptions/model'
+import { formatLocalDate, getNowInTimezone } from '@shared/subscriptions/time'
 import { LIST_SORTS, type ListSort } from '@shared/subscriptions/sort'
 import { useSubscriptions } from './store'
 import { countItems, visibleItems } from './list-view'
@@ -328,6 +329,7 @@ export function SubscriptionsApp(): ReactElement {
     <SubscriptionDetail
       detail={detail}
       loading={detailLoading}
+      timezone={settings?.timezone ?? 'Asia/Shanghai'}
       onClose={() => { void useSubscriptions.getState().select(null); setDetailDrawer(false) }}
       callbacks={{
         onEdit: () => setFormOpen(true),
@@ -422,12 +424,13 @@ export function SubscriptionsApp(): ReactElement {
           {view === 'trash' && (
             <TrashView
               items={trashItems}
+              timezone={settings?.timezone ?? 'Asia/Shanghai'}
               onRestore={(item) => void useSubscriptions.getState().restore(item.id)}
               onPurge={(item) => void onPurge(item)}
               onEmpty={() => void onEmptyTrash()}
             />
           )}
-          {view === 'logs' && <LogsView logs={logs} items={items} onLoad={loadLogs} />}
+          {view === 'logs' && <LogsView logs={logs} items={items} timezone={settings?.timezone ?? 'Asia/Shanghai'} onLoad={loadLogs} />}
         </main>
 
         {panelWide && selectedId && (
@@ -594,25 +597,18 @@ function DiagnosticsDialog({ onClose }: { onClose: () => void }): ReactElement {
   const detail = useSubscriptions((state) => state.detail)
   const timezone = settings?.timezone ?? 'Asia/Shanghai'
   const now = new Date()
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    hour12: false,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-  }).formatToParts(now)
-  const pick = (type: string): string => parts.find((part) => part.type === type)?.value ?? ''
-  const hour = pick('hour') === '24' ? '00' : pick('hour')
-  const open = (settings?.notificationHours.length ?? 0) === 0 || settings?.notificationHours.includes('*') || settings?.notificationHours.includes(hour)
+  const clock = getNowInTimezone(timezone, now)
+  const open = hourIsOpen(settings?.notificationHours ?? [], clock.hourString)
 
   return (
     <Modal open onClose={onClose} title={t('subscriptions.diagnostics.title')} width={440} bodyClassName="px-4 py-3">
       <dl className="space-y-2 text-[length:var(--text-12)]">
         <Row label={t('subscriptions.diagnostics.utc')} value={now.toISOString().slice(0, 19).replace('T', ' ')} />
-        <Row label={t('subscriptions.diagnostics.local', { timezone })} value={`${pick('year')}-${pick('month')}-${pick('day')} ${hour}:${pick('minute')}:${pick('second')}`} />
-        <Row label={t('subscriptions.diagnostics.hour')} value={hour} />
+        <Row label={t('subscriptions.diagnostics.local', { timezone })} value={clock.isoLocal} />
+        <Row label={t('subscriptions.diagnostics.hour')} value={clock.hourString} />
         <Row label={t('subscriptions.diagnostics.window')} value={(settings?.notificationHours ?? []).join(', ') || t('subscriptions.diagnostics.all_day')} />
         <Row label={t('subscriptions.diagnostics.in_window')} value={open ? t('subscriptions.diagnostics.yes') : t('subscriptions.diagnostics.no')} tone={open ? 'success' : 'danger'} />
-        {detail?.nextReminder && <Row label={t('subscriptions.diagnostics.next_fire')} value={detail.nextReminder.nextFireTime.slice(0, 16).replace('T', ' ')} />}
+        {detail?.nextReminder && <Row label={t('subscriptions.diagnostics.next_fire')} value={formatLocalDate(detail.nextReminder.nextFireTime, timezone, 'datetime')} />}
       </dl>
       <div className="mt-3 flex justify-end">
         <Button size="sm" onClick={onClose}>{t('subscriptions.settings.close')}</Button>

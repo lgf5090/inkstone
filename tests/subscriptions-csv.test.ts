@@ -66,6 +66,11 @@ describe('export', () => {
     expect(toCsv([item({ amount: 0 })])).toContain(',0,')
   })
 
+  it('writes dates in the account timezone rather than UTC', () => {
+    const csv = toCsv([item({ expiryDate: '2026-06-01T00:00:00.000Z' })], 'America/New_York')
+    expect(csv).toContain('2026-05-31')
+  })
+
   it('names the file by the day it was taken', () => {
     expect(csvFilename(new Date(Date.UTC(2026, 4, 24)))).toBe('subscriptions-2026-05-24.csv')
   })

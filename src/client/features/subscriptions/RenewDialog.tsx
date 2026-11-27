@@ -13,7 +13,7 @@ import { Modal } from '../../components/overlay'
 import { DatePicker } from '../../components/date-picker'
 import { formatAmount } from '@shared/subscriptions/format'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
-import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
+import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts, parseDateInputInTimezone } from '@shared/subscriptions/time'
 import { PERIOD_MULTIPLIER_MAX, type SubscriptionDetail } from '@shared/subscriptions/model'
 
 export function RenewDialog({
@@ -38,7 +38,7 @@ export function RenewDialog({
   const [note, setNote] = useState('')
 
   const preview = useMemo(() => {
-    const paidAt = Date.parse(`${date}T00:00:00Z`)
+    const paidAt = parseDateInputInTimezone(date, timezone).getTime()
     const base = Number.isFinite(paidAt) ? paidAt : Date.now()
     const current = Date.parse(detail.item.expiryDate)
     const mode = detail.item.subscriptionMode

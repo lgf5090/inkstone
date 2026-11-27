@@ -15,6 +15,7 @@ import { Tooltip } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { daysState, daysStateKey, formatAmount, formatPaid, periodProgress, periodUnitKey } from '@shared/subscriptions/format'
 import { priceHistory, renewalsPerYear } from '@shared/subscriptions/currency'
+import { formatLocalDate } from '@shared/subscriptions/time'
 import { labelNamesOf, roundMoney, subscriptionStatus, type PaymentRecord, type ReminderRule, type SubscriptionDetail } from '@shared/subscriptions/model'
 import { StatusPill } from './StatusPill'
 import { ReminderRuleRow } from './ReminderRuleRow'
@@ -40,11 +41,13 @@ export interface DetailCallbacks {
 export function SubscriptionDetail({
   detail,
   loading,
+  timezone = 'UTC',
   onClose,
   callbacks,
 }: {
   detail: SubscriptionDetail | null
   loading: boolean
+  timezone?: string
   onClose: () => void
   callbacks: DetailCallbacks
 }): ReactElement {
@@ -108,7 +111,7 @@ export function SubscriptionDetail({
         <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
           <Fact label={t('subscriptions.detail.amount')} value={amount || '—'} strong />
           <Fact label={t('subscriptions.detail.cycle')} value={`${item.periodValue} ${t(periodUnitKey(item.periodUnit))}`} />
-          <Fact label={t('subscriptions.detail.expiry')} value={item.expiryDate.slice(0, 10)} />
+          <Fact label={t('subscriptions.detail.expiry')} value={formatLocalDate(item.expiryDate, timezone, 'date')} />
           <Fact
             label={t('subscriptions.detail.remaining')}
             value={t(daysStateKey(countdown), { count: countdown.count })}
@@ -122,7 +125,7 @@ export function SubscriptionDetail({
           {item.trialEndsAt && (
             <Fact
               label={t('subscriptions.detail.trial_ends')}
-              value={`${item.trialEndsAt.slice(0, 10)} · ${t('subscriptions.status.days_left', { count: item.trialDaysRemaining ?? 0 })}`}
+              value={`${formatLocalDate(item.trialEndsAt, timezone, 'date')} · ${t('subscriptions.status.days_left', { count: item.trialDaysRemaining ?? 0 })}`}
               tone={(item.trialDaysRemaining ?? 0) < 8 ? 'warning' : undefined}
             />
           )}
@@ -153,7 +156,7 @@ export function SubscriptionDetail({
 
         <p className="mt-3 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
           {detail.nextReminder
-            ? t('subscriptions.detail.next_reminder_value', { date: detail.nextReminder.nextFireTime.slice(0, 16).replace('T', ' ') })
+            ? t('subscriptions.detail.next_reminder_value', { date: formatLocalDate(detail.nextReminder.nextFireTime, timezone, 'datetime') })
             : t('subscriptions.detail.no_reminder')}
         </p>
 
@@ -208,7 +211,7 @@ export function SubscriptionDetail({
             ))}
           </ul>
         )}
-        <PriceCurve item={item} payments={detail.payments} />
+        <PriceCurve item={item} payments={detail.payments} timezone={timezone} />
         {detail.payments.length === 0
           ? <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('subscriptions.payments.empty')}</p>
           : (
@@ -232,7 +235,7 @@ export function SubscriptionDetail({
                         <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                           {t(PAYMENT_KIND[payment.kind])}
                         </span>
-                        <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">{payment.paidAt.slice(0, 10)}</span>
+                        <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">{formatLocalDate(payment.paidAt, timezone, 'date')}</span>
                       </span>
                     </div>
                     <div className="mt-0.5 flex items-center gap-1">
@@ -272,7 +275,7 @@ const PAYMENT_KIND: Record<PaymentRecord['kind'], Parameters<typeof t>[0]> = {
  * content, and a percentage against a content-sized parent resolves to nothing — which is how the
  * dashboard's chart once drew six labels and no bars.
  */
-function PriceCurve({ item, payments }: { item: SubscriptionDetail['item'], payments: readonly PaymentRecord[] }): ReactElement | null {
+function PriceCurve({ item, payments, timezone }: { item: SubscriptionDetail['item'], payments: readonly PaymentRecord[], timezone: string }): ReactElement | null {
   const points = priceHistory(payments, item.currency)
   if (points.length < 2) return null
   const skipped = payments.filter((payment) => payment.currency !== item.currency && payment.amount > 0).length
@@ -294,7 +297,7 @@ function PriceCurve({ item, payments }: { item: SubscriptionDetail['item'], paym
               index === points.length - 1 ? 'bg-[var(--accent)]' : 'bg-[color-mix(in_oklab,var(--accent)_42%,transparent)]',
             )}
             style={{ height: `${Math.max(2, Math.round((point.amount / peak) * CURVE_HEIGHT))}px` }}
-            title={`${point.at.slice(0, 10)} ${formatAmount(point.amount, item.currency)}`}
+            title={`${formatLocalDate(point.at, timezone, 'date')} ${formatAmount(point.amount, item.currency)}`}
           />
         ))}
       </div>

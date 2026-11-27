@@ -88,6 +88,11 @@ describe('the calendar file', () => {
     expect(text).toContain('DTSTAMP:20261021T000000Z')
   })
 
+  it('uses the account timezone for the all-day date', () => {
+    const [event] = buildEvents([item({ expiryDate: '2026-11-01T00:00:00.000Z' })], 'America/New_York')
+    expect(event?.day).toBe('2026-10-31')
+  })
+
   it('spans one whole day: the expiry is the start, and the day after is the exclusive end', () => {
     const text = document([item({ expiryDate: '2026-11-01T00:00:00.000Z' })])
     expect(text).toContain('DTSTART;VALUE=DATE:20261101')

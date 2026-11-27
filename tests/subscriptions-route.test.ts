@@ -114,6 +114,12 @@ describe('creating a subscription', () => {
     expect(detail.item.daysRemaining).toBeGreaterThanOrEqual(19)
   })
 
+  it('reads a bare expiry date in the account timezone', async () => {
+    await send('PUT', '/settings', { timezone: 'Asia/Shanghai' })
+    const detail = await create({ expiryDate: '2027-12-21' })
+    expect(detail.item.expiryDate).toBe('2027-12-20T16:00:00.000Z')
+  })
+
   it('rolls a past expiry forward instead of storing it', async () => {
     const detail = await create({ expiryDate: inDays(-45) })
     expect(Date.parse(detail.item.expiryDate)).toBeGreaterThan(Date.now())

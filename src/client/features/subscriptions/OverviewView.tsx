@@ -369,7 +369,7 @@ export function OverviewView({
                       renewed: overview.scheduler.renewedCount,
                     })}
                   </p>
-                  <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{overview.scheduler.startedAt.slice(0, 16).replace('T', ' ')}</p>
+                  <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{formatLocalDate(overview.scheduler.startedAt, overview.timezone, 'datetime')}</p>
                 </div>
               )
             : <p className="mt-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('subscriptions.overview.scheduler_never')}</p>}

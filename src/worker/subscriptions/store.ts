@@ -30,7 +30,7 @@ import {
 import { normalizeColor, normalizeIcon } from '@shared/subscriptions/identity'
 import { spendingByYear, type SpendingInput } from '@shared/subscriptions/currency'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
-import { addCalendarPeriodInTimezone, getTimezoneDateParts, getTimezoneMidnightTimestamp, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
+import { addCalendarPeriodInTimezone, getTimezoneDateParts, getTimezoneMidnightTimestamp, getTimestampForTimezoneParts, parseDateInputInTimezone } from '@shared/subscriptions/time'
 import { getNextFireTime, soonestFire } from '@shared/subscriptions/reminder-engine'
 import { calendarDayBounds } from '@shared/calendar/day-bounds'
 import { newId } from '../lib/id'
@@ -111,9 +111,9 @@ function toIso(ms: number | null | undefined): string | null {
   return ms === null || ms === undefined ? null : new Date(ms).toISOString()
 }
 
-function toMs(value: string | number | null | undefined): number | null {
+function toMs(value: string | number | null | undefined, timezone = 'UTC'): number | null {
   if (value === null || value === undefined) return null
-  const ms = typeof value === 'number' ? value : Date.parse(value)
+  const ms = typeof value === 'number' ? value : parseDateInputInTimezone(value, timezone).getTime()
   return Number.isFinite(ms) ? ms : null
 }
 
@@ -319,7 +319,7 @@ export class SubscriptionsStore {
     const expiry = this.resolveExpiry(input, context, now)
     const amount = input.amount === undefined || input.amount === null ? null : roundMoney(input.amount)
     const currency = input.currency ?? 'CNY'
-    const startDate = toMs(input.startDate ?? null)
+    const startDate = toMs(input.startDate ?? null, context.timezone)
     const createdAt = now
 
     const statements = [
@@ -343,7 +343,7 @@ export class SubscriptionsStore {
         input.autoRenew === false ? 0 : 1,
         input.notes ?? '',
         startDate ?? createdAt,
-        toMs(input.trialEndsAt ?? null),
+        toMs(input.trialEndsAt ?? null, context.timezone),
         createdAt,
         createdAt,
       ),
@@ -394,7 +394,7 @@ export class SubscriptionsStore {
       ? existing.amount
       : input.amount === null ? null : roundMoney(input.amount)
     const currency = input.currency ?? existing.currency
-    const startDate = input.startDate === undefined ? existing.start_date : toMs(input.startDate)
+    const startDate = input.startDate === undefined ? existing.start_date : toMs(input.startDate, context.timezone)
     const category = input.category === undefined ? existing.category : input.category.trim()
 
     await this.db.prepare(
@@ -424,7 +424,7 @@ export class SubscriptionsStore {
       now,
       input.trialEndsAt === undefined
         ? existing.trial_ends_at
-        : toMs(input.trialEndsAt),
+        : toMs(input.trialEndsAt, context.timezone),
     ).run()
 
     await this.syncInitialPayment(id, existing, amount, currency, startDate, expiry, now)
@@ -556,7 +556,7 @@ export class SubscriptionsStore {
     const existing = await this.itemRow(id)
     if (!existing) return null
 
-    const paymentAt = toMs(options.paymentDate) ?? now
+    const paymentAt = toMs(options.paymentDate, context.timezone) ?? now
     const multiplier = Math.min(PERIOD_MULTIPLIER_MAX, Math.max(1, Math.trunc(options.periodMultiplier ?? 1)))
     const amount = options.amount === undefined
       ? existing.amount ?? 0
@@ -694,7 +694,7 @@ export class SubscriptionsStore {
     ).bind(this.userId, id, paymentId).first<PaymentRow>()
     if (!payment) return null
 
-    const paidAt = toMs(patch.date) ?? payment.paid_at
+    const paidAt = toMs(patch.date, context.timezone) ?? payment.paid_at
     await this.db.prepare(
       `UPDATE sub_payment SET paid_at = ?4, amount = ?5, currency = ?6, note = ?7
         WHERE user_id = ?1 AND subscription_id = ?2 AND id = ?3`,
@@ -1065,7 +1065,7 @@ export class SubscriptionsStore {
    * treated as overdue and, with auto-renew on, renew itself on the next tick anyway.
    */
   private resolveExpiry(input: SubscriptionInput, context: StoreContext, now: number): number {
-    const requested = toMs(input.expiryDate)
+    const requested = toMs(input.expiryDate, context.timezone)
     if (requested === null) throw new Error('invalid_expiry')
     const periodValue = Math.max(1, Math.trunc(input.periodValue ?? 1))
     const periodUnit = (input.periodUnit ?? 'month') as 'day' | 'month' | 'year'

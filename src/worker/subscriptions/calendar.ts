@@ -14,6 +14,7 @@
  */
 import ICAL from 'ical.js'
 import type { SubscriptionItem } from '@shared/subscriptions/model'
+import { formatLocalDate } from '@shared/subscriptions/time'
 
 export interface ICalEvent {
   /** Stable across fetches, so a client updates the event instead of duplicating it. */
@@ -37,12 +38,12 @@ function nextDay(day: string): string {
 }
 
 /** One all-day event per plan still running. A stopped plan has no date the reader is waiting for. */
-export function buildEvents(items: readonly SubscriptionItem[]): ICalEvent[] {
+export function buildEvents(items: readonly SubscriptionItem[], timezone = 'UTC'): ICalEvent[] {
   return items
     .filter((item) => item.isActive)
     .map((item) => ({
       uid: `${item.id}@inkstone.subscriptions`,
-      day: item.expiryDate.slice(0, 10),
+      day: formatLocalDate(item.expiryDate, timezone, 'date'),
       title: item.name,
       detail: `${item.periodValue} ${item.periodUnit}`
         + (item.amount ? ` · ${item.amount} ${item.currency}` : ''),

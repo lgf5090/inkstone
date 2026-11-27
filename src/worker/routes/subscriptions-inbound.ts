@@ -97,7 +97,7 @@ subscriptionInboundRoutes.get('/calendar/:token', async (c) => {
 
   const settings = await loadSettings(c.env.DB, userId)
   const items = await new SubscriptionsStore(c.env.DB, userId).list(storeContext(settings))
-  const body = toICal(buildEvents(items), { name: 'Inkstone subscriptions', stamp: Date.now() })
+  const body = toICal(buildEvents(items, settings.timezone), { name: 'Inkstone subscriptions', stamp: Date.now() })
 
   return new Response(body, {
     headers: {

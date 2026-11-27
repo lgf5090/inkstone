@@ -11,6 +11,7 @@
  * comma, at which point the import splits one column into two and the reader loses a category.
  */
 import type { SubscriptionItem } from '@shared/subscriptions/model'
+import { formatLocalDate } from '@shared/subscriptions/time'
 
 export const CSV_COLUMNS = [
   'name', 'customType', 'category', 'amount', 'currency',
@@ -35,13 +36,13 @@ function escape(value: string): string {
  */
 export const CSV_BOM = '\uFEFF'
 
-export function toCsv(items: readonly SubscriptionItem[]): string {
+export function toCsv(items: readonly SubscriptionItem[], timezone = 'UTC'): string {
   const header = CSV_COLUMNS.join(',')
-  const rows = items.map((item) => CSV_COLUMNS.map((column) => escape(csvValue(item, column))).join(','))
+  const rows = items.map((item) => CSV_COLUMNS.map((column) => escape(csvValue(item, column, timezone))).join(','))
   return [header, ...rows].join('\r\n')
 }
 
-function csvValue(item: SubscriptionItem, column: CsvColumn): string {
+function csvValue(item: SubscriptionItem, column: CsvColumn, timezone: string): string {
   switch (column) {
     case 'name': return item.name
     case 'customType': return item.customType
@@ -49,8 +50,8 @@ function csvValue(item: SubscriptionItem, column: CsvColumn): string {
     // The plain number, not the formatted one: `¥1,234.00` would come back as three fields.
     case 'amount': return item.amount === null ? '' : String(item.amount)
     case 'currency': return item.currency
-    case 'startDate': return item.startDate?.slice(0, 10) ?? ''
-    case 'expiryDate': return item.expiryDate.slice(0, 10)
+    case 'startDate': return item.startDate ? formatLocalDate(item.startDate, timezone, 'date') : ''
+    case 'expiryDate': return formatLocalDate(item.expiryDate, timezone, 'date')
     case 'periodValue': return String(item.periodValue)
     case 'periodUnit': return item.periodUnit
     case 'subscriptionMode': return item.subscriptionMode

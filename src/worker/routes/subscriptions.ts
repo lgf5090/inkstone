@@ -106,9 +106,20 @@ function optionalText(value: unknown, max: number, field: string): string | unde
 
 function requireDate(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value.trim()) throw ApiError.badRequest(`${field} is required`)
-  const parsed = Date.parse(value.length === 10 ? `${value}T00:00:00Z` : value)
-  if (!Number.isFinite(parsed)) throw ApiError.badRequest(`${field} is not a date`)
-  return value.trim()
+  const trimmed = value.trim()
+  const bare = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed)
+  if (bare) {
+    const year = Number(bare[1])
+    const month = Number(bare[2])
+    const day = Number(bare[3])
+    const probe = new Date(Date.UTC(year, month - 1, day))
+    if (probe.getUTCFullYear() !== year || probe.getUTCMonth() + 1 !== month || probe.getUTCDate() !== day) {
+      throw ApiError.badRequest(`${field} is not a date`)
+    }
+    return trimmed
+  }
+  if (!Number.isFinite(Date.parse(trimmed))) throw ApiError.badRequest(`${field} is not a date`)
+  return trimmed
 }
 
 function optionalDate(value: unknown, field: string): string | null | undefined {
