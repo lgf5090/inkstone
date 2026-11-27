@@ -17,7 +17,8 @@
  */
 
 import { tagInScope, tagKey } from '../markdown-utils'
-import { rssHash, safeHttpUrl } from './model'
+import { rssHash, safeHttpUrl, savedNoteKey } from './model'
+import { splitSavedNoteKey } from './marks'
 import type { RssEntry, RssFeed, RssGroup, RssLibrary } from './model'
 
 export interface RssView {
@@ -507,6 +508,32 @@ export function remoteContentKey(link: string): string {
     return episode ? `xyz:${episode[1].toLowerCase()}` : ''
   }
   return ''
+}
+
+export function migrateEntryMarks(library: RssLibrary, aliases: ReadonlyMap<string, string>): RssLibrary {
+  if (!aliases.size) return library
+  const replace = (id: string): string => aliases.get(id) ?? id
+  const opened: Record<string, number> = {}
+  for (const [id, at] of Object.entries(library.opened)) {
+    const next = replace(id)
+    if (opened[next] === undefined || at > opened[next]) opened[next] = at
+  }
+  const savedNotes: Record<string, string> = {}
+  for (const [key, noteId] of Object.entries(library.savedNotes)) {
+    const mark = splitSavedNoteKey(key)
+    if (!mark) continue
+    const next = savedNoteKey(replace(mark.entryId), mark.kind)
+    if (savedNotes[next] === undefined) savedNotes[next] = noteId
+  }
+  return {
+    ...library,
+    readIds: library.readIds.map(replace),
+    favorites: library.favorites.map(replace),
+    readLater: library.readLater.map(replace),
+    hiddenIds: library.hiddenIds.map(replace),
+    opened,
+    savedNotes,
+  }
 }
 
 /**

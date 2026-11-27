@@ -12,6 +12,7 @@ import {
   groupIdFor,
   groupedFeeds,
   mergeEntries,
+  migrateEntryMarks,
   orderByStaleness,
   groupKey,
   parseChannelKey,
@@ -375,6 +376,23 @@ describe('WeChat and Xiaoyuzhou duplicates', () => {
     expect(remoteContentKey('https://mp.weixin.qq.com/profile?__biz=a&mid=1&idx=1')).toBe('')
     expect(remoteContentKey('https://blog.example.com/s?__biz=a&mid=1&idx=1')).toBe('')
     expect(remoteContentKey('')).toBe('')
+  })
+
+  it('moves every mark when a bridged article gets a new id', () => {
+    const base = emptyLibrary()
+    base.readIds = ['old', 'other']
+    base.favorites = ['old']
+    base.readLater = ['old']
+    base.hiddenIds = ['old']
+    base.opened = { old: 10, other: 5 }
+    base.savedNotes = { 'old|note': 'n1', 'other|copy': 'n2' }
+    const moved = migrateEntryMarks(base, new Map([['old', 'new']]))
+    expect(moved.readIds).toEqual(['new', 'other'])
+    expect(moved.favorites).toEqual(['new'])
+    expect(moved.readLater).toEqual(['new'])
+    expect(moved.hiddenIds).toEqual(['new'])
+    expect(moved.opened).toEqual({ new: 10, other: 5 })
+    expect(moved.savedNotes).toEqual({ 'new|note': 'n1', 'other|copy': 'n2' })
   })
 
   it('reads a podcast episode id, with or without the share suffix', () => {

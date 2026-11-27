@@ -33,7 +33,7 @@ import {
   type RssGroup,
   type RssLibrary,
 } from '@shared/rss/model'
-import { channelKey, descendantGroupIds, feedShelfOrder, feedWantsRefresh, groupIdFor, groupKey, orderByStaleness, parseChannelKey, refreshBackoffMs, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
+import { channelKey, descendantGroupIds, feedShelfOrder, feedWantsRefresh, groupIdFor, groupKey, migrateEntryMarks, orderByStaleness, parseChannelKey, refreshBackoffMs, remoteContentKey, type RssChannel, type RssFilter, type RssSort } from '@shared/rss/reading'
 import { diffLibrary, patchChars, patchIsEmpty } from '@shared/rss/patch'
 import { FeedParseError, parseFeed, type ParsedFeed } from '../../lib/rss/feed'
 import type { LinkPlatform } from '@shared/rss/platform'
@@ -643,6 +643,32 @@ export const useRss = create<RssState>((set, get) => {
             done++
             markFeedFailed(feed, t('rss.error.not_a_feed'))
             continue
+          }
+          const aliases = new Map<string, string>()
+          const previousEntries = get().articles[feed.id] ?? []
+          for (const next of parsed.entries) {
+            const key = remoteContentKey(next.link)
+            if (!key) continue
+            for (const previous of previousEntries) {
+              if (previous.id !== next.id && remoteContentKey(previous.link) === key) aliases.set(previous.id, next.id)
+            }
+          }
+          if (aliases.size) {
+            set((state) => {
+              const views = { ...state.views }
+              for (const [viewKey, view] of Object.entries(views)) {
+                const entryId = aliases.get(view.entryId)
+                if (entryId) views[viewKey] = { ...view, entryId }
+              }
+              const results = { ...state.results }
+              for (const [id, result] of Object.entries(results)) {
+                const nextId = aliases.get(id)
+                if (!nextId) continue
+                if (!results[nextId]) results[nextId] = result
+                delete results[id]
+              }
+              return { library: migrateEntryMarks(state.library, aliases), views, results, allCached: null }
+            })
           }
           try {
             await storeArticles(feed.id, parsed.entries)

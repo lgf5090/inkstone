@@ -364,6 +364,24 @@ describe('refreshing', () => {
     }
   })
 
+  it('moves marks and selection when a bridged article changes id', async () => {
+    const bridged = (guid: string, sn: string): string => `<rss version="2.0"><channel><title>Bridged</title><item><title>One</title><link>https://mp.weixin.qq.com/s?__biz=abc&amp;mid=1&amp;idx=1&amp;sn=${sn}</link><guid>${guid}</guid><pubDate>Tue, 25 Nov 2026 12:00:00 GMT</pubDate><description>Body</description></item></channel></rss>`
+    fetchResults = [{ url: feed.url, status: 200, ok: true, xml: bridged('old-guid', 'a') }]
+    await boot()
+    const oldId = useRss.getState().articles.f1[0].id
+    useRss.getState().openEntry(oldId)
+    useRss.getState().toggleFavorite(oldId)
+    await useRss.getState().flush()
+    fetchResults = [{ url: feed.url, status: 200, ok: true, xml: bridged('new-guid', 'b') }]
+    await useRss.getState().refresh(['f1'], { force: true })
+    const newId = useRss.getState().articles.f1[0].id
+    expect(newId).not.toBe(oldId)
+    expect(useRss.getState().library.readIds).toContain(newId)
+    expect(useRss.getState().library.favorites).toContain(newId)
+    expect(useRss.getState().library.readIds).not.toContain(oldId)
+    expect(useRss.getState().view().entryId).toBe(newId)
+  })
+
   it('keeps a reader-supplied title when the source refreshes', async () => {
     fetchResults = [{ url: feed.url, status: 304, ok: true }]
     await boot()
