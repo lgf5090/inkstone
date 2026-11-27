@@ -784,13 +784,8 @@ export async function saveServerRssArticles(db: D1Database, userId: string, feed
   return Number(kept?.count ?? 0)
 }
 
-export async function loadServerRssArticles(db: D1Database, userId: string, feedId: string): Promise<RssEntry[]> {
-  const { results } = await db.prepare(
-    `SELECT feed_id, entry_id, title, link, author, published_ts, summary, content, image_url, audio_url, duration, episode, season, fetched_at
-       FROM rss_article WHERE user_id = ?1 AND feed_id = ?2
-      ORDER BY published_ts DESC, fetched_at DESC, entry_id ASC LIMIT ?3`,
-  ).bind(userId, feedId, RSS_LIMITS.entriesPerFeed).all<ArticleRow>()
-  return results.map(row => normaliseEntry({
+function articleFromRow(row: ArticleRow): RssEntry | null {
+  return normaliseEntry({
     id: row.entry_id,
     title: row.title,
     link: row.link,
@@ -803,5 +798,29 @@ export async function loadServerRssArticles(db: D1Database, userId: string, feed
     duration: row.duration,
     episode: row.episode,
     season: row.season,
-  }, row.feed_id)).filter((entry): entry is RssEntry => entry !== null)
+  }, row.feed_id)
+}
+
+export async function loadServerRssArticles(db: D1Database, userId: string, feedId: string): Promise<RssEntry[]> {
+  const { results } = await db.prepare(
+    `SELECT feed_id, entry_id, title, link, author, published_ts, summary, content, image_url, audio_url, duration, episode, season, fetched_at
+       FROM rss_article WHERE user_id = ?1 AND feed_id = ?2
+      ORDER BY published_ts DESC, fetched_at DESC, entry_id ASC LIMIT ?3`,
+  ).bind(userId, feedId, RSS_LIMITS.entriesPerFeed).all<ArticleRow>()
+  return results.map(articleFromRow).filter((entry): entry is RssEntry => entry !== null)
+}
+
+export async function searchServerRssArticles(db: D1Database, userId: string, query: string, feedId = '', limit = 50): Promise<RssEntry[]> {
+  const term = query.trim().slice(0, 200)
+  if (!term) return []
+  const scope = feedId ? ' AND feed_id = ?3' : ''
+  const params = feedId ? [userId, term, feedId, Math.min(100, Math.max(1, limit))] : [userId, term, Math.min(100, Math.max(1, limit))]
+  const limitParam = feedId ? '?4' : '?3'
+  const { results } = await db.prepare(
+    `SELECT feed_id, entry_id, title, link, author, published_ts, summary, content, image_url, audio_url, duration, episode, season, fetched_at
+       FROM rss_article WHERE user_id = ?1
+         AND (instr(title, ?2) > 0 OR instr(summary, ?2) > 0 OR instr(content, ?2) > 0)${scope}
+      ORDER BY published_ts DESC, fetched_at DESC, entry_id ASC LIMIT ${limitParam}`,
+  ).bind(...params).all<ArticleRow>()
+  return results.map(articleFromRow).filter((entry): entry is RssEntry => entry !== null)
 }

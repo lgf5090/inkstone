@@ -17,7 +17,7 @@
 import { Hono } from 'hono'
 import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, safeHttpUrl, type RssFeed, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty, patchIsMarksOnly } from '@shared/rss/patch'
-import { accountExists, deleteRssReadingFeed, loadRssLibrary, loadServerRssArticles, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
+import { accountExists, deleteRssReadingFeed, loadRssLibrary, loadServerRssArticles, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, searchServerRssArticles, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -157,6 +157,16 @@ rssRoutes.get('/articles', async (c) => {
   if (!(await rssFeedExists(c.env.DB, userId, feedId))) throw ApiError.notFound('Subscription not found')
   const articles = await loadServerRssArticles(c.env.DB, userId, feedId)
   return c.json({ feedId, articles }, { headers: { 'Cache-Control': 'private, no-store' } })
+})
+
+rssRoutes.get('/search', async (c) => {
+  const userId = c.get('userId')
+  const query = c.req.query('q')?.trim().slice(0, 200) ?? ''
+  if (!query) throw ApiError.badRequest('A search query is required')
+  const feedId = c.req.query('feedId')?.slice(0, 80) ?? ''
+  if (feedId && !(await rssFeedExists(c.env.DB, userId, feedId))) throw ApiError.notFound('Subscription not found')
+  const articles = await searchServerRssArticles(c.env.DB, userId, query, feedId)
+  return c.json({ articles }, { headers: { 'Cache-Control': 'private, no-store' } })
 })
 
 rssRoutes.get('/library', async (c) => {

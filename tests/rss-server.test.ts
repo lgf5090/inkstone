@@ -5,7 +5,7 @@ import { emptyLibrary, newFeed } from '../src/shared/rss/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { parseServerFeed } from '../src/worker/lib/rss-parse'
 import { runRssSchedulerTick } from '../src/worker/lib/rss-scheduler'
-import { loadServerRssArticles, saveServerRssArticles, storeRssLibrary } from '../src/worker/lib/rss-store'
+import { loadServerRssArticles, saveServerRssArticles, searchServerRssArticles, storeRssLibrary } from '../src/worker/lib/rss-store'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'server-rss-user'
@@ -37,6 +37,13 @@ describe('server feed parsing and storage', () => {
     const stored = await loadServerRssArticles(db, USER, 'f1')
     expect(stored.map(entry => entry.title)).toEqual(['One', 'Two'])
     expect(stored[0].publishedTs).toBe(Date.UTC(2025, 8, 2, 8, 30))
+  })
+
+  it('searches titles, summaries and bodies in the server article store', async () => {
+    const parsed = parseServerFeed('<rss><channel><title>Search</title><item><title>Alpha</title><description>Needle in body</description></item><item><title>Beta</title><description>Other</description></item></channel></rss>', 'f1', 'https://example.com/feed')
+    await saveServerRssArticles(db, USER, 'f1', parsed.entries, 1)
+    expect((await searchServerRssArticles(db, USER, 'Needle')).map(entry => entry.title)).toEqual(['Alpha'])
+    expect(await searchServerRssArticles(db, USER, 'missing')).toEqual([])
   })
 
   it('parses JSON Feed on the server', () => {

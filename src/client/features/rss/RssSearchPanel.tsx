@@ -14,7 +14,8 @@ import { usePinyinVersion } from '../../lib/pinyin'
 import { FilterInput } from '../../components/FilterInput'
 import { Modal } from '../../components/overlay'
 import type { RssEntry } from '@shared/rss/model'
-import { searchEntries } from './search'
+import { searchEntries, type ScoredEntry } from './search'
+import { api } from '../../lib/api'
 import { useRss } from './store'
 
 export function RssSearchPanel({ open, onClose, onPick }: {
@@ -23,6 +24,7 @@ export function RssSearchPanel({ open, onClose, onPick }: {
   onPick: (entry: RssEntry) => void
 }): ReactElement {
   const [term, setTerm] = useState('')
+  const [remote, setRemote] = useState<RssEntry[]>([])
   const library = useRss(state => state.library)
   const loadAllCached = useRss(state => state.loadAllCached)
   const index = useRss(state => state.allCached)
@@ -34,11 +36,32 @@ export function RssSearchPanel({ open, onClose, onPick }: {
     void loadAllCached()
   }, [open, index, loadAllCached])
 
+  useEffect(() => {
+    if (!open || !query.text || query.error) return
+    let active = true
+    const timer = window.setTimeout(() => {
+      void api.rss.search(query.text).then(result => {
+        if (active) setRemote(result.articles)
+      }).catch((error: unknown) => {
+        if (!active) return
+        console.warn('[inkstone] RSS server search failed', error)
+        setRemote([])
+      })
+    }, 250)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [open, query.text, query.error])
+
   const results = useMemo(() => {
-    if (!index || !query.text || query.error) return []
+    if (!query.text || query.error) return []
     const names = new Map(library.feeds.map(feed => [feed.id, feed.title]))
-    return searchEntries(index, query, names).slice(0, 100)
-  }, [index, query, library.feeds, pinyinVersion])
+    const local: ScoredEntry[] = index ? searchEntries(index, query, names).slice(0, 100) : []
+    const merged = new Map<string, ScoredEntry>(remote.map(entry => [entry.id, { entry, ranges: [] }]))
+    for (const item of local) if (!merged.has(item.entry.id)) merged.set(item.entry.id, item)
+    return [...merged.values()].slice(0, 100)
+  }, [index, query, library.feeds, pinyinVersion, remote])
 
   return (
     <Modal open={open} onClose={onClose} title={t('rss.search_all')} width={620}>

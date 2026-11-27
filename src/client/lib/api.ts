@@ -1441,6 +1441,8 @@ export const api = {
       request<{ url: string; title: string; feeds: string[] }>(`/api/rss/discover?url=${encodeURIComponent(url)}`),
     articles: (feedId: string) =>
       request<{ feedId: string, articles: RssEntry[] }>(`/api/rss/articles?feedId=${encodeURIComponent(feedId)}`),
+    search: (query: string, feedId = '') =>
+      request<{ articles: RssEntry[] }>(`/api/rss/search?q=${encodeURIComponent(query)}${feedId ? `&feedId=${encodeURIComponent(feedId)}` : ''}`),
     /**
      * Hand one feed's articles to the account, so the assistant can read them.
      *
