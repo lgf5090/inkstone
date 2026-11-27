@@ -31,7 +31,9 @@ const buckets = new Map<string, Uint8Array>()
 const types = new Map<string, string>()
 const r2 = {
   async put(key: string, value: unknown, options?: { httpMetadata?: { contentType?: string } }) {
-    const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : new TextEncoder().encode(String(value))
+    const bytes = value instanceof ReadableStream
+      ? new Uint8Array(await new Response(value).arrayBuffer())
+      : value instanceof ArrayBuffer ? new Uint8Array(value) : new TextEncoder().encode(String(value))
     buckets.set(key, bytes)
     if (options?.httpMetadata?.contentType) types.set(key, options.httpMetadata.contentType)
     return { key }
@@ -357,6 +359,29 @@ describe('the book bytes', () => {
     expect(cached.status).toBe(304)
     const invalid = await app.request('/api/reader/books/book-1/blob', { headers: { Range: 'bytes=99-100' } }, env())
     expect(invalid.status).toBe(416)
+  })
+
+  it('streams a declared upload into R2 without buffering it in the route', async () => {
+    await send('PUT', '/library', { library: library() })
+    const response = await app.request('/api/reader/books/book-1/blob', {
+      method: 'PUT',
+      headers: { 'Content-Length': String(BOOK_BYTES.length) },
+      body: BOOK_BYTES,
+    }, env())
+    expect(response.status).toBe(200)
+    const stored = await r2.get('reader/user-alice/book-1.epub')
+    expect(stored).not.toBeNull()
+    expect(new Uint8Array(await new Response(stored!.body).arrayBuffer())).toEqual(BOOK_BYTES)
+  })
+
+  it('rejects a streamed upload whose bytes do not match its format', async () => {
+    await send('PUT', '/library', { library: library() })
+    const bytes = new TextEncoder().encode('not a book')
+    const response = await app.request('/api/reader/books/book-1/blob', {
+      method: 'PUT', headers: { 'Content-Length': String(bytes.length) }, body: bytes,
+    }, env())
+    expect(response.status).toBe(400)
+    expect(buckets.size).toBe(0)
   })
 
   it('refuses an empty file and one that is too large to hold', async () => {

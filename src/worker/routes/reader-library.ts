@@ -603,6 +603,28 @@ readerLibraryRoutes.put('/library', async (c) => {
   })
 })
 
+function bookUploadStream(body: ReadableStream<Uint8Array>, format: BookFormat, declared: number) {
+  let size = 0
+  const prefix: number[] = []
+  const stream = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      size += chunk.byteLength
+      if (size > declared || size > MAX_BOOK_BYTES) {
+        controller.error(new ApiError(413, 'reader_book_too_large', 'The upload exceeded its declared size'))
+        return
+      }
+      for (const byte of chunk.subarray(0, Math.max(0, 5 - prefix.length))) prefix.push(byte)
+      controller.enqueue(chunk)
+    },
+    flush(controller) {
+      if (!size) throw new ApiError(400, 'bad_request', 'The upload was empty')
+      if (!hasBookMagic(format, Uint8Array.from(prefix))) throw new ApiError(400, 'bad_request', 'The upload does not match the book format')
+      controller.terminate()
+    },
+  })
+  return { stream: body.pipeThrough(stream), size: () => size }
+}
+
 /**
  * The book's bytes. The row decides the extension, so the only thing a client can name is an id.
  */
@@ -615,26 +637,39 @@ readerLibraryRoutes.put('/books/:id/blob', async (c) => {
   const format = row.format as BookFormat
   const declared = Number(c.req.header('content-length') ?? 0)
   if (declared > MAX_BOOK_BYTES) throw ApiError.badRequest('That file is too large for the shelf')
-  const bytes = await c.req.arrayBuffer()
-  if (!bytes.byteLength) throw ApiError.badRequest('The upload was empty')
-  if (bytes.byteLength > MAX_BOOK_BYTES) {
-    throw new ApiError(413, 'reader_book_too_large', `A book may be at most ${MAX_BOOK_BYTES} bytes`)
-  }
-  const view = new Uint8Array(bytes)
-  if (!hasBookMagic(format, view)) throw ApiError.badRequest('The upload does not match the book format')
 
   const r2 = c.env.FILES
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
   const reservation = `blob:${id}`
-  await reserveReaderUpload(c.env.DB, userId, reservation, bytes.byteLength, row.size ?? 0)
   const key = readerBookKey(userId, id, EXTENSIONS[format])
+  const streaming = declared > 0 && c.req.raw.body ? bookUploadStream(c.req.raw.body, format, declared) : null
+  if (!streaming) {
+    const bytes = await c.req.arrayBuffer()
+    if (!bytes.byteLength) throw ApiError.badRequest('The upload was empty')
+    if (bytes.byteLength > MAX_BOOK_BYTES) throw new ApiError(413, 'reader_book_too_large', `A book may be at most ${MAX_BOOK_BYTES} bytes`)
+    if (!hasBookMagic(format, new Uint8Array(bytes))) throw ApiError.badRequest('The upload does not match the book format')
+    await reserveReaderUpload(c.env.DB, userId, reservation, bytes.byteLength, row.size ?? 0)
+    let stored = false
+    try {
+      await r2.put(key, bytes, { httpMetadata: { contentType: CONTENT_TYPES[format] } })
+      stored = true
+      await library.markBlobStored(id, key, bytes.byteLength)
+      await releaseReaderUpload(c.env.DB, userId, reservation)
+      return c.json({ ok: true as const, size: bytes.byteLength, key })
+    } catch (error) {
+      if (!stored) await releaseReaderUpload(c.env.DB, userId, reservation)
+      throw error
+    }
+  }
+  await reserveReaderUpload(c.env.DB, userId, reservation, declared, row.size ?? 0)
   let stored = false
   try {
-    await r2.put(key, bytes, { httpMetadata: { contentType: CONTENT_TYPES[format] } })
+    await r2.put(key, streaming.stream, { httpMetadata: { contentType: CONTENT_TYPES[format] } })
     stored = true
-    await library.markBlobStored(id, key, bytes.byteLength)
+    const size = streaming.size()
+    await library.markBlobStored(id, key, size)
     await releaseReaderUpload(c.env.DB, userId, reservation)
-    return c.json({ ok: true as const, size: bytes.byteLength, key })
+    return c.json({ ok: true as const, size, key })
   } catch (error) {
     if (!stored) await releaseReaderUpload(c.env.DB, userId, reservation)
     throw error
