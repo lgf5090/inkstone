@@ -19,12 +19,13 @@ import { AssistantDock } from '../chat/AssistantDock'
 import { NotificationsBell } from '../chat/NotificationCenter'
 import { Button, IconButton } from '../../components/primitives'
 import { Drawer, Modal, Tooltip, confirm } from '../../components/overlay'
-import { Input, Select } from '../../components/form'
+import { Input } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
 import { formatAmount } from '@shared/subscriptions/format'
 import { FALLBACK_RATES } from '@shared/subscriptions/currency'
 import { NEW_RULE_DRAFT, hourIsOpen } from '@shared/subscriptions/model'
 import { formatLocalDate, getNowInTimezone } from '@shared/subscriptions/time'
-import { LIST_SORTS, type ListSort } from '@shared/subscriptions/sort'
+import { LIST_SORTS } from '@shared/subscriptions/sort'
 import { useSubscriptions } from './store'
 import { countItems, visibleItems } from './list-view'
 import { FilterRail } from './FilterRail'
@@ -211,7 +212,7 @@ export function SubscriptionsApp(): ReactElement {
   }
 
   const header = (
-    <header data-print="hide" className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
+    <header data-print="hide" className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1">
       <IconButton label={railOpen ? t('subscriptions.rail.collapse') : t('subscriptions.rail.expand')} size="sm" onClick={() => setRailOpen(open => !open)}>
         {railOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
       </IconButton>
@@ -222,28 +223,31 @@ export function SubscriptionsApp(): ReactElement {
           {formatAmount(overview.monthly.amount, overviewCurrency)}
         </span>
       )}
-      <div className="ml-auto flex shrink-0 items-center gap-1">
+      <div className="ml-auto flex w-full min-w-0 flex-wrap items-center justify-end gap-1 sm:w-auto">
         <Input
           id="subscriptions-search"
           aria-label={t('subscriptions.search')}
           value={filter.query}
           placeholder={t('subscriptions.search')}
           leading={<Search size={13} />}
+          wrapperClassName="w-auto shrink-0"
           onChange={(event) => useSubscriptions.getState().setFilter({ query: event.target.value })}
-          className="h-7 w-24 text-[length:var(--text-11-5)] sm:w-40 lg:w-52"
+          className="h-7 w-32 text-[length:var(--text-11-5)] sm:w-40 lg:w-52"
         />
         {/* Ordering and shape belong to the rows, so neither control exists where there are none: the
             dashboard, the logs and the trash each have their own arrangement already. */}
         {(view === 'list' || view === 'grid') && (
           <>
-            <Select
-              aria-label={t('subscriptions.list.sort')}
+            <SelectMenu
+              label={t('subscriptions.list.sort')}
               value={filter.sort}
-              onChange={(event) => useSubscriptions.getState().setFilter({ sort: event.target.value as ListSort })}
-              className="h-7 w-[92px] text-[length:var(--text-11-5)]"
-            >
-              {LIST_SORTS.map((sort) => <option key={sort} value={sort}>{t(SORT_LABEL[sort])}</option>)}
-            </Select>
+              options={LIST_SORTS.map((sort) => ({ value: sort, label: t(SORT_LABEL[sort]) }))}
+              onChange={(sort) => useSubscriptions.getState().setFilter({ sort })}
+              size="sm"
+              width={140}
+              align="end"
+              className="w-[92px] shrink-0 text-[length:var(--text-11-5)]"
+            />
             <Tooltip label={view === 'grid' ? t('subscriptions.view_list') : t('subscriptions.view_grid')} side="bottom">
               <IconButton
                 label={view === 'grid' ? t('subscriptions.view_list') : t('subscriptions.view_grid')}

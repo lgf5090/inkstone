@@ -88,7 +88,7 @@ export function SubscriptionDetail({
           </div>
         </div>
         <Tooltip label={t('subscriptions.detail.close')} side="left">
-          <IconButton label={t('subscriptions.detail.close')} size="sm" onClick={onClose} className="lg:hidden">
+          <IconButton label={t('subscriptions.detail.close')} size="sm" onClick={onClose}>
             <X size={15} />
           </IconButton>
         </Tooltip>

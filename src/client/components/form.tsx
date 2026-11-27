@@ -34,6 +34,7 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   leading?: ReactNode
   trailing?: ReactNode
   invalid?: boolean
+  wrapperClassName?: string
 }
 
 /**
@@ -60,6 +61,7 @@ export function Input({
   leading,
   trailing,
   invalid,
+  wrapperClassName,
   'aria-invalid': ariaInvalid,
   type,
   ...rest
@@ -67,7 +69,7 @@ export function Input({
   const accessibleInvalid = invalid ? true : ariaInvalid
   if (leading || trailing || type === 'search') {
     return (
-      <div className="relative flex w-full min-w-0 items-center">
+      <div className={cn('relative flex w-full min-w-0 items-center', wrapperClassName)}>
         {leading && (
           <span className="pointer-events-none absolute left-2.5 text-[var(--text-quaternary)]">
             {leading}
@@ -110,11 +112,12 @@ export function Textarea({
 
 export function Select({
   className,
+  wrapperClassName,
   children,
   ...rest
-}: SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSelectElement> }) {
+}: SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSelectElement>; wrapperClassName?: string }) {
   return (
-    <div className="relative min-w-0">
+    <div className={cn('relative min-w-0', wrapperClassName)}>
       <select
         {...rest}
         className={cn(FIELD_BASE, 'h-11 cursor-pointer appearance-none pr-7 md:h-[34px]', className)}
