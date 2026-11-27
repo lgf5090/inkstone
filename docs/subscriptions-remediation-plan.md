@@ -94,5 +94,6 @@ For each task:
 
 - Final verification found and fixed two digest edge cases in `ee51f1cb3`: weekly summaries now target Monday correctly from Sunday and normalize month/year boundaries; migration 446 indexes `(digest, next_digest_at)` so due-account lookup stays selective.
 - Final verification found and fixed converted-trial empty scans in `f1411a105`: the scheduler candidate query now requires the deterministic first payment to be absent, so an account does not remain due every minute after conversion.
+- Closed the remaining default-rule path in `6eea8e6d4`: `before_trial_end` also requires the first payment to be absent, and the regression test keeps that rule present after conversion.
 - Removed the unused `loadAllSettings` export in `e7227530a` to satisfy the repository's no-dead-code rule.
 - The first parallel full-suite attempt hit the 600-second tool limit without summary lines and is explicitly not counted as a pass. Final verification is running sequentially with an extended timeout.
