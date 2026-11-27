@@ -124,7 +124,9 @@ function readHiddenShared(): Set<string> {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(HIDDEN_SHARED_KEY) ?? '[]')
     return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [])
-  } catch {
+  } catch (cause) {
+    // Corrupt or blocked visibility storage must not hide shared calendars from their owner.
+    console.debug('[inkstone] Hidden shared-calendar visibility could not be read; showing all shared calendars.', cause)
     return new Set()
   }
 }
@@ -654,14 +656,14 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   /** Masters whose rule was just hidden by an exception; the next month read must expand them. */
   const freshExceptionMasters = useRef(new Set<string>())
 
-  const syncOccurrences = useCallback(() => {
+  const syncOccurrences = useCallback((events: Event[] = app.getEvents(), view: string = app.getCurrentView().type) => {
     const occurrences = occurrenceRef.current
     if (!occurrences) return
-    const current = new Set(app.getEvents().filter(event => isRecurrenceOccurrence(event)).map(event => event.id))
-    const exceptionMasters = new Set(app.getEvents()
+    const current = new Set(events.filter(event => isRecurrenceOccurrence(event)).map(event => event.id))
+    const exceptionMasters = new Set(events
       .filter(event => Array.isArray(event.meta?.exdates) && event.meta.exdates.length > 0)
       .map(event => event.id))
-    const desired = app.getCurrentView().type === 'month'
+    const desired = view === 'month'
       ? [...occurrences.values()].filter(event => exceptionMasters.has(event.id.split('::repeat-')[0] ?? ''))
       : [...occurrences.values()]
     const desiredIds = new Set(desired.map(event => event.id))
@@ -824,10 +826,10 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   useEffect(() => observeViewSwitcher(document), [])
 
   /**
-   * DayFlow owns the grid, but not the interaction contract around it: on a desktop a click must
-   * select the event for our extras instead of opening its full-screen mobile sheet, every event
-   * needs a keyboard stop, and the compact header/add button must speak the reader's language.
-   * The bridge observes the library's re-renders so all three stay true after a view switch.
+   * DayFlow owns the grid, but not the interaction contract around it: a click must select the event
+   * for our extras — inline on a wide screen or in the narrow drawer — instead of opening the
+   * library's full-screen sheet, every event needs a keyboard stop, and the compact header/add button
+   * must speak the reader's language. The bridge observes re-renders so these stay true after a switch.
    */
   useEffect(() => {
     const root = document.querySelector<HTMLElement>('.inkstone-calendar')
@@ -843,7 +845,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       addLabel: t('calendar.event.new'),
       untitledLabel: t('calendar.event.untitled'),
       allDayLabel: t('calendar.event.all_day'),
-      interceptEvents: wide,
+      interceptEvents: true,
       onAdd: () => setQuickAddOpen(true),
       onRecurring: id => {
         const event = app.getEvents().find(item => item.id === id)
@@ -859,6 +861,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
         dismissedRef.current = null
         shownRef.current = id
         setExtrasEventId(id)
+        if (!wide) setDrawerOpen(true)
       },
       onOpenDetail: id => app.onEventDetailToggle(id),
     })
@@ -1082,13 +1085,13 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
 
   const addHolidays = useCallback(async (): Promise<void> => {
     const year = new Date().getFullYear()
-    try {
-      await api.addHolidays({
-        calendarName: t('calendar.holidays.calendar_name', { year }),
     if (!holidayNoticeOf(year)) {
       useUi.getState().toast({ title: t('calendar.holidays.unpublished', { year }), tone: 'warning' })
       return
     }
+    try {
+      await api.addHolidays({
+        calendarName: t('calendar.holidays.calendar_name', { year }),
         holidays: holidayPresets(year),
       })
       useUi.getState().toast({ title: t('calendar.holidays.added'), tone: 'success' })
@@ -1268,8 +1271,18 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   }, [app, history, revs, dropOccurrencesForMaster])
 
   useEffect(() => {
-    syncOccurrences()
-    return app.subscribe(() => syncOccurrences())
+    let previousEvents = app.getEvents()
+    let previousView = app.getCurrentView().type
+    const sync = (): void => {
+      const events = app.getEvents()
+      const view = app.getCurrentView().type
+      if (events === previousEvents && view === previousView) return
+      previousEvents = events
+      previousView = view
+      syncOccurrences(events, view)
+    }
+    syncOccurrences(previousEvents, previousView)
+    return app.subscribe(sync)
   }, [app, syncOccurrences])
 
   // The extras section follows DayFlow's selection rather than a click callback, because providing one
@@ -1288,7 +1301,12 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     const event = app.getEvents().find(item => item.id === selected)
     setExtrasReadOnly(event ? eventCalendarIds(event).some(id => !app.canMutateFromUI(id)) : false)
     setExtrasEventId(selected)
-  }), [app])
+    if (!wide) setDrawerOpen(true)
+    else if (collapsed) {
+      setCollapsed(false)
+      writeCollapsed(false)
+    }
+  }), [app, wide, collapsed])
 
   useEffect(() => app.subscribeVisibleRangeChange(payload => {
     const from = payload.start.getTime()
@@ -1397,13 +1415,31 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     })
   }, [app, meta.preferences, preferencesSignature])
 
-  useEffect(() => app.subscribe(() => {
-    const view = app.getCurrentView().type
-    if (!(CALENDAR_VIEWS as readonly string[]).includes(view)) return
-    const next = calendarRouteHref(window.location.href, view as CalendarViewName, app.getCurrentDate())
-    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
-    if (next !== current) window.history.replaceState(window.history.state, '', next)
-  }), [app])
+  useEffect(() => {
+    let previousView = app.getCurrentView().type
+    let previousDate = app.getCurrentDate().getTime()
+    let frame: number | undefined
+    const write = (): void => {
+      frame = undefined
+      if (!(CALENDAR_VIEWS as readonly string[]).includes(previousView)) return
+      const next = calendarRouteHref(window.location.href, previousView as CalendarViewName, new Date(previousDate))
+      const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+      if (next !== current) window.history.replaceState(window.history.state, '', next)
+    }
+    const schedule = (): void => {
+      const view = app.getCurrentView().type
+      const date = app.getCurrentDate().getTime()
+      if (view === previousView && date === previousDate) return
+      previousView = view
+      previousDate = date
+      frame ??= window.requestAnimationFrame(write)
+    }
+    const unsubscribe = app.subscribe(schedule)
+    return () => {
+      unsubscribe()
+      if (frame !== undefined) window.cancelAnimationFrame(frame)
+    }
+  }, [app])
 
   const search = useMemo<CalendarSearchProps>(() => ({
     debounceDelay: 300,

@@ -25,6 +25,7 @@ import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Menu, Tooltip, confirm, type MenuItem, submenuFor } from '../../components/overlay'
 import { Checkbox } from '../../components/form'
 import { MiniMonth } from './MiniMonth'
+import { readCalendarSidebarSnapshot, sameCalendarSidebarSnapshot } from './sidebar-snapshot'
 import { downloadCalendarText } from './calendar-download'
 import {
   CalendarFormDialog,
@@ -195,7 +196,15 @@ export function CalendarSidebar({
   const [inviteBusy, setInviteBusy] = useState<string | null>(null)
   const invites = meta.invites ?? []
 
-  useEffect(() => app.subscribe(() => bumpVersion()), [app])
+  useEffect(() => {
+    let previous = readCalendarSidebarSnapshot(app)
+    return app.subscribe(() => {
+      const next = readCalendarSidebarSnapshot(app)
+      if (sameCalendarSidebarSnapshot(previous, next)) return
+      previous = next
+      bumpVersion()
+    })
+  }, [app])
 
   const calendars = app.getCalendars()
   const currentDate = app.getCurrentDate()

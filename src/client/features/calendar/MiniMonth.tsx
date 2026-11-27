@@ -82,7 +82,7 @@ interface MiniMonthProps {
   weekStart: number
   timeZone: string
   showEventDots: boolean
-  /** Bumped by the sidebar on every app notification, so event edits refresh the dots. */
+  /** Bumped only when the event, calendar, date or calendar-system snapshot changes. */
   version: number
   onSelectDate: (date: Date) => void
   /** Ask the surface to load the six weeks this grid draws; dots are only as complete as the cache. */
