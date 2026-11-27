@@ -56,7 +56,6 @@ export function RssSettings({ onClose }: { onClose?: () => void }): ReactElement
   // and has opened two still has 40 feeds on disk, and the reader is asking about the disk.
   const cache = useRss(state => state.cache)
   const clearBodies = useRss(state => state.clearBodies)
-  const clearReadingSnapshot = useRss(state => state.clearReadingSnapshot)
   const held = Object.values(cache)
   const cachedFeeds = held.length
   const cachedArticles = held.reduce((sum, meta) => sum + (meta.count ?? 0), 0)
@@ -80,12 +79,6 @@ export function RssSettings({ onClose }: { onClose?: () => void }): ReactElement
     if (!(await confirm({ title: t('rss.storage.clear_bodies'), description: t('rss.storage.clear_bodies_confirm', { n: bodyFeeds }), tone: 'danger', confirmLabel: t('rss.storage.clear_bodies') }))) return
     const feeds = await clearBodies()
     useUi.getState().toast({ title: t('rss.storage.bodies_cleared', { n: feeds }), tone: 'success' })
-  }
-
-  const clearReadingPressed = async (): Promise<void> => {
-    if (!(await confirm({ title: t('rss.settings.clear_reading'), description: t('rss.settings.clear_reading_desc'), tone: 'danger', confirmLabel: t('rss.settings.clear_reading') }))) return
-    await clearReadingSnapshot()
-    useUi.getState().toast({ title: t('rss.settings.reading_cleared'), tone: 'success' })
   }
 
   const forgetLegacyKey = async (): Promise<void> => {
@@ -355,9 +348,6 @@ export function RssSettings({ onClose }: { onClose?: () => void }): ReactElement
           description={cacheLine}
         >
           <div className="flex flex-wrap items-center justify-end gap-1.5">
-            <Button size="sm" onClick={() => void clearReadingPressed()}>
-              {t('rss.settings.clear_reading')}
-            </Button>
             <Button
               size="sm"
               disabled={!bodyFeeds}

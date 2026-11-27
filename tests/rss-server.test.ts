@@ -40,6 +40,7 @@ describe('server feed parsing and storage', () => {
   })
 
   it('searches titles, summaries and bodies in the server article store', async () => {
+    await storeRssLibrary(db, USER, { ...emptyLibrary(), feeds: [newFeed('f1', 'https://example.com/feed', 'Search', 0)] }, 1)
     const parsed = parseServerFeed('<rss><channel><title>Search</title><item><title>Alpha</title><description>Needle in body</description></item><item><title>Beta</title><description>Other</description></item></channel></rss>', 'f1', 'https://example.com/feed')
     await saveServerRssArticles(db, USER, 'f1', parsed.entries, 1)
     expect((await searchServerRssArticles(db, USER, 'Needle')).map(entry => entry.title)).toEqual(['Alpha'])

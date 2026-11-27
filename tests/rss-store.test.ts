@@ -9,9 +9,9 @@ import {
   newGroup,
   type RssLibrary,
 } from '../src/shared/rss/model'
-import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
+import { SCHEMA_MIGRATIONS, SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { diffLibrary } from '../src/shared/rss/patch'
-import { loadRssLibrary, loadRssReading, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, storeRssLibrary, storeRssPatch } from '../src/worker/lib/rss-store'
+import { loadRssLibrary, queryServerRssArticles, rssFeedExists, rssMarkPatchFits, saveServerRssArticles, storeRssLibrary, storeRssPatch } from '../src/worker/lib/rss-store'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'user-store'
@@ -123,9 +123,9 @@ describe('the row store', () => {
 
   it('removes every RSS row when the account is deleted', async () => {
     await storeRssLibrary(db, USER, library(), 1)
-    await saveRssReadingFeed(db, USER, 'f1', [{ id: 'e1', feedId: 'f1', title: 'One', link: 'https://example.com/1', author: '', content: 'Body', summary: '', publishedTs: 1, imageUrl: '', audioUrl: '' }], 1)
+    await saveServerRssArticles(db, USER, 'f1', [{ id: 'e1', feedId: 'f1', title: 'One', link: 'https://example.com/1', author: '', content: 'Body', summary: '', publishedTs: 1, imageUrl: '', audioUrl: '' }], 1)
     sqlite.prepare('DELETE FROM users WHERE id = ?').run(USER)
-    for (const table of ['rss_feed', 'rss_feed_tag', 'rss_group', 'rss_mark', 'rss_state', 'rss_reading_entry', 'rss_article', 'rss_rule']) {
+    for (const table of ['rss_feed', 'rss_feed_tag', 'rss_group', 'rss_mark', 'rss_state', 'rss_article', 'rss_rule']) {
       expect(count(table, USER)).toBe(0)
     }
   })
@@ -292,26 +292,48 @@ describe('the legacy column', () => {
   })
 })
 
-describe('the assistant reading cache', () => {
-  function entry(id: string, feedId: string, publishedTs: number) {
-    return { id, feedId, title: id, link: `https://example.test/${id}`, author: '', publishedTs, summary: '', content: id, imageUrl: '', audioUrl: '' }
-  }
-
-  it('keeps concurrent feed uploads in separate rows', async () => {
-    await Promise.all([
-      saveRssReadingFeed(db, USER, 'f1', [entry('a', 'f1', 1)], 1),
-      saveRssReadingFeed(db, USER, 'f2', [entry('b', 'f2', 2)], 2),
-    ])
-    expect(Object.keys((await loadRssReading(db, USER))?.feeds ?? {}).sort()).toEqual(['f1', 'f2'])
+describe('the server article store', () => {
+  it('moves legacy assistant snapshots into article rows and drops the duplicate table', async () => {
+    await storeRssLibrary(db, USER, library(), 1)
+    sqlite.exec(`CREATE TABLE rss_reading_entry (
+      user_id TEXT NOT NULL, feed_id TEXT NOT NULL, entry_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '', link TEXT NOT NULL DEFAULT '', author TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', published_ts INTEGER,
+      image_url TEXT NOT NULL DEFAULT '', audio_url TEXT NOT NULL DEFAULT '', captured_at INTEGER NOT NULL DEFAULT 0
+    )`)
+    sqlite.prepare(`INSERT INTO rss_reading_entry
+      (user_id, feed_id, entry_id, title, link, author, content, summary, published_ts, captured_at)
+      VALUES (?, 'f1', 'legacy', 'Legacy', 'https://example.test/legacy', 'Rae', 'Legacy body', '', 10, 20)`)
+      .run(USER)
+    const migration = SCHEMA_MIGRATIONS.find(item => item.version === 447)
+    expect(migration).toBeDefined()
+    for (const statement of migration!.statements) sqlite.exec(statement)
+    expect((await queryServerRssArticles(db, USER, { feedId: 'f1' })).entries[0]).toMatchObject({ id: 'legacy', content: 'Legacy body' })
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'rss_reading_entry'").get()).toBeUndefined()
   })
 
-  it('keeps the newest feed when the account ceiling is reached', async () => {
-    for (let feed = 0; feed < 6; feed++) {
-      const rows = Array.from({ length: 40 }, (_unused, index) => entry(`e${feed}-${index}`, `f${feed}`, feed * 100 + index))
-      await saveRssReadingFeed(db, USER, `f${feed}`, rows, feed + 1)
-    }
-    const snapshot = await loadRssReading(db, USER)
-    expect(snapshot?.feeds.f5.entries).toHaveLength(40)
-    expect(Object.values(snapshot?.feeds ?? {}).reduce((sum, feed) => sum + feed.entries.length, 0)).toBe(180)
+  function entry(id: string, feedId: string, publishedTs: number, author = 'Rae') {
+    return { id, feedId, title: `Title ${id}`, link: `https://example.test/${id}`, author, publishedTs, summary: `Summary ${id}`, content: `Body ${id}`, imageUrl: '', audioUrl: '' }
+  }
+
+  it('queries fields, authors, dates and marks without crossing accounts', async () => {
+    await storeRssLibrary(db, USER, library(), 1)
+    await saveServerRssArticles(db, USER, 'f1', [entry('a', 'f1', 100), entry('b', 'f1', 200, 'Kai')], 2)
+    await saveServerRssArticles(db, OTHER, 'f1', [entry('other', 'f1', 300)], 3)
+    expect((await queryServerRssArticles(db, USER, { field: 'author', author: 'Kai' })).entries.map(item => item.id)).toEqual(['b'])
+    expect((await queryServerRssArticles(db, USER, { from: 150, to: 250 })).entries.map(item => item.id)).toEqual(['b'])
+    expect((await queryServerRssArticles(db, USER, { query: 'Body a', field: 'content' })).total).toBe(1)
+    expect((await queryServerRssArticles(db, USER, { mark: 'unread' })).total).toBe(2)
+    expect((await queryServerRssArticles(db, USER, { query: 'other' })).total).toBe(0)
+  })
+
+  it('keeps each feed inside its own article ceiling', async () => {
+    await storeRssLibrary(db, USER, library(), 1)
+    await Promise.all([
+      saveServerRssArticles(db, USER, 'f1', [entry('a', 'f1', 1)], 1),
+      saveServerRssArticles(db, USER, 'f2', [entry('b', 'f2', 2)], 2),
+    ])
+    expect((await queryServerRssArticles(db, USER, { feedId: 'f1' })).entries.map(item => item.id)).toEqual(['a'])
+    expect((await queryServerRssArticles(db, USER, { feedId: 'f2' })).entries.map(item => item.id)).toEqual(['b'])
   })
 })

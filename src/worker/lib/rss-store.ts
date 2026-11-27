@@ -4,9 +4,8 @@
  * The account used to keep this as one JSON column, so starring an article sent the whole library
  * and a second device's newer save quietly replaced subscriptions it had never touched. Rows let one
  * change stay one change: a write is diffed against what is stored and only the rows that moved are
- * touched. Article text is still not here on purpose — a feed's entries are rebuilt from the network
- * and live on the device that fetched them, so what the account owns is the decisions a reader made
- * about them.
+ * touched. Article rows live separately from the library: the scheduler stores bounded article text
+ * for cross-device reading, while this module keeps subscriptions and the decisions made about them.
  *
  * The legacy column doubles as the migration marker, which is what separates an empty library from
  * an unmigrated one: rows are only authoritative once the account has an `rss_state` row, and the
@@ -50,12 +49,6 @@ const GROUP_ROW: RowSpec = {
 const TAG_ROW: RowSpec = { table: 'rss_feed_tag', columns: ['feed_id', 'tag'], key: ['feed_id', 'tag'] }
 
 const MARK_ROW: RowSpec = { table: 'rss_mark', columns: ['kind', 'entry_id', 'value', 'at'], key: ['kind', 'entry_id'] }
-const READING_ENTRY_ROW: RowSpec = {
-  table: 'rss_reading_entry',
-  columns: ['entry_id', 'feed_id', 'title', 'link', 'author', 'content', 'summary', 'published_ts', 'image_url', 'audio_url', 'captured_at'],
-  key: ['entry_id'],
-}
-
 const ARTICLE_ROW: RowSpec = {
   table: 'rss_article',
   columns: ['entry_id', 'feed_id', 'title', 'link', 'author', 'published_ts', 'summary', 'content', 'image_url', 'audio_url', 'duration', 'episode', 'season', 'fetched_at'],
@@ -568,175 +561,6 @@ export async function rssFeedExists(db: D1Database, userId: string, feedId: stri
   return Boolean(stored.library?.feeds.some(item => item.id === feedId))
 }
 
-/**
- * One article as the assistant reads it.
- *
- * The article list itself is rebuilt from the network and stays on the device that fetched it, so
- * the Worker has no article to answer a question about. The device therefore hands over the newest
- * articles it holds, already reduced to plain text, and this row is what the RSS tools read. It is a
- * cache beside the library, never part of it: marks and subscriptions keep their own rows, and a
- * device can stop uploading at any time without losing what the reader decided.
- */
-export interface RssReadingEntry {
-  id: string
-  feedId: string
-  title: string
-  link: string
-  author: string
-  /** Plain text, not the feed's HTML: the assistant reads sentences, not markup. */
-  content: string
-  summary: string
-  publishedTs: number | null
-  imageUrl: string
-  audioUrl: string
-}
-
-interface RssReadingFeed {
-  capturedAt: number
-  entries: RssReadingEntry[]
-}
-
-export interface RssReadingSnapshot {
-  capturedAt: number
-  feeds: Record<string, RssReadingFeed>
-}
-
-/** What one article may contribute, so a single long post cannot fill the whole account. */
-const READING_CONTENT_CHARS = 6000
-const READING_SUMMARY_CHARS = 600
-/** How many articles one feed, and the whole account, may keep for the assistant. */
-const READING_ENTRIES_PER_FEED = 40
-const READING_ENTRIES_TOTAL = 180
-const READING_SNAPSHOT_CHARS = 600_000
-
-function readingEntry(value: unknown, feedId: string): RssReadingEntry | null {
-  const entry = normaliseEntry(value, feedId)
-  if (!entry) return null
-  return {
-    id: entry.id,
-    feedId,
-    title: entry.title,
-    link: entry.link,
-    author: entry.author,
-    content: entry.content.slice(0, READING_CONTENT_CHARS),
-    summary: entry.summary.slice(0, READING_SUMMARY_CHARS),
-    publishedTs: entry.publishedTs,
-    imageUrl: entry.imageUrl,
-    audioUrl: entry.audioUrl,
-  }
-}
-
-function readingEntryValues(entry: RssReadingEntry, capturedAt: number): SqlValue[] {
-  return [
-    entry.id, entry.feedId, entry.title, entry.link, entry.author, entry.content,
-    entry.summary, entry.publishedTs, entry.imageUrl, entry.audioUrl, capturedAt,
-  ]
-}
-
-function readingCleanupStatements(userId: string): RssStatement[] {
-  return [
-    {
-      sql: `DELETE FROM rss_reading_entry
-             WHERE rowid IN (
-               SELECT rowid FROM (
-                 SELECT rowid, ROW_NUMBER() OVER
-                   (ORDER BY published_ts DESC, captured_at DESC, entry_id) AS entry_rank
-                   FROM rss_reading_entry WHERE user_id = ?1
-               ) WHERE entry_rank > ?2
-             )`,
-      params: [userId, READING_ENTRIES_TOTAL],
-    },
-    {
-      sql: `DELETE FROM rss_reading_entry
-             WHERE rowid IN (
-               SELECT rowid FROM (
-                 SELECT rowid, SUM(length(content) + length(summary) + length(title)) OVER
-                   (ORDER BY published_ts DESC, captured_at DESC, entry_id ROWS UNBOUNDED PRECEDING) AS chars
-                   FROM rss_reading_entry WHERE user_id = ?1
-               ) WHERE chars > ?2
-             )`,
-      params: [userId, READING_SNAPSHOT_CHARS],
-    },
-  ]
-}
-
-interface ReadingEntryRow {
-  feed_id: string
-  entry_id: string
-  title: string
-  link: string
-  author: string
-  content: string
-  summary: string
-  published_ts: number | null
-  image_url: string
-  audio_url: string
-  captured_at: number
-}
-
-export async function loadRssReading(db: D1Database, userId: string): Promise<RssReadingSnapshot | null> {
-  const { results } = await db.prepare(
-    `SELECT feed_id, entry_id, title, link, author, content, summary, published_ts, image_url, audio_url, captured_at
-       FROM rss_reading_entry
-      WHERE user_id = ?1
-      ORDER BY published_ts DESC, captured_at DESC, entry_id ASC`,
-  ).bind(userId).all<ReadingEntryRow>()
-  const feeds: Record<string, RssReadingFeed> = {}
-  let capturedAt = 0
-  for (const row of results) {
-    const entry = readingEntry({
-      id: row.entry_id,
-      title: row.title,
-      link: row.link,
-      author: row.author,
-      content: row.content,
-      summary: row.summary,
-      publishedTs: row.published_ts,
-      imageUrl: row.image_url,
-      audioUrl: row.audio_url,
-    }, row.feed_id)
-    if (!entry) continue
-    const feed = feeds[row.feed_id] ?? { capturedAt: row.captured_at, entries: [] }
-    feed.entries.push(entry)
-    feeds[row.feed_id] = feed
-    capturedAt = Math.max(capturedAt, row.captured_at)
-  }
-  return Object.keys(feeds).length ? { capturedAt, feeds } : null
-}
-
-export async function deleteRssReadingFeed(db: D1Database, userId: string, feedId?: string): Promise<void> {
-  if (feedId) {
-    await db.prepare('DELETE FROM rss_reading_entry WHERE user_id = ?1 AND feed_id = ?2')
-      .bind(userId, feedId).run()
-    return
-  }
-  await db.prepare('DELETE FROM rss_reading_entry WHERE user_id = ?1').bind(userId).run()
-}
-
-/** Replace one feed's articles, then enforce account-wide count and character ceilings atomically. */
-export async function saveRssReadingFeed(
-  db: D1Database,
-  userId: string,
-  feedId: string,
-  raw: readonly unknown[],
-  capturedAt = Date.now(),
-): Promise<{ capturedAt: number; entries: number }> {
-  const entries: RssReadingEntry[] = []
-  for (const item of raw.slice(0, READING_ENTRIES_PER_FEED)) {
-    const entry = readingEntry(item, feedId)
-    if (entry) entries.push(entry)
-  }
-  entries.sort((left, right) => (right.publishedTs ?? 0) - (left.publishedTs ?? 0))
-  const statements = [
-    ...upserts(READING_ENTRY_ROW, userId, entries.map(entry => readingEntryValues(entry, capturedAt))),
-    ...readingCleanupStatements(userId),
-  ]
-  await db.batch(statements.map(statement => db.prepare(statement.sql).bind(...statement.params)))
-  const kept = await db.prepare('SELECT COUNT(*) AS count FROM rss_reading_entry WHERE user_id = ?1 AND feed_id = ?2')
-    .bind(userId, feedId).first<{ count: number }>()
-  return { capturedAt, entries: Number(kept?.count ?? 0) }
-}
-
 interface ArticleRow {
   feed_id: string
   entry_id: string
@@ -810,19 +634,106 @@ export async function loadServerRssArticles(db: D1Database, userId: string, feed
   return results.map(articleFromRow).filter((entry): entry is RssEntry => entry !== null)
 }
 
-export async function searchServerRssArticles(db: D1Database, userId: string, query: string, feedId = '', limit = 50): Promise<RssEntry[]> {
-  const term = query.trim().slice(0, 200)
-  if (!term) return []
-  const scope = feedId ? ' AND feed_id = ?3' : ''
-  const params = feedId ? [userId, term, feedId, Math.min(100, Math.max(1, limit))] : [userId, term, Math.min(100, Math.max(1, limit))]
-  const limitParam = feedId ? '?4' : '?3'
+export type RssArticleField = 'any' | 'title' | 'summary' | 'content' | 'author'
+export type RssArticleMarkFilter = 'unread' | 'starred' | 'later'
+
+export interface RssArticleQuery {
+  feedId?: string
+  query?: string
+  field?: RssArticleField
+  author?: string
+  from?: number
+  to?: number
+  mark?: RssArticleMarkFilter
+  limit?: number
+}
+
+export interface RssArticlePage {
+  entries: RssEntry[]
+  total: number
+}
+
+const ARTICLE_COLUMNS = 'feed_id, entry_id, title, link, author, published_ts, summary, content, image_url, audio_url, duration, episode, season, fetched_at'
+const ARTICLE_FIELDS: Record<RssArticleField, string> = {
+  any: "(instr(title, ?) > 0 OR instr(summary, ?) > 0 OR instr(content, ?) > 0 OR instr(author, ?) > 0)",
+  title: 'instr(title, ?) > 0',
+  summary: 'instr(summary, ?) > 0',
+  content: 'instr(content, ?) > 0',
+  author: 'instr(author, ?) > 0',
+}
+
+function articleScope(query: RssArticleQuery): { sql: string, params: SqlValue[] } {
+  const clauses: string[] = []
+  const params: SqlValue[] = []
+  const bind = (value: SqlValue): string => {
+    params.push(value)
+    return `?${params.length + 1}`
+  }
+  if (query.feedId) clauses.push(`feed_id = ${bind(query.feedId.slice(0, 80))}`)
+  const term = query.query?.trim().slice(0, 200) ?? ''
+  if (term) {
+    const field = query.field && ARTICLE_FIELDS[query.field] ? query.field : 'any'
+    const expression = ARTICLE_FIELDS[field]
+    const count = field === 'any' ? 4 : 1
+    for (let index = 0; index < count; index++) clauses.push(expression.replaceAll('?', bind(term)))
+  }
+  const author = query.author?.trim().slice(0, 120) ?? ''
+  if (author) clauses.push(`instr(author, ${bind(author)}) > 0`)
+  if (typeof query.from === 'number' && Number.isFinite(query.from)) clauses.push(`published_ts >= ${bind(Math.trunc(query.from))}`)
+  if (typeof query.to === 'number' && Number.isFinite(query.to)) clauses.push(`published_ts <= ${bind(Math.trunc(query.to))}`)
+  clauses.push(`EXISTS (SELECT 1 FROM rss_feed feed WHERE feed.user_id = rss_article.user_id AND feed.id = rss_article.feed_id)`)
+  clauses.push(`NOT EXISTS (SELECT 1 FROM rss_mark hidden WHERE hidden.user_id = rss_article.user_id AND hidden.kind = 'hidden' AND hidden.entry_id = rss_article.entry_id)`)
+  if (query.mark === 'unread') {
+    clauses.push(`NOT EXISTS (SELECT 1 FROM rss_mark read WHERE read.user_id = rss_article.user_id AND read.kind = 'read' AND read.entry_id = rss_article.entry_id)`)
+  }
+  else if (query.mark) {
+    const kind = query.mark === 'starred' ? 'star' : 'later'
+    clauses.push(`EXISTS (SELECT 1 FROM rss_mark mark WHERE mark.user_id = rss_article.user_id AND mark.kind = '${kind}' AND mark.entry_id = rss_article.entry_id)`)
+  }
+  return { sql: clauses.join(' AND '), params }
+}
+
+export async function queryServerRssArticles(db: D1Database, userId: string, query: RssArticleQuery = {}): Promise<RssArticlePage> {
+  const scope = articleScope(query)
+  const limit = Math.min(500, Math.max(1, Math.trunc(query.limit ?? 50)))
+  const count = await db.prepare(`SELECT COUNT(*) AS total FROM rss_article WHERE user_id = ?1 AND ${scope.sql}`)
+    .bind(userId, ...scope.params).first<{ total: number }>()
   const { results } = await db.prepare(
-    `SELECT feed_id, entry_id, title, link, author, published_ts, summary, content, image_url, audio_url, duration, episode, season, fetched_at
-       FROM rss_article WHERE user_id = ?1
-         AND (instr(title, ?2) > 0 OR instr(summary, ?2) > 0 OR instr(content, ?2) > 0)${scope}
-      ORDER BY published_ts DESC, fetched_at DESC, entry_id ASC LIMIT ${limitParam}`,
-  ).bind(...params).all<ArticleRow>()
-  return results.map(articleFromRow).filter((entry): entry is RssEntry => entry !== null)
+    `SELECT ${ARTICLE_COLUMNS} FROM rss_article WHERE user_id = ?1 AND ${scope.sql}
+      ORDER BY published_ts DESC, fetched_at DESC, entry_id ASC LIMIT ${limit}`,
+  ).bind(userId, ...scope.params).all<ArticleRow>()
+  return {
+    entries: results.map(articleFromRow).filter((entry): entry is RssEntry => entry !== null),
+    total: Number(count?.total ?? 0),
+  }
+}
+
+export async function searchServerRssArticles(db: D1Database, userId: string, query: string, feedId = '', limit = 50): Promise<RssEntry[]> {
+  const page = await queryServerRssArticles(db, userId, { query, feedId, limit })
+  return page.entries
+}
+
+export async function loadServerRssArticle(db: D1Database, userId: string, entryId: string): Promise<RssEntry | null> {
+  const { results } = await db.prepare(
+    `SELECT ${ARTICLE_COLUMNS} FROM rss_article
+      WHERE user_id = ?1 AND entry_id = ?2
+        AND EXISTS (SELECT 1 FROM rss_feed feed WHERE feed.user_id = rss_article.user_id AND feed.id = rss_article.feed_id)
+        AND NOT EXISTS (SELECT 1 FROM rss_mark mark WHERE mark.user_id = rss_article.user_id AND mark.kind = 'hidden' AND mark.entry_id = rss_article.entry_id)
+      LIMIT 1`,
+  ).bind(userId, entryId.slice(0, 80)).all<ArticleRow>()
+  return results[0] ? articleFromRow(results[0]) : null
+}
+
+export async function loadServerRssArticleCounts(db: D1Database, userId: string): Promise<Map<string, number>> {
+  const { results } = await db.prepare(
+    `SELECT a.feed_id, COUNT(*) AS unread
+       FROM rss_article a
+      WHERE a.user_id = ?1
+        AND NOT EXISTS (SELECT 1 FROM rss_mark m WHERE m.user_id = a.user_id AND m.kind = 'read' AND m.entry_id = a.entry_id)
+        AND NOT EXISTS (SELECT 1 FROM rss_mark m WHERE m.user_id = a.user_id AND m.kind = 'hidden' AND m.entry_id = a.entry_id)
+      GROUP BY a.feed_id`,
+  ).bind(userId).all<{ feed_id: string, unread: number }>()
+  return new Map(results.map(row => [row.feed_id, Number(row.unread)]))
 }
 
 export interface RssRule {

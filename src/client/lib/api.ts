@@ -1448,18 +1448,6 @@ export const api = {
       request<{ rule: { id: string, feedId: string, keyword: string, enabled: boolean, createdAt: number } }>('/api/rss/rules', { method: 'POST', body: { keyword, feedId } }),
     deleteRule: (id: string) => request<{ ok: true }>(`/api/rss/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     stats: () => request<{ total: number, read: number, unread: number, favorites: number, later: number, feeds: Array<{ feedId: string, total: number, read: number }>, daily: Array<{ date: string, count: number }> }>('/api/rss/stats'),
-    /**
-     * Hand one feed's articles to the account, so the assistant can read them.
-     *
-     * The entry list never travels with the library: it is rebuilt from the network, and only the
-     * device that fetched it holds the text. This is the one write that carries it, reduced to plain
-     * text and capped, and the route refuses a feed the account does not subscribe to.
-     */
-    saveReading: (feedId: string, entries: unknown[]) =>
-      request<{ capturedAt: number, entries: number }>('/api/rss/reading', { method: 'PUT', body: { feedId, entries } }),
-    deleteReading: (feedId: string) =>
-      request<{ ok: true }>(`/api/rss/reading?feedId=${encodeURIComponent(feedId)}`, { method: 'DELETE' }),
-    clearReading: () => request<{ ok: true }>('/api/rss/reading', { method: 'DELETE' }),
     /** The same-origin address an article image or an episode enclosure loads from. */
     relayUrl: (url: string) => `/api/rss/relay?url=${encodeURIComponent(url)}`,
   },

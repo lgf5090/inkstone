@@ -43,14 +43,8 @@ import { api } from '../../lib/api'
 import { localDb } from '../../lib/db'
 import { t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
-import { htmlToText, sanitizeFeedHtml } from './sanitize'
+import { sanitizeFeedHtml } from './sanitize'
 import { rssReasonMessage as reasonMessage } from './reason'
-
-/** How much article text the assistant gets: a whole post, not a whole archive. */
-const READING_CONTENT_CHARS = 6000
-const READING_SUMMARY_CHARS = 600
-/** A batch of feed refreshes should coalesce into one upload per feed, not one per article. */
-const READING_UPLOAD_DELAY_MS = 2000
 
 /** Which version of the article the reader is looking at: the author's, or an answer about it. */
 export type RssReadingVersion = 'original' | 'summary' | 'translation'
@@ -180,7 +174,6 @@ export interface RssState {
   /** Every article this device holds, bodies dropped, built once and kept for the session. */
   loadAllCached: () => Promise<RssEntry[]>
   clearCache: () => Promise<void>
-  clearReadingSnapshot: () => Promise<void>
   syncRefreshSchedule: () => void
   /**
    * Drop the article bodies this device holds and keep the rows: the list still reads, the marks and
@@ -246,48 +239,9 @@ export const useRss = create<RssState>((set, get) => {
    */
   let sent: RssLibrary | null = null
   const loading = new Map<string, Promise<void>>()
-  const readingUploads = new Map<string, number>()
   let refreshInFlight: Promise<RssRefreshSummary> | null = null
   let refreshGeneration = 0
   let reconnect: (() => void) | null = null
-
-  /**
-   * Hand this feed's articles to the account, so the assistant can read them.
-   *
-   * Debounced per feed because a batch refresh finishes many feeds within a second and the account
-   * needs the newest list, not one write per article. A failed upload is not a failed refresh: the
-   * device keeps what it holds, and the next refresh or load tries again.
-   */
-  function scheduleReadingUpload(feedId: string): void {
-    if (!useSession.getState().settings.rss.aiEnabled || navigator.onLine === false) {
-      const pending = readingUploads.get(feedId)
-      if (pending) window.clearTimeout(pending)
-      readingUploads.delete(feedId)
-      return
-    }
-    const pending = readingUploads.get(feedId)
-    if (pending) window.clearTimeout(pending)
-    readingUploads.set(feedId, window.setTimeout(() => {
-      readingUploads.delete(feedId)
-      const entries = get().articles[feedId]
-      if (!entries?.length) return
-      const payload = entries.map(entry => ({
-        id: entry.id,
-        feedId,
-        title: entry.title,
-        link: entry.link,
-        author: entry.author,
-        content: htmlToText(entry.content || entry.summary, READING_CONTENT_CHARS),
-        summary: htmlToText(entry.summary, READING_SUMMARY_CHARS),
-        publishedTs: entry.publishedTs,
-        imageUrl: entry.imageUrl,
-        audioUrl: entry.audioUrl,
-      }))
-      void api.rss.saveReading(feedId, payload).catch((error: unknown) => {
-        console.warn('[inkstone] RSS reading snapshot was not uploaded', error)
-      })
-    }, READING_UPLOAD_DELAY_MS))
-  }
 
   function scheduleSave(): void {
     dirty = true
@@ -478,7 +432,6 @@ export const useRss = create<RssState>((set, get) => {
       fetchedAt: { ...state.fetchedAt, [feedId]: fetched },
       allCached: null,
     }))
-    scheduleReadingUpload(feedId)
     await trimCache()
   }
 
@@ -523,8 +476,7 @@ export const useRss = create<RssState>((set, get) => {
           fetchedAt: { ...state.fetchedAt, [feedId]: cached.fetchedAt },
         }
       })
-      scheduleReadingUpload(feedId)
-    })().finally(() => loading.delete(feedId))
+      })().finally(() => loading.delete(feedId))
     loading.set(feedId, run)
     return run
   }
@@ -865,8 +817,6 @@ export const useRss = create<RssState>((set, get) => {
       if (viewTimer) window.clearTimeout(viewTimer)
       viewTimer = 0
       saveTimer = 0
-      for (const timer of readingUploads.values()) window.clearTimeout(timer)
-      readingUploads.clear()
       dirty = false
       saveRevision = 0
       saveGeneration++
@@ -1233,9 +1183,6 @@ export const useRss = create<RssState>((set, get) => {
         return { library, articles, fetchedAt, allCached: null }
       })
       void localDb.dropRssArticles(feedId)
-      void api.rss.deleteReading(feedId).catch((error: unknown) => {
-        console.warn('[inkstone] RSS reading snapshot was not removed', error)
-      })
       const articles = { ...index.articles }
       delete articles[feedId]
       index = { ...index, articles }
@@ -1378,10 +1325,6 @@ export const useRss = create<RssState>((set, get) => {
       writeIndex()
       publishCache()
       set({ articles: {}, fetchedAt: {}, allCached: null })
-    },
-
-    async clearReadingSnapshot() {
-      await api.rss.clearReading()
     },
 
     /**

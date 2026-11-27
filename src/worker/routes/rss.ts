@@ -17,7 +17,7 @@
 import { Hono } from 'hono'
 import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, safeHttpUrl, type RssFeed, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty, patchIsMarksOnly } from '@shared/rss/patch'
-import { accountExists, createRssRule, deleteRssReadingFeed, deleteRssRule, listRssRules, loadRssLibrary, loadRssReadingStats, loadServerRssArticles, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, searchServerRssArticles, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
+import { accountExists, createRssRule, deleteRssRule, listRssRules, loadRssLibrary, loadRssReadingStats, loadServerRssArticles, rssFeedExists, rssMarkPatchFits, searchServerRssArticles, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -275,37 +275,6 @@ rssRoutes.post('/patch', async (c) => {
     state: patch.state ?? { lastChannel: stored.library?.lastChannel ?? '' },
   }, savedAt)
   return c.json({ savedAt, rows: report.rows })
-})
-
-/**
- * The articles this device can hand the assistant, one feed at a time.
- *
- * The subscription rows say what the reader follows, never what is in an article, and the articles
- * themselves never leave the device that fetched them. The assistant runs in the Worker, so the
- * device uploads the text it already holds — newest first, reduced to plain text, capped per feed and
- * in total — and the RSS tools read that. The write is accepted only for a feed this account really
- * subscribes to, so the row cannot become a place to park arbitrary text.
- */
-const MAX_READING_BODY = 512 * 1024
-const MAX_READING_ENTRIES = 40
-
-rssRoutes.put('/reading', async (c) => {
-  const userId = c.get('userId')
-  const body = await readJson<{ feedId?: unknown; entries?: unknown }>(c, MAX_READING_BODY)
-  const feedId = typeof body.feedId === 'string' ? body.feedId.slice(0, 80) : ''
-  if (!feedId) throw ApiError.badRequest('A feed id is required')
-  if (!Array.isArray(body.entries)) throw ApiError.badRequest('The reading snapshot must be a list of articles')
-  if (!(await rssFeedExists(c.env.DB, userId, feedId))) {
-    throw ApiError.badRequest('That subscription is not in this account')
-  }
-  const saved = await saveRssReadingFeed(c.env.DB, userId, feedId, body.entries.slice(0, MAX_READING_ENTRIES))
-  return c.json(saved)
-})
-
-rssRoutes.delete('/reading', async (c) => {
-  const feedId = c.req.query('feedId')?.slice(0, 80) || undefined
-  await deleteRssReadingFeed(c.env.DB, c.get('userId'), feedId)
-  return c.json({ ok: true })
 })
 
 /**

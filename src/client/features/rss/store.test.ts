@@ -127,18 +127,6 @@ vi.mock('../../lib/api', () => ({
       },
       discover: async () => ({ url: '', title: '', feeds: [] }),
       articles: async (feedId: string) => ({ feedId, articles: serverArticles }),
-      saveReading: (feedId: string, entries: unknown[]) => {
-        calls.push({ path: 'reading', body: { feedId, entries } })
-        return Promise.resolve({ capturedAt: Date.now(), entries: entries.length })
-      },
-      deleteReading: (feedId: string) => {
-        calls.push({ path: 'delete-reading', body: feedId })
-        return Promise.resolve({ ok: true })
-      },
-      clearReading: () => {
-        calls.push({ path: 'clear-reading' })
-        return Promise.resolve({ ok: true })
-      },
       relayUrl: (url: string) => `/api/rss/relay?url=${encodeURIComponent(url)}`,
     },
   },
@@ -687,7 +675,6 @@ describe('the library a reader edits', () => {
     expect(useRss.getState().library.feeds).toHaveLength(0)
     expect(cache.get('articles:f1')).toBeUndefined()
     expect(useRss.getState().articles.f1).toBeUndefined()
-    expect(calls.filter(call => call.path === 'delete-reading')).toContainEqual({ path: 'delete-reading', body: 'f1' })
   })
 })
 

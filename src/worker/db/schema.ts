@@ -362,7 +362,6 @@ const RSS_ARTICLE_STATEMENTS = [
 
 const RSS_USER_DELETE_TRIGGER = `CREATE TRIGGER IF NOT EXISTS rss_feed_user_delete AFTER DELETE ON users BEGIN
   DELETE FROM rss_feed_tag WHERE user_id = OLD.id;
-  DELETE FROM rss_reading_entry WHERE user_id = OLD.id;
   DELETE FROM rss_article WHERE user_id = OLD.id;
   DELETE FROM rss_rule WHERE user_id = OLD.id;
   DELETE FROM rss_mark WHERE user_id = OLD.id;
@@ -439,7 +438,6 @@ const RSS_LIBRARY_STATEMENTS: readonly string[] = [
     last_channel TEXT NOT NULL DEFAULT '',
     saved_at INTEGER NOT NULL DEFAULT 0
   )`,
-  ...RSS_READING_ENTRY_STATEMENTS,
   ...RSS_ARTICLE_STATEMENTS,
   ...RSS_RULE_STATEMENTS,
   RSS_USER_DELETE_TRIGGER,
@@ -5074,6 +5072,22 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 446,
     statements: [RSS_ARTICLE_WEBHOOK_TRIGGER],
   },
+  {
+    version: 447,
+    statements: [
+      `DROP TRIGGER IF EXISTS rss_article_webhook`,
+      `DROP TRIGGER IF EXISTS rss_feed_user_delete`,
+      `INSERT OR IGNORE INTO rss_article
+         (user_id, feed_id, entry_id, title, link, author, published_ts, summary, content, image_url, audio_url, fetched_at)
+       SELECT r.user_id, r.feed_id, r.entry_id, r.title, r.link, r.author, r.published_ts,
+              r.summary, r.content, r.image_url, r.audio_url, r.captured_at
+         FROM rss_reading_entry r
+         JOIN rss_feed f ON f.user_id = r.user_id AND f.id = r.feed_id`,
+      `DROP TABLE IF EXISTS rss_reading_entry`,
+      RSS_ARTICLE_WEBHOOK_TRIGGER,
+      RSS_USER_DELETE_TRIGGER,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -5139,7 +5153,6 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   rss_group: ['user_id', 'id', 'parent_id', 'name', 'position', 'collapsed', 'icon', 'color', 'created_at', 'updated_at'],
   rss_mark: ['user_id', 'kind', 'entry_id', 'value', 'at'],
   rss_state: ['user_id', 'last_channel', 'saved_at'],
-  rss_reading_entry: ['user_id', 'feed_id', 'entry_id', 'title', 'link', 'author', 'content', 'summary', 'published_ts', 'image_url', 'audio_url', 'captured_at'],
   rss_article: ['user_id', 'feed_id', 'entry_id', 'title', 'link', 'author', 'published_ts', 'summary', 'content', 'image_url', 'audio_url', 'duration', 'episode', 'season', 'fetched_at'],
   rss_rule: ['user_id', 'id', 'feed_id', 'keyword', 'enabled', 'created_at'],
   ...ASSISTANT_REQUIRED_COLUMNS,
@@ -5228,7 +5241,6 @@ export const REQUIRED_TABLES = [
   'rss_group',
   'rss_mark',
   'rss_state',
-  'rss_reading_entry',
   'rss_article',
   'rss_rule',
   ...ASSISTANT_REQUIRED_TABLES,
@@ -5334,8 +5346,6 @@ export const REQUIRED_INDEXES = [
   'idx_community_templates_author',
   'idx_rss_feed_shelf',
   'idx_rss_mark_recent',
-  'idx_rss_reading_entry_feed',
-  'idx_rss_reading_entry_recent',
   'idx_rss_article_feed',
   'idx_rss_article_recent',
   'idx_rss_rule_feed',
