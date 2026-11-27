@@ -65,7 +65,7 @@ export function CalendarTasksPanel({ app, calendars, from, to, timeZone, onChang
 
   return (
     <section aria-label={t('calendar.tasks.title')} className="px-2 pb-2">
-      <p className="py-1 text-[length:var(--text-11)] font-semibold uppercase tracking-[0.07em] text-[var(--text-quaternary)]">
+      <p className="py-1 text-[length:var(--text-11)] font-semibold uppercase tracking-[var(--tracking-section)] text-[var(--text-quaternary)]">
         {t('calendar.tasks.title')}
       </p>
       {tasks.length === 0 && (

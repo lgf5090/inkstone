@@ -40,7 +40,7 @@ function errorMessage(
 function DialogError({ children }: { children: ReactNode }) {
   return (
     <p role="alert" className="mt-2 flex items-start gap-1.5 text-[length:var(--text-12)] leading-relaxed text-[var(--danger)]">
-      <AlertTriangle size={13} className="mt-[2px] shrink-0" aria-hidden="true" />
+      <AlertTriangle size={13} className="mt-[var(--sp-0-5)] shrink-0" aria-hidden="true" />
       <span>{children}</span>
     </p>
   )
@@ -878,12 +878,12 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
           <>
             <div className="flex items-center gap-1.5">
               <Link2 size={13} className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
-              <input
+              <Input
                 readOnly
                 value={shareUrl(share.slug)}
                 aria-label={t('calendar.share.url')}
                 onFocus={(event) => event.currentTarget.select()}
-                className="min-w-0 flex-1 truncate rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)] transition-[box-shadow] duration-[var(--dur-fast)] focus:shadow-[var(--shadow-ring-focus)] focus:outline-none"
+                className="h-8 min-w-0 flex-1 truncate rounded-[var(--r-sm)] px-2 text-[length:var(--text-11)] text-[var(--text-secondary)]"
               />
               <Button
                 size="sm"
@@ -1008,7 +1008,7 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
               )}
         </div>
         <p className="flex items-start gap-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
-          <AlertTriangle size={13} className="mt-[2px] shrink-0 text-[var(--warning)]" aria-hidden="true" />
+          <AlertTriangle size={13} className="mt-[var(--sp-0-5)] shrink-0 text-[var(--warning)]" aria-hidden="true" />
           <span>{t('calendar.share.warning')}</span>
         </p>
         {error && <DialogError>{error}</DialogError>}

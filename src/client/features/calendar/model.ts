@@ -63,8 +63,6 @@ export const CALENDAR_COLOR_PRESETS = [
   '#8d8d8d',
 ] as const
 
-export const CALENDAR_BLOCK_COLORS = { focus: '#8b5cf6', outOfOffice: '#f59e0b' } as const
-
 const KNOWN_MEETING_PROVIDERS = new Set<KnownMeetingProviderId>([
   'google-meet',
   'zoom',

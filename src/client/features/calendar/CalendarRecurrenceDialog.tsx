@@ -115,7 +115,7 @@ export function CalendarRecurrenceDialog({
         />
         {error && (
           <p role="alert" className="flex items-start gap-1.5 text-[length:var(--text-12)] leading-relaxed text-[var(--danger)]">
-            <AlertTriangle size={13} className="mt-[2px] shrink-0" aria-hidden="true" />
+            <AlertTriangle size={13} className="mt-[var(--sp-0-5)] shrink-0" aria-hidden="true" />
             <span>{error}</span>
           </p>
         )}

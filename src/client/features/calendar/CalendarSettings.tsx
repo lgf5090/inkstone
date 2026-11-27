@@ -38,7 +38,7 @@ const WEEKDAY_KEYS = [
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="border-b border-[var(--border-subtle)] pb-1 last:border-b-0">
-      <h3 className="pt-3 pb-1 text-[length:var(--text-11)] font-semibold uppercase tracking-[0.07em] text-[var(--text-quaternary)]">
+      <h3 className="pt-3 pb-1 text-[length:var(--text-11)] font-semibold uppercase tracking-[var(--tracking-section)] text-[var(--text-quaternary)]">
         {title}
       </h3>
       {children}
@@ -468,7 +468,7 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
 
         {error && (
           <p role="alert" className="flex items-start gap-1.5 pt-3 text-[length:var(--text-12)] leading-relaxed text-[var(--danger)]">
-            <AlertTriangle size={13} className="mt-[2px] shrink-0" aria-hidden="true" />
+            <AlertTriangle size={13} className="mt-[var(--sp-0-5)] shrink-0" aria-hidden="true" />
             <span>{error}</span>
           </p>
         )}

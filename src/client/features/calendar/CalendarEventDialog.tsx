@@ -13,10 +13,12 @@ import { MAX_EVENT_DESCRIPTION, MAX_EVENT_TITLE } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
-import { Checkbox, Field, Input, Segmented, Select, Textarea } from '../../components/form'
+import { Checkbox, Field, Input, Select, Textarea } from '../../components/form'
 import { DatePicker } from '../../components/date-picker'
 import { addWallMinutes, wallClockInZone } from './timezone'
-import { CALENDAR_BLOCK_COLORS } from './model'
+
+const DEFAULT_START_TIME = '09:00'
+const DEFAULT_END_TIME = '10:00'
 
 export interface NewCalendarEvent {
   title: string
@@ -72,12 +74,11 @@ export function CalendarEventDialog({
 }: CalendarEventDialogProps) {
   const writable = calendars.filter(calendar => !calendar.readOnly)
   const [title, setTitle] = useState('')
-  const [block, setBlock] = useState<'event' | 'focus' | 'ooo'>('event')
   const [allDay, setAllDay] = useState(false)
   const [date, setDate] = useState('')
-  const [startTime, setStartTime] = useState('09:00')
+  const [startTime, setStartTime] = useState(DEFAULT_START_TIME)
   const [endDate, setEndDate] = useState('')
-  const [endTime, setEndTime] = useState('10:00')
+  const [endTime, setEndTime] = useState(DEFAULT_END_TIME)
   const [calendarId, setCalendarId] = useState('')
   const [resourceId, setResourceId] = useState('')
   const [color, setColor] = useState<string | null>(null)
@@ -90,18 +91,17 @@ export function CalendarEventDialog({
     if (!open) return
     const available = calendars.filter(calendar => !calendar.readOnly)
     const parts = wallClockInZone(initialStart, timeZone)
-    const startClock = template ? '09:00' : parts.time === '00:00' ? '09:00' : parts.time
+    const startClock = template ? DEFAULT_START_TIME : parts.time === '00:00' ? DEFAULT_START_TIME : parts.time
     const end = template?.allDay
-      ? `${parts.date}T09:00`
+      ? `${parts.date}T${DEFAULT_START_TIME}`
       : addWallMinutes(parts.date, startClock, Math.max(5, template?.durationMinutes ?? 60), timeZone)
     const [endDay, endClock] = end.split('T')
     setTitle(template?.title ?? '')
-    setBlock('event')
     setAllDay(template?.allDay ?? false)
     setDate(parts.date)
     setStartTime(startClock)
     setEndDate(endDay ?? parts.date)
-    setEndTime(endClock ?? '10:00')
+    setEndTime(endClock ?? DEFAULT_END_TIME)
     setColor(template?.color ?? null)
     setResourceId('')
     setCalendarId(
@@ -116,6 +116,10 @@ export function CalendarEventDialog({
   }, [open, initialStart, defaultCalendarId, timeZone, calendarSignature, template])
 
   const submit = (): void => {
+    if (!title.trim()) {
+      setError(t('calendar.event.title_required'))
+      return
+    }
     if (!calendarId) {
       setError(t('calendar.event.no_writable_calendar'))
       return
@@ -133,7 +137,7 @@ export function CalendarEventDialog({
           return
         }
         onCreate({
-          title: title.trim() || t('calendar.event.untitled'),
+          title: title.trim(),
           start: wallDate(date, '00:00', timeZone),
           end: wallDate(endDate || date, '00:00', timeZone),
           allDay: true,
@@ -173,11 +177,13 @@ export function CalendarEventDialog({
     }
   }
 
-  const errorField = error === t('calendar.event.no_writable_calendar')
-    ? 'calendar'
-    : error === t('calendar.event.invalid_time') || error === t('calendar.event.end_before_start')
-      ? 'time'
-      : null
+  const errorField = error === t('calendar.event.title_required')
+    ? 'title'
+    : error === t('calendar.event.no_writable_calendar')
+      ? 'calendar'
+      : error === t('calendar.event.invalid_time') || error === t('calendar.event.end_before_start')
+        ? 'time'
+        : null
   const errorId = 'calendar-event-form-error'
   const describedBy = (field: string): string | undefined => errorField === field ? errorId : undefined
 
@@ -197,25 +203,12 @@ export function CalendarEventDialog({
       )}
     >
       <div className="space-y-3 pt-1">
-        <Field label={t('calendar.block.type')}>
-          <Segmented
-            value={block}
-            label={t('calendar.block.type')}
-            options={[
-              { value: 'event', label: t('calendar.block.event') },
-              { value: 'focus', label: t('calendar.block.focus') },
-              { value: 'ooo', label: t('calendar.block.ooo') },
-            ]}
-            onChange={(next) => {
-              setBlock(next)
-              const presetTitle = next === 'focus' ? t('calendar.block.focus') : next === 'ooo' ? t('calendar.block.ooo') : ''
-              setTitle(current => current === '' || current === t('calendar.block.focus') || current === t('calendar.block.ooo') ? presetTitle : current)
-              setColor(next === 'focus' ? CALENDAR_BLOCK_COLORS.focus : next === 'ooo' ? CALENDAR_BLOCK_COLORS.outOfOffice : null)
-            }}
-          />
-        </Field>
         <Field label={t('calendar.event.title_field')} required>
           <Input
+            id="calendar-event-title"
+            required
+            aria-invalid={errorField === 'title' || undefined}
+            aria-describedby={describedBy('title')}
             data-autofocus
             value={title}
             maxLength={MAX_EVENT_TITLE}

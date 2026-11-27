@@ -361,7 +361,7 @@ function HeatmapDialog({ year: initialYear, today, kinds, onKindsChange, onClose
             <div
               role="group"
               aria-label={t('calendar.heatmap.grid', { year })}
-              className="grid w-max grid-flow-col gap-[3px] [grid-template-rows:repeat(var(--heatmap-rows),var(--heatmap-cell))] [grid-auto-columns:var(--heatmap-cell)]"
+              className="grid w-max grid-flow-col gap-[var(--sp-0-75)] [grid-template-rows:repeat(var(--heatmap-rows),var(--heatmap-cell))] [grid-auto-columns:var(--heatmap-cell)]"
               style={{ '--heatmap-rows': ROWS, '--heatmap-cell': `${CELL}px` } as CSSProperties}
             >
               {grid.flatMap((column, columnIndex) => column.map((cell, rowIndex) => {
@@ -387,7 +387,7 @@ function HeatmapDialog({ year: initialYear, today, kinds, onKindsChange, onClose
                         else if (event.key === 'ArrowDown') { event.preventDefault(); moveFocus(cell.date!, 1) }
                         else if (event.key === 'ArrowUp') { event.preventDefault(); moveFocus(cell.date!, -1) }
                       }}
-                      className="rounded-[2px] p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
+                      className="rounded-[var(--r-2)] p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
                     >
                       <svg width={CELL} height={CELL} viewBox={`0 0 ${CELL} ${CELL}`} aria-hidden="true" className="block">
                         <rect

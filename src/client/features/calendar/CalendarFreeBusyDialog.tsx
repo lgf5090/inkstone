@@ -187,12 +187,12 @@ export function CalendarFreeBusyDialog({
         {loading && <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>}
         {error && (
           <p role="alert" className="flex items-start gap-1.5 text-[length:var(--text-12)] leading-relaxed text-[var(--danger)]">
-            <AlertTriangle size={13} className="mt-[2px] shrink-0" aria-hidden="true" />
+            <AlertTriangle size={13} className="mt-[var(--sp-0-5)] shrink-0" aria-hidden="true" />
             <span>{error}</span>
           </p>
         )}
         {!loading && !error && (
-          <div className="max-h-[45vh] space-y-2 overflow-y-auto">
+          <div className="max-h-[var(--calendar-scroll-max-height)] space-y-2 overflow-y-auto">
             {truncated && (
               <p role="status" className="text-[length:var(--text-11)] text-[var(--warning)]">{t('calendar.free_busy.truncated')}</p>
             )}
