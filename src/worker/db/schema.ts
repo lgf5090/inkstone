@@ -4992,6 +4992,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE sub_settings ADD COLUMN next_digest_at INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    version: 446,
+    statements: [`CREATE INDEX IF NOT EXISTS idx_sub_settings_digest_due ON sub_settings(digest, next_digest_at)`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -114,6 +114,8 @@ describe('an existing subscriptions database', () => {
     for (const column of ['digest', 'digest_hour', 'next_digest_at']) expect(columnsOf(sqlite, 'sub_settings')).toContain(column)
     const row = sqlite.prepare(`SELECT digest, digest_hour, next_digest_at FROM sub_settings WHERE user_id = 'u1'`).get()
     expect(row).toEqual({ digest: 'off', digest_hour: 8, next_digest_at: 0 })
+    const index = sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sub_settings_digest_due'`).get()
+    expect(index).toEqual({ name: 'idx_sub_settings_digest_due' })
   })
 
   it('gains plan metadata columns without disturbing an existing subscription', async () => {

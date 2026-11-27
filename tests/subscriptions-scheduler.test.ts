@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import type { Env } from '../src/worker/env'
 import { sweepSubscriptions } from '../src/worker/subscriptions/scheduler'
-import { saveChannel, saveSettings } from '../src/worker/subscriptions/settings'
+import { saveChannel, saveSettings, nextDigestAt } from '../src/worker/subscriptions/settings'
 import { SubscriptionsStore, storeContext } from '../src/worker/subscriptions/store'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -96,6 +96,15 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('digest scheduling', () => {
+  it('schedules the next weekly digest for Monday, including from Sunday', () => {
+    const sunday = Date.parse('2026-11-29T12:00:00Z')
+    expect(new Date(nextDigestAt('weekly', 8, 'Asia/Shanghai', sunday)).toISOString()).toBe('2026-11-30T00:00:00.000Z')
+    const monday = Date.parse('2026-11-30T12:00:00Z')
+    expect(new Date(nextDigestAt('weekly', 8, 'Asia/Shanghai', monday)).toISOString()).toBe('2026-12-07T00:00:00.000Z')
+  })
 })
 
 describe('the sweep', () => {

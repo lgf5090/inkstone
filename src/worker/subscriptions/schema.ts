@@ -158,6 +158,8 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     budget_categories TEXT NOT NULL DEFAULT '{}'
   )`,
 
+  `CREATE INDEX IF NOT EXISTS idx_sub_settings_digest_due ON sub_settings(digest, next_digest_at)`,
+
   `CREATE TABLE IF NOT EXISTS sub_notify_log (
     user_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -244,7 +246,7 @@ export const SUBSCRIPTIONS_REQUIRED_INDEXES: readonly string[] = [
   'idx_sub_notify_log_recent',
   'idx_sub_notify_log_sub',
   'idx_sub_schedule_log_recent',
-  'idx_sub_dedupe_created', 'idx_sub_restore_stage_cleanup',
+  'idx_sub_dedupe_created', 'idx_sub_restore_stage_cleanup', 'idx_sub_settings_digest_due',
 ]
 
 export const SUBSCRIPTIONS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {

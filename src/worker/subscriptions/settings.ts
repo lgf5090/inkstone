@@ -129,11 +129,13 @@ export function nextDigestAt(frequency: SubscriptionSettings['digest'], hour: nu
   if (frequency === 'off') return 0
   const parts = getTimezoneDateParts(now, timezone)
   const weekday = new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay()
-  const addDays = frequency === 'weekly' ? (7 - weekday) % 7 : 0
-  let target = getTimestampForTimezoneParts({ year: parts.year, month: parts.month, day: parts.day + addDays, hour }, timezone)
-  if (target < now) {
-    target = getTimestampForTimezoneParts({ year: parts.year, month: parts.month, day: parts.day + addDays + (frequency === 'weekly' ? 7 : 1), hour }, timezone)
+  const addDays = frequency === 'weekly' ? (8 - weekday) % 7 : 0
+  const at = (offset: number): number => {
+    const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + offset))
+    return getTimestampForTimezoneParts({ year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate(), hour }, timezone)
   }
+  let target = at(addDays)
+  if (target < now) target = at(addDays + (frequency === 'weekly' ? 7 : 1))
   return target
 }
 
