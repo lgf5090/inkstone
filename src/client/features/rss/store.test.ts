@@ -435,6 +435,16 @@ describe('refreshing', () => {
     expect(useRss.getState().library.feeds[0].etag).toBe('"v2"')
   })
 
+  it('invalidates the global search index after new articles arrive', async () => {
+    seedCachedArticles()
+    await boot()
+    await useRss.getState().loadAllCached()
+    expect(useRss.getState().allCached).not.toBeNull()
+    fetchResults = [{ url: feed.url, status: 200, ok: true, xml: atom }]
+    await useRss.getState().refresh(['f1'], { force: true })
+    expect(useRss.getState().allCached).toBeNull()
+  })
+
   it('tells a later load what this device now holds', async () => {
     fetchResults = [{ url: feed.url, status: 200, ok: true, xml: atom, etag: '"v2"' }]
     await boot()

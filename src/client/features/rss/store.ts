@@ -408,7 +408,7 @@ export const useRss = create<RssState>((set, get) => {
         const fetchedAt = { ...state.fetchedAt }
         delete articles[feedId]
         delete fetchedAt[feedId]
-        return { articles, fetchedAt }
+        return { articles, fetchedAt, allCached: null }
       })
     }
     writeIndex()
@@ -428,6 +428,7 @@ export const useRss = create<RssState>((set, get) => {
     set(state => ({
       articles: { ...state.articles, [feedId]: entries },
       fetchedAt: { ...state.fetchedAt, [feedId]: fetched },
+      allCached: null,
     }))
     scheduleReadingUpload(feedId)
     await trimCache()
@@ -1080,7 +1081,7 @@ export const useRss = create<RssState>((set, get) => {
         const fetchedAt = { ...state.fetchedAt }
         delete articles[feedId]
         delete fetchedAt[feedId]
-        return { library, articles, fetchedAt }
+        return { library, articles, fetchedAt, allCached: null }
       })
       void localDb.dropRssArticles(feedId)
       void api.rss.deleteReading(feedId).catch((error: unknown) => {

@@ -23,15 +23,15 @@ export function RssSearchPanel({ open, onClose, onPick }: {
   onPick: (entry: RssEntry) => void
 }): ReactElement {
   const [term, setTerm] = useState('')
-  const [index, setIndex] = useState<RssEntry[] | null>(null)
   const library = useRss(state => state.library)
   const loadAllCached = useRss(state => state.loadAllCached)
+  const index = useRss(state => state.allCached)
   const pinyinVersion = usePinyinVersion()
   const query = useMemo(() => compileQuery(term), [term, pinyinVersion])
 
   useEffect(() => {
     if (!open || index) return
-    void loadAllCached().then(setIndex)
+    void loadAllCached()
   }, [open, index, loadAllCached])
 
   const results = useMemo(() => {
