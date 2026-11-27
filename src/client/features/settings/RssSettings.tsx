@@ -36,7 +36,7 @@ import { SourceHealth } from '../rss/SourceHealth'
 import { RssRules } from '../rss/RssRules'
 import { RssStats } from '../rss/RssStats'
 
-export function RssSettings(): ReactElement {
+export function RssSettings({ onClose }: { onClose?: () => void }): ReactElement {
   const rss = useSession(state => state.settings.rss)
   const update = useSession(state => state.updateSettings)
   const patch = (next: Partial<typeof rss>): void => update({ rss: next })
@@ -336,6 +336,16 @@ export function RssSettings(): ReactElement {
 
       <RssRules />
       <RssStats />
+      <section>
+        <SettingRow title={t('notes.webhooks_title')} description={t('notes.webhooks_desc')}>
+          <Button size="sm" onClick={() => {
+            onClose?.()
+            useUi.getState().openPanel('notes-webhooks')
+          }}>
+            {t('notes.webhooks_title')}
+          </Button>
+        </SettingRow>
+      </section>
 
       <SourceHealth />
 

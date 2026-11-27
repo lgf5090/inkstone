@@ -426,6 +426,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   { section: 'mindmap', titleKey: 'settings.mindmap_autosave', detailKey: 'settings.mindmap_autosave_desc' },
   { section: 'mindmap', titleKey: 'settings.mindmap_undo_limit', detailKey: 'settings.mindmap_undo_limit_desc' },
   { section: 'mindmap', titleKey: 'settings.mindmap_direction', detailKey: 'settings.mindmap_direction_desc' },
+  { section: 'rss', titleKey: 'notes.webhooks_title', detailKey: 'notes.webhooks_desc', termKeys: ['notes.webhook_event_rss_article', 'notes.webhook_create'] },
   { section: 'reading', titleKey: 'settings.reading_notes_folder', detailKey: 'settings.reading_notes_folder_desc' },
   { section: 'reading', titleKey: 'settings.reading_auto_note', detailKey: 'settings.reading_auto_note_desc' },
   { section: 'reading', titleKey: 'settings.reading_backlinks', detailKey: 'settings.reading_backlinks_desc' },

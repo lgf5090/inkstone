@@ -1686,7 +1686,7 @@ const ZH_CORE_MESSAGES = {
     "notes.offline_pin_failed": "无法将此笔记保存为离线可用",
     "notes.offline_unpin_failed": "无法更新离线可用状态",
     "notes.webhooks_title": "笔记 Webhook",
-    "notes.webhooks_desc": "向 HTTPS 端点发送带签名的笔记元数据事件，载荷永不包含正文。",
+    "notes.webhooks_desc": "向 HTTPS 端点发送带签名的笔记与 RSS 新文章元数据事件，载荷不包含笔记或文章正文。",
     "notes.webhook_create": "创建 Webhook",
     "notes.webhook_title": "Webhook 标题",
     "notes.webhook_url": "HTTPS 端点",

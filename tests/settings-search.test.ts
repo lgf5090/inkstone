@@ -104,6 +104,17 @@ describe('settings search index', () => {
       .map((entry) => entry.titleKey)
     expect(anchorless).toEqual([])
   })
+
+  it('opens the mounted webhook panel from RSS settings', () => {
+    const settings = readFileSync(join(featureRoot, 'RssSettings.tsx'), 'utf8')
+    const shell = readFileSync(resolve('src/client/features/shell/AppShell.tsx'), 'utf8')
+    expect(settings).toContain("title={t('notes.webhooks_title')}")
+    expect(settings).toContain("openPanel('notes-webhooks')")
+    expect(settings).toContain('onClose?.()')
+    const rssApp = readFileSync(resolve('src/client/features/rss/RssApp.tsx'), 'utf8')
+    expect(rssApp).toContain('<RssSettings onClose={() => setPreferences(false)} />')
+    expect(shell).toContain("panel === 'notes-webhooks'")
+  })
 })
 
 describe('settings search matching', () => {

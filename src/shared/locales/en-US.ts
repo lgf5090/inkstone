@@ -1693,7 +1693,7 @@ const CORE_MESSAGES = {
     "notes.offline_pin_failed": "Could not save this note for offline use",
     "notes.offline_unpin_failed": "Could not update offline availability",
     "notes.webhooks_title": "Note webhooks",
-    "notes.webhooks_desc": "Send signed note metadata events to an HTTPS endpoint. Note bodies are never included.",
+    "notes.webhooks_desc": "Send signed note and new RSS article metadata events to an HTTPS endpoint. Note and article bodies are never included.",
     "notes.webhook_create": "Create webhook",
     "notes.webhook_title": "Webhook title",
     "notes.webhook_url": "HTTPS endpoint",

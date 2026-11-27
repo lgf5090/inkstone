@@ -308,7 +308,7 @@ export function RssApp(): ReactElement {
 
       {preferences && (
         <Modal open onClose={() => setPreferences(false)} title={t('settings.rss')} width={720} bodyClassName="px-4">
-          <RssSettings />
+          <RssSettings onClose={() => setPreferences(false)} />
         </Modal>
       )}
       {center && (
