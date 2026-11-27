@@ -9,6 +9,7 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { rssRoutes } from '../src/worker/routes/rss'
+import { loadRssReading, saveRssReadingFeed } from '../src/worker/lib/rss-store'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'user-rss'
@@ -409,6 +410,19 @@ describe('the feed relay', () => {
       if (res.status === 429) blocked++
     }
     expect(blocked).toBeGreaterThan(0)
+  })
+})
+
+describe('reading snapshot deletion', () => {
+  const entry = { id: 'e1', feedId: 'f1', title: 'One', link: 'https://example.com/1', author: '', publishedTs: 1, summary: '', content: 'Body', imageUrl: '', audioUrl: '' }
+
+  it('removes one feed snapshot and can clear the whole row', async () => {
+    await saveRssReadingFeed(db, USER, 'f1', [entry], 1)
+    await saveRssReadingFeed(db, USER, 'f2', [{ ...entry, id: 'e2', feedId: 'f2' }], 2)
+    expect((await request('/reading?feedId=f1', { method: 'DELETE' })).status).toBe(200)
+    expect(Object.keys((await loadRssReading(db, USER))?.feeds ?? {})).toEqual(['f2'])
+    expect((await request('/reading', { method: 'DELETE' })).status).toBe(200)
+    expect(await loadRssReading(db, USER)).toBeNull()
   })
 })
 

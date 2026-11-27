@@ -171,6 +171,7 @@ export interface RssState {
   /** Every article this device holds, bodies dropped, built once and kept for the session. */
   loadAllCached: () => Promise<RssEntry[]>
   clearCache: () => Promise<void>
+  clearReadingSnapshot: () => Promise<void>
   /**
    * Drop the article bodies this device holds and keep the rows: the list still reads, the marks and
    * the notes stay, and the bytes come back from the feeds when the reader opens something.
@@ -236,6 +237,12 @@ export const useRss = create<RssState>((set, get) => {
    * device keeps what it holds, and the next refresh or load tries again.
    */
   function scheduleReadingUpload(feedId: string): void {
+    if (!useSession.getState().settings.rss.aiEnabled) {
+      const pending = readingUploads.get(feedId)
+      if (pending) window.clearTimeout(pending)
+      readingUploads.delete(feedId)
+      return
+    }
     const pending = readingUploads.get(feedId)
     if (pending) window.clearTimeout(pending)
     readingUploads.set(feedId, window.setTimeout(() => {
@@ -995,6 +1002,9 @@ export const useRss = create<RssState>((set, get) => {
         return { library, articles, fetchedAt }
       })
       void localDb.dropRssArticles(feedId)
+      void api.rss.deleteReading(feedId).catch((error: unknown) => {
+        console.warn('[inkstone] RSS reading snapshot was not removed', error)
+      })
       const articles = { ...index.articles }
       delete articles[feedId]
       index = { ...index, articles }
@@ -1134,6 +1144,10 @@ export const useRss = create<RssState>((set, get) => {
       writeIndex()
       publishCache()
       set({ articles: {}, fetchedAt: {}, allCached: null })
+    },
+
+    async clearReadingSnapshot() {
+      await api.rss.clearReading()
     },
 
     /**

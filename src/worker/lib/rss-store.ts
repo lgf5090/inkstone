@@ -597,6 +597,22 @@ export async function loadRssReading(db: D1Database, userId: string): Promise<Rs
   return snapshot ? { ...snapshot, capturedAt: snapshot.capturedAt || row.captured_at || 0 } : null
 }
 
+export async function deleteRssReadingFeed(db: D1Database, userId: string, feedId?: string): Promise<void> {
+  if (!feedId) {
+    await db.prepare('DELETE FROM rss_reading WHERE user_id = ?1').bind(userId).run()
+    return
+  }
+  const snapshot = await loadRssReading(db, userId)
+  if (!snapshot) return
+  delete snapshot.feeds[feedId]
+  if (!Object.keys(snapshot.feeds).length) {
+    await db.prepare('DELETE FROM rss_reading WHERE user_id = ?1').bind(userId).run()
+    return
+  }
+  await db.prepare('UPDATE rss_reading SET snapshot = ?2 WHERE user_id = ?1')
+    .bind(userId, JSON.stringify(snapshot)).run()
+}
+
 function newestFirst(left: RssReadingEntry, right: RssReadingEntry): number {
   return (right.publishedTs ?? 0) - (left.publishedTs ?? 0)
 }

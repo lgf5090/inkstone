@@ -81,6 +81,18 @@ vi.mock('../../lib/api', () => ({
         calls.push({ path: 'fetch', body: requests })
         return Promise.resolve({ results: fetchResults })
       },
+      saveReading: (feedId: string, entries: unknown[]) => {
+        calls.push({ path: 'reading', body: { feedId, entries } })
+        return Promise.resolve({ capturedAt: Date.now(), entries: entries.length })
+      },
+      deleteReading: (feedId: string) => {
+        calls.push({ path: 'delete-reading', body: feedId })
+        return Promise.resolve({ ok: true })
+      },
+      clearReading: () => {
+        calls.push({ path: 'clear-reading' })
+        return Promise.resolve({ ok: true })
+      },
       relayUrl: (url: string) => `/api/rss/relay?url=${encodeURIComponent(url)}`,
     },
   },
@@ -266,6 +278,13 @@ describe('refreshing', () => {
     expect(fetchCalls().length).toBe(before)
   })
 
+  it('does not upload article text while AI is disabled', async () => {
+    fetchResults = [{ url: feed.url, status: 200, ok: true, xml: atom }]
+    await boot()
+    await new Promise(resolve => setTimeout(resolve, 2100))
+    expect(calls.filter(call => call.path === 'reading')).toHaveLength(0)
+  })
+
   it('writes the parsed articles to the device cache', async () => {
     fetchResults = [{ url: feed.url, status: 200, ok: true, xml: atom, etag: '"v2"' }]
     await boot()
@@ -364,6 +383,7 @@ describe('the library a reader edits', () => {
     expect(useRss.getState().library.feeds).toHaveLength(0)
     expect(cache.get('articles:f1')).toBeUndefined()
     expect(useRss.getState().articles.f1).toBeUndefined()
+    expect(calls.filter(call => call.path === 'delete-reading')).toContainEqual({ path: 'delete-reading', body: 'f1' })
   })
 })
 

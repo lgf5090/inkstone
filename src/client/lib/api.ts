@@ -1443,6 +1443,9 @@ export const api = {
      */
     saveReading: (feedId: string, entries: unknown[]) =>
       request<{ capturedAt: number, entries: number }>('/api/rss/reading', { method: 'PUT', body: { feedId, entries } }),
+    deleteReading: (feedId: string) =>
+      request<{ ok: true }>(`/api/rss/reading?feedId=${encodeURIComponent(feedId)}`, { method: 'DELETE' }),
+    clearReading: () => request<{ ok: true }>('/api/rss/reading', { method: 'DELETE' }),
     /** The same-origin address an article image or an episode enclosure loads from. */
     relayUrl: (url: string) => `/api/rss/relay?url=${encodeURIComponent(url)}`,
   },

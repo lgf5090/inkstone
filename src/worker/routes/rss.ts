@@ -18,7 +18,7 @@ import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty } from '@shared/rss/patch'
-import { accountExists, loadRssLibrary, saveRssReadingFeed, storeRssLibrary, storeRssPatch } from '../lib/rss-store'
+import { accountExists, deleteRssReadingFeed, loadRssLibrary, saveRssReadingFeed, storeRssLibrary, storeRssPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -302,6 +302,12 @@ rssRoutes.put('/reading', async (c) => {
   }
   const saved = await saveRssReadingFeed(c.env.DB, userId, feedId, body.entries.slice(0, MAX_READING_ENTRIES))
   return c.json(saved)
+})
+
+rssRoutes.delete('/reading', async (c) => {
+  const feedId = c.req.query('feedId')?.slice(0, 80) || undefined
+  await deleteRssReadingFeed(c.env.DB, c.get('userId'), feedId)
+  return c.json({ ok: true })
 })
 
 /**
