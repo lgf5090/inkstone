@@ -129,6 +129,7 @@ function reset(): void {
   calls.length = 0
   saveFails = false
   patchWait = null
+  RSS_SETTINGS.refreshIntervalMinutes = 0
   fetchResults = []
   cache.set('library', JSON.parse(JSON.stringify(saved)))
   useRss.getState().reset()
@@ -284,6 +285,22 @@ describe('refreshing', () => {
     await boot()
     await new Promise(resolve => setTimeout(resolve, 2100))
     expect(calls.filter(call => call.path === 'reading')).toHaveLength(0)
+  })
+
+  it('refreshes again after the configured interval', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    vi.useFakeTimers()
+    try {
+      RSS_SETTINGS.refreshIntervalMinutes = 5
+      useRss.getState().syncRefreshSchedule()
+      const before = fetchCalls().length
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+      expect(fetchCalls().length).toBeGreaterThan(before)
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps a reader-supplied title when the source refreshes', async () => {

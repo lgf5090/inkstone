@@ -172,6 +172,7 @@ export interface RssState {
   loadAllCached: () => Promise<RssEntry[]>
   clearCache: () => Promise<void>
   clearReadingSnapshot: () => Promise<void>
+  syncRefreshSchedule: () => void
   /**
    * Drop the article bodies this device holds and keep the rows: the list still reads, the marks and
    * the notes stay, and the bytes come back from the feeds when the reader opens something.
@@ -217,6 +218,7 @@ export const useRss = create<RssState>((set, get) => {
   let dirty = false
   let saveRevision = 0
   let saveGeneration = 0
+  let autoRefreshTimer = 0
   let index: CacheIndex = emptyIndex()
   /**
    * What this device last handed the account, in full.
@@ -339,10 +341,34 @@ export const useRss = create<RssState>((set, get) => {
     saveTimer = 0
     void flushSave()
   }
+  function dueFeedIds(now = Date.now()): string[] {
+    const interval = useSession.getState().settings.rss.refreshIntervalMinutes * 60_000
+    if (interval <= 0) return []
+    return get().library.feeds
+      .filter(feed => !feed.paused)
+      .filter(feed => now - Math.max(feed.updatedAt, feed.lastAttemptAt) >= Math.max(interval, refreshBackoffMs(feed.errorCount)))
+      .map(feed => feed.id)
+  }
+
+  function refreshDueFeeds(): void {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    const due = dueFeedIds()
+    if (due.length) void get().refresh(due)
+  }
+
+  function scheduleAutoRefresh(): void {
+    if (autoRefreshTimer) window.clearInterval(autoRefreshTimer)
+    autoRefreshTimer = 0
+    const interval = useSession.getState().settings.rss.refreshIntervalMinutes * 60_000
+    if (interval <= 0) return
+    autoRefreshTimer = window.setInterval(refreshDueFeeds, interval)
+  }
+
   if (typeof window !== 'undefined') {
     window.addEventListener('pagehide', flushOnLeave)
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') flushOnLeave()
+      else refreshDueFeeds()
     })
   }
 
@@ -591,13 +617,8 @@ export const useRss = create<RssState>((set, get) => {
       // and rss.no_articles is not an honest answer when the feed was never asked for.
       const missing = library.feeds.filter(feed => !feed.paused && !index.articles[feed.id])
       if (missing.length) void get().refresh(missing.map(feed => feed.id))
-      const interval = useSession.getState().settings.rss.refreshIntervalMinutes * 60_000
-      if (interval <= 0) return
-      const now = Date.now()
-      const due = library.feeds
-        .filter(feed => !feed.paused)
-        .filter(feed => now - Math.max(feed.updatedAt, feed.lastAttemptAt) >= Math.max(interval, refreshBackoffMs(feed.errorCount)))
-      if (due.length) void get().refresh(due.map(feed => feed.id))
+      scheduleAutoRefresh()
+      refreshDueFeeds()
     },
 
     async reloadFromServer() {
@@ -616,6 +637,8 @@ export const useRss = create<RssState>((set, get) => {
 
     reset() {
       if (saveTimer) window.clearTimeout(saveTimer)
+      if (autoRefreshTimer) window.clearInterval(autoRefreshTimer)
+      autoRefreshTimer = 0
       saveTimer = 0
       for (const timer of readingUploads.values()) window.clearTimeout(timer)
       readingUploads.clear()
@@ -1187,6 +1210,10 @@ export const useRss = create<RssState>((set, get) => {
 
     retrySave() {
       void flushSave()
+    },
+
+    syncRefreshSchedule() {
+      scheduleAutoRefresh()
     },
   }
 })

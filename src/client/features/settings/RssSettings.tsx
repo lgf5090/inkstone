@@ -116,7 +116,10 @@ export function RssSettings(): ReactElement {
           <Segmented
             size="sm"
             value={String(rss.refreshIntervalMinutes)}
-            onChange={value => patch({ refreshIntervalMinutes: Number(value) })}
+            onChange={value => {
+              patch({ refreshIntervalMinutes: Number(value) })
+              useRss.getState().syncRefreshSchedule()
+            }}
             options={RSS_REFRESH_INTERVALS.map(minutes => ({
               value: String(minutes),
               label: minutes === 0
