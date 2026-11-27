@@ -186,6 +186,36 @@ describe('provider adapter boundary', () => {
     warn.mockRestore()
   })
 
+  it('normalizes provider meta attendees and treats an omitted list as empty on delta sync', async () => {
+    await seed('google')
+    const first = remoteEvent('guest-event', 'google')
+    mocks.googleSync
+      .mockResolvedValueOnce({
+        events: [{
+          ...first,
+          meta: {
+            ...first.meta,
+            attendees: [{ email: ' Provider@Example.com ', name: 'Provider Guest', status: 'accepted' }],
+          },
+        }],
+        deleted: [],
+        syncToken: 'guest-token-1',
+      })
+      .mockResolvedValueOnce({ events: [first], deleted: [], syncToken: 'guest-token-2' })
+
+    expect(await syncDueProviderConnections(env, NOW)).toMatchObject({ events: 1, failed: 0 })
+    const store = new CalendarStore(db, USER)
+    const [event] = await store.listAllEvents()
+    expect(await store.eventAttendees(event!.id)).toEqual([
+      { email: 'provider@example.com', name: 'Provider Guest', status: 'accepted' },
+    ])
+    expect(event!.meta).not.toHaveProperty('attendees')
+
+    sqlite.prepare('UPDATE calendar_provider_calendars SET last_sync_at = ?').run(NOW - 16 * 60_000)
+    expect(await syncDueProviderConnections(env, NOW)).toMatchObject({ events: 1, failed: 0 })
+    expect(await store.eventAttendees(event!.id)).toEqual([])
+  })
+
   it('validates raw CalDAV resources before passing them to the vendor mapper', async () => {
     const connectionId = await seed('caldav')
     mocks.caldavSync.mockResolvedValueOnce({

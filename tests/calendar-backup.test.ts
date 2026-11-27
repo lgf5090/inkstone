@@ -131,6 +131,34 @@ describe('calendar backup', () => {
     expect(await listSchedulingLinks(db, CAROL)).toHaveLength(1)
   })
 
+  it('restores legacy meta attendees only for documents without the migration marker', async () => {
+    const text = await readBackupCalendar(db, ALICE)
+    type BackupShape = {
+      attendees: unknown[]
+      attendeesMigrated?: boolean
+      events: Array<{ meta: Record<string, unknown> }>
+    }
+    const legacy = JSON.parse(text!) as BackupShape
+    legacy.attendees = []
+    delete legacy.attendeesMigrated
+    legacy.events[0]!.meta.attendees = [
+      { email: ' Legacy@Example.com ', name: 'Legacy Guest', status: 'accepted' },
+      { email: 'legacy@example.com', name: 'Duplicate', status: 'declined' },
+    ]
+    await applyBackupCalendar(db, BOB, JSON.stringify(legacy))
+    const [event] = await new CalendarStore(db, BOB).listAllEvents()
+    expect(await new CalendarStore(db, BOB).eventAttendees(event!.id)).toEqual([
+      { email: 'legacy@example.com', name: 'Legacy Guest', status: 'accepted' },
+    ])
+    expect(event!.meta).not.toHaveProperty('attendees')
+
+    const marked = JSON.parse(text!) as BackupShape
+    marked.events[0]!.meta.attendees = [{ email: 'ignored@example.com', name: 'Ignored', status: 'accepted' }]
+    await applyBackupCalendar(db, CAROL, JSON.stringify(marked))
+    const [markedEvent] = await new CalendarStore(db, CAROL).listAllEvents()
+    expect(await new CalendarStore(db, CAROL).eventAttendees(markedEvent!.id)).toEqual([])
+  })
+
   it('reads all event memberships in one query', async () => {
     const store = new CalendarStore(db, ALICE)
     const prepare = vi.spyOn(db, 'prepare')

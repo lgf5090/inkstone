@@ -75,6 +75,44 @@ describe('the calendar tables', () => {
       statements: ['ALTER TABLE calendar_provider_calendars ADD COLUMN sync_token TEXT'],
     })
   })
+  it('migrates legacy attendees once while preferring existing table rows', () => {
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 431)!
+    insertEvent('user-alice', 'legacy-empty')
+    insertEvent('user-alice', 'table-wins')
+    insertEvent('user-alice', 'already-empty')
+    sqlite.prepare('UPDATE calendar_events SET meta_json = ? WHERE user_id = ? AND id = ?')
+      .run(JSON.stringify({ attendees: [
+        { email: ' Guest@Example.com ', name: ' Guest ', status: 'accepted' },
+        { email: 'guest@example.com', name: 'Duplicate', status: 'declined' },
+        { email: 'invalid', name: 'Invalid', status: 'accepted' },
+      ] }), 'user-alice', 'legacy-empty')
+    sqlite.prepare('UPDATE calendar_events SET meta_json = ? WHERE user_id = ? AND id = ?')
+      .run(JSON.stringify({ attendees: [{ email: 'meta@example.com', name: 'Meta', status: 'accepted' }] }), 'user-alice', 'table-wins')
+    sqlite.prepare('UPDATE calendar_events SET meta_json = ? WHERE user_id = ? AND id = ?')
+      .run(JSON.stringify({ attendees: [] }), 'user-alice', 'already-empty')
+    sqlite.prepare(`INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
+      VALUES ('user-alice', 'table-wins', 'table@example.com', 'Table', 'tentative', 1)`).run()
+
+    for (const statement of migration.statements) sqlite.exec(statement)
+    expect(sqlite.prepare(`SELECT email, name, status FROM calendar_event_attendees
+      WHERE user_id = 'user-alice' AND event_id = 'legacy-empty'`).all()).toEqual([
+      { email: 'guest@example.com', name: 'Guest', status: 'accepted' },
+    ])
+    expect(sqlite.prepare(`SELECT email FROM calendar_event_attendees
+      WHERE user_id = 'user-alice' AND event_id = 'table-wins'`).all()).toEqual([{ email: 'table@example.com' }])
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM calendar_event_attendees
+      WHERE user_id = 'user-alice' AND event_id = 'already-empty'`).get()).toEqual({ count: 0 })
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM calendar_events
+      WHERE json_valid(meta_json) AND json_type(meta_json, '$.attendees') IS NOT NULL`).get()).toEqual({ count: 0 })
+
+    insertEvent('user-alice', 'cleared-after-marker')
+    sqlite.prepare('UPDATE calendar_events SET meta_json = ? WHERE user_id = ? AND id = ?')
+      .run(JSON.stringify({ attendees: [{ email: 'must-not-return@example.com' }] }), 'user-alice', 'cleared-after-marker')
+    for (const statement of migration.statements) sqlite.exec(statement)
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM calendar_event_attendees
+      WHERE user_id = 'user-alice' AND event_id = 'cleared-after-marker'`).get()).toEqual({ count: 0 })
+  })
+
   it('creates and rebuilds calendar FTS before applying its migration on an existing database', async () => {
     await initializeDatabase({ DB: makeD1(sqlite) } as Env)
     insertEvent('user-alice', 'existing-event')

@@ -4853,6 +4853,45 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'calendar_provider_calendars', column: 'sync_token' },
     statements: [`ALTER TABLE calendar_provider_calendars ADD COLUMN sync_token TEXT`],
   },
+  {
+    // The attendee table is authoritative. Backfill only rows that never had table guests, then
+    // remove the legacy JSON copy. The marker makes an intentionally empty guest list permanent if a
+    // database is restored without this migration's ledger entry.
+    version: 431,
+    statements: [
+      `INSERT OR IGNORE INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
+       SELECT user_id, event_id, email, name, status, created_at FROM (
+         SELECT e.user_id, e.id AS event_id,
+                lower(trim(json_extract(guest.value, '$.email'))) AS email,
+                substr(trim(COALESCE(json_extract(guest.value, '$.name'), '')), 1, 120) AS name,
+                CASE WHEN lower(trim(json_extract(guest.value, '$.status')))
+                       IN ('needs-action', 'accepted', 'tentative', 'declined')
+                     THEN lower(trim(json_extract(guest.value, '$.status')))
+                     ELSE 'needs-action' END AS status,
+                e.created_at + guest.key AS created_at,
+                ROW_NUMBER() OVER (
+                  PARTITION BY e.user_id, e.id, lower(trim(json_extract(guest.value, '$.email')))
+                  ORDER BY guest.key
+                ) AS duplicate_rank
+           FROM calendar_events e
+           JOIN json_each(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{}' END, '$.attendees') guest
+          WHERE json_type(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{}' END, '$.attendees') = 'array'
+            AND NOT EXISTS (SELECT 1 FROM app_meta WHERE key = 'calendar-attendees-v1')
+            AND NOT EXISTS (
+              SELECT 1 FROM calendar_event_attendees a WHERE a.user_id = e.user_id AND a.event_id = e.id
+            )
+       ) normalized
+        WHERE duplicate_rank = 1 AND length(email) BETWEEN 3 AND 254
+          AND length(email) - length(replace(email, '@', '')) = 1
+          AND instr(email, '@') > 1
+          AND instr(substr(email, instr(email, '@') + 1), '.') > 1
+          AND instr(email, ' ') = 0 AND instr(email, ',') = 0 AND instr(email, ';') = 0`,
+      `UPDATE calendar_events
+          SET meta_json = json_remove(meta_json, '$.attendees')
+        WHERE json_valid(meta_json) AND json_type(meta_json, '$.attendees') IS NOT NULL`,
+      `INSERT OR IGNORE INTO app_meta (key, value) VALUES ('calendar-attendees-v1', '1')`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

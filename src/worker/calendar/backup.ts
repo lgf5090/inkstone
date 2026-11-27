@@ -1,6 +1,7 @@
 import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types'
 import type {
   CalendarContactDto,
+  CalendarAttendeeDto,
   CalendarDto,
   CalendarEventDto,
   CalendarGroupDto,
@@ -22,6 +23,7 @@ import { ApiError } from '../lib/errors'
 import { Temporal } from 'temporal-polyfill'
 import { parseCalendarInput, parseCountdownInput, parseEventInput, parseGroupInput, parsePreferences } from './validation'
 import { CalendarStore, type CalendarEventWriteInput } from './store'
+import { normalizeEventAttendees } from './attendees'
 import { MAX_CONTACTS } from './contacts'
 import { listMembers } from './members'
 import { listContacts } from './contacts'
@@ -61,6 +63,8 @@ interface CalendarBackupDocument {
   preferences: CalendarPreferences
   reminders: ReminderBackupRow[]
   attendees: AttendeeBackupRow[]
+  /** New documents never need the legacy meta.attendees fallback. */
+  attendeesMigrated: true
   attachments: AttachmentBackupRow[]
   members: CalendarMemberDto[]
   contacts: CalendarContactDto[]
@@ -165,6 +169,7 @@ export async function readBackupCalendar(
     preferences,
     reminders: reminders.results ?? [],
     attendees: attendees.results ?? [],
+    attendeesMigrated: true,
     attachments: attachments.results ?? [],
     members,
     contacts,
@@ -254,18 +259,27 @@ export async function applyBackupCalendar(
   const store = new CalendarStore(db, userId)
   await store.savePreferences(preferences)
 
+  const legacyAttendees = new Map<string, CalendarAttendeeDto[]>()
   const inputs: CalendarEventWriteInput[] = raw.events.map((value) => {
     if (!isRecord(value) || !isCalendarEntityId(value.id)) throw ApiError.badRequest('The calendar backup has an invalid event')
     const ids = Array.isArray(value.calendarIds)
       ? value.calendarIds.filter((calendarId): calendarId is string => typeof calendarId === 'string' && calendarIds.has(calendarId))
       : []
     if (ids.length === 0) throw ApiError.badRequest('A backed-up event names no calendar in this backup')
+    if (raw.attendeesMigrated !== true && isRecord(value.meta)) {
+      const attendees = normalizeEventAttendees(value.meta.attendees)
+      if (attendees.length > 0) legacyAttendees.set(value.id, attendees)
+    }
     return parseEventInput({ ...value, rev: undefined, calendarIds: ids }, { defaultTimeZone: preferences.timeZone, allowSourceIdentity: true })
   })
   for (let index = 0; index < inputs.length; index += MAX_EVENTS_PER_BATCH) {
-    await store.createEvents(inputs.slice(index, index + MAX_EVENTS_PER_BATCH), 'upsert', { allowReadOnly: true })
+    await store.createEvents(
+      inputs.slice(index, index + MAX_EVENTS_PER_BATCH),
+      'upsert',
+      { allowReadOnly: true, preserveAttendees: true },
+    )
   }
-  await restoreEventExtras(db, userId, raw, new Set(inputs.map(input => input.id!)))
+  await restoreEventExtras(db, userId, raw, new Set(inputs.map(input => input.id!)), legacyAttendees)
   await restoreCalendarExtras(db, userId, raw, calendarIds)
   return { calendars: calendars.length, groups: groups.length, events: inputs.length }
 }
@@ -275,8 +289,18 @@ async function restoreEventExtras(
   userId: string,
   raw: Record<string, unknown>,
   eventIds: Set<string>,
+  legacyAttendees: ReadonlyMap<string, CalendarAttendeeDto[]>,
 ): Promise<void> {
+  const now = Date.now()
   const statements: D1PreparedStatement[] = []
+  const restoredIds = [...eventIds]
+  for (let index = 0; index < restoredIds.length; index += 80) {
+    const chunk = restoredIds.slice(index, index + 80)
+    statements.push(db.prepare(
+      `DELETE FROM calendar_event_attendees
+        WHERE user_id = ?1 AND event_id IN (${chunk.map((_id, offset) => `?${offset + 2}`).join(', ')})`,
+    ).bind(userId, ...chunk))
+  }
   for (const row of records(raw.reminders, MAX_BACKUP_REMINDERS, 'reminders')) {
     const eventId = id(row.event_id, 'reminder event')
     if (!eventIds.has(eventId)) continue
@@ -285,6 +309,7 @@ async function restoreEventExtras(
        ON CONFLICT(user_id, event_id, minutes) DO UPDATE SET created_at = excluded.created_at`,
     ).bind(userId, eventId, integer(row.minutes, 0, MAX_REMINDER_MINUTES, 'reminder minutes'), timestamp(row.created_at, 'reminder timestamp')))
   }
+  const restoredAttendeeEvents = new Set<string>()
   for (const row of records(raw.attendees, MAX_BACKUP_ATTENDEES, 'attendees')) {
     const eventId = id(row.event_id, 'attendee event')
     if (!eventIds.has(eventId)) continue
@@ -295,6 +320,16 @@ async function restoreEventExtras(
       `INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
        ON CONFLICT(user_id, event_id, email) DO UPDATE SET name = excluded.name, status = excluded.status, created_at = excluded.created_at`,
     ).bind(userId, eventId, email, text(row.name, 120, 'attendee name'), row.status, timestamp(row.created_at, 'attendee timestamp')))
+    restoredAttendeeEvents.add(eventId)
+  }
+  for (const [eventId, attendees] of legacyAttendees) {
+    if (restoredAttendeeEvents.has(eventId)) continue
+    attendees.forEach((attendee, index) => {
+      statements.push(db.prepare(
+        `INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      ).bind(userId, eventId, attendee.email, attendee.name, attendee.status, now + index))
+    })
   }
   for (const row of records(raw.attachments, MAX_BACKUP_ATTACHMENTS, 'attachments')) {
     const eventId = id(row.event_id, 'attachment event')

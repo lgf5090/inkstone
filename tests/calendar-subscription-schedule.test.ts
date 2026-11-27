@@ -156,6 +156,31 @@ describe('scheduled calendar subscriptions', () => {
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM calendar_events WHERE calendar_source = 'ics'").get()).toEqual({ count: 1 })
   })
 
+  it('moves feed attendees into the table and clears them on a later empty refresh', async () => {
+    const calendarId = await insertSubscription('attendees', 1, null)
+    const feed = (attendee = '') => [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Audit//EN',
+      'BEGIN:VEVENT', 'UID:guest-feed', 'DTSTART:20261126T010000Z', 'DTEND:20261126T020000Z',
+      'SUMMARY:Guest feed', attendee, 'END:VEVENT', 'END:VCALENDAR', '',
+    ].filter(Boolean).join('\r\n')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(feed(
+      'ATTENDEE;CN=Feed Guest;PARTSTAT=TENTATIVE:mailto:feed@example.com',
+    ))))
+    await refreshIcsSubscription(env, USER, 'attendees')
+    const store = new CalendarStore(db, USER)
+    const [event] = await store.listAllEvents()
+    expect(await store.eventAttendees(event!.id)).toEqual([
+      { email: 'feed@example.com', name: 'Feed Guest', status: 'tentative' },
+    ])
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(feed())))
+    await refreshIcsSubscription(env, USER, 'attendees')
+    expect(await store.eventAttendees(event!.id)).toEqual([])
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_event_attendees WHERE user_id = ?').get(USER))
+      .toEqual({ count: 0 })
+    expect(calendarId).toBeTruthy()
+  })
+
   it('cleans every calendar-level dependent when an ICS subscription is deleted', async () => {
     const calendarId = await insertSubscription('delete-me', 1, null)
     const store = new CalendarStore(db, USER)

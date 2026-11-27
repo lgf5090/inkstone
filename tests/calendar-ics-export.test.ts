@@ -212,29 +212,22 @@ describe('GET /api/calendar/ics/export', () => {
     expect(text.split('\r\n')).not.toContain('X-INJECTED:yes')
   })
 
-  it('skips malformed meta attendees instead of failing the export', async () => {
+  it('never falls back to legacy meta attendees when the table is empty', async () => {
     const calendar = await createCalendar('Work')
-    await createEvent(calendar.id, {
-      meta: {
+    const event = await createEvent(calendar.id)
+    sqlite.prepare('UPDATE calendar_events SET meta_json = ? WHERE user_id = ? AND id = ?')
+      .run(JSON.stringify({
         attendees: [
-          null,
-          'not-an-attendee',
-          [],
-          {},
           { email: 'valid@example.com', name: 'Valid Guest', status: 'accepted' },
           { email: 'not-an-email', name: 'Invalid Guest', status: 'accepted' },
-          { email: 'default@example.com', name: 42, status: { unknown: true } },
         ],
-      },
-    })
+      }), ALICE, event.id)
 
     const response = await call('GET', `/ics/export?calendarId=${calendar.id}`)
     expect(response.status).toBe(200)
     const text = await response.text()
-    const unfolded = text.replace(/\r\n[ \t]/g, '')
-    expect(unfolded).toContain('ATTENDEE;CN=Valid Guest;PARTSTAT=ACCEPTED:mailto:valid@example.com')
-    expect(unfolded).toContain('ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:default@example.com')
-    expect(text).not.toContain('mailto:not-an-email')
+    expect(text).not.toContain('ATTENDEE')
+    expect(text).not.toContain('mailto:valid@example.com')
   })
 
   it('exports only the requested calendar', async () => {

@@ -14,6 +14,7 @@ import { newId } from '../lib/id'
 import { isRedirectResponse, NO_REDIRECT } from '../lib/no-redirect'
 import { readStreamTextWithinLimit } from '../lib/request'
 import { CalendarStore, type CalendarEventWriteInput } from './store'
+import { normalizeEventAttendees } from './attendees'
 import { parseEventInput } from './validation'
 import { IcsParseError, icsExternalId, parseIcsCalendar, type IcsWarning } from './ics'
 
@@ -269,6 +270,7 @@ async function subscriptionEvents(
         calendarId: undefined,
         source: 'ics',
         externalId,
+        attendees: normalizeEventAttendees(event.meta?.attendees),
       }, { defaultTimeZone }))
     } catch (error) {
       warnings.push({

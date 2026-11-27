@@ -96,6 +96,27 @@ describe('POST /api/calendar/ics/import service boundary', () => {
     expect(rows).toEqual([{ start_ms: Date.parse('2026-11-25T17:00:00Z'), count: 1 }])
   })
 
+  it('normalizes attendees into the table and clears them when a re-import omits them', async () => {
+    const store = new CalendarStore(db, USER)
+    const calendar = await store.createCalendar({ name: 'Imports', color: '#112233' })
+    const withGuest = ics([
+      'ATTENDEE;CN=Guest;PARTSTAT=ACCEPTED:mailto:Guest@Example.com',
+      'ATTENDEE;CN=Duplicate;PARTSTAT=DECLINED:mailto:guest@example.com',
+    ])
+    expect(await call({ content: withGuest, calendarId: calendar.id })).toMatchObject({ status: 200 })
+    const [event] = await store.listAllEvents()
+    expect(event).toBeTruthy()
+    expect(await store.eventAttendees(event!.id)).toEqual([
+      { email: 'guest@example.com', name: 'Guest', status: 'accepted' },
+    ])
+    expect(event!.meta).not.toHaveProperty('attendees')
+
+    expect(await call({ content: ics(), calendarId: calendar.id })).toMatchObject({ status: 200 })
+    expect(await store.eventAttendees(event!.id)).toEqual([])
+    const stored = sqlite.prepare('SELECT meta_json FROM calendar_events WHERE id = ?').get(event!.id) as { meta_json: string }
+    expect(JSON.parse(stored.meta_json)).not.toHaveProperty('attendees')
+  })
+
   it('cleans up a newly created calendar when persistence fails', async () => {
     sqlite.exec(`CREATE TRIGGER fail_import_insert
       BEFORE INSERT ON calendar_events

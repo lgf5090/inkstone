@@ -799,9 +799,8 @@ function metaOf(event: CalendarEventInput): Record<string, unknown> {
     : {}
 }
 
-function attendeesFor(event: IcsSerializableEvent, meta: Record<string, unknown>): unknown[] {
-  const attendees = Array.isArray(event.attendees) ? event.attendees : meta.attendees
-  return Array.isArray(attendees) ? attendees.slice(0, MAX_ICS_ATTENDEES) : []
+function attendeesFor(event: IcsSerializableEvent): unknown[] {
+  return Array.isArray(event.attendees) ? event.attendees.slice(0, MAX_ICS_ATTENDEES) : []
 }
 
 function attendeeName(value: unknown): string {
@@ -1212,7 +1211,7 @@ function veventFor(event: IcsSerializableEvent, uid: string, organizerEmail?: st
     vevent.addProperty(property)
   }
 
-  for (const candidate of attendeesFor(event, meta)) {
+  for (const candidate of attendeesFor(event)) {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
     const guest = candidate as Record<string, unknown>
     const email = mailAddress(guest.email)

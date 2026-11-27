@@ -12,6 +12,7 @@ import {
   TASK_PRIORITIES,
   isCalendarEntityId,
   toTemporalValue,
+  type CalendarAttendeeDto,
   type CalendarConferenceDto,
   type CalendarEventInput,
   type CalendarSource,
@@ -21,6 +22,7 @@ import {
 import { sha256Hex } from '../lib/encoding'
 import { proxyCalendarRequest } from './proxy'
 import { CalendarStore } from './store'
+import { normalizeEventAttendees } from './attendees'
 import { parseEventInput } from './validation'
 import {
   assertCalendarConnectionKind,
@@ -228,7 +230,7 @@ async function providerEventInput(
   event: ProviderRemoteEvent,
   source: CalendarSource,
   localCalendarId: string,
-): Promise<CalendarEventInput | null> {
+): Promise<(CalendarEventInput & { attendees?: CalendarAttendeeDto[] }) | null> {
   const rawId = providerId(event, source)
   if (!rawId) return null
   const meta = cleanMeta(event.meta)
@@ -244,6 +246,7 @@ async function providerEventInput(
     calendarId: localCalendarId,
     calendarIds: [localCalendarId],
     meta,
+    attendees: normalizeEventAttendees(meta.attendees),
     icon: typeof event.icon === 'boolean' ? event.icon : null,
     recurrenceRule: typeof meta.recurrenceRule === 'string' ? meta.recurrenceRule : null,
     source,

@@ -272,7 +272,7 @@ async function reserve(
     throw ApiError.conflict('That slot was just booked')
   }
   const owner = new CalendarStore(c.env.DB, userId)
-  const event = await owner.createEvent({
+  await owner.createEvent({
     title: `${row.title} · ${guestName}`,
     description: email
       ? `Booked through a scheduling link: ${guestName} <${email}>`
@@ -283,13 +283,11 @@ async function reserve(
     calendarIds: [row.calendar_id],
     meta: {},
     source: 'local',
+    attendees: email ? [{ email, name: guestName, status: 'needs-action' }] : [],
     // The existing unique external-id index is the atomic slot claim: concurrent requests may both
     // pass the busy read, but only one event/membership batch can commit this identity.
     externalId: `inkstone-booking:${row.calendar_id}:${startMs}`,
   })
-  if (email) {
-    await owner.setEventAttendees(event.id, [{ email, name: guestName, status: 'needs-action' }], event.rev)
-  }
   return { startMs, endMs: end.epochMilliseconds }
 }
 

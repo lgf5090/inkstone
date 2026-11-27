@@ -251,7 +251,10 @@ function parseCalendarIds(record: Record<string, unknown>, required: boolean): s
 
 function parseMeta(value: unknown): Record<string, unknown> {
   if (value === undefined || value === null) return {}
-  const meta = requireRecord(value, 'meta')
+  const meta = { ...requireRecord(value, 'meta') }
+  // Guests have their own table. Old clients used to hide them in meta; that intermediate shape is
+  // accepted at the boundary but never allowed to become a second source of truth.
+  delete meta.attendees
   if ('resourceId' in meta) throw ApiError.badRequest('resourceId is not supported')
   if (utf8ByteLength(JSON.stringify(meta)) > MAX_EVENT_META_BYTES) {
     throw ApiError.badRequest('meta is too large')
@@ -408,6 +411,7 @@ export function parseEventInput(value: unknown, options: ParseEventOptions = {})
     allDay: allDayFlag(record.allDay, start.value, end.value),
     calendarIds: parseCalendarIds(record, true)!,
     meta,
+    ...(record.attendees === undefined ? {} : { attendees: parseAttendees(record.attendees, 'attendees') }),
     icon: parseIcon(record.icon),
     color: record.color === undefined || record.color === null ? null : calendarColor(record.color, 'color'),
     recurrenceRule,
@@ -472,6 +476,10 @@ export function parseEventPatch(value: unknown, options: ParseEventOptions = {})
       applyRecurrenceMeta(meta, normalizeRecurrence(meta.recurrenceRule, 'meta.recurrenceRule'))
     }
     patch.meta = meta
+    touched = true
+  }
+  if (record.attendees !== undefined) {
+    patch.attendees = parseAttendees(record.attendees, 'attendees')
     touched = true
   }
   if (record.icon !== undefined) {
@@ -573,13 +581,17 @@ const ATTENDEE_EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
 export function parseAttendeeList(value: unknown): { attendees: CalendarAttendeeDto[]; rev: number } {
   const record = requireRecord(value, 'body')
   const rev = integerValue(record.rev, 'rev', 1, Number.MAX_SAFE_INTEGER)
-  if (!Array.isArray(record.attendees)) throw ApiError.badRequest('attendees must be an array')
-  if (record.attendees.length > MAX_ATTENDEES_PER_EVENT) {
+  return { attendees: parseAttendees(record.attendees, 'attendees'), rev }
+}
+
+function parseAttendees(value: unknown, field: string): CalendarAttendeeDto[] {
+  if (!Array.isArray(value)) throw ApiError.badRequest(`${field} must be an array`)
+  if (value.length > MAX_ATTENDEES_PER_EVENT) {
     throw ApiError.badRequest(`An event may invite at most ${MAX_ATTENDEES_PER_EVENT} guests`)
   }
   const seen = new Set<string>()
   const attendees: CalendarAttendeeDto[] = []
-  for (const entry of record.attendees) {
+  for (const entry of value) {
     const guest = requireRecord(entry, 'attendee')
     const email = attendeeEmail(guest.email)
     if (seen.has(email)) continue
@@ -592,7 +604,7 @@ export function parseAttendeeList(value: unknown): { attendees: CalendarAttendee
         : attendeeStatus(guest.status),
     })
   }
-  return { attendees, rev }
+  return attendees
 }
 
 function attendeeEmail(value: unknown): string {

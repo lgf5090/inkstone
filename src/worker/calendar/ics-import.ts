@@ -4,27 +4,22 @@ import { newId } from '../lib/id'
 import {
   MAX_ICS_BYTES,
   MAX_ICS_EVENTS,
-  isCalendarAttendeeStatus,
   isCalendarEntityId,
-  type CalendarAttendeeDto,
   type CalendarDto,
 } from '@shared/calendar/model'
 import { isValidTimeZone } from '@shared/time-zone'
 import {
   IcsParseError,
-  MAX_ICS_ATTENDEES,
-  MAX_ICS_ATTENDEE_NAME_CHARS,
   icsExternalId,
   parseIcsCalendar,
 } from './ics'
+import { normalizeEventAttendees } from './attendees'
 import { CalendarStore, type CalendarEventWriteInput } from './store'
 import { parseCalendarInput, parseEventInput } from './validation'
 
 const ICS_IMPORT_JSON_ENVELOPE_BYTES = 64 * 1024
 export const ICS_IMPORT_BODY_LIMIT = MAX_ICS_BYTES * 2 + ICS_IMPORT_JSON_ENVELOPE_BYTES
 export const ICS_IMPORT_EVENT_CHUNK = 200
-const MAX_ATTENDEE_EMAIL_CHARS = 254
-const ATTENDEE_EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
 export interface CalendarIcsImportInput {
   content?: unknown
@@ -113,6 +108,7 @@ export async function importCalendarIcs(
         calendarIds: [targetCalendarId],
         source: 'ics',
         externalId,
+        attendees: normalizeEventAttendees(event.meta?.attendees),
       }, { defaultTimeZone }))
     } catch (error) {
       parsed.warnings.push({
@@ -138,12 +134,6 @@ export async function importCalendarIcs(
       const chunk = inputs.slice(index, index + ICS_IMPORT_EVENT_CHUNK)
       const written = await store.createEvents(chunk, 'upsert')
       imported += written.length
-      for (const event of written) {
-        const guests = importedAttendees(event.meta)
-        if (guests.length > 0) {
-          await store.setEventAttendees(event.id, guests, event.rev)
-        }
-      }
     }
   } catch {
     if (created) {
@@ -164,25 +154,6 @@ export async function importCalendarIcs(
     imported,
     warnings: parsed.warnings,
   }
-}
-
-function importedAttendees(meta: Record<string, unknown>): CalendarAttendeeDto[] {
-  const raw = meta.attendees
-  if (!Array.isArray(raw)) return []
-  const guests: CalendarAttendeeDto[] = []
-  for (const entry of raw.slice(0, MAX_ICS_ATTENDEES)) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
-    const record = entry as Record<string, unknown>
-    const email = typeof record.email === 'string' ? record.email.trim().toLowerCase() : ''
-    if (!email || email.length > MAX_ATTENDEE_EMAIL_CHARS || !ATTENDEE_EMAIL.test(email)) continue
-    if (guests.some(guest => guest.email === email)) continue
-    guests.push({
-      email,
-      name: typeof record.name === 'string' ? record.name.trim().slice(0, MAX_ICS_ATTENDEE_NAME_CHARS) : '',
-      status: isCalendarAttendeeStatus(record.status) ? record.status : 'needs-action',
-    })
-  }
-  return guests
 }
 
 function recurrenceIdOf(value: unknown): string | null {

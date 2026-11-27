@@ -58,6 +58,7 @@ import { newId } from '../lib/id'
 import { Temporal } from 'temporal-polyfill'
 import { RRule } from 'rrule'
 import { parseStoredJson, storedObject } from '../lib/json'
+import { normalizeEventAttendees } from './attendees'
 import { eventAttachmentDeleteStatements } from './attachments'
 import { attachmentCleanupTargetSql } from '../attachments/keys'
 import { listCalendarConnections } from './connections'
@@ -99,6 +100,8 @@ export interface CalendarEventWriteInput extends Omit<CalendarEventInput, 'task'
   task?: CalendarTaskDto | CalendarTaskWrite | null
   startMs?: number
   endMs?: number
+  /** Server-side normalized guest list; public callers use the top-level `attendees` field. */
+  attendees?: readonly CalendarAttendeeDto[]
 }
 
 type TimelineEventWrite = CalendarEventWriteInput & {
@@ -111,6 +114,7 @@ type TimelineEventWrite = CalendarEventWriteInput & {
   allDay: boolean
   calendarIds: string[]
   meta: Record<string, unknown>
+  attendees?: readonly CalendarAttendeeDto[]
   icon: boolean | null
   color: string | null
   recurrenceRule: string | null
@@ -144,6 +148,7 @@ export interface CalendarEventPatchInput {
   allDay?: boolean
   calendarIds?: string[]
   meta?: Record<string, unknown>
+  attendees?: readonly CalendarAttendeeDto[]
   icon?: boolean | null
   color?: string | null
   recurrenceRule?: string | null
@@ -492,6 +497,12 @@ function toGroupDto(row: GroupRow): CalendarGroupDto {
   return { id: row.id, name: row.name, position: row.position }
 }
 
+function eventMetaForDto(raw: string): Record<string, unknown> {
+  const meta = storedObject(raw)
+  delete meta.attendees
+  return meta
+}
+
 function toEventDto(row: EventRow, calendarIds: readonly string[]): CalendarEventDto {
   const hasTask = row.task_completed !== null
     || row.task_completed_at_value !== null
@@ -522,7 +533,7 @@ function toEventDto(row: EventRow, calendarIds: readonly string[]): CalendarEven
     allDay: row.all_day === 1,
     calendarId: calendarIds[0] ?? '',
     calendarIds: [...calendarIds],
-    meta: storedObject(row.meta_json),
+    meta: eventMetaForDto(row.meta_json),
     icon: readIcon(row.icon_json),
     color: row.color,
     recurrenceRule: row.recurrence_rule,
@@ -1487,7 +1498,12 @@ export class CalendarStore {
       || (input.endMs === undefined && input.end.timeZone === undefined && input.start.timeZone === undefined))
     const zone = needsZone ? (await this.preferences()).timeZone : 'UTC'
     return inputs.map((input) => {
-      const meta = input.meta ?? {}
+      const meta = { ...(input.meta ?? {}) }
+      const hasLegacyAttendees = Object.prototype.hasOwnProperty.call(meta, 'attendees')
+      const attendees = input.attendees === undefined
+        ? (hasLegacyAttendees ? normalizeEventAttendees(meta.attendees) : undefined)
+        : normalizeEventAttendees(input.attendees)
+      delete meta.attendees
       const task = input.task === undefined || input.task === null
         ? null
         : {
@@ -1524,6 +1540,7 @@ export class CalendarStore {
         allDay,
         calendarIds,
         meta,
+        attendees,
         icon: input.icon ?? null,
         color: input.color ?? null,
         recurrenceRule: input.recurrenceRule ?? metaRule,
@@ -1550,6 +1567,7 @@ export class CalendarStore {
     const now = Date.now()
     const statements: D1PreparedStatement[] = [this.insertEventStatement(input, id, now, null)]
     statements.push(...this.membershipInsertStatements(id, input.calendarIds))
+    statements.push(...this.attendeeReplaceStatements(id, input.attendees ?? []))
     try {
       await this.db.batch(statements)
     } catch (error) {
@@ -1570,7 +1588,7 @@ export class CalendarStore {
   async createEvents(
     inputs: readonly CalendarEventWriteInput[],
     mode: 'create' | 'upsert',
-    options: { allowReadOnly?: boolean; requireRevision?: boolean } = {},
+    options: { allowReadOnly?: boolean; requireRevision?: boolean; preserveAttendees?: boolean } = {},
   ): Promise<CalendarEventDto[]> {
     if (inputs.length === 0) throw ApiError.badRequest('A batch needs at least one event')
     if (inputs.length > MAX_EVENTS_PER_BATCH) {
@@ -1685,6 +1703,13 @@ export class CalendarStore {
         input.calendarIds,
         exists && mode === 'upsert' && input.rev !== undefined ? input.rev + 1 : undefined,
       ))
+      if (options.preserveAttendees !== true && (!exists || input.attendees !== undefined)) {
+        group.push(...this.attendeeReplaceStatements(
+          id,
+          input.attendees ?? [],
+          exists && mode === 'upsert' && input.rev !== undefined ? { id, rev: input.rev + 1 } : undefined,
+        ))
+      }
       statements.push(group)
     }
 
@@ -1714,6 +1739,12 @@ export class CalendarStore {
         await this.db.batch([
           this.db.prepare(
             `DELETE FROM calendar_event_calendars
+              WHERE user_id = ?1 AND event_id IN (
+                SELECT id FROM calendar_events WHERE user_id = ?1 AND batch_key = ?2
+              )`,
+          ).bind(this.userId, batchKey),
+          this.db.prepare(
+            `DELETE FROM calendar_event_attendees
               WHERE user_id = ?1 AND event_id IN (
                 SELECT id FROM calendar_events WHERE user_id = ?1 AND batch_key = ?2
               )`,
@@ -1763,7 +1794,12 @@ export class CalendarStore {
     }
     if (endMs < startMs) throw ApiError.badRequest('An event cannot end before it starts')
 
-    let meta = patch.meta ?? storedObject(row.meta_json)
+    let meta = { ...(patch.meta ?? storedObject(row.meta_json)) }
+    const hasLegacyAttendees = Object.prototype.hasOwnProperty.call(meta, 'attendees')
+    const attendees = patch.attendees === undefined
+      ? (hasLegacyAttendees ? normalizeEventAttendees(meta.attendees) : undefined)
+      : normalizeEventAttendees(patch.attendees)
+    delete meta.attendees
     let recurrenceRule = row.recurrence_rule
     if (patch.recurrenceRule !== undefined) {
       recurrenceRule = patch.recurrenceRule
@@ -1809,6 +1845,7 @@ export class CalendarStore {
       allDay,
       calendarIds,
       meta,
+      attendees,
       icon,
       color,
       recurrenceRule,
@@ -1836,6 +1873,9 @@ export class CalendarStore {
             AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
       ).bind(this.userId, id, nextRev))
       statements.push(...this.membershipInsertStatements(id, patch.calendarIds, nextRev))
+    }
+    if (merged.attendees !== undefined) {
+      statements.push(...this.attendeeReplaceStatements(id, merged.attendees, { id, rev: nextRev }))
     }
     const outcomes = await this.db.batch(statements)
     if (!outcomes[0]?.meta.changes) {
@@ -1937,6 +1977,7 @@ export class CalendarStore {
     await this.assertEventWritable(masterId)
     const row = await this.eventRow(masterId)
     if (!row) throw ApiError.notFound('Event not found')
+    const masterAttendees = await this.eventAttendees(masterId)
     const zone = (await this.preferences()).timeZone
     const occurrenceStartMs = temporalValueToEpochMs(
       change.occurrenceStart,
@@ -2013,6 +2054,11 @@ export class CalendarStore {
         statements.push(
           this.insertEventStatement(exception, exceptionId, now, null, { id: masterId, rev: change.rev }),
           ...this.membershipInsertStatements(exceptionId, exception.calendarIds, change.rev, masterId),
+          ...this.attendeeReplaceStatements(
+            exceptionId,
+            patch.attendees ?? masterAttendees,
+            { id: masterId, rev: change.rev },
+          ),
         )
       }
       statements.push(await masterStatement({ rev: change.rev, meta, recurrenceRule: master.recurrenceRule }))
@@ -2071,6 +2117,11 @@ export class CalendarStore {
       ).bind(seriesId, now, this.userId, masterId, occurrenceStartMs, change.rev),
       this.insertEventStatement(series, seriesId, now, null, { id: masterId, rev: change.rev }),
       ...this.membershipInsertStatements(seriesId, series.calendarIds, change.rev, masterId),
+      ...this.attendeeReplaceStatements(
+        seriesId,
+        patch.attendees ?? masterAttendees,
+        { id: masterId, rev: change.rev },
+      ),
       await masterStatement({ rev: change.rev, recurrenceRule: split.past, meta: partitioned.past }),
     ])
     if (!outcomes.at(-1)?.meta.changes) {
@@ -2305,20 +2356,12 @@ export class CalendarStore {
     if (!row) throw ApiError.notFound('Event not found')
     await this.assertEventWritable(id)
     const now = Date.now()
-    const statements: D1PreparedStatement[] = [this.db.prepare(
-      `DELETE FROM calendar_event_attendees
-        WHERE user_id = ?1 AND event_id = ?2
-          AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?3)`,
-    ).bind(this.userId, id, rev)]
-    attendees.forEach((attendee, index) => {
-      statements.push(this.db.prepare(
-        `INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6
-          WHERE EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?2 AND rev = ?7)`,
-      ).bind(this.userId, id, attendee.email, attendee.name, attendee.status, now + index, rev))
-    })
+    const normalized = normalizeEventAttendees(attendees)
+    const statements = this.attendeeReplaceStatements(id, normalized, { id, rev })
     statements.push(this.db.prepare(
-      `UPDATE calendar_events SET rev = rev + 1, updated_at = ?3
+      `UPDATE calendar_events
+          SET rev = rev + 1, updated_at = ?3,
+              meta_json = CASE WHEN json_valid(meta_json) THEN json_remove(meta_json, '$.attendees') ELSE meta_json END
         WHERE user_id = ?1 AND id = ?2 AND rev = ?4`,
     ).bind(this.userId, id, now, rev))
     const outcomes = await this.db.batch(statements)
@@ -2327,7 +2370,7 @@ export class CalendarStore {
     }
     const event = await this.getEvent(id)
     if (!event) throw new Error('Event attendee update did not persist')
-    return { event, attendees: [...attendees] }
+    return { event, attendees: normalized }
   }
 
   /**
@@ -2638,6 +2681,35 @@ export class CalendarStore {
       `UPDATE calendar_events SET ${assignments}, updated_at = ?, rev = rev + 1
         WHERE user_id = ? AND id = ? AND rev = ?`,
     ).bind(...this.eventWriteValues(input), now, this.userId, input.id!, rev)
+  }
+
+  private attendeeReplaceStatements(
+    eventId: string,
+    attendees: readonly CalendarAttendeeDto[],
+    guard?: { id: string; rev: number },
+  ): D1PreparedStatement[] {
+    const now = Date.now()
+    const guardedDelete = guard
+      ? `AND EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?4 AND rev = ?3)`
+      : ''
+    const deleteStatement = this.db.prepare(
+      `DELETE FROM calendar_event_attendees WHERE user_id = ?1 AND event_id = ?2 ${guardedDelete}`,
+    ).bind(this.userId, eventId, ...(guard ? [guard.rev, guard.id] : []))
+    const insertStatement = guard
+      ? this.db.prepare(
+        `INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
+         SELECT ?1, ?2, json_extract(guest.value, '$.email'), json_extract(guest.value, '$.name'),
+                json_extract(guest.value, '$.status'), ?3 + guest.key
+           FROM json_each(?4) AS guest
+          WHERE EXISTS (SELECT 1 FROM calendar_events WHERE user_id = ?1 AND id = ?6 AND rev = ?5)`,
+      ).bind(this.userId, eventId, now, JSON.stringify(attendees), guard.rev, guard.id)
+      : this.db.prepare(
+        `INSERT INTO calendar_event_attendees (user_id, event_id, email, name, status, created_at)
+         SELECT ?1, ?2, json_extract(guest.value, '$.email'), json_extract(guest.value, '$.name'),
+                json_extract(guest.value, '$.status'), ?3 + guest.key
+           FROM json_each(?4) AS guest`,
+      ).bind(this.userId, eventId, now, JSON.stringify(attendees))
+    return [deleteStatement, insertStatement]
   }
 
   private membershipInsertStatements(
