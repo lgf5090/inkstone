@@ -4,7 +4,7 @@ import { localDate } from '@shared/assistant-time'
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
 import { storedObject } from '../lib/json'
-import { READER_BOOK_INDEX, READER_BOOK_TABLE, READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS } from './reader-schema'
+import { READER_BOOK_INDEX, READER_BOOK_TABLE, READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS, READER_SYNC_VERSION_TABLE } from './reader-schema'
 import {
   ASSISTANT_REQUIRED_COLUMNS,
   ASSISTANT_REQUIRED_INDEXES,
@@ -4940,6 +4940,11 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `INSERT OR IGNORE INTO app_meta (key, value) VALUES ('calendar-attendees-v1', '1')`,
     ],
   },
+  {
+    // Reader sync merges by entity version and carries explicit deletion tombstones.
+    version: 440,
+    statements: [READER_SYNC_VERSION_TABLE],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -5081,6 +5086,7 @@ export const REQUIRED_TABLES = [
   'community_templates',
   'reader_books',
   'reader_groups',
+  'reader_sync_versions',
   'reader_progress',
   'reader_highlights',
   'reader_marks',

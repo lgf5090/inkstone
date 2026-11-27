@@ -60,7 +60,7 @@ app.route('/api/reader', readerLibraryRoutes)
 function book(overrides: Record<string, unknown> = {}) {
   return {
     id: 'book-1', format: 'epub', title: '道德经', author: '老子', language: 'zh', publisher: '',
-    filename: 'dao.epub', size: 4096, addedAt: 1000, unitCount: 3, hasCover: false,
+    filename: 'dao.epub', size: 4096, addedAt: 1000, updatedAt: 1000, unitCount: 3, hasCover: false,
     toc: [{ label: '第一章', position: { kind: 'epub', chapter: 0, offset: 0 } }],
     ...overrides,
   }
@@ -71,9 +71,15 @@ function library(overrides: Record<string, unknown> = {}) {
     books: [book()],
     progress: { 'book-1': { bookId: 'book-1', position: { kind: 'epub', chapter: 0, offset: 120 }, fraction: 0.25, updatedAt: 2000, finishedAt: null } },
     highlights: { 'book-1': [{ id: 'h1', bookId: 'book-1', chapter: 0, start: 10, end: 24, quote: '道可道', prefix: '', suffix: '', color: 'yellow', comment: '要重读', createdAt: 3, updatedAt: 3 }] },
-    marks: { 'book-1': [{ id: 'm1', bookId: 'book-1', label: '第 2 章处', position: { kind: 'epub', chapter: 1, offset: 0 }, createdAt: 4 }] },
-    stats: { 'book-1': { bookId: 'book-1', seconds: 900, days: { '2026-10-12': 600, '2026-10-13': 300, junk: 5 } } },
-    notes: { byBook: { 'book-1': 'note-9' }, vocabulary: 'note-vocab' },
+    marks: { 'book-1': [{ id: 'm1', bookId: 'book-1', label: '第 2 章处', position: { kind: 'epub', chapter: 1, offset: 0 }, createdAt: 4, updatedAt: 4 }] },
+    stats: { 'book-1': { bookId: 'book-1', seconds: 900, days: { '2026-10-12': 600, '2026-10-13': 300, junk: 5 }, updatedAt: 5 } },
+    notes: { byBook: { 'book-1': 'note-9' }, updatedAt: { 'book-1': 6 }, vocabulary: 'note-vocab', vocabularyUpdatedAt: 7 },
+    deleted: {
+      books: { ids: [], updatedAt: 0 }, progress: { ids: [], updatedAt: 0 },
+      highlights: { ids: [], updatedAt: 0 }, marks: { ids: [], updatedAt: 0 },
+      stats: { ids: [], updatedAt: 0 }, notes: { ids: [], updatedAt: 0 },
+      groups: { ids: [], updatedAt: 0 }, vocabulary: { deleted: false, updatedAt: 0 },
+    },
     ...overrides,
   }
 }
@@ -107,12 +113,19 @@ describe('the shelf round trip', () => {
     expect(answer.ok).toBe(true)
     expect(answer.library.books.map((one: any) => one.title)).toEqual(['道德经'])
     expect(answer.library.books[0].toc).toHaveLength(1)
+    expect(answer.library.books[0].updatedAt).toBe(1000)
     expect(answer.library.progress['book-1'].position).toEqual({ kind: 'epub', chapter: 0, offset: 120 })
     expect(answer.library.highlights['book-1'][0].comment).toBe('要重读')
     expect(answer.library.marks['book-1'][0].label).toBe('第 2 章处')
-    expect(answer.library.notes).toEqual({ byBook: { 'book-1': 'note-9' }, vocabulary: 'note-vocab' })
+    expect(answer.library.marks['book-1'][0].updatedAt).toBe(4)
+    expect(answer.library.notes).toEqual({
+      byBook: { 'book-1': 'note-9' }, updatedAt: { 'book-1': 6 },
+      vocabulary: 'note-vocab', vocabularyUpdatedAt: 7,
+    })
+    expect(answer.library.deleted.books).toEqual([])
     // A day key that is not a date is dropped rather than stored as noise.
     expect(answer.library.stats['book-1'].days).toEqual({ '2026-10-12': 600, '2026-10-13': 300 })
+    expect(answer.library.stats['book-1'].updatedAt).toBe(5)
   })
 
   it('keeps a second account out of the first one\'s shelf', async () => {
@@ -141,12 +154,29 @@ describe('the shelf round trip', () => {
     expect(alice.library.progress['book-1'].position).toEqual({ kind: 'epub', chapter: 0, offset: 120 })
   })
 
-  it('replaces the state wholesale, so a deleted highlight stays deleted', async () => {
+  it('keeps omitted records and deletes only explicit tombstones', async () => {
     await send('PUT', '/library', { library: library() })
-    await send('PUT', '/library', { library: library({ highlights: { 'book-1': [] }, books: [] }) })
+    await send('PUT', '/library', { library: library({ books: [], highlights: { 'book-1': [] } }) })
+    const omitted = await (await send('GET', '/library')).json() as { library: any }
+    expect(omitted.library.books).toHaveLength(1)
+    expect(omitted.library.highlights['book-1']).toHaveLength(1)
+
+    const deleted = library().deleted as Record<string, unknown>
+    await send('PUT', '/library', {
+      library: library({
+        books: [], highlights: { 'book-1': [] },
+        deleted: {
+          ...deleted,
+          books: { ids: ['book-1'], updatedAt: 3000 },
+          highlights: { ids: ['h1'], updatedAt: 3000 },
+        },
+      }),
+    })
     const answer = await (await send('GET', '/library')).json() as { library: any }
     expect(answer.library.books).toEqual([])
     expect(answer.library.highlights).toEqual({})
+    expect(answer.library.deleted.books).toEqual([{ id: 'book-1', bookId: '', updatedAt: 3000 }])
+    expect(answer.library.deleted.highlights).toEqual([{ id: 'h1', bookId: 'book-1', updatedAt: 3000 }])
   })
 })
 
@@ -169,7 +199,9 @@ describe('what a client is not allowed to choose', () => {
 
   it('accepts the ids the shelf really mints, colons and all', async () => {
     const id = 'file:dao-de-jing.epub:13993'
-    const response = await send('PUT', '/library', { library: library({ books: [book({ id })] }) })
+    const response = await send('PUT', '/library', { library: library({
+      books: [book({ id })], progress: {}, highlights: {}, marks: {}, stats: {}, notes: { byBook: {} },
+    }) })
     expect(response.status).toBe(200)
     await send('PUT', `/books/${encodeURIComponent(id)}/blob`, undefined, new Uint8Array([1, 2]))
     const got = await send('GET', `/books/${encodeURIComponent(id)}/blob`)
@@ -186,7 +218,9 @@ describe('what a client is not allowed to choose', () => {
   it('walks a book whose name is not ASCII from the row to the download', async () => {
     const id = 'file:凡人修仙传.epub:8500047'
     const name = '凡人修仙传.epub'
-    const put = await send('PUT', '/library', { library: library({ books: [book({ id, filename: name })] }) })
+    const put = await send('PUT', '/library', { library: library({
+      books: [book({ id, filename: name })], progress: {}, highlights: {}, marks: {}, stats: {}, notes: { byBook: {} },
+    }) })
     expect(put.status).toBe(200)
     const read = await (await send('GET', '/library')).json() as { library: any }
     expect(read.library.books.map((one: any) => one.id)).toEqual([id])
@@ -232,6 +266,63 @@ describe('what a client is not allowed to choose', () => {
   })
 })
 
+describe('versioned merge validation', () => {
+  it('rejects duplicate record ids instead of silently picking one', async () => {
+    expect((await send('PUT', '/library', {
+      library: library({ books: [book(), book()] }),
+    })).status).toBe(400)
+    expect((await send('PUT', '/library', {
+      library: library({
+        books: [book(), book({ id: 'book-2' })],
+        highlights: {
+          'book-1': [{ id: 'same', bookId: 'book-1', chapter: 0, start: 0, end: 1, quote: 'a', color: 'yellow', createdAt: 1, updatedAt: 2 }],
+          'book-2': [{ id: 'same', bookId: 'book-2', chapter: 0, start: 0, end: 1, quote: 'b', color: 'yellow', createdAt: 1, updatedAt: 2 }],
+        },
+      }),
+    })).status).toBe(400)
+  })
+
+  it('rejects invalid colors, positions and book references', async () => {
+    expect((await send('PUT', '/library', {
+      library: library({ highlights: { 'book-1': [{ id: 'h1', chapter: 0, start: 0, end: 1, quote: 'x', color: 'cyan', createdAt: 1, updatedAt: 2 }] } }),
+    })).status).toBe(400)
+    expect((await send('PUT', '/library', {
+      library: library({ progress: { 'book-1': { position: { kind: 'epub', chapter: -1, offset: 0 }, fraction: 0, updatedAt: 2 } } }),
+    })).status).toBe(400)
+    expect((await send('PUT', '/library', {
+      library: library({ marks: { 'book-1': [{ id: 'm1', label: 'x', position: null, createdAt: 1, updatedAt: 2 }] } }),
+    })).status).toBe(400)
+    expect((await send('PUT', '/library', {
+      library: library({ progress: { unknown: { position: null, fraction: 0, updatedAt: 2 } } }),
+    })).status).toBe(400)
+  })
+
+  it('strictly validates deletion entities, ids and timestamps', async () => {
+    const deleted = library().deleted as Record<string, unknown>
+    for (const value of [
+      { ...deleted, unknown: { ids: [], updatedAt: 1 } },
+      { ...deleted, books: { ids: ['book-1', 'book-1'], updatedAt: 1 } },
+      { ...deleted, books: { ids: ['book-1'] } },
+      { ...deleted, books: { ids: ['../escape'], updatedAt: 1 } },
+    ]) {
+      expect((await send('PUT', '/library', { library: library({ deleted: value }) })).status).toBe(400)
+    }
+  })
+
+  it('does not let a group point at a tombstoned book', async () => {
+    await send('PUT', '/library', { library: library() })
+    const deleted = library().deleted as Record<string, unknown>
+    await send('PUT', '/library', {
+      library: library({ books: [], deleted: { ...deleted, books: { ids: ['book-1'], updatedAt: 3000 } } }),
+    })
+    expect((await send('PUT', '/library', {
+      library: library({ books: [], groups: [shelfGroup({ updatedAt: 4000 })] }),
+    })).status).toBe(200)
+    const listed = await (await send('GET', '/library')).json() as { library: any }
+    expect(listed.library.groups[0].bookIds).toEqual([])
+  })
+})
+
 describe('the book bytes', () => {
   it('puts and gets a file under the account prefix', async () => {
     await send('PUT', '/library', { library: library() })
@@ -271,6 +362,9 @@ describe('the book bytes', () => {
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM reader_books').get()).toEqual({ n: 0 })
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM reader_highlights').get()).toEqual({ n: 0 })
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM reader_stats').get()).toEqual({ n: 0 })
+    const listed = await (await send('GET', '/library')).json() as { library: any }
+    expect(listed.library.deleted.books).toEqual([{ id: 'book-1', bookId: '', updatedAt: expect.any(Number) }])
+    expect(listed.library.deleted.highlights).toEqual([{ id: 'h1', bookId: 'book-1', updatedAt: expect.any(Number) }])
   })
 })
 
@@ -384,7 +478,7 @@ describe('the cover of a book', () => {
     await put(pngOf(4096))
     // The shelf is nearly full; the same size again is legal because the old cover is given back first.
     await send('PUT', '/library', {
-      library: library({ books: [book({ hasCover: true, size: LIMITS.readerQuotaBytes - 4096 })] }),
+      library: library({ books: [book({ hasCover: true, size: LIMITS.readerQuotaBytes - 4096, updatedAt: 3000 })] }),
     })
     expect((await put(pngOf(4096))).status).toBe(200)
     const over = await (await put(pngOf(8192))).json() as { error: { code: string } }
@@ -448,11 +542,19 @@ describe('the groupings on the shelf', () => {
     expect(listed.library.groups.map((one: any) => one.id)).toEqual(['group-1'])
   })
 
-  it('replaces the whole set, so a group deleted on one device stays deleted', async () => {
+  it('keeps omitted groups and deletes only an explicit group tombstone', async () => {
     await send('PUT', '/library', { library: library({ groups: [shelfGroup(), shelfGroup({ id: 'group-2', name: '科幻' })] }) })
     await send('PUT', '/library', { library: library({ groups: [shelfGroup({ name: '在读' })] }) })
+    const omitted = await (await send('GET', '/library')).json() as { library: any }
+    expect(omitted.library.groups.map((one: any) => one.id)).toEqual(['group-1', 'group-2'])
+
+    const deleted = library().deleted as Record<string, unknown>
+    await send('PUT', '/library', {
+      library: library({ groups: [], deleted: { ...deleted, groups: { ids: ['group-2'], updatedAt: 4000 } } }),
+    })
     const listed = await (await send('GET', '/library')).json() as { library: any }
     expect(listed.library.groups.map((one: any) => one.id)).toEqual(['group-1'])
+    expect(listed.library.deleted.groups).toEqual([{ id: 'group-2', bookId: '', updatedAt: 4000 }])
   })
 
   it('takes a book out of every group when the book goes', async () => {

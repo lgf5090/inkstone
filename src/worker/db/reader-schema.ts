@@ -53,7 +53,19 @@ export const READER_GROUP_INDEX = `CREATE INDEX IF NOT EXISTS idx_reader_groups_
 /** The shelf's own read path: one account, newest first. Rebuilt alongside the table it indexes. */
 export const READER_BOOK_INDEX = `CREATE INDEX IF NOT EXISTS idx_reader_books_user ON reader_books(user_id, added_at DESC, id)`
 
+/** Last-writer-wins versions and explicit tombstones for every synced reader entity. */
+export const READER_SYNC_VERSION_TABLE = `CREATE TABLE IF NOT EXISTS reader_sync_versions (
+  user_id TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  book_id TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
+  PRIMARY KEY (user_id, entity, entity_id)
+)`
+
 export const READER_SCHEMA_STATEMENTS: readonly string[] = [
+  READER_SYNC_VERSION_TABLE,
   READER_BOOK_TABLE,
   READER_GROUP_TABLE,
   READER_GROUP_INDEX,
