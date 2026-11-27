@@ -326,7 +326,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
     setPage((current) => ({ ...current, page: 1 }))
   }, [])
 
-  const currentChapterTitle = handle?.pkg.spine[chapter]?.item.href.split('/').pop() ?? ''
+  const currentChapterTitle = chapterLabel ?? ''
 
   function turn(direction: 1 | -1): void {
     if (isFixed) {
