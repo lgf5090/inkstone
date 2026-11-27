@@ -16049,7 +16049,6 @@ const allowed = new Map([
   ["src/client/features/subscriptions/store.ts", [
     "/**\n * The subscription app's state, and the only place it is written.\n *\n * Two rules shape it. A mutation never guesses what the server did — every write answers with the\n * subscription it produced, and that answer replaces the row in place, so a screen and a database\n * cannot disagree about a date the server rolled forward. And a write that moves money reloads the\n * bundle instead of patching the overview by hand: the dashboard's totals are a year of receipts\n * aggregated in the account's time zone, and a second implementation of that arithmetic in the browser\n * is a second answer waiting to be wrong.\n */",
     "/** Replace one row in the list, keeping the list's own order. */",
-    "// A slower answer for a row the reader has already left must not replace the one they are on.",
     "/** The trash, loaded on demand — the bundle carries only its count. */",
     "// The rule that just muted itself may have been the one the panel said was coming next.",
     "/**\n   * Give a label a face.\n   *\n   * Only the registry moves, so the list is swapped in place rather than reloaded — the subscriptions\n   * that wear the face are unchanged, and a reload would throw away the reader's selection and scroll\n   * for a colour change.\n   */",

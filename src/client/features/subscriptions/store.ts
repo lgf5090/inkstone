@@ -54,6 +54,10 @@ export interface SubscriptionLogs {
   error: string | null
 }
 
+let refreshGeneration = 0
+let selectGeneration = 0
+let logsGeneration = 0
+
 interface SubscriptionsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
@@ -161,23 +165,26 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
 
   async load() {
     if (get().status === 'loading') return
+    const generation = ++refreshGeneration
     set({ status: 'loading', error: null })
     try {
       const bundle = await api.subscriptions.bundle()
-      applyBundle(set, bundle)
+      if (generation === refreshGeneration) applyBundle(set, bundle)
     } catch (error) {
-      set({ status: 'error', error: error instanceof Error ? error.message : t('subscriptions.error.load') })
+      if (generation === refreshGeneration) set({ status: 'error', error: error instanceof Error ? error.message : t('subscriptions.error.load') })
     }
   },
 
   async refresh() {
+    const generation = ++refreshGeneration
+    const selectedId = get().selectedId
     try {
       const bundle = await api.subscriptions.bundle()
+      if (generation !== refreshGeneration) return
       applyBundle(set, bundle)
-      const selectedId = get().selectedId
-      if (selectedId) await get().select(selectedId)
+      if (selectedId && get().selectedId === selectedId) await get().select(selectedId)
     } catch (error) {
-      report(error, 'subscriptions.error.load')
+      if (generation === refreshGeneration) report(error, 'subscriptions.error.load')
     }
   },
 
@@ -203,18 +210,20 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
   },
 
   async select(id) {
+    const generation = ++selectGeneration
     if (!id) {
-      set({ selectedId: null, detail: null })
+      set({ selectedId: null, detail: null, detailLoading: false })
       return
     }
     set({ selectedId: id, detailLoading: true })
     try {
       const detail = await api.subscriptions.detail(id)
-      // A slower answer for a row the reader has already left must not replace the one they are on.
-      if (get().selectedId === id) set({ detail, detailLoading: false })
+      if (generation === selectGeneration && get().selectedId === id) set({ detail, detailLoading: false })
     } catch (error) {
-      if (get().selectedId === id) set({ detail: null, detailLoading: false })
-      report(error, 'subscriptions.error.load')
+      if (generation === selectGeneration && get().selectedId === id) {
+        set({ detail: null, detailLoading: false })
+        report(error, 'subscriptions.error.load')
+      }
     }
   },
 
@@ -329,6 +338,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
         items: replaceItem(get().items, detail.item),
         detail: get().detail?.item.id === id ? detail : get().detail,
       })
+      await get().refresh()
     } catch (error) {
       report(error, 'subscriptions.error.save')
     }
@@ -651,17 +661,20 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
   },
 
   async loadLogs(filter = {}) {
+    const generation = ++logsGeneration
     set({ logs: { ...get().logs, loading: true, error: null } })
     try {
       const [notify, schedule] = await Promise.all([
         api.subscriptions.notifyLogs(filter),
         api.subscriptions.scheduleLogs(20),
       ])
-      set({ logs: { notify: notify.logs, schedule: schedule.logs, loading: false, error: null } })
+      if (generation === logsGeneration) set({ logs: { notify: notify.logs, schedule: schedule.logs, loading: false, error: null } })
     } catch (error) {
-      set({
-        logs: { ...get().logs, loading: false, error: error instanceof Error ? error.message : t('subscriptions.error.load') },
-      })
+      if (generation === logsGeneration) {
+        set({
+          logs: { ...get().logs, loading: false, error: error instanceof Error ? error.message : t('subscriptions.error.load') },
+        })
+      }
     }
   },
 }))
