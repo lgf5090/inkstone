@@ -99,6 +99,19 @@ describe('batch patch', () => {
     expect(result.views[0]!.title).toBe('V2')
   })
 
+  it('validates checklist fields before a batch content patch', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id, 'A')
+    const created = await req('alice', 'POST', `/cards/${card.id}/contents`, { type: 'checkbox', title: 'Step', fields: { checked: false } })
+    const content = ((await created.json()) as { content: { id: string } }).content
+    const patch = { contents: [{ id: content.id, patch: { fields: { checked: false, assigneeId: 'bob' } } }] }
+    expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, patch)).status).toBe(400)
+    expect((await bundle('alice', board.id)).contents[0]!.fields).toEqual({ checked: false })
+    addMember(board.id, 'bob', 'editor')
+    expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, patch)).status).toBe(200)
+    expect((await bundle('alice', board.id)).contents[0]!.fields).toEqual({ checked: false, assigneeId: 'bob' })
+  })
+
   it('runs completion, recurrence and assignment effects like a single-card patch', async () => {
     const created = await req('alice', 'POST', '/boards', {
       title: 'Effects',

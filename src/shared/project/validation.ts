@@ -278,6 +278,8 @@ export const ProjectContentFieldsSchema = z.object({
   checked: z.boolean().optional(),
   attachmentId: projectId.optional(),
   language: z.string().max(64).optional(),
+  assigneeId: z.string().min(1).max(64).optional(),
+  dueAt: z.number().int().nonnegative().optional(),
 })
 
 export const ProjectContentCreateSchema = z.object({

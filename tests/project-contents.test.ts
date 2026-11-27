@@ -190,6 +190,24 @@ describe('content blocks', () => {
     expect((await req('alice', 'PATCH', `/comments/${comment.id}`, { body: 'Changed' })).status).toBe(404)
   })
 
+  it('persists checklist assignees and due dates and rejects non-members', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id)
+    const assigneeId = `u${'1'.repeat(26)}`
+    const outsiderId = `u${'2'.repeat(26)}`
+    sqlite.prepare(`INSERT INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at)
+      VALUES (?, 'assignee', 'hash', 'assignee', 'Assignee', 'member', 1, 1)`).run(assigneeId)
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(board.id, assigneeId, 'editor')
+    const dueAt = Date.UTC(2026, 10, 30)
+    const block = await createContent('alice', card.id, { type: 'checkbox', title: 'Ship', fields: { checked: false, assigneeId, dueAt } })
+    expect(block.fields).toEqual({ checked: false, assigneeId, dueAt })
+    const rejected = await req('alice', 'PATCH', `/contents/${block.id}`, { fields: { checked: false, assigneeId: outsiderId, dueAt } })
+    expect(rejected.status).toBe(400)
+    const text = await createContent('alice', card.id, { type: 'text', title: 'Body' })
+    expect((await req('alice', 'PATCH', `/contents/${text.id}`, { fields: { dueAt } })).status).toBe(400)
+  })
+
   it('patches a block title and fields', async () => {
     const board = await createBoard('alice')
     const card = await createCard('alice', board.id)

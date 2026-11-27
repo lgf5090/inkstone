@@ -1,6 +1,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectComment, ProjectProperty } from '@shared/project/model'
+import { projectInputToStamp } from '@shared/project/date'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import * as api from './api'
@@ -40,7 +41,7 @@ vi.mock('./api', () => ({
 }))
 
 vi.mock('../../store/session', () => ({
-  useSession: (selector: (state: { user: { id: string } | null }) => unknown) => selector({ user: { id: 'u1' } }),
+  useSession: (selector: (state: { user: { id: string } | null, settings: { preview: object } }) => unknown) => selector({ user: { id: 'u1' }, settings: { preview: {} } }),
 }))
 
 vi.mock('../chat/editor-ai', () => ({
@@ -126,6 +127,17 @@ describe('the card dialog', () => {
     expect(document.body.textContent).toContain('Hello')
   })
 
+  it('renders card body Markdown instead of raw source', async () => {
+    const block = { id: 'text1', cardId: 'c1', boardId: 'b1', type: 'text' as const, title: '**Bold** and *italic*', fields: {}, position: 0, ...stamps }
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], people: {}, contents: [block], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+    })
+    const body = document.body.querySelector('[data-project-content="text1"]')
+    expect(body?.querySelector('strong')?.textContent).toBe('Bold')
+    expect(body?.querySelector('em')?.textContent).toBe('italic')
+    expect(body?.textContent).not.toContain('**Bold**')
+  })
+
   it('edits a text block in place and persists the new body', async () => {
     const block = { id: 'text1', cardId: 'c1', boardId: 'b1', type: 'text' as const, title: 'Old body', fields: {}, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
     vi.mocked(api.patchCardContent).mockResolvedValue({ ...block, title: 'New body' })
@@ -157,6 +169,46 @@ describe('the card dialog', () => {
     expect(checkbox).not.toBeNull()
     await act(async () => { checkbox.click() })
     expect(api.patchCardContent).toHaveBeenCalledWith('a1', { fields: { checked: true } })
+  })
+
+  it('edits checklist title, assignee and due date through patchCardContent', async () => {
+    const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'checkbox' as const, title: 'Step', fields: { checked: false }, position: 0, ...stamps }
+    const dueAt = projectInputToStamp('2026-12-01', false, 'UTC')!
+    expect(dueAt).toBe(Date.UTC(2026, 11, 1, 12))
+    vi.mocked(api.patchCardContent).mockResolvedValue({ ...block, title: 'Ship', fields: { checked: false, assigneeId: 'u2', dueAt } })
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, {
+        card, properties,
+        members: [{ boardId: 'b1', userId: 'u2', role: 'editor', createdAt: 1, updatedAt: 1 }],
+        people: { u2: { id: 'u2', name: 'Bob', avatarUrl: '' } },
+        contents: [block], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
+      }))
+    })
+    await act(async () => { document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.card.edit_checklist')}"]`)!.click() })
+    const title = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('project.card.checkbox_block')}"]`)!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(title, 'Ship'); title.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.card.checklist_assignee')}"]`)!.click() })
+    await act(async () => { [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"], [role="menuitemcheckbox"]')].find((button) => button.textContent === 'Bob')!.click() })
+    const due = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('project.card.checklist_due')}"]`)!
+    await act(async () => { setter.call(due, '2026-12-01'); due.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('common.save'))!.click() })
+    expect(api.patchCardContent).toHaveBeenCalledWith('a1', { title: 'Ship', fields: { checked: false, assigneeId: 'u2', dueAt } })
+  })
+
+  it('keeps an invalid checklist date distinct from clearing it', async () => {
+    const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'checkbox' as const, title: 'Step', fields: { checked: false, dueAt: Date.UTC(2026, 11, 1) }, position: 0, ...stamps }
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], people: {}, contents: [block], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+    })
+    await act(async () => { document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.card.edit_checklist')}"]`)!.click() })
+    const due = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('project.card.checklist_due')}"]`)!
+    Object.defineProperty(due, 'validity', { configurable: true, value: { badInput: true } })
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(due, ''); due.dispatchEvent(new Event('input', { bubbles: true })) })
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe(t('project.card.invalid_due_date'))
+    await act(async () => { [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('common.save'))!.click() })
+    expect(api.patchCardContent).not.toHaveBeenCalled()
   })
 
   it('shows a retryable time-read error instead of zero minutes', async () => {

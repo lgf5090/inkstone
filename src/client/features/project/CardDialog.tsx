@@ -1,12 +1,15 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
 import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, Minus, MoreHorizontal, Pencil, Plus, Repeat, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectPeople, ProjectProperty } from '@shared/project/model'
-import { isProjectCardDone, projectDonePatch } from '@shared/project/model'
+import { isProjectCardDone, projectDonePatch, projectPersonLabel } from '@shared/project/model'
+import { projectInputToStamp, projectStampToInput } from '@shared/project/date'
 import { moveContentOrder, type ProjectContentOrder } from '@shared/project/content-order'
 import { t, useLocale } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input, Textarea } from '../../components/form'
+import { SelectMenu } from '../../components/select-menu'
 import { confirm, Menu, Modal, prompt, type MenuItem } from '../../components/overlay'
+import { MarkdownBody } from '../preview/MarkdownBody'
 import { sendForAnswerDetailed } from '../chat/editor-ai'
 import { addCardLink, createCardComment, createCardContent, createProjectCard, deleteCardContent, deleteCardComment, deleteProjectFile, duplicateProjectCard, fetchCardComments, fetchCardDetail, fetchCardLinks, listBoardFiles, moveCardContent, patchCardContent, patchCardComment, patchProjectCard, projectFileUrl, removeCardLink, saveCardAsTemplate, undeleteCardContent, uploadBoardFile } from './api'
 import { PropertyValueEditor } from './PropertyValueEditor'
@@ -85,6 +88,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   const [editDraft, setEditDraft] = useState('')
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null)
   const [blockDraft, setBlockDraft] = useState('')
+  const [checklistEdit, setChecklistEdit] = useState<{ id: string, title: string, assigneeId: string, dueAt: string, dueInvalid: boolean } | null>(null)
 
   const run = useCallback(async (action: () => Promise<void>): Promise<void> => {
     try {
@@ -347,6 +351,36 @@ export function CardDialog({ card, properties, members, people, contents, siblin
     })
   }
 
+  const editChecklist = (block: ProjectContent) => {
+    setChecklistEdit({
+      id: block.id,
+      title: block.title,
+      assigneeId: block.fields.assigneeId ?? '',
+      dueAt: block.fields.dueAt === undefined ? '' : projectStampToInput(block.fields.dueAt, false, 'UTC'),
+      dueInvalid: false,
+    })
+  }
+  const saveChecklistEdit = async () => {
+    const draft = checklistEdit
+    const block = blocks.find((entry) => entry.id === draft?.id)
+    if (!draft || !block) return
+    const dueAt = draft.dueAt ? projectInputToStamp(draft.dueAt, false, 'UTC') : null
+    if (draft.dueInvalid || (draft.dueAt && dueAt === null)) {
+      toast({ title: t('project.card.invalid_due_date'), tone: 'danger' })
+      return
+    }
+    const fields = { ...block.fields, assigneeId: draft.assigneeId || undefined, dueAt: dueAt ?? undefined }
+    setChecklistEdit(null)
+    await run(async () => {
+      const updated = await patchCardContent(block.id, { title: draft.title, fields })
+      setBlocks((current) => current.map((entry) => entry.id === block.id ? updated : entry))
+      onCommand?.({
+        undo: async () => { const restored = await patchCardContent(block.id, { title: block.title, fields: block.fields }); setBlocks((current) => current.map((entry) => entry.id === block.id ? restored : entry)) },
+        redo: async () => { const reapplied = await patchCardContent(block.id, { title: draft.title, fields }); setBlocks((current) => current.map((entry) => entry.id === block.id ? reapplied : entry)) },
+      })
+    })
+  }
+
   const removeBlock = async (block: ProjectContent) => {
     const ok = await confirm({ title: t('project.card.delete_block'), tone: 'danger', confirmLabel: t('common.delete') })
     if (!ok) return
@@ -447,6 +481,62 @@ export function CardDialog({ card, properties, members, people, contents, siblin
         : <a className="text-[length:var(--text-13)] text-[var(--accent)]" href={projectFileUrl(attachmentId)} target="_blank" rel="noreferrer">{block.title}</a>
     }
     return <ArchivedFile />
+  }
+
+  const renderBlockBody = (block: ProjectContent): ReactElement => {
+    if (block.type === 'checkbox') {
+      if (checklistEdit?.id === block.id) return (
+        <div className="space-y-2">
+          <Input value={checklistEdit.title} aria-label={t('project.card.checkbox_block')} onChange={(event) => setChecklistEdit((current) => current ? { ...current, title: event.target.value } : current)} />
+          <SelectMenu
+            label={t('project.card.checklist_assignee')}
+            value={checklistEdit.assigneeId}
+            onChange={(assigneeId) => setChecklistEdit((current) => current ? { ...current, assigneeId } : current)}
+            options={[{ value: '', label: t('project.card.checklist_unassigned') }, ...members.map((member) => ({ value: member.userId, label: projectPersonLabel(people, member.userId) }))]}
+          />
+          <Input
+            type="date"
+            value={checklistEdit.dueAt}
+            aria-label={t('project.card.checklist_due')}
+            aria-invalid={checklistEdit.dueInvalid}
+            onChange={(event) => {
+              const value = event.currentTarget.value
+              const dueInvalid = event.currentTarget.validity.badInput
+              setChecklistEdit((current) => current ? { ...current, dueAt: value, dueInvalid } : current)
+            }}
+          />
+          {checklistEdit.dueInvalid && <p role="alert" className="text-[length:var(--text-11)] text-[var(--danger)]">{t('project.card.invalid_due_date')}</p>}
+          <div className="flex gap-2">
+            <Button size="sm" variant="primary" onClick={() => void saveChecklistEdit()}>{t('common.save')}</Button>
+            <Button size="sm" variant="ghost" onClick={() => setChecklistEdit(null)}>{t('common.cancel')}</Button>
+          </div>
+        </div>
+      )
+      return (
+        <div className="min-w-0 space-y-1">
+          <Checkbox label={block.title || t('project.card.checkbox_block')} checked={block.fields.checked === true} disabled={!canEdit} onChange={(checked) => void toggleBlock(block, checked)} />
+          {(block.fields.assigneeId || block.fields.dueAt !== undefined) && (
+            <p className="pl-8 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+              {block.fields.assigneeId ? projectPersonLabel(people, block.fields.assigneeId) : t('project.card.checklist_unassigned')}
+              {block.fields.dueAt !== undefined ? ` · ${projectStampToInput(block.fields.dueAt, false, 'UTC')}` : ''}
+            </p>
+          )}
+        </div>
+      )
+    }
+    if (block.type === 'divider') return <hr className="border-[var(--border-subtle)]" />
+    if (block.type === 'image' || block.type === 'attachment') return attachedBlock(block)
+    if (editingBlockId === block.id) return (
+      <div className="space-y-2">
+        <Textarea className="w-full" rows={3} value={blockDraft} aria-label={t('project.card.edit_content')} onChange={(event) => setBlockDraft(event.target.value)} />
+        <div className="flex gap-2">
+          <Button size="sm" variant="primary" onClick={() => void saveBlockEdit(block)}>{t('common.save')}</Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditingBlockId(null)}>{t('common.cancel')}</Button>
+        </div>
+      </div>
+    )
+    if (block.type === 'text') return <MarkdownBody source={block.title} className="text-[length:var(--text-13)]" />
+    return <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{block.title}</p>
   }
 
   const addSubtask = async () => {
@@ -600,28 +690,12 @@ export function CardDialog({ card, properties, members, people, contents, siblin
                     <span className="sr-only">{t('project.view.keyboard_drag_help')}</span>
                   </button>
                 )}
-                <div className="min-w-0 flex-1">
-                  {block.type === 'checkbox'
-                    ? <Checkbox label={block.title || t('project.card.checkbox_block')} checked={block.fields.checked === true} disabled={!canEdit} onChange={(checked) => void toggleBlock(block, checked)} />
-                    : block.type === 'divider'
-                      ? <hr className="border-[var(--border-subtle)]" />
-                      : block.type === 'image' || block.type === 'attachment'
-                        ? attachedBlock(block)
-                        : editingBlockId === block.id
-                            ? (
-                              <div className="space-y-2">
-                                <Textarea className="w-full" rows={3} value={blockDraft} aria-label={t('project.card.edit_content')} onChange={(event) => setBlockDraft(event.target.value)} />
-                                <div className="flex gap-2">
-                                  <Button size="sm" variant="primary" onClick={() => void saveBlockEdit(block)}>{t('common.save')}</Button>
-                                  <Button size="sm" variant="ghost" onClick={() => setEditingBlockId(null)}>{t('common.cancel')}</Button>
-                                </div>
-                              </div>
-                            )
-                            : <p className="whitespace-pre-wrap text-[length:var(--text-13)] text-[var(--text-primary)]">{block.title}</p>}
-                </div>
+                <div className="min-w-0 flex-1">{renderBlockBody(block)}</div>
                 {canEdit && (
                   <>
-                    {block.type === 'text' && <IconButton label={t('project.card.edit_content')} size="sm" onClick={() => editBlock(block)}><Pencil size={14} /></IconButton>}
+                    {(block.type === 'text' || block.type === 'checkbox') && (
+                      <IconButton label={t(block.type === 'checkbox' ? 'project.card.edit_checklist' : 'project.card.edit_content')} size="sm" onClick={() => block.type === 'checkbox' ? editChecklist(block) : editBlock(block)}><Pencil size={14} /></IconButton>
+                    )}
                     <IconButton label={t('project.card.move_up')} size="sm" onClick={() => moveBlock(block, 'up')}><ChevronUp size={14} /></IconButton>
                     <IconButton label={t('project.card.move_down')} size="sm" onClick={() => moveBlock(block, 'down')}><ChevronDown size={14} /></IconButton>
                     <IconButton label={t('common.delete')} size="sm" onClick={() => void removeBlock(block)}><Trash2 size={14} /></IconButton>

@@ -14,7 +14,7 @@ import type { AppBindings } from '../env'
 import { readBoardProperties } from './boards'
 import { rowToCard, rowToContent, rowToView, type CardRow, type ContentRow, type ValueRow, type ViewRow } from './bundle'
 import { assertProjectParent, cardPatchStatements, getProjectCard, getProjectCardRow } from './cards'
-import { cardOrderStatement, contentPatchStatements, getProjectContent } from './contents'
+import { assertProjectContentFields, cardOrderStatement, contentPatchStatements, getProjectContent } from './contents'
 import { applyCardValueEffects } from './enhance'
 import { assertProjectRelationValues, projectRelationTargets } from './relations'
 import { getProjectView, viewPatchStatements } from './views'
@@ -118,6 +118,7 @@ export async function batchPatchProjectBoard(
   for (const { id, patch } of contents) {
     const content = contentsById.get(id)
     if (!content || content.boardId !== board.id || content.deleteAt !== 0) throw ApiError.notFound('Content not found')
+    await assertProjectContentFields(db, content, patch.fields)
     statements.push(...contentPatchStatements(db, content, patch, userId, now))
   }
   for (const { id, patch } of views) {

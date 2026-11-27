@@ -496,6 +496,8 @@ export interface ProjectContentFields {
   checked?: boolean
   attachmentId?: string
   language?: string
+  assigneeId?: string
+  dueAt?: number
 }
 
 export interface ProjectContent {

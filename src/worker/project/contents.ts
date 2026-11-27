@@ -15,6 +15,7 @@ import type { ProjectContentCreateInput, ProjectContentPatchInput } from '@share
 import { ApiError } from '../lib/errors'
 import { rowToContent, type ContentRow } from './bundle'
 import { getProjectCardRow } from './cards'
+import { getProjectBoardRow } from './boards'
 
 export async function getProjectContentRow(db: D1Database, contentId: string): Promise<ContentRow | null> {
   return db.prepare('SELECT * FROM project_card_contents WHERE id = ?1').bind(contentId).first<ContentRow>()
@@ -71,6 +72,17 @@ export async function mutateProjectCardOrder(
   throw ApiError.conflict('Card content order changed concurrently; retry the edit')
 }
 
+export async function assertProjectContentFields(db: D1Database, content: { boardId: string, type: ProjectContent['type'] }, fields: ProjectContent['fields'] | undefined): Promise<void> {
+  if (fields?.assigneeId === undefined && fields?.dueAt === undefined) return
+  if (content.type !== 'checkbox') throw ApiError.badRequest('checklist fields require a checkbox block')
+  const assigneeId = fields.assigneeId
+  if (!assigneeId) return
+  const board = await getProjectBoardRow(db, content.boardId)
+  const member = await db.prepare('SELECT 1 FROM project_board_members WHERE board_id = ?1 AND user_id = ?2')
+    .bind(content.boardId, assigneeId).first()
+  if (board?.ownerId !== assigneeId && !member) throw ApiError.badRequest('checklist assignee is not a board member')
+}
+
 export async function createProjectContent(
   db: D1Database,
   card: ProjectCard,
@@ -78,6 +90,7 @@ export async function createProjectContent(
   input: ProjectContentCreateInput,
   now: number,
 ): Promise<ProjectContent> {
+  await assertProjectContentFields(db, { boardId: card.boardId, type: input.type }, input.fields)
   const count = await db
     .prepare('SELECT COUNT(*) AS n FROM project_card_contents WHERE card_id = ?1 AND delete_at = 0')
     .bind(card.id)
@@ -125,6 +138,7 @@ export async function patchProjectContent(
   userId: string,
   now: number,
 ): Promise<ProjectContent> {
+  await assertProjectContentFields(db, content, patch.fields)
   await db.batch(contentPatchStatements(db, content, patch, userId, now))
   return (await getProjectContent(db, content.id))!
 }
