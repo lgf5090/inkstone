@@ -6915,6 +6915,8 @@ console.log(\`Hello, \${name}!\`)
     "reading.local_only": "仅本机",
     "reading.line_height": "行距",
     "reading.loading_library": "正在载入书架…",
+    "reading.load_external_images": "加载书籍外链图片",
+    "reading.load_external_images_hint": "关闭时阻止书籍向第三方服务器发图，避免阅读行为被追踪。",
     "reading.location_marks": "位置标记",
     "reading.mark_added": "位置已记录",
     "reading.mark_default_label_value0": "第 {value0} 章处",

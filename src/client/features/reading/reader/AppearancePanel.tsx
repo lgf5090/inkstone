@@ -137,6 +137,12 @@ export function AppearancePanel() {
       <Row label={t('reading.show_figures')}>
         <Switch checked={settings.showFigures} onChange={(value) => set('showFigures', value)} label={t('reading.show_figures')} />
       </Row>
+      <Row label={t('reading.load_external_images')}>
+        <Switch checked={settings.loadExternalImages} onChange={(value) => set('loadExternalImages', value)} label={t('reading.load_external_images')} />
+      </Row>
+      <p className="mb-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
+        {t('reading.load_external_images_hint')}
+      </p>
       <Row label={t('reading.focus_paragraph')}>
         <Switch checked={settings.focusParagraph} onChange={(value) => set('focusParagraph', value)} label={t('reading.focus_paragraph')} />
       </Row>

@@ -15,6 +15,7 @@ import { createResourcePool, type PreparedChapter, type ResourcePool, prepareCha
 import { readBookBlob } from '../store/library'
 import { useSession } from '../../../store/session'
 import type { BookRecord } from '../types'
+import { useReaderSettings } from '../store/reader-settings'
 
 export interface EpubHandle {
   kind: 'epub'
@@ -39,6 +40,7 @@ async function openEpub(bytes: Uint8Array): Promise<{ archive: ZipArchive; pkg: 
  */
 export function useEpubHandle(book: BookRecord | null): { handle: EpubHandle | null; error: string | null } {
   const userId = useSession((state) => state.user?.id ?? null)
+  const allowExternalImages = useReaderSettings((state) => state.loadExternalImages)
   const [handle, setHandle] = useState<EpubHandle | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -70,7 +72,7 @@ export function useEpubHandle(book: BookRecord | null): { handle: EpubHandle | n
           archive,
           pkg,
           pool: created,
-          prepare: (slot) => prepareChapter({ pkg, archive, pool: created }, slot, READER_SCOPE),
+          prepare: (slot) => prepareChapter({ pkg, archive, pool: created }, slot, READER_SCOPE, { allowExternalImages }),
         })
       } catch (err) {
         if (!cached) cache.delete(book.id)
@@ -83,7 +85,7 @@ export function useEpubHandle(book: BookRecord | null): { handle: EpubHandle | n
       // every picture of every book this tab has opened alive until the tab closes.
       pool?.revokeAll()
     }
-  }, [book, userId])
+  }, [book, userId, allowExternalImages])
 
   return { handle, error }
 }

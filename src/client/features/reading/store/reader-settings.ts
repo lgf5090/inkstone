@@ -55,6 +55,8 @@ export interface ReaderSettings {
   shelfView: ShelfViewMode
   pageTurnAnimation: boolean
   showFigures: boolean
+  /** Allow HTTP(S) images embedded by a book; off by default so reading cannot be tracked. */
+  loadExternalImages: boolean
   /** Controls float over the page and retract on idle, instead of reserving a row. */
   immersive: boolean
   pageButtons: 'always' | 'hover'
@@ -104,6 +106,7 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   shelfView: 'adaptive',
   pageTurnAnimation: true,
   showFigures: true,
+  loadExternalImages: false,
   immersive: true,
   pageButtons: 'always',
   defaultHighlightColor: 'yellow',

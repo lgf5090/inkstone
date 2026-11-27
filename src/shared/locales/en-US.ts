@@ -6924,6 +6924,8 @@ const CORE_MESSAGES_TAIL = {
     "reading.local_only": "On this device only",
     "reading.line_height": "Line spacing",
     "reading.loading_library": "Loading your shelf…",
+    "reading.load_external_images": "Load external book images",
+    "reading.load_external_images_hint": "Block third-party images from books to prevent tracking what you read.",
     "reading.location_marks": "Places",
     "reading.mark_added": "Place saved",
     "reading.mark_default_label_value0": "Place in chapter {value0}",
