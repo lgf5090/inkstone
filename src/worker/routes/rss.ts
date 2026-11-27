@@ -22,7 +22,7 @@ import { accountExists, deleteRssReadingFeed, loadRssLibrary, saveRssReadingFeed
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
-import { JSON_BODY_LIMITS, readJson, readStreamWithinLimit } from '../lib/request'
+import { readJson, readStreamWithinLimit } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 
@@ -223,7 +223,7 @@ rssRoutes.get('/library', async (c) => {
  */
 rssRoutes.put('/library', async (c) => {
   const userId = c.get('userId')
-  const body = await readJson<{ library?: unknown }>(c, JSON_BODY_LIMITS.quickAdd)
+  const body = await readJson<{ library?: unknown }>(c, RSS_LIMITS.payloadBytes)
   if (typeof body.library !== 'string') throw ApiError.badRequest('The RSS library must be sent as text')
   if (body.library.length > RSS_LIMITS.payloadChars) throw ApiError.tooLarge('The RSS library is too large to store')
   let parsed: unknown
@@ -257,7 +257,7 @@ rssRoutes.put('/library', async (c) => {
  */
 rssRoutes.post('/patch', async (c) => {
   const userId = c.get('userId')
-  const body = await readJson<{ patch?: unknown }>(c, JSON_BODY_LIMITS.quickAdd)
+  const body = await readJson<{ patch?: unknown }>(c, RSS_LIMITS.payloadBytes)
   const patch = parseRssPatch(body.patch)
   if (!patch) throw ApiError.badRequest('The change set could not be read')
   if (patchChars(patch) > RSS_LIMITS.payloadChars) throw ApiError.tooLarge('The change set is too large to store')

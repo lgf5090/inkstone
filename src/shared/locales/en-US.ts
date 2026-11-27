@@ -7337,6 +7337,7 @@ const CORE_MESSAGES_TAIL = {
     "rss.error.load_failed": "Your subscriptions could not be loaded",
     "rss.error.offline_cache": "Your account is unavailable. Showing the subscriptions last synced on this device.",
     "rss.error.save_failed": "Your subscriptions could not be saved",
+    "rss.error.library_too_large": "This subscription library is too large to save. Remove some subscriptions or marks and try again.",
     "rss.error.save_pending": "Some changes are not saved yet",
     "rss.wechat_notice": "Content comes from a WeChat official account through a bridge feed; the writing belongs to its author.",
     "rss.wechat_original": "View the original WeChat article",

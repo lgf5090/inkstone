@@ -42,9 +42,11 @@ const atom = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><ti
 
 const cache = new Map<string, unknown>()
 const calls: Array<{ path: string, body?: unknown }> = []
+const keepaliveCalls: boolean[] = []
 let fetchResults: Array<{ url: string, status: number, ok: boolean, xml?: string, etag?: string, reason?: string }> = []
 let saveFails = false
 let loadFails = false
+let indexWriteFails = false
 let patchWait: Promise<void> | null = null
 let fetchWait: Promise<void> | null = null
 let fetchActive = 0
@@ -54,7 +56,11 @@ let failedArticleFeed = ''
 vi.mock('../../lib/db', () => ({
   localDb: {
     loadRssCacheIndex: () => Promise.resolve(cache.get('index') ?? null),
-    saveRssCacheIndex: (value: unknown) => { cache.set('index', value); return Promise.resolve() },
+    persistRssCacheIndex: (value: unknown) => {
+      if (indexWriteFails) return Promise.reject(new Error('IndexedDB unavailable'))
+      cache.set('index', value)
+      return Promise.resolve()
+    },
     loadRssArticles: (id: string) => Promise.resolve(cache.get(`articles:${id}`) ?? null),
     saveRssArticles: async (value: { feedId: string }) => {
       if (value.feedId === failedArticleFeed) throw new Error('IndexedDB quota exceeded')
@@ -76,13 +82,15 @@ vi.mock('../../lib/api', () => ({
         if (loadFails) return Promise.reject(new Error('Network unavailable'))
         return Promise.resolve({ savedAt: 1, library: cache.get('library') ?? null })
       },
-      save: (library: string) => {
+      save: (library: string, keepalive = false) => {
+        keepaliveCalls.push(keepalive)
         calls.push({ path: 'save', body: JSON.parse(library) })
         if (saveFails) return Promise.reject(new Error('The RSS library holds entries that cannot be stored'))
         cache.set('library', JSON.parse(library))
         return Promise.resolve({ savedAt: Date.now() })
       },
-      patch: async (patch: unknown) => {
+      patch: async (patch: unknown, keepalive = false) => {
+        keepaliveCalls.push(keepalive)
         calls.push({ path: 'patch', body: patch })
         if (patchWait) await patchWait
         if (saveFails) return Promise.reject(new Error('The RSS library holds entries that cannot be stored'))
@@ -147,8 +155,10 @@ const { useRss } = await import('./store')
 function reset(): void {
   cache.clear()
   calls.length = 0
+  keepaliveCalls.length = 0
   saveFails = false
   loadFails = false
+  indexWriteFails = false
   patchWait = null
   fetchWait = null
   fetchActive = 0
@@ -635,6 +645,44 @@ describe('marks', () => {
 })
 
 describe('saving', () => {
+  it('persists an unsaved library snapshot without replacing the synced baseline', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    useRss.getState().toggleFavorite('e1')
+    const index = cache.get('index') as { library?: RssLibrary, pendingLibrary?: RssLibrary }
+    expect(index.pendingLibrary?.favorites).toContain('e1')
+    expect(index.library?.favorites ?? []).not.toContain('e1')
+  })
+
+  it('reports when the only durable copy of pending marks cannot be written', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    indexWriteFails = true
+    useRss.getState().toggleFavorite('e1')
+    await vi.waitFor(() => expect(useRss.getState().saveError).toBeTruthy())
+  })
+
+  it('uses keepalive for a small leave flush', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    keepaliveCalls.length = 0
+    useRss.getState().toggleFavorite('e1')
+    await useRss.getState().flush({ keepalive: true })
+    expect(keepaliveCalls).toContain(true)
+  })
+
+  it('replays a persisted pending snapshot after a reload', async () => {
+    fetchResults = [{ url: feed.url, status: 304, ok: true }]
+    await boot()
+    useRss.getState().toggleFavorite('e1')
+    useRss.getState().reset()
+    await useRss.getState().load()
+    await vi.waitFor(() => expect(useRss.getState().refreshing).toHaveLength(0))
+    expect(useRss.getState().library.favorites).toContain('e1')
+    const server = parseRssLibrary(cache.get('library')).data
+    expect(server?.favorites).toContain('e1')
+  })
+
   it('resets the reader position for a new article and clears it on close', async () => {
     fetchResults = [{ url: feed.url, status: 304, ok: true }]
     await boot()

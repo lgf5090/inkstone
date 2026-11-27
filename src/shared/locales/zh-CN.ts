@@ -7328,6 +7328,7 @@ console.log(\`Hello, \${name}!\`)
     "rss.error.load_failed": "订阅列表读取失败",
     "rss.error.offline_cache": "账号暂时不可用，正在显示此设备上次同步的订阅",
     "rss.error.save_failed": "订阅列表保存失败",
+    "rss.error.library_too_large": "订阅列表超出可保存大小，请减少订阅或标记后重试",
     "rss.error.save_pending": "部分改动尚未保存",
     "rss.wechat_notice": "内容来自微信公众号的桥接订阅源，版权归原作者。",
     "rss.wechat_original": "查看公众号原文",

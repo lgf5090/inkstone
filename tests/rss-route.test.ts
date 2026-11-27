@@ -120,6 +120,38 @@ describe('the library', () => {
     ])
   })
 
+  it('accepts a CJK-heavy library whose UTF-8 body exceeds the old one-mebibyte gate', async () => {
+    const library = emptyLibrary()
+    for (let index = 0; index < 350; index++) {
+      library.feeds.push({
+        id: `f${index}`,
+        url: `https://example${index}.com/${'a'.repeat(1900)}`,
+        title: '文'.repeat(200),
+        siteUrl: '',
+        imageUrl: '',
+        groupId: '',
+        tags: [],
+        order: index,
+        updatedAt: 1,
+        lastAttemptAt: 1,
+        error: '',
+        errorCount: 0,
+        lastErrorAt: 0,
+        etag: '校'.repeat(200),
+        lastModified: '',
+        paused: false,
+        pinned: false,
+        titleLocked: false,
+      })
+    }
+    const serialized = JSON.stringify(library)
+    const body = JSON.stringify({ library: serialized })
+    expect(serialized.length).toBeLessThan(RSS_LIMITS.payloadChars)
+    expect(new TextEncoder().encode(body).byteLength).toBeGreaterThan(1024 * 1024)
+    const saved = await request('/library', { method: 'PUT', headers: { 'content-type': 'application/json' }, body })
+    expect(saved.status).toBe(200)
+  })
+
   it('refuses a library that is not text, not JSON, or not a library', async () => {
     for (const library of [42, 'not json', JSON.stringify({ feeds: 'nope' })]) {
       const res = await request('/library', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ library }) })

@@ -420,6 +420,8 @@ export interface RequestOptions {
   signal?: AbortSignal
   formData?: FormData
   timeoutMs?: number
+  /** Let the browser finish a small write after the document goes away. */
+  keepalive?: boolean
   /**
    * Conditional GET/POST support for a caller that polls. `onEtag` is handed whatever the server
    * answered with, including on the 304 that carries no body, so the next beat can send it back.
@@ -472,7 +474,7 @@ export interface SettingsPatch {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, signal, formData, timeoutMs, ifNoneMatch, ifMatch, idempotencyKey, onEtag, cache } = options
+  const { method = 'GET', body, signal, formData, timeoutMs, keepalive, ifNoneMatch, ifMatch, idempotencyKey, onEtag, cache } = options
 
   const headers: Record<string, string> = {
     [CLIENT_HEADER]: '1',
@@ -514,6 +516,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       body: payload,
       signal: timeoutController?.signal ?? signal,
       credentials: 'same-origin',
+      ...(keepalive ? { keepalive: true } : {}),
       ...(cache ? { cache } : {}),
     })
 
@@ -1427,11 +1430,11 @@ export const api = {
 
   rss: {
     load: () => request<{ savedAt: number; library: unknown }>('/api/rss/library'),
-    save: (library: string) =>
-      request<{ savedAt: number }>('/api/rss/library', { method: 'PUT', body: { library } }),
+    save: (library: string, keepalive = false) =>
+      request<{ savedAt: number }>('/api/rss/library', { method: 'PUT', body: { library }, keepalive }),
     /** One device's changes, folded into the account's rows by the Worker. */
-    patch: (patch: unknown) =>
-      request<{ savedAt: number; rows: number }>('/api/rss/patch', { method: 'POST', body: { patch } }),
+    patch: (patch: unknown, keepalive = false) =>
+      request<{ savedAt: number; rows: number }>('/api/rss/patch', { method: 'POST', body: { patch }, keepalive }),
     fetch: (requests: Array<{ url: string; etag?: string; lastModified?: string }>) =>
       request<{ results: RssFetchResult[] }>('/api/rss/fetch', { method: 'POST', body: { requests } }),
     /**

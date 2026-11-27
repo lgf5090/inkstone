@@ -15,4 +15,16 @@ describe('subscription API queries', () => {
       expect.objectContaining({ method: 'GET', credentials: 'same-origin' }),
     )
   })
+
+  it('passes keepalive through for a small RSS library write', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ savedAt: 1 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.rss.save('{}', true)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/rss/library',
+      expect.objectContaining({ method: 'PUT', keepalive: true, credentials: 'same-origin' }),
+    )
+  })
 })

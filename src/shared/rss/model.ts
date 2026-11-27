@@ -42,6 +42,8 @@ export const RSS_LIMITS = {
   savedNotes: 2000,
   /** What one `PUT /api/rss/library` body may hold, counted in UTF-16 units. */
   payloadChars: 900_000,
+  /** Worst-case UTF-8 JSON body for that character budget, including escaping and envelope. */
+  payloadBytes: 900_000 * 6 + 64 * 1024,
 } as const
 
 export interface RssEntry {

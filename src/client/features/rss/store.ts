@@ -181,7 +181,7 @@ export interface RssState {
    * the notes stay, and the bytes come back from the feeds when the reader opens something.
    */
   clearBodies: () => Promise<number>
-  flush: () => Promise<void>
+  flush: (options?: { keepalive?: boolean }) => Promise<void>
   retrySave: () => void
 }
 
@@ -203,6 +203,8 @@ function resultStamp(): number {
 }
 const FETCH_BATCH = 25
 const SAVE_DEBOUNCE_MS = 900
+/** The browser's keepalive allowance; larger writes must survive in the local outbox snapshot. */
+const KEEPALIVE_BODY_BYTES = 64 * 1024
 /** How many feed caches are read at once when a large channel opens. */
 const FEED_PREPARE_BATCH = 20
 
@@ -210,6 +212,7 @@ interface CacheIndex {
   articles: Record<string, RssCacheMeta>
   views: Record<string, RssChannelView>
   library?: RssLibrary
+  pendingLibrary?: RssLibrary
   savedAt?: number
 }
 
@@ -280,6 +283,7 @@ export const useRss = create<RssState>((set, get) => {
   function scheduleSave(): void {
     dirty = true
     saveRevision++
+    writeIndex()
     if (saveTimer) return
     saveTimer = window.setTimeout(() => {
       saveTimer = 0
@@ -288,11 +292,11 @@ export const useRss = create<RssState>((set, get) => {
   }
 
   /** The one place a library is written out: never twice at once, and retried by the next action. */
-  function flushSave(): Promise<void> {
+  function flushSave(keepalive = false): Promise<void> {
     // Asked for while another write is still out: queue behind it rather than dropping the
     // change. Returning the in-flight promise alone left the newest library unsaved until the
     // reader did something else, which is how a debounce can lose the last keystroke.
-    if (saveInFlight) return saveInFlight.then(() => (dirty ? flushSave() : undefined))
+    if (saveInFlight) return saveInFlight.then(() => (dirty ? flushSave(keepalive) : undefined))
     if (!dirty) return Promise.resolve()
     const current = get().library
     const snapshot = structuredClone(current)
@@ -301,18 +305,29 @@ export const useRss = create<RssState>((set, get) => {
     const patch = sent ? diffLibrary(sent, current) : null
     if (patch && patchIsEmpty(patch)) {
       dirty = false
+      writeIndex()
       return Promise.resolve()
     }
+    const usePatch = Boolean(patch && patchChars(patch) < RSS_LIMITS.payloadChars)
+    const body = usePatch ? JSON.stringify({ patch }) : JSON.stringify({ library: JSON.stringify(snapshot) })
+    const bodyBytes = new TextEncoder().encode(body).byteLength
+    if (bodyBytes > RSS_LIMITS.payloadBytes) {
+      set({ saveError: t('rss.error.library_too_large') })
+      console.warn('[inkstone] RSS library save refused: request body exceeds the storage budget')
+      return Promise.resolve()
+    }
+    const sendKeepalive = keepalive && bodyBytes <= KEEPALIVE_BODY_BYTES
     let retry = false
     const run: Promise<void> = (async () => {
       try {
-        if (patch && patchChars(patch) < RSS_LIMITS.payloadChars) await api.rss.patch(patch)
-        else await api.rss.save(JSON.stringify(snapshot))
+        if (usePatch) await api.rss.patch(patch, sendKeepalive)
+        else await api.rss.save(JSON.stringify(snapshot), sendKeepalive)
         if (generation !== saveGeneration) return
         sent = snapshot
         dirty = saveRevision !== revision
         retry = dirty
         set({ saveError: null, savedAt: Date.now() })
+        writeIndex()
       }
       catch (error) {
         if (generation !== saveGeneration) return
@@ -347,7 +362,7 @@ export const useRss = create<RssState>((set, get) => {
   const flushOnLeave = (): void => {
     if (saveTimer) window.clearTimeout(saveTimer)
     saveTimer = 0
-    void flushSave()
+    void flushSave(true)
   }
   function dueFeedIds(now = Date.now()): string[] {
     const interval = useSession.getState().settings.rss.refreshIntervalMinutes * 60_000
@@ -384,9 +399,18 @@ export const useRss = create<RssState>((set, get) => {
 
   function writeIndex(): void {
     if (get().status === 'ready') {
-      index = { ...index, library: structuredClone(get().library), savedAt: get().savedAt }
+      const current = structuredClone(get().library)
+      index = dirty
+        ? { ...index, pendingLibrary: current }
+        : { ...index, library: current, pendingLibrary: undefined, savedAt: get().savedAt }
     }
-    void localDb.saveRssCacheIndex(index)
+    const pending = dirty
+    const generation = saveGeneration
+    void localDb.persistRssCacheIndex(index).catch((error: unknown) => {
+      if (generation !== saveGeneration) return
+      console.warn('[inkstone] RSS local library snapshot could not be written', error)
+      if (pending) set({ saveError: t('rss.error.save_failed') })
+    })
   }
 
   /** What one feed's articles cost, split so the storage panel can say what the bytes are. */
@@ -746,30 +770,39 @@ export const useRss = create<RssState>((set, get) => {
       publishCache()
       set({ results: normaliseResults(storedResults) })
       let library: RssLibrary
+      let baseline: RssLibrary
       let fromCache = false
       try {
         const response = await api.rss.load()
-        library = parseRssLibrary(response.library).data ?? emptyLibrary()
+        baseline = parseRssLibrary(response.library).data ?? emptyLibrary()
+        index = { ...index, library: structuredClone(baseline) }
+        library = index.pendingLibrary ?? baseline
+        dirty = Boolean(index.pendingLibrary)
+        if (dirty) saveRevision++
         set({ savedAt: response.savedAt, offline: false })
       }
       catch (error) {
         console.warn('[inkstone] RSS library could not be loaded', error)
-        if (!index.library) {
+        const cached = index.pendingLibrary ?? index.library
+        if (!cached) {
           set({
             status: 'error',
             saveError: error instanceof Error && error.message ? error.message : t('rss.error.load_failed'),
           })
           return
         }
-        library = index.library
+        library = cached
+        baseline = index.library ?? emptyLibrary()
+        dirty = Boolean(index.pendingLibrary)
         fromCache = true
         set({ savedAt: index.savedAt ?? 0, offline: true })
       }
       const channel = parseChannelKey(library.lastChannel)
       set({ library, views: index.views, channel, status: 'ready' })
-      sent = structuredClone(library)
+      sent = structuredClone(baseline)
       writeIndex()
       await prepare(channel)
+      if (dirty) await flushSave()
       if (fromCache) {
         const onOnline = (): void => {
           reconnect = null
@@ -1306,10 +1339,10 @@ export const useRss = create<RssState>((set, get) => {
       return feeds
     },
 
-    async flush() {
+    async flush(options) {
       if (saveTimer) window.clearTimeout(saveTimer)
       saveTimer = 0
-      await flushSave()
+      await flushSave(options?.keepalive)
     },
 
     retrySave() {
@@ -1365,8 +1398,9 @@ function normaliseResults(value: unknown): Record<string, RssAiResult> {
 function normaliseIndex(value: unknown): CacheIndex {
   const out = emptyIndex()
   if (!value || typeof value !== 'object') return out
-  const source = value as { articles?: unknown, views?: unknown, library?: unknown, savedAt?: unknown }
+  const source = value as { articles?: unknown, views?: unknown, library?: unknown, pendingLibrary?: unknown, savedAt?: unknown }
   if (source.library) out.library = parseRssLibrary(source.library).data ?? undefined
+  if (source.pendingLibrary) out.pendingLibrary = parseRssLibrary(source.pendingLibrary).data ?? undefined
   out.savedAt = typeof source.savedAt === 'number' && Number.isFinite(source.savedAt) ? Math.max(0, source.savedAt) : undefined
   if (source.articles && typeof source.articles === 'object') {
     for (const [key, item] of Object.entries(source.articles as Record<string, unknown>)) {
