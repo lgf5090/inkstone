@@ -19,7 +19,9 @@ const paragraphs = Array.from({ length: paragraphCount }, (_, index) => (
 const chapterHtml = paragraphs.join('')
 
 function prepared(html = chapterHtml): PreparedChapter {
-  return { html, css: '', heading: 'Chapter', textLength: html.replace(/<[^>]+>/g, '').length }
+  const template = document.createElement('template')
+  template.innerHTML = html
+  return { html, fragment: template.content, css: '', heading: 'Chapter', textLength: html.replace(/<[^>]+>/g, '').length }
 }
 
 function mockHandle(prepare: EpubHandle['prepare']): EpubHandle {

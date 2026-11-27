@@ -187,7 +187,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     const doc = docRef.current
     const style = styleRef.current
     if (!doc || !style) return
-    doc.innerHTML = chapter?.html ?? ''
+    doc.replaceChildren(...Array.from(chapter?.fragment.childNodes ?? [], (node) => node.cloneNode(true)))
     style.textContent = chapter?.css ?? ''
     indexRef.current = null
     setLayoutNonce((nonce) => nonce + 1)
