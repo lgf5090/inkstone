@@ -7551,6 +7551,7 @@ const CORE_MESSAGES_TAIL = {
     "assistant.tool.project_list_boards": "List project boards",
     "assistant.tool.project_list_cards": "List board cards",
     "assistant.tool.project_create_card": "Create a project card",
+    "assistant.tool.project_create_card_from_note": "Create a project card from a note",
     "assistant.tool.project_update_card": "Update a project card",
     "assistant.tool.project_schedule_card": "Schedule a project card",
     "assistant.tool.project_delete_card": "Propose deleting a project card",

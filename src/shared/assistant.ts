@@ -3055,6 +3055,7 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'project_list_boards', labelKey: 'assistant.tool.project_list_boards', permission: 'read' },
   { name: 'project_list_cards', labelKey: 'assistant.tool.project_list_cards', permission: 'read' },
   { name: 'project_create_card', labelKey: 'assistant.tool.project_create_card', permission: 'write' },
+  { name: 'project_create_card_from_note', labelKey: 'assistant.tool.project_create_card_from_note', permission: 'write' },
   { name: 'project_update_card', labelKey: 'assistant.tool.project_update_card', permission: 'write' },
   { name: 'project_schedule_card', labelKey: 'assistant.tool.project_schedule_card', permission: 'write' },
   { name: 'project_delete_card', labelKey: 'assistant.tool.project_delete_card', approvalKey: 'assistant.approval.project_delete_card', permission: 'destructive' },

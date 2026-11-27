@@ -7542,6 +7542,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.tool.project_list_boards": "列出项目看板",
     "assistant.tool.project_list_cards": "列出看板卡片",
     "assistant.tool.project_create_card": "新建项目卡片",
+    "assistant.tool.project_create_card_from_note": "从笔记创建项目卡片",
     "assistant.tool.project_update_card": "更新项目卡片",
     "assistant.tool.project_schedule_card": "排期项目卡片",
     "assistant.tool.project_delete_card": "提议删除项目卡片",
