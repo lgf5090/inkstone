@@ -140,6 +140,31 @@ describe('cards on the board', () => {
   })
 })
 
+describe('large column rendering', () => {
+  it('bounds rendered cards and keeps keyboard ordering over the full column', async () => {
+    const props = await mount(Array.from({ length: 240 }, (_, index) => card(`c${index}`)))
+    expect(view.container.querySelectorAll('[data-project-card]').length).toBeLessThan(30)
+    expect(view.container.querySelector('[data-drag-id="c239"]')).toBeNull()
+    const body = columns()[0]!.querySelector<HTMLElement>('[data-drag-zone]')!
+    Object.defineProperty(body, 'clientHeight', { configurable: true, value: 500 })
+    await act(async () => {
+      Object.defineProperty(body, 'scrollTop', { configurable: true, writable: true, value: 100_000 })
+      body.dispatchEvent(new Event('scroll'))
+    })
+    expect(view.container.querySelectorAll('[data-project-card]').length).toBeLessThan(30)
+    const grip = view.container.querySelector<HTMLButtonElement>('[data-drag-id="c239"] [data-drag-handle]')!
+    expect(grip).not.toBeNull()
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(props.onDragCards).toHaveBeenCalledOnce()
+    const order = (props.onDragCards as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string[]
+    expect(order).toHaveLength(240)
+    expect(order.indexOf('c239')).toBe(238)
+    expect(order.indexOf('c237')).toBe(237)
+  })
+})
+
 describe('dragging within a column', () => {
   it('shows the insertion line and persists the new manual order', async () => {
     const props = await mount([card('a'), card('b'), card('c')])

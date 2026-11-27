@@ -28,7 +28,7 @@ interface ItemRect {
 
 interface ZoneRect {
   key: string
-  el: HTMLElement
+  el: HTMLElement | null
   left: number
   right: number
   top: number
@@ -38,6 +38,7 @@ interface ZoneRect {
 export interface DragGeometry {
   zones: readonly { key: string, left: number, right: number, top: number, bottom: number }[]
   items: ReadonlyMap<string, readonly { id: string, top: number, height: number }[]>
+  viewport?: boolean
 }
 
 export interface DragOverStore {
@@ -61,8 +62,8 @@ export function resolveDragTarget(
   excluded: ReadonlySet<string>,
   fallback: DragDropTarget | null,
 ): DragDropTarget | null {
-  const x = pointer.x + pointer.scrollX
-  const y = pointer.y + pointer.scrollY
+  const x = pointer.x + (geometry.viewport ? 0 : pointer.scrollX)
+  const y = pointer.y + (geometry.viewport ? 0 : pointer.scrollY)
   const inBand = geometry.zones.filter((entry) => x >= entry.left && x <= entry.right)
   const zone = inBand.find((entry) => y >= entry.top && y <= entry.bottom) ?? inBand[0]
   if (!zone) return fallback
@@ -84,6 +85,7 @@ export function useDragSort(options: {
   enabled: boolean
   /** The full set travelling together when the pressed card is part of a multi-selection. */
   groupOf?: (id: string) => readonly string[]
+  geometry?: () => DragGeometry
   onDrop: (id: string, target: DragDropTarget) => void
 }): {
   draggingId: string | null
@@ -92,7 +94,7 @@ export function useDragSort(options: {
   start: (event: ReactPointerEvent, id: string) => void
   onKeyDown: (event: ReactKeyboardEvent, id: string) => void
 } {
-  const { enabled, groupOf, onDrop } = options
+  const { enabled, groupOf, geometry, onDrop } = options
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [keyboardDragId, setKeyboardDragId] = useState<string | null>(null)
   const keyboardAnchor = useRef<HTMLElement | null>(null)
@@ -113,6 +115,8 @@ export function useDragSort(options: {
   dropRef.current = onDrop
   const groupRef = useRef(groupOf)
   groupRef.current = groupOf
+  const geometryRef = useRef(geometry)
+  geometryRef.current = geometry
   const clearKeyboard = useCallback(() => {
     keyboardAnchor.current = null
     setKeyboardDragId(null)
@@ -183,7 +187,7 @@ export function useDragSort(options: {
 
     const measureZone = (key: string): void => {
       const zone = zones.find((entry) => entry.key === key)
-      if (!zone) return
+      if (!zone?.el) return
       readScroll()
       const cards = [...zone.el.querySelectorAll<HTMLElement>('[data-drag-item]:not([data-child="true"])')]
       itemsByZone.set(key, cards.map((el, index) => {
@@ -201,6 +205,17 @@ export function useDragSort(options: {
         if (/(auto|scroll)/.test(`${style.overflowY}${style.overflowX}`)) scrollers.push(node)
         node = node.parentElement
       }
+      for (const zone of zoneEls) {
+        const style = getComputedStyle(zone)
+        if (/(auto|scroll)/.test(`${style.overflowY}${style.overflowX}`) && !scrollers.includes(zone)) scrollers.push(zone)
+      }
+      const supplied = geometryRef.current?.()
+      if (supplied) {
+        zones = supplied.zones.map((zone) => ({ key: zone.key, el: null, left: zone.left, right: zone.right, top: zone.top, bottom: zone.bottom }))
+        itemsByZone = new Map([...supplied.items].map(([key, entries]) => [key, entries.map((entry, index) => ({ ...entry, zone: key, index }))]))
+        lastRemeasure = performance.now()
+        return
+      }
       measureZones()
       itemsByZone = new Map()
       for (const zone of zones) measureZone(zone.key)
@@ -212,8 +227,11 @@ export function useDragSort(options: {
       const now = performance.now()
       if (now - lastRemeasure < 120) return
       lastRemeasure = now
-      measureZones()
-      if (latest) measureZone(latest.zone)
+      if (geometryRef.current) measure()
+      else {
+        measureZones()
+        if (latest) measureZone(latest.zone)
+      }
     }
 
     const begin = (): void => {
@@ -243,13 +261,14 @@ export function useDragSort(options: {
 
     const resolve = (x: number, y: number): DragDropTarget | null => {
       readScroll()
-      return resolveDragTarget({ zones, items: itemsByZone }, { x, y, scrollX, scrollY }, group, latest)
+      return resolveDragTarget({ zones, items: itemsByZone, viewport: geometryRef.current !== undefined }, { x, y, scrollX, scrollY }, group, latest)
     }
 
     const autoScroll = (): boolean => {
       let moved = false
       for (const el of scrollers) {
         const rect = el.getBoundingClientRect()
+        if (el.hasAttribute('data-drag-zone') && (lastX < rect.left || lastX > rect.right)) continue
         if (lastY < rect.top + EDGE) { el.scrollTop -= EDGE_SPEED; moved = true }
         else if (lastY > rect.bottom - EDGE) { el.scrollTop += EDGE_SPEED; moved = true }
         if (lastX < rect.left + EDGE) { el.scrollLeft -= EDGE_SPEED; moved = true }
@@ -334,12 +353,15 @@ export function useDragSort(options: {
     const root = (event.currentTarget as HTMLElement).closest('[data-drag-root]') as HTMLElement | null
     if (!root) return
     const group = new Set(groupRef.current?.(id) ?? [id])
-    const zones = [...root.querySelectorAll<HTMLElement>('[data-drag-zone]')].map((zone) => ({
-      key: zone.dataset.dragZone ?? '',
-      ids: [...zone.querySelectorAll<HTMLElement>('[data-drag-item]:not([data-child="true"])')]
-        .map((item) => item.dataset.dragId ?? '')
-        .filter((itemId) => Boolean(itemId)),
-    }))
+    const supplied = geometryRef.current?.()
+    const zones = supplied
+      ? supplied.zones.map((zone) => ({ key: zone.key, ids: (supplied.items.get(zone.key) ?? []).map((entry) => entry.id) }))
+      : [...root.querySelectorAll<HTMLElement>('[data-drag-zone]')].map((zone) => ({
+        key: zone.dataset.dragZone ?? '',
+        ids: [...zone.querySelectorAll<HTMLElement>('[data-drag-item]:not([data-child="true"])')]
+          .map((item) => item.dataset.dragId ?? '')
+          .filter((itemId) => Boolean(itemId)),
+      }))
     const locate = (): DragDropTarget | null => {
       const zoneIndex = zones.findIndex((zone) => zone.ids.includes(id))
       if (zoneIndex < 0) return null

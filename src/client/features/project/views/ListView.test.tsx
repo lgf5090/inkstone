@@ -108,6 +108,30 @@ describe('the trailing columns', () => {
   })
 })
 
+describe('large list rendering', () => {
+  it('keeps rendered rows bounded and reveals the tail on scroll', async () => {
+    const props = await mount(Array.from({ length: 240 }, (_, index) => card(`c${index}`)))
+    expect(view.container.querySelectorAll('[data-project-card]').length).toBeLessThan(30)
+    expect(row('c239')).toBeNull()
+    const list = view.container.querySelector<HTMLElement>('[data-list]')!
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 400 })
+    await act(async () => {
+      Object.defineProperty(list, 'scrollTop', { configurable: true, writable: true, value: 100_000 })
+      list.dispatchEvent(new Event('scroll'))
+    })
+    expect(view.container.querySelectorAll('[data-project-card]').length).toBeLessThan(30)
+    expect(row('c239')).not.toBeNull()
+    const grip = row('c239').querySelector<HTMLButtonElement>('[data-drag-handle]')!
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(props.onDragCards).toHaveBeenCalledOnce()
+    const order = (props.onDragCards as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string[]
+    expect(order).toHaveLength(240)
+    expect(order.indexOf('c239')).toBe(238)
+  })
+})
+
 describe('hierarchy and drag affordance', () => {
   it('puts the grip before the check and keeps children under their parent', async () => {
     await mount([card('p'), card('c', {}, 'p')])

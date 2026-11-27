@@ -5,7 +5,7 @@
  * board of text-only cards reads as a set of things instead of a set of placeholders. Subtasks fold
  * under their parent tile: listing them beside it made a three-step task read as four unrelated cards.
  */
-import { useMemo, useState, type MouseEvent, type ReactElement } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useState, type MouseEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, CornerDownRight, LayoutGrid, ListTodo, SquareKanban } from 'lucide-react'
 import type { ProjectCard, ProjectGallerySize, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
@@ -15,8 +15,9 @@ import { t, useLocale } from '../../../lib/i18n'
 import { CardBadges, OptionChip } from '../CardBadges'
 import { useProjectPeople } from '../people-context'
 import { QuickAdd, Seg, ViewHead, ViewShell } from './shell'
+import { useVirtualList, VIRTUAL_LIST_THRESHOLD } from '../../list/virtual-list'
 
-const TILE_WIDTH: Record<ProjectGallerySize, string> = { small: '160px', medium: '220px', large: '300px' }
+const TILE_WIDTH: Record<ProjectGallerySize, number> = { small: 160, medium: 220, large: 300 }
 const COVER_HEIGHT: Record<ProjectGallerySize, string> = { small: '84px', medium: '120px', large: '168px' }
 
 export interface GalleryProps {
@@ -33,10 +34,21 @@ export interface GalleryProps {
   onAddCard: (title: string, optionId: string) => Promise<void>
 }
 
+interface GalleryVirtualRow {
+  key: string
+  kind: 'header' | 'cards' | 'empty' | 'add'
+  zone: string
+  cards: ProjectCard[]
+  label?: string
+  count?: number
+  collapsed?: boolean
+}
+
 export function GalleryView(props: GalleryProps): ReactElement {
   const { cards, properties, fields, canEdit } = props
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const size = fields.galleryCardSize ?? 'medium'
+  const [columns, setColumns] = useState(1)
   const people = useProjectPeople()
   const locale = useLocale()
   const ids = useMemo(() => new Set(cards.map((card) => card.id)), [cards])
@@ -57,6 +69,98 @@ export function GalleryView(props: GalleryProps): ReactElement {
     ? projectGroupKeys(roots, fields.groupById, properties).map((key) => [key, groups.get(key) ?? []])
     : [...groups.entries()], [groupProperty, groups, roots, fields.groupById, properties])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
+  const rows = useMemo(() => {
+    const out: GalleryVirtualRow[] = []
+    for (const [key, groupCards] of entries) {
+      const collapsed = fields.collapsedOptionIds.includes(key)
+      const label = key === '' ? t('project.view.no_value') : projectGroupLabel(groupProperty, key, people, locale)
+      if (fields.groupById) out.push({ key: `${key}:header`, kind: 'header', zone: key, cards: [], label, count: groupCards.length, collapsed })
+      if (collapsed) continue
+      if (!groupCards.length) out.push({ key: `${key}:empty`, kind: 'empty', zone: key, cards: [], label })
+      for (let index = 0; index < groupCards.length; index += columns) {
+        out.push({ key: `${key}:${index}`, kind: 'cards', zone: key, cards: groupCards.slice(index, index + columns), label })
+      }
+      if (canEdit) out.push({ key: `${key}:add`, kind: 'add', zone: key, cards: [], label })
+    }
+    return out
+  }, [entries, fields.groupById, fields.collapsedOptionIds, groupProperty, people, locale, columns, canEdit])
+  const virtualized = roots.length > VIRTUAL_LIST_THRESHOLD
+  const estimateRow = useCallback((index: number): number => {
+    const kind = rows[index]?.kind
+    return kind === 'header' ? 40 : kind === 'add' ? 160 : kind === 'empty' ? 80 : size === 'small' ? 220 : size === 'large' ? 360 : 300
+  }, [rows, size])
+  const virtual = useVirtualList(virtualized ? rows.length : 0, estimateRow, virtualized ? `${size}:${columns}:${entries.map(([key, list]) => `${key}:${list.length}`).join('|')}` : 'gallery')
+  useLayoutEffect(() => {
+    const node = virtual.containerRef.current
+    if (!node) return
+    const update = () => {
+      const available = Math.max(1, node.clientWidth - 24)
+      setColumns(Math.max(1, Math.floor((available + 12) / (TILE_WIDTH[size] + 12))))
+    }
+    update()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    observer?.observe(node)
+    return () => observer?.disconnect()
+  }, [virtual.containerRef, size])
+
+  const renderTile = (card: ProjectCard): ReactElement => (
+    <GalleryTile
+      key={card.id}
+      card={card}
+      color={colorOf(card)}
+      cover={props.coverFor?.(card.id) ?? null}
+      chipProperties={props.chipProperties}
+      showTitle={fields.galleryShowTitle !== false}
+      showBadges={fields.galleryShowBadges !== false}
+      badges={props.badgesFor(card.id)}
+      subtasks={children.get(card.id) ?? []}
+      expanded={expanded.has(card.id)}
+      onToggle={() => setExpanded((current) => {
+        const next = new Set(current)
+        if (next.has(card.id)) next.delete(card.id)
+        else next.add(card.id)
+        return next
+      })}
+      childCover={(id) => props.coverFor?.(id) ?? null}
+      onOpenCard={props.onOpenCard}
+      onCardContextMenu={props.onCardContextMenu}
+    />
+  )
+  const gridStyle = { '--pv-tile-w': `${TILE_WIDTH[size]}px`, '--pv-cover-h': COVER_HEIGHT[size] } as React.CSSProperties
+  const renderVirtualRow = (row: GalleryVirtualRow): ReactElement => {
+    if (row.kind === 'header') return (
+      <button
+        type="button"
+        className="pv-group-head"
+        aria-expanded={!row.collapsed}
+        onClick={() => props.onPatchFields({
+          collapsedOptionIds: row.collapsed ? fields.collapsedOptionIds.filter((entry) => entry !== row.zone) : [...fields.collapsedOptionIds, row.zone],
+        })}
+      >
+        {row.collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+        {groupProperty && row.zone !== '' && (groupProperty.type === 'select' || groupProperty.type === 'multiSelect')
+          ? <OptionChip property={groupProperty} value={row.zone} />
+          : <span>{row.label}</span>}
+        <span className="pv-head-count">{row.count}</span>
+      </button>
+    )
+    if (row.kind === 'empty') return <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.empty_column')}</p>
+    if (row.kind === 'add') return (
+      <div className="pv-tile-add">
+        <QuickAdd label={t('project.board.new_card')} onAdd={(title) => props.onAddCard(title, row.zone)} className="w-full px-3" />
+      </div>
+    )
+    return (
+      <div
+        role="group"
+        aria-label={row.label}
+        className="pv-gallery-grid"
+        style={{ ...gridStyle, gridTemplateColumns: `repeat(${columns}, ${TILE_WIDTH[size]}px)` }}
+      >
+        {row.cards.map(renderTile)}
+      </div>
+    )
+  }
 
   return (
     <ViewShell data-view="gallery">
@@ -73,8 +177,19 @@ export function GalleryView(props: GalleryProps): ReactElement {
           ]}
         />
       </ViewHead>
-      <div className="pv-gallery pv-scroll">
-        {entries.map(([key, groupCards]) => {
+      <div ref={virtual.containerRef} className="pv-gallery pv-scroll">
+        {virtualized ? (
+          <div className="relative" style={{ height: virtual.total }}>
+            {rows.slice(virtual.start, virtual.end).map((row, sliceIndex) => {
+              const index = virtual.start + sliceIndex
+              return (
+                <div key={row.key} data-virtual-index={index} className="absolute inset-x-0" style={{ top: virtual.offsets[index] }}>
+                  {renderVirtualRow(row)}
+                </div>
+              )
+            })}
+          </div>
+        ) : entries.map(([key, groupCards]) => {
           const collapsed = fields.collapsedOptionIds.includes(key)
           const label = key === '' ? t('project.view.no_value') : projectGroupLabel(groupProperty, key, people, locale)
           return (
@@ -96,30 +211,8 @@ export function GalleryView(props: GalleryProps): ReactElement {
                 </button>
               )}
               {!collapsed && (
-                <div className="pv-gallery-grid" style={{ '--pv-tile-w': TILE_WIDTH[size], '--pv-cover-h': COVER_HEIGHT[size] } as React.CSSProperties}>
-                  {groupCards.map((card) => (
-                    <GalleryTile
-                      key={card.id}
-                      card={card}
-                      color={colorOf(card)}
-                      cover={props.coverFor?.(card.id) ?? null}
-                      chipProperties={props.chipProperties}
-                      showTitle={fields.galleryShowTitle !== false}
-                      showBadges={fields.galleryShowBadges !== false}
-                      badges={props.badgesFor(card.id)}
-                      subtasks={children.get(card.id) ?? []}
-                      expanded={expanded.has(card.id)}
-                      onToggle={() => setExpanded((current) => {
-                        const next = new Set(current)
-                        if (next.has(card.id)) next.delete(card.id)
-                        else next.add(card.id)
-                        return next
-                      })}
-                      childCover={(id) => props.coverFor?.(id) ?? null}
-                      onOpenCard={props.onOpenCard}
-                      onCardContextMenu={props.onCardContextMenu}
-                    />
-                  ))}
+                <div className="pv-gallery-grid" style={gridStyle}>
+                  {groupCards.map(renderTile)}
                   {canEdit && (
                     <div className="pv-tile-add">
                       <QuickAdd label={t('project.board.new_card')} onAdd={(title) => props.onAddCard(title, key)} className="w-full px-3" />

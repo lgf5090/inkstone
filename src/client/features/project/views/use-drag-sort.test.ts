@@ -21,6 +21,11 @@ describe('drag hit testing', () => {
       .toEqual({ zone: 'right', index: 0 })
   })
 
+  it('uses raw pointer coordinates for virtual viewport geometry', () => {
+    expect(resolveDragTarget({ ...geometry, viewport: true }, { x: 10, y: 150, scrollX: 0, scrollY: 100 }, new Set(), null))
+      .toEqual({ zone: 'left', index: 1 })
+  })
+
   it('keeps the geometry fixed while the column scrolls, so the pointer carries the offset', () => {
     expect(resolveDragTarget(geometry, { x: 10, y: 50, scrollX: 0, scrollY: 0 }, new Set(), null))
       .toEqual({ zone: 'left', index: 0 })
