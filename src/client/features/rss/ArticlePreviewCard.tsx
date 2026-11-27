@@ -14,7 +14,6 @@
 import { Z_INDEX } from '../../lib/z-index'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
-import { ExternalLink } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { shortSince } from '../../lib/time'
 import { placeHoverCard } from '../preview/wiki-link-hover-card/position'
@@ -86,17 +85,6 @@ export function ArticlePreviewCard({ entry, feed, anchor, images, onDismiss }: {
         {entry.title || t('rss.untitled')}
       </p>
       {text && <p className="mt-1 line-clamp-4 text-[length:var(--text-11-5)] leading-[16px] text-[var(--text-tertiary)]">{text}</p>}
-      {entry.link && (
-        <a
-          href={entry.link}
-          target="_blank"
-          rel="noopener noreferrer nofollow"
-          className="mt-2 inline-flex items-center gap-1 text-[length:var(--text-11-5)] font-medium text-[var(--accent)] hover:underline"
-        >
-          <ExternalLink size={11} aria-hidden="true" />
-          {t('rss.open_original')}
-        </a>
-      )}
     </div>,
     document.body,
   )

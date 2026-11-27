@@ -163,7 +163,8 @@ function ArticleRow({ entry, feed, unread, starred, picked, open, density, image
       onMouseLeave={() => window.clearTimeout(timer.current)}
       onFocus={() => window.clearTimeout(timer.current)}
       aria-current={open ? 'true' : undefined}
-      aria-selected={picked}
+      aria-label={entry.title || t('rss.untitled')}
+      aria-pressed={picked}
       className={cn(
         'group relative flex w-full items-start gap-2.5 rounded-[var(--r-lg)] px-2 text-left',
         'transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
