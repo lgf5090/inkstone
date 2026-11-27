@@ -19,7 +19,8 @@ import { useSession } from '../../store/session'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
-import { Modal, Tooltip } from '../../components/overlay'
+import { Modal, Tooltip, hasOpenLayer } from '../../components/overlay'
+import { isEditableTarget } from '../../lib/hotkeys'
 import { channelEntries, channelKey, findEntry, unreadCounts } from '@shared/rss/reading'
 import type { AssistantPageContext } from '@shared/assistant'
 import { AssistantDock } from '../chat/AssistantDock'
@@ -103,9 +104,8 @@ export function RssApp(): ReactElement {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
-      const target = event.target as HTMLElement | null
-      if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || hasOpenLayer()) return
+      if (isEditableTarget(event.target)) return
       if (event.key === '[') {
         event.preventDefault()
         toggleRail()

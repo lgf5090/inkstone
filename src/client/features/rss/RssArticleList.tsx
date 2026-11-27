@@ -23,7 +23,8 @@ import { useSession } from '../../store/session'
 import { Button, IconButton } from '../../components/primitives'
 import { FilterInput } from '../../components/FilterInput'
 import { Segmented } from '../../components/form'
-import { Menu, Tooltip, useContextMenu } from '../../components/overlay'
+import { Menu, Tooltip, hasOpenLayer, useContextMenu } from '../../components/overlay'
+import { isEditableTarget } from '../../lib/hotkeys'
 import {
   channelEntries,
   feedsForChannel,
@@ -160,12 +161,15 @@ export function RssArticleList({ onOpen, onManage }: { onOpen: () => void, onMan
   // Keyboard: j/k walk the list, Enter opens, x picks, s stars, Escape leaves the selection.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || hasOpenLayer()) return
       // The article marks have no meaning for a note row, and writing one would put a note id into
       // the account's list of read articles.
       if (vaultFolderId && (event.key === 'r' || event.key === 'm' || event.key === 's' || event.key === 'x' || event.key === 'v')) return
+      if (isEditableTarget(event.target)) return
       const target = event.target as HTMLElement | null
-      if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return
+      // Enter belongs to the focused control. Opening the selected row here would both bypass that
+      // control and leave the browser's own activation running against a row the reader did not choose.
+      if (isEnterKey(event) && target?.closest('button, a[href], [role="button"], [role="link"], summary')) return
       if (event.key === 'Escape') {
         if (picked.size) {
           setPicked(new Set())
