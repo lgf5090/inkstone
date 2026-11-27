@@ -38,10 +38,10 @@ export function videoLinkOf(value: string | null | undefined): VideoLink | null 
   return null
 }
 
-/** An enclosure a reader can play. Plain HTTP is refused: the page is https, and the browser would block it. */
+/** An enclosure a reader can play. HTTP bytes are fetched through the same-origin relay. */
 export function playableAudio(url: string | null | undefined): string {
   const safe = safeHttpUrl(url ?? '')
-  return safe?.protocol === 'https:' ? safe.href : ''
+  return safe ? safe.href : ''
 }
 
 /**

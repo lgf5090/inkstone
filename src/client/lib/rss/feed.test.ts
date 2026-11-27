@@ -152,10 +152,19 @@ describe('parseFeed', () => {
     expect(feed.entries[0].imageUrl).toBe('https://blog.example.org/posts/cover.png')
   })
 
-  it('drops a plain-HTTP enclosure a mixed-content page could not play', () => {
+  it('keeps a plain-HTTP enclosure for the same-origin relay', () => {
     const feed = parseFeed(rss(`<item><title>Insecure</title><link>https://example.com/i</link>
       <enclosure url="http://cdn.example.com/e.mp3" type="audio/mpeg"/></item>`), 'https://example.com/feed.xml')
-    expect(feed.entries[0].audioUrl).toBe('')
+    expect(feed.entries[0].audioUrl).toBe('http://cdn.example.com/e.mp3')
+  })
+
+  it('reads iTunes episode artwork, duration, season and episode numbers', () => {
+    const feed = parseFeed(rss(`<item xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><title>Episode</title><link>https://example.com/episode</link>
+      <enclosure url="https://cdn.example.com/e.mp3" type="audio/mpeg"/>
+      <itunes:image href="https://example.com/art.jpg"/>
+      <itunes:duration>01:02:03</itunes:duration><itunes:season>2</itunes:season><itunes:episode>7</itunes:episode>
+    </item>`), 'https://example.com/feed.xml')
+    expect(feed.entries[0]).toMatchObject({ imageUrl: 'https://example.com/art.jpg', duration: 3723, season: 2, episode: 7 })
   })
 
   it('unwraps a body that was escaped twice, and leaves a body about escaping alone', () => {

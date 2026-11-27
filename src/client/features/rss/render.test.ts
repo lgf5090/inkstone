@@ -170,9 +170,9 @@ describe('media', () => {
     expect(videoLinkOf('')).toBeNull()
   })
 
-  it('plays only an enclosure a secure page can load', () => {
+  it('accepts HTTP and HTTPS enclosures for the same-origin relay', () => {
     expect(playableAudio('https://cdn.example/e.mp3')).toBe('https://cdn.example/e.mp3')
-    expect(playableAudio('http://cdn.example/e.mp3')).toBe('')
+    expect(playableAudio('http://cdn.example/e.mp3')).toBe('http://cdn.example/e.mp3')
     expect(playableAudio('')).toBe('')
   })
 })

@@ -278,6 +278,9 @@ interface RawItem {
   bodyBase: string
   imageUrl: string
   audioUrl: string
+  duration: number
+  episode: number
+  season: number
 }
 
 /** A `media:thumbnail`, an image `media:content`, an image enclosure or a preview link. */
@@ -288,6 +291,7 @@ function itemImage(node: Element, base: string): string {
     const medium = child.getAttribute('medium') || ''
     const rel = child.getAttribute('rel') || ''
     const isImage = name === 'thumbnail'
+      || (name === 'image' && child.hasAttribute('href'))
       || (name === 'content' && (medium === 'image' || type.startsWith('image/')))
       || (name === 'enclosure' && type.startsWith('image/'))
       || (name === 'link' && rel === 'preview' && type.startsWith('image/'))
@@ -316,11 +320,23 @@ function itemAudio(item: Element, base: string): string {
     if (!encloses) continue
     if (type && !type.startsWith('audio/')) continue
     const found = absolute(node.getAttribute('url') || node.getAttribute('href'), baseUrl(node, base))
-    // A plain-HTTP enclosure would be blocked as mixed content on an HTTPS deployment, so it is
-    // dropped here rather than rendered as a player that cannot load.
-    if (found.startsWith('https://')) return found
+    if (found) return found
   }
   return ''
+}
+
+function itemDuration(item: Element): number {
+  const raw = text(item, 'duration')
+  if (!raw) return 0
+  if (/^\d+$/.test(raw)) return Number(raw)
+  const parts = raw.split(':').map(Number)
+  if (parts.some(part => !Number.isFinite(part))) return 0
+  return parts.reduce((total, part) => total * 60 + part, 0)
+}
+
+function itemNumber(item: Element, name: string): number {
+  const value = Number(text(item, name))
+  return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0
 }
 
 function readItems(root: Element, atom: boolean, feedUrl: string): RawItem[] {
@@ -346,6 +362,9 @@ function readItems(root: Element, atom: boolean, feedUrl: string): RawItem[] {
         bodyBase: bodyNode ? baseUrl(bodyNode, base) : base,
         imageUrl: itemImage(item, base),
         audioUrl: itemAudio(item, base),
+        duration: itemDuration(item),
+        episode: itemNumber(item, 'episode'),
+        season: itemNumber(item, 'season'),
       })
       continue
     }
@@ -360,6 +379,9 @@ function readItems(root: Element, atom: boolean, feedUrl: string): RawItem[] {
       bodyBase: bodyNode ? baseUrl(bodyNode, base) : base,
       imageUrl: itemImage(item, base),
       audioUrl: itemAudio(item, base),
+      duration: itemDuration(item),
+      episode: itemNumber(item, 'episode'),
+      season: itemNumber(item, 'season'),
     })
   }
   return items
@@ -420,6 +442,9 @@ export function parseFeed(xml: string, feedUrl: string, parser: DOMParser = new 
       content,
       imageUrl: item.imageUrl || firstImage(content, item.bodyBase),
       audioUrl: item.audioUrl,
+      duration: item.duration || undefined,
+      episode: item.episode || undefined,
+      season: item.season || undefined,
     }
     bytes += entry.content.length + entry.summary.length
     if (bytes > RSS_LIMITS.feedBytes || entries.length >= RSS_LIMITS.entriesPerFeed) { skipped++; continue }
@@ -484,7 +509,10 @@ export function parseJsonFeed(xml: string, feedUrl: string): ParsedFeed {
           return !mime || mime.startsWith('audio/')
         })
         .map(attachment => absolute(jsonText(attachment.url), feedUrl))
-        .find(url => url.startsWith('https://')) || '',
+        .find(Boolean) || '',
+      duration: item.duration !== undefined ? Number(item.duration) || 0 : 0,
+      episode: Number(item.episode) || 0,
+      season: Number(item.season) || 0,
     }))
     .sort((a, b) => (parseFeedDate(b.published) ?? 0) - (parseFeedDate(a.published) ?? 0))
   const entries: RssEntry[] = []
@@ -512,6 +540,9 @@ export function parseJsonFeed(xml: string, feedUrl: string): ParsedFeed {
       content,
       imageUrl: item.image || firstImage(content, feedUrl),
       audioUrl: item.audio,
+      duration: item.duration || undefined,
+      episode: item.episode || undefined,
+      season: item.season || undefined,
     }
     bytes += entry.content.length + entry.summary.length
     if (bytes > RSS_LIMITS.feedBytes || entries.length >= RSS_LIMITS.entriesPerFeed) { skipped++; continue }

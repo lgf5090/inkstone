@@ -18,7 +18,6 @@ import type { CSSProperties, ReactElement, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
-  AudioLines,
   EyeOff,
   Focus,
   Bookmark,
@@ -64,6 +63,7 @@ import { ExcerptPopup } from './ExcerptPopup'
 import { reloadEntry } from './rssMenus'
 import { printArticle } from './print'
 import { playableAudio, videoLinkOf } from './media'
+import { PodcastPlayer } from './PodcastPlayer'
 
 const FONTS = ['ui', 'serif', 'sans', 'songti', 'kaiti', 'fangsong', 'mono', 'custom'] as const
 /** [id, paper, ink] — the sample a reader clicks is the colour the page will actually take. */
@@ -122,6 +122,11 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
     return null
   }, [entries, articles, view.entryId])
   const feed = entry ? findFeed(library, entry.feedId) : undefined
+  const audioQueue = useMemo(() => {
+    const playable = entries.filter(item => playableAudio(item.audioUrl))
+    if (entry && playableAudio(entry.audioUrl) && !playable.some(item => item.id === entry.id)) playable.unshift(entry)
+    return playable
+  }, [entries, entry])
   const index = entry ? entries.findIndex(item => item.id === entry.id) : -1
   const read = entry ? isEntryRead(entry, new Set(library.readIds), feed?.readBefore) : false
   const starred = entry ? library.favorites.includes(entry.id) : false
@@ -423,16 +428,12 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
               </a>
             </p>
           )}
-          {playableAudio(entry.audioUrl) && (
-            <figure className="mb-5">
-              <audio controls preload="none" src={api.rss.relayUrl(playableAudio(entry.audioUrl))} className="w-full">
-                {t('rss.audio_failed')}
-              </audio>
-              <figcaption className="mt-1 flex items-center gap-1 text-[0.7em] text-[var(--text-quaternary)]">
-                <AudioLines size={12} aria-hidden="true" />
-                {t('rss.audio')}
-              </figcaption>
-            </figure>
+          {entry && playableAudio(entry.audioUrl) && (
+            <PodcastPlayer
+              entry={entry}
+              queue={audioQueue}
+              onSelect={openEntry}
+            />
           )}
           {!playableAudio(entry.audioUrl) && videoLinkOf(entry.link) && (
             <p className="mb-5">

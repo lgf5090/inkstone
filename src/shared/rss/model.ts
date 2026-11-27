@@ -58,6 +58,10 @@ export interface RssEntry {
   content: string
   imageUrl: string
   audioUrl: string
+  /** Podcast episode length in seconds, when the feed declares it. */
+  duration?: number
+  episode?: number
+  season?: number
 }
 
 export interface RssFeed {
@@ -302,6 +306,9 @@ export function normaliseEntry(value: unknown, feedId: string): RssEntry | null 
     content: text(value.content, RSS_LIMITS.contentChars),
     imageUrl: text(value.imageUrl, RSS_LIMITS.urlChars),
     audioUrl: text(value.audioUrl, RSS_LIMITS.urlChars),
+    duration: typeof value.duration === 'number' && Number.isFinite(value.duration) ? Math.max(0, Math.trunc(value.duration)) : undefined,
+    episode: typeof value.episode === 'number' && Number.isFinite(value.episode) ? Math.max(0, Math.trunc(value.episode)) : undefined,
+    season: typeof value.season === 'number' && Number.isFinite(value.season) ? Math.max(0, Math.trunc(value.season)) : undefined,
   }
 }
 
