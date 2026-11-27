@@ -30,6 +30,34 @@ export interface NotificationBody {
   content: string
 }
 
+export function buildDigestBody(items: readonly SubscriptionItem[], settings: SubscriptionSettings, now = Date.now()): NotificationBody {
+  const copy = notifyCopy(settings.locale)
+  const active = items.filter((item) => item.isActive && (item.pausedUntil === null || Date.parse(item.pausedUntil) <= now))
+  const overdue = active.filter((item) => item.daysRemaining < 0).slice(0, 20)
+  const upcoming = active.filter((item) => item.daysRemaining >= 0 && item.daysRemaining <= 7).slice(0, 20)
+  const trials = active.filter((item) => item.trialEndsAt !== null && (item.trialDaysRemaining ?? -1) >= 0 && (item.trialDaysRemaining ?? 8) <= 7).slice(0, 20)
+  const sections = [
+    digestSection(copy.digestOverdue, overdue, settings.timezone, 'expiry'),
+    digestSection(copy.digestUpcoming, upcoming, settings.timezone, 'expiry'),
+    digestSection(copy.digestTrials, trials, settings.timezone, 'trial'),
+  ].filter(Boolean)
+  const stamp = `${copy.sentAt}: ${formatLocalDate(now, settings.timezone, 'datetime')}`
+  return {
+    title: copy.digestTitle,
+    content: `${sections.length > 0 ? sections.join('\n\n') : copy.digestEmpty}\n\n${stamp}`,
+  }
+}
+
+function digestSection(title: string, items: readonly SubscriptionItem[], timezone: string, target: 'expiry' | 'trial'): string {
+  if (items.length === 0) return ''
+  const lines = items.map((item) => {
+    const date = target === 'trial' ? item.trialEndsAt! : item.expiryDate
+    const amount = formatAmount(item.amount, item.currency)
+    return `- ${item.name} · ${formatLocalDate(date, timezone, 'date')}${amount ? ` · ${amount}` : ''}`
+  })
+  return `**${title}**\n${lines.join('\n')}`
+}
+
 export function buildNotificationBody(
   subjects: readonly NotifySubject[],
   settings: SubscriptionSettings,

@@ -74,6 +74,8 @@ async function seed(): Promise<void> {
   await saveSettings(env.DB, USER, {
     timezone: 'Asia/Tokyo',
     notificationHours: ['08', '20'],
+    digest: 'weekly',
+    digestHour: 9,
     baseCurrency: 'JPY',
     budgetMonthly: 5000,
     budgetYearly: 60000,

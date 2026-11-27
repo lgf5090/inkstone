@@ -179,6 +179,10 @@ export const DEDUPE_RETENTION_MS = 48 * 60 * 60 * 1000
 export const NOTIFY_LOCALES = ['zh-CN', 'en-US'] as const
 export type NotifyLocale = (typeof NOTIFY_LOCALES)[number]
 
+export const DIGEST_FREQUENCIES = ['off', 'daily', 'weekly'] as const
+export type DigestFrequency = (typeof DIGEST_FREQUENCIES)[number]
+export const DIGEST_HOUR_DEFAULT = 8
+
 export interface SubscriptionExpiry {
   id: string
   name: string
@@ -319,6 +323,8 @@ export interface ReminderRuleInput {
 export interface SubscriptionSettings {
   timezone: string
   notificationHours: string[]
+  digest: DigestFrequency
+  digestHour: number
   showLunar: boolean
   paymentHistoryLimit: number
   locale: NotifyLocale
@@ -781,6 +787,8 @@ export function roundMoney(value: number): number {
 export const DEFAULT_SETTINGS: SubscriptionSettings = {
   timezone: 'Asia/Shanghai',
   notificationHours: [],
+  digest: 'off',
+  digestHour: DIGEST_HOUR_DEFAULT,
   showLunar: false,
   paymentHistoryLimit: PAYMENT_LIMIT_DEFAULT,
   locale: 'zh-CN',
@@ -836,6 +844,19 @@ export function normalizeNotificationHours(input: unknown): string[] {
     }
   }
   return out
+}
+
+export function isDigestFrequency(value: unknown): value is DigestFrequency {
+  return DIGEST_FREQUENCIES.includes(value as DigestFrequency)
+}
+
+export function isValidDigestHour(value: unknown): boolean {
+  return !Array.isArray(value) && areValidNotificationHours([value]) && normalizeNotificationHours([value]).length === 1
+    && normalizeNotificationHours([value])[0] !== '*'
+}
+
+export function normalizeDigestHour(value: unknown): number {
+  return isValidDigestHour(value) ? Number(normalizeNotificationHours([value])[0]) : DIGEST_HOUR_DEFAULT
 }
 
 /** Whether a reminder may be sent at this hour, given the account's window. */

@@ -4983,6 +4983,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE sub_item ADD COLUMN intro_price REAL`,
     ],
   },
+  {
+    version: 445,
+    skipIfColumnExists: { table: 'sub_settings', column: 'digest' },
+    statements: [
+      `ALTER TABLE sub_settings ADD COLUMN digest TEXT NOT NULL DEFAULT 'off'`,
+      `ALTER TABLE sub_settings ADD COLUMN digest_hour INTEGER NOT NULL DEFAULT 8`,
+      `ALTER TABLE sub_settings ADD COLUMN next_digest_at INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

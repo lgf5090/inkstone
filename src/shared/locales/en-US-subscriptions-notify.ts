@@ -9,6 +9,11 @@
  */
 export const EN_US_SUBSCRIPTIONS_NOTIFY = {
   title: 'Subscription renewal reminder',
+  digestTitle: 'Subscription summary',
+  digestEmpty: 'No overdue subscriptions, renewals in the next 7 days, or trials ending in the next 7 days.',
+  digestOverdue: 'Overdue',
+  digestUpcoming: 'Due in the next 7 days',
+  digestTrials: 'Trials ending in the next 7 days',
   typeLabel: 'Type',
   periodLabel: 'Cycle',
   categoryLabel: 'Category',

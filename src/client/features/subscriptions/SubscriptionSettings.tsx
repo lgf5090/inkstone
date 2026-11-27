@@ -150,6 +150,22 @@ export function SubscriptionSettings({
                 onBlur={() => void saveGeneral({ notificationHours: hours })}
               />
             </Field>
+            <Field label={t('subscriptions.settings.digest')} hint={t('subscriptions.settings.digest_hint')}>
+              <Select value={settings.digest} onChange={(event) => void saveGeneral({ digest: event.target.value })}>
+                <option value="off">{t('subscriptions.settings.digest_off')}</option>
+                <option value="daily">{t('subscriptions.settings.digest_daily')}</option>
+                <option value="weekly">{t('subscriptions.settings.digest_weekly')}</option>
+              </Select>
+            </Field>
+            <Field label={t('subscriptions.settings.digest_hour')}>
+              <CommitNumberInput
+                min={0}
+                max={23}
+                inputMode="numeric"
+                value={settings.digestHour}
+                onCommit={(value) => { if (value !== null) void saveGeneral({ digestHour: value }) }}
+              />
+            </Field>
             <Field label={t('subscriptions.settings.history_limit')}>
               <CommitNumberInput
                 min={PAYMENT_LIMIT_MIN}

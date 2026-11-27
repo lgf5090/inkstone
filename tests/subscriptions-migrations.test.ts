@@ -109,6 +109,13 @@ async function boot(): Promise<void> {
 }
 
 describe('an existing subscriptions database', () => {
+  it('gains digest settings with safe defaults without disturbing an existing account', async () => {
+    await boot()
+    for (const column of ['digest', 'digest_hour', 'next_digest_at']) expect(columnsOf(sqlite, 'sub_settings')).toContain(column)
+    const row = sqlite.prepare(`SELECT digest, digest_hour, next_digest_at FROM sub_settings WHERE user_id = 'u1'`).get()
+    expect(row).toEqual({ digest: 'off', digest_hour: 8, next_digest_at: 0 })
+  })
+
   it('gains plan metadata columns without disturbing an existing subscription', async () => {
     await boot()
     for (const column of ['payment_method', 'management_url', 'paused_until', 'fixed_term', 'intro_price']) {

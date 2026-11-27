@@ -14,9 +14,9 @@ import { shouldFire } from '@shared/subscriptions/reminder-engine'
 import { MS_PER_HOUR, getDaysBetween, getNowInTimezone, localDayKey, localHourKey } from '@shared/subscriptions/time'
 import type { Env } from '../env'
 import { dispatch } from './channels'
-import { buildNotificationBody, subjectOf, type NotifySubject } from './notify-content'
+import { buildDigestBody, buildNotificationBody, subjectOf, type NotifySubject } from './notify-content'
 import { writeNotifyLog, writeScheduleLog } from './logs'
-import { enabledChannels, loadSettings } from './settings'
+import { enabledChannels, dueDigestAccounts, loadSettings, markDigestSent } from './settings'
 import { SubscriptionsStore, type StoreContext } from './store'
 
 export interface SweepResult {
@@ -26,6 +26,7 @@ export interface SweepResult {
   deduped: number
   sent: number
   failed: number
+  digested: number
 }
 
 interface Candidate {
@@ -37,8 +38,9 @@ interface Candidate {
 }
 
 export async function sweepSubscriptions(env: Env, now = Date.now()): Promise<SweepResult> {
-  const result: SweepResult = { accounts: 0, renewed: 0, matched: 0, deduped: 0, sent: 0, failed: 0 }
-  const { results } = await env.DB.prepare(`
+  const result: SweepResult = { accounts: 0, renewed: 0, matched: 0, deduped: 0, sent: 0, failed: 0, digested: 0 }
+  const [due, digestUsers] = await Promise.all([
+    env.DB.prepare(`
     SELECT DISTINCT i.user_id
       FROM sub_item i
      WHERE i.deleted_at IS NULL AND i.is_active = 1
@@ -57,18 +59,22 @@ export async function sweepSubscriptions(env: Env, now = Date.now()): Promise<Sw
               )
            )
          )
-  `).bind(now).all<{ user_id: string }>()
-  for (const row of results) {
+  `).bind(now).all<{ user_id: string }>(),
+    dueDigestAccounts(env.DB, now),
+  ])
+  const userIds = [...new Set([...due.results.map((row) => row.user_id), ...digestUsers])]
+  for (const userId of userIds) {
     result.accounts++
     try {
-      const tally = await sweepAccount(env, row.user_id, now)
+      const tally = await sweepAccount(env, userId, now, digestUsers.includes(userId))
       result.renewed += tally.renewed
       result.matched += tally.matched
       result.deduped += tally.deduped
       result.sent += tally.sent
       result.failed += tally.failed
+      result.digested += tally.digested
     } catch (error) {
-      await writeScheduleLog(env.DB, row.user_id, {
+      await writeScheduleLog(env.DB, userId, {
         startedAt: now,
         finishedAt: Date.now(),
         timezone: 'UTC',
@@ -95,9 +101,10 @@ interface AccountTally {
   deduped: number
   sent: number
   failed: number
+  digested: number
 }
 
-async function sweepAccount(env: Env, userId: string, now: number): Promise<AccountTally> {
+async function sweepAccount(env: Env, userId: string, now: number, digestDue: boolean): Promise<AccountTally> {
   const settings = await loadSettings(env.DB, userId)
   const store = new SubscriptionsStore(env.DB, userId)
   const context: StoreContext = { timezone: settings.timezone, notificationHours: settings.notificationHours, paymentLimit: settings.paymentHistoryLimit, now }
@@ -122,6 +129,10 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
   const nowDate = new Date(now)
   const nowIso = nowDate.toISOString()
   const clock = getNowInTimezone(settings.timezone, nowDate)
+  let digested = 0
+  if (digestDue && clock.hourString === String(settings.digestHour).padStart(2, '0')) {
+    digested = await sendDigest(env, userId, settings, current, now)
+  }
 
   let checked = 0
   let matched = 0
@@ -183,7 +194,7 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
         detail: '',
       })
     }
-    return { renewed, matched, deduped: 0, sent: 0, failed: 0 }
+    return { renewed, matched, deduped: 0, sent: 0, failed: 0, digested }
   }
 
   const ready: Candidate[] = []
@@ -211,7 +222,7 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
         detail: '',
       })
     }
-    return { renewed, matched, deduped, sent: 0, failed: 0 }
+    return { renewed, matched, deduped, sent: 0, failed: 0, digested }
   }
 
   ready.sort((left, right) => left.daysRemaining - right.daysRemaining)
@@ -243,7 +254,7 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
       reason: 'No notification channel is enabled',
       detail: describeCandidates(ready),
     })
-    return { renewed, matched, deduped, sent: 0, failed: 0 }
+    return { renewed, matched, deduped, sent: 0, failed: 0, digested }
   }
 
   const delivered = await dispatch(
@@ -290,7 +301,7 @@ async function sweepAccount(env: Env, userId: string, now: number): Promise<Acco
     detail: `${describeCandidates(ready)}\n${JSON.stringify(delivered.results.map((outcome) => ({ channel: outcome.channel, ok: outcome.success, error: outcome.error ?? '' })))}`,
   })
 
-  return { renewed, matched, deduped, sent: delivered.successCount, failed: delivered.failedCount }
+  return { renewed, matched, deduped, sent: delivered.successCount, failed: delivered.failedCount, digested }
 }
 
 /**
@@ -306,6 +317,44 @@ async function claim(db: D1Database, userId: string, candidate: Candidate, hourK
      VALUES (?1, ?2, ?3, ?4, ?5)`,
   ).bind(userId, candidate.item.id, candidate.rule.id, hourKey, now).run()
   return (result.meta.changes ?? 0) > 0
+}
+
+async function sendDigest(env: Env, userId: string, settings: SubscriptionSettings, items: readonly SubscriptionItem[], now: number): Promise<number> {
+  const nowDate = new Date(now)
+  const dayKey = localDayKey(settings.timezone, nowDate)
+  const parts = getNowInTimezone(settings.timezone, nowDate).parts
+  const weekday = new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay()
+  const weekStart = new Date(Date.UTC(parts.year, parts.month - 1, parts.day - (weekday === 0 ? 6 : weekday - 1))).toISOString().slice(0, 10)
+  const key = settings.digest === 'weekly' ? weekStart : dayKey
+  const ruleId = `digest:${settings.digest}`
+  const claimed = await env.DB.prepare(
+    `INSERT OR IGNORE INTO sub_notify_dedupe (user_id, subscription_id, rule_id, hour_key, created_at)
+     VALUES (?1, '', ?2, ?3, ?4)`,
+  ).bind(userId, ruleId, key, now).run()
+  if ((claimed.meta.changes ?? 0) === 0) return 0
+  await markDigestSent(env.DB, userId, settings, now)
+  const channels = await enabledChannels(env, env.DB, userId)
+  const body = buildDigestBody(items, settings, now)
+  if (channels.length === 0) {
+    await writeScheduleLog(env.DB, userId, {
+      startedAt: now, finishedAt: Date.now(), timezone: settings.timezone, hour: String(settings.digestHour).padStart(2, '0'),
+      hours: settings.notificationHours, inWindow: true, checkedCount: items.length, matchedCount: 0, dedupedCount: 0,
+      sentCount: 0, renewedCount: 0, status: 'skipped', reason: 'Digest has no enabled notification channel', detail: '',
+    })
+    return 0
+  }
+  const delivered = await dispatch(
+    { title: body.title, content: body.content, metadata: { tags: ['digest'] } },
+    channels,
+    { timezone: settings.timezone, locale: settings.locale, now },
+    { env, userId },
+  )
+  await writeNotifyLog(env.DB, userId, {
+    subscriptionId: '', ruleId, channel: delivered.results[0]?.channel ?? 'inapp',
+    status: delivered.failedCount > 0 && delivered.successCount === 0 ? 'failed' : 'success',
+    title: body.title, body: body.content, error: delivered.results.find((result) => result.error)?.error ?? '', detail: '',
+  })
+  return delivered.successCount > 0 ? 1 : 0
 }
 
 async function shouldWriteHeartbeat(db: D1Database, userId: string, now: number): Promise<boolean> {

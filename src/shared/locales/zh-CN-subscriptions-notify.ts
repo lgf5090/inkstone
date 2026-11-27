@@ -8,6 +8,11 @@
  */
 export const ZH_CN_SUBSCRIPTIONS_NOTIFY = {
   title: '订阅到期/续费提醒',
+  digestTitle: '订阅摘要',
+  digestEmpty: '没有已过期订阅、未来 7 天到期订阅或未来 7 天结束的试用。',
+  digestOverdue: '已过期',
+  digestUpcoming: '未来 7 天到期',
+  digestTrials: '未来 7 天试用结束',
   typeLabel: '类型',
   periodLabel: '周期',
   categoryLabel: '分类',

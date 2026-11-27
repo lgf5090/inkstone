@@ -13,6 +13,11 @@ import { formatTimezoneOffset } from './time'
 
 export interface NotifyCopy {
   title: string
+  digestTitle: string
+  digestEmpty: string
+  digestOverdue: string
+  digestUpcoming: string
+  digestTrials: string
   typeLabel: string
   periodLabel: string
   categoryLabel: string

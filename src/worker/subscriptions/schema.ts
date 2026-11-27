@@ -140,6 +140,9 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT PRIMARY KEY,
     timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
     notification_hours TEXT NOT NULL DEFAULT '[]',
+    digest TEXT NOT NULL DEFAULT 'off',
+    digest_hour INTEGER NOT NULL DEFAULT 8,
+    next_digest_at INTEGER NOT NULL DEFAULT 0,
     show_lunar INTEGER NOT NULL DEFAULT 0,
     payment_history_limit INTEGER NOT NULL DEFAULT 100,
     locale TEXT NOT NULL DEFAULT 'zh-CN',
@@ -266,7 +269,7 @@ export const SUBSCRIPTIONS_REQUIRED_COLUMNS: Readonly<Record<string, readonly st
     'last_test_status', 'last_test_error', 'created_at', 'updated_at',
   ],
   sub_settings: [
-    'user_id', 'timezone', 'notification_hours', 'show_lunar', 'payment_history_limit',
+    'user_id', 'timezone', 'notification_hours', 'digest', 'digest_hour', 'next_digest_at', 'show_lunar', 'payment_history_limit',
     'locale', 'base_currency', 'budget_monthly', 'inbound_token_hash', 'inbound_token_hint',
     'calendar_token_hash', 'calendar_token_hint', 'updated_at',
     'rate_overrides', 'budget_yearly', 'budget_categories',

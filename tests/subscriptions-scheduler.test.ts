@@ -48,6 +48,8 @@ async function seed(userId: string, options: { name?: string; days: number; hour
   const settings = {
     timezone: 'Asia/Shanghai',
     notificationHours: options.hours ?? [],
+    digest: 'off' as const,
+    digestHour: 8,
     showLunar: false,
     paymentHistoryLimit: 100,
     locale: 'zh-CN' as const,
@@ -205,7 +207,7 @@ describe('the sweep', () => {
     const created = await store.create({
       name: 'Trial', amount: 60, expiryDate: '2026-12-21', trialEndsAt: new Date(NOW + 3 * DAY).toISOString(),
       periodValue: 1, periodUnit: 'month', reminderRules: [{ type: 'before_trial_end', value: 3, unit: 'days' }],
-    }, storeContext({ timezone: 'Asia/Shanghai', notificationHours: [], showLunar: false, paymentHistoryLimit: 100, locale: 'zh-CN', baseCurrency: 'CNY', budgetMonthly: null, budgetYearly: null, budgetCategories: {}, rateOverrides: {}, inboundTokenHint: '' }, NOW))
+    }, storeContext({ timezone: 'Asia/Shanghai', notificationHours: [], digest: 'off', digestHour: 8, showLunar: false, paymentHistoryLimit: 100, locale: 'zh-CN', baseCurrency: 'CNY', budgetMonthly: null, budgetYearly: null, budgetCategories: {}, rateOverrides: {}, inboundTokenHint: '' }, NOW))
     await enableGotify('u1')
     const result = await sweepSubscriptions(env(), NOW)
     expect(result.matched).toBe(1)
@@ -213,6 +215,30 @@ describe('the sweep', () => {
     const log = sqlite.prepare(`SELECT body FROM sub_notify_log WHERE user_id = 'u1'`).get() as { body: string }
     expect(log.body).toContain('试用截止')
     expect(log.body).toContain(created.item.name)
+  })
+
+  it('sends a due daily digest once and excludes paused plans', async () => {
+    await seed('u1', { name: 'Digest plan', days: 3 })
+    sqlite.prepare(`DELETE FROM sub_reminder_rule WHERE subscription_id IN (SELECT id FROM sub_item WHERE user_id = 'u1')`).run()
+    await saveSettings(db, 'u1', { timezone: 'Asia/Shanghai', digest: 'daily', digestHour: 12 })
+    sqlite.prepare(`UPDATE sub_settings SET next_digest_at = ? WHERE user_id = 'u1'`).run(NOW)
+    await enableGotify('u1')
+    const first = await sweepSubscriptions(env(), NOW)
+    expect(first.digested).toBe(1)
+    expect(deliveries).toHaveLength(1)
+    const second = await sweepSubscriptions(env(), NOW + 60_000)
+    expect(second.digested).toBe(0)
+    expect(deliveries).toHaveLength(1)
+  })
+
+  it('records an empty digest instead of sending a blank notification', async () => {
+    await saveSettings(db, 'u1', { timezone: 'Asia/Shanghai', digest: 'daily', digestHour: 12 })
+    sqlite.prepare(`UPDATE sub_settings SET next_digest_at = ? WHERE user_id = 'u1'`).run(NOW)
+    await enableGotify('u1')
+    const result = await sweepSubscriptions(env(), NOW)
+    expect(result.digested).toBe(1)
+    const log = sqlite.prepare(`SELECT body FROM sub_notify_log WHERE user_id = 'u1'`).get() as { body: string }
+    expect(log.body).toContain('没有已过期订阅')
   })
 
   it('records the sweep even when it throws', async () => {

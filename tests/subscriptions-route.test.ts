@@ -348,6 +348,17 @@ describe('settings', () => {
     expect(answer.settings.notificationHours).toEqual(['08', '20'])
   })
 
+  it('saves and reads the digest schedule without changing ordinary reminder hours', async () => {
+    const saved = await json<any>(await send('PUT', '/settings', { digest: 'weekly', digestHour: '9', notificationHours: ['08', '20'] }))
+    expect(saved.settings).toMatchObject({ digest: 'weekly', digestHour: 9, notificationHours: ['08', '20'] })
+    expect((await json<any>(await send('GET', '/settings'))).settings).toMatchObject({ digest: 'weekly', digestHour: 9 })
+  })
+
+  it('refuses a digest frequency or hour the scheduler cannot honour', async () => {
+    expect((await send('PUT', '/settings', { digest: 'monthly' })).status).toBe(400)
+    expect((await send('PUT', '/settings', { digestHour: 24 })).status).toBe(400)
+  })
+
   it('refuses notification hours that cannot match the scheduler', async () => {
     const response = await send('PUT', '/settings', { notificationHours: ['08:00'] })
     expect(response.status).toBe(400)

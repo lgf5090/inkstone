@@ -69,7 +69,7 @@ async function seedSubscription(overrides: Record<string, unknown> = {}, userId 
 }
 
 function store(userId = ALICE) {
-  return { store: new SubscriptionsStore(env.DB, userId), context: storeContext({ timezone: 'Asia/Shanghai', paymentHistoryLimit: 100, locale: 'zh-CN', notificationHours: [], showLunar: false, baseCurrency: 'CNY', budgetMonthly: null, budgetYearly: null, budgetCategories: {}, rateOverrides: {}, inboundTokenHint: '' }, NOW) }
+  return { store: new SubscriptionsStore(env.DB, userId), context: storeContext({ timezone: 'Asia/Shanghai', paymentHistoryLimit: 100, locale: 'zh-CN', notificationHours: [], digest: 'off', digestHour: 8, showLunar: false, baseCurrency: 'CNY', budgetMonthly: null, budgetYearly: null, budgetCategories: {}, rateOverrides: {}, inboundTokenHint: '' }, NOW) }
 }
 
 beforeEach(() => {
