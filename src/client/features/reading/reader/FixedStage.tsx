@@ -295,6 +295,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
         })
         at = folded.indexOf(needle, at + needle.length)
       }
+      if (index % 8 === 7) await new Promise((resolve) => window.setTimeout(resolve, 0))
     }
     return hits
   }, [book.format, book.id, pages])
