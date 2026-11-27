@@ -15,6 +15,8 @@ import type {
   ProjectCard,
   ProjectCardLink,
   ProjectCardMarks,
+  ProjectCardVersion,
+  ProjectCardVersionDetail,
   ProjectMyTask,
   ProjectTimeEntry,
   ProjectCategory,
@@ -255,6 +257,24 @@ export async function fetchCardDetail(cardId: string, signal?: AbortSignal): Pro
 export async function fetchCardComments(cardId: string, signal?: AbortSignal): Promise<ProjectComment[]> {
   const body = await request<{ comments: ProjectComment[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/comments`, { signal })
   return body.comments
+}
+
+export async function fetchProjectCardVersions(cardId: string, signal?: AbortSignal): Promise<ProjectCardVersion[]> {
+  const body = await request<{ versions: ProjectCardVersion[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/versions`, { signal })
+  return body.versions
+}
+
+export async function fetchProjectCardVersion(cardId: string, versionId: string, signal?: AbortSignal): Promise<ProjectCardVersionDetail> {
+  const body = await request<{ version: ProjectCardVersionDetail }>(`/api/project/cards/${encodeURIComponent(cardId)}/versions/${encodeURIComponent(versionId)}`, { signal })
+  return body.version
+}
+
+export async function restoreProjectCardVersion(cardId: string, versionId: string, expectedUpdateAt: number): Promise<ProjectCard> {
+  const body = await request<{ card: ProjectCard }>(`/api/project/cards/${encodeURIComponent(cardId)}/versions/${encodeURIComponent(versionId)}/restore`, {
+    method: 'POST',
+    body: { expectedUpdateAt },
+  })
+  return body.card
 }
 
 export async function createCardComment(cardId: string, body: string): Promise<ProjectComment> {

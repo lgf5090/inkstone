@@ -13,6 +13,7 @@ import {
   ProjectCardMarksSchema,
   ProjectCardMoveSchema,
   ProjectCardPatchSchema,
+  ProjectCardVersionRestoreSchema,
   ProjectCategoryBoardHiddenSchema,
   ProjectCategoryBoardOrderSchema,
   ProjectCategoryCreateSchema,
@@ -80,8 +81,9 @@ import {
   createProjectSprint, deleteProjectSprint, getProjectSprint, listProjectSprints,
   patchProjectSprint, readSprintDetail, setCardSprint,
 } from './sprints'
-import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
-import { PROJECT_D1_BATCH_STATEMENT_LIMIT } from './d1'
+import { batchDeleteProjectBoard, batchPatchProjectBoard, projectBatchStatementCount } from './batch'
+import { assertProjectBatchStatementLimit, PROJECT_D1_BATCH_STATEMENT_LIMIT } from './d1'
+import { createProjectCardVersion, getProjectCardVersion, listProjectCardVersions, restoreProjectCardVersion } from './versions'
 import { projectBoardCursor, readProjectBoardBundle, rowToComment, rowToContent, touchProjectBoard } from './bundle'
 import {
   addBoardToCategory,
@@ -336,6 +338,8 @@ function projectAuditTargets(path: string, method: string, input: unknown): Arra
     if (content) add('content', content)
     if (view) add('view', view)
   }
+  const versionCard = /^\/api\/project\/cards\/([^/]+)\/versions\/[^/]+\/restore$/.exec(path)?.[1]
+  if (versionCard && method === 'POST') add('card', versionCard)
   return targets
 }
 
@@ -351,6 +355,51 @@ function projectAuditPatch(input: unknown, entity: ProjectAuditEntity, id: strin
   return undefined
 }
 
+async function projectVersionCardIds(c: Context<AppBindings>, input: unknown): Promise<string[]> {
+  if (c.req.path.includes('/versions/')) return []
+  const ids = new Set<string>()
+  const add = (id: string | undefined): void => { if (id) ids.add(id) }
+  const addContentCards = async (contentIds: readonly string[]): Promise<void> => {
+    for (let offset = 0; offset < contentIds.length; offset += 90) {
+      const chunk = contentIds.slice(offset, offset + 90)
+      if (chunk.length === 0) continue
+      const marks = chunk.map((_, index) => `?${index + 1}`).join(',')
+      const { results } = await c.env.DB.prepare(`SELECT card_id FROM project_card_contents WHERE id IN (${marks})`).bind(...chunk).all<{ card_id: string }>()
+      for (const row of results) add(row.card_id)
+    }
+  }
+  const card = /^\/api\/project\/cards\/([^/]+)$/.exec(c.req.path)?.[1]
+  if (card && (c.req.method === 'PATCH' || c.req.method === 'DELETE')) add(card)
+  const nestedCreate = /^\/api\/project\/cards\/([^/]+)\/contents$/.exec(c.req.path)?.[1]
+  if (nestedCreate && c.req.method === 'POST') add(nestedCreate)
+  const content = /^\/api\/project\/contents\/([^/]+)$/.exec(c.req.path)?.[1]
+  if (content && (c.req.method === 'PATCH' || c.req.method === 'DELETE')) await addContentCards([content])
+  const movedContent = /^\/api\/project\/contents\/([^/]+)\/move$/.exec(c.req.path)?.[1]
+  if (movedContent && c.req.method === 'POST') await addContentCards([movedContent])
+  if (/^\/api\/project\/contents\/[^/]+\/undelete$/.test(c.req.path) && c.req.method === 'POST') {
+    const id = /^\/api\/project\/contents\/([^/]+)\/undelete$/.exec(c.req.path)?.[1]
+    if (id) await addContentCards([id])
+  }
+  if (isAuditRecord(input)) {
+    if (Array.isArray(input.cards)) for (const row of input.cards) if (isAuditRecord(row) && typeof row.id === 'string') add(row.id)
+    if (Array.isArray(input.contents)) {
+      const contentIds = input.contents.filter((row): row is { id: string } => isAuditRecord(row) && typeof row.id === 'string').map((row) => row.id)
+      await addContentCards(contentIds)
+    }
+    if (Array.isArray(input.cardIds)) for (const id of input.cardIds) if (typeof id === 'string') add(id)
+    if (Array.isArray(input.contentIds)) await addContentCards(input.contentIds.filter((id): id is string => typeof id === 'string'))
+  }
+  return [...ids]
+}
+
+async function snapshotProjectRequestVersions(c: Context<AppBindings>, input: unknown): Promise<void> {
+  for (const cardId of await projectVersionCardIds(c, input)) {
+    await createProjectCardVersion(c.env.DB, cardId, projectUserId(c), Date.now()).catch((error: unknown) => {
+      console.warn('[inkstone] project card version snapshot failed:', error instanceof Error ? error.message : error)
+    })
+  }
+}
+
 async function collectProjectAuditChanges(c: Context<AppBindings>, payload: Record<string, unknown> | null): Promise<ProjectActivityChange[]> {
   const before = c.get('projectAuditBefore') ?? []
   const input = c.get('projectAuditInput')
@@ -360,7 +409,8 @@ async function collectProjectAuditChanges(c: Context<AppBindings>, payload: Reco
     const responseValue = payload?.[snapshot.entity]
     let next = isAuditRecord(responseValue) && responseValue.id === snapshot.id ? responseValue : null
     if (!next && method !== 'DELETE') next = (await readProjectAuditSnapshot(c, snapshot.entity, snapshot.id)).value
-    changes.push(...diffProjectAuditSnapshot(snapshot, projectAuditPatch(input, snapshot.entity, snapshot.id), next, method))
+    const patch = c.req.path.includes('/versions/') && c.req.path.endsWith('/restore') ? next : projectAuditPatch(input, snapshot.entity, snapshot.id)
+    changes.push(...diffProjectAuditSnapshot(snapshot, patch, next, method))
   }
   for (const entity of ['board', 'card', 'comment', 'content', 'view'] as const) {
     const value = payload?.[entity]
@@ -927,6 +977,8 @@ projectRoutes.post('/boards/:id/views', async (c) => {
 projectRoutes.patch('/boards/:id/batch', async (c) => {
   const { board, userId, role } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectBatchSchema)
+  assertProjectBatchStatementLimit(projectBatchStatementCount(input))
+  await snapshotProjectRequestVersions(c, input)
   await batchPatchProjectBoard(c.env.DB, board, input, userId, Date.now(), role, c.env)
   return c.json({ ok: true })
 })
@@ -934,6 +986,7 @@ projectRoutes.patch('/boards/:id/batch', async (c) => {
 projectRoutes.post('/boards/:id/batch-delete', async (c) => {
   const { board, userId, role } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectBatchDeleteSchema)
+  await snapshotProjectRequestVersions(c, input)
   await batchDeleteProjectBoard(c.env.DB, board, input, userId, Date.now(), role)
   return c.json({ ok: true })
 })
@@ -1227,6 +1280,7 @@ projectRoutes.patch('/cards/:id', async (c) => {
   const properties = await readBoardProperties(c.env.DB, rawCard.boardId)
   await assertProjectValuesWritable(c.env.DB, rawCard.boardId, role, patch.values)
   await assertProjectRelationValues(c.env.DB, properties, patch.values, userId)
+  await snapshotProjectRequestVersions(c, patch)
   const now = Date.now()
   const updated = await patchProjectCard(c.env.DB, rawCard, patch, userId, now, projectRelationTargets(properties))
   if (patch.values !== undefined) {
@@ -1238,6 +1292,7 @@ projectRoutes.patch('/cards/:id', async (c) => {
 
 projectRoutes.delete('/cards/:id', async (c) => {
   const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  await snapshotProjectRequestVersions(c, undefined)
   await softDeleteProjectCard(c.env.DB, card.id, userId, Date.now())
   return c.json({ ok: true })
 })
@@ -1323,6 +1378,7 @@ projectRoutes.post('/views/:id/duplicate', async (c) => {
 projectRoutes.post('/cards/:id/contents', async (c) => {
   const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectContentCreateSchema)
+  await snapshotProjectRequestVersions(c, input)
   return c.json({ content: await createProjectContent(c.env.DB, card, userId, input, Date.now()) }, 201)
 })
 
@@ -1334,17 +1390,20 @@ projectRoutes.get('/contents/:id', async (c) => {
 projectRoutes.patch('/contents/:id', async (c) => {
   const { content, userId } = await requireContent(c, c.req.param('id'), 'editor')
   const patch = await projectBody(c, ProjectContentPatchSchema)
+  await snapshotProjectRequestVersions(c, patch)
   return c.json({ content: await patchProjectContent(c.env.DB, content, patch, userId, Date.now()) })
 })
 
 projectRoutes.delete('/contents/:id', async (c) => {
   const { content, userId } = await requireContent(c, c.req.param('id'), 'editor')
+  await snapshotProjectRequestVersions(c, undefined)
   await softDeleteProjectContent(c.env.DB, content, userId, Date.now())
   return c.json({ ok: true })
 })
 
 projectRoutes.post('/contents/:id/undelete', async (c) => {
   const { content, userId } = await requireContent(c, c.req.param('id'), 'editor', { allowDeleted: true })
+  await snapshotProjectRequestVersions(c, undefined)
   await undeleteProjectContent(c.env.DB, content, userId, Date.now())
   return c.json({ content: await getProjectContent(c.env.DB, content.id) })
 })
@@ -1352,7 +1411,32 @@ projectRoutes.post('/contents/:id/undelete', async (c) => {
 projectRoutes.post('/contents/:id/move', async (c) => {
   const { content, userId } = await requireContent(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectContentMoveSchema, JSON_BODY_LIMITS.small)
+  await snapshotProjectRequestVersions(c, input)
   return c.json({ content: await moveProjectContent(c.env.DB, content, input.targetId, input.where, userId, Date.now()) })
+})
+
+projectRoutes.get('/cards/:id/versions', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ versions: await listProjectCardVersions(c.env.DB, card.id) })
+})
+
+projectRoutes.get('/cards/:id/versions/:versionId', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  const version = await getProjectCardVersion(c.env.DB, card.id, c.req.param('versionId'))
+  if (!version) throw ApiError.notFound('Version not found')
+  return c.json({ version })
+})
+
+projectRoutes.post('/cards/:id/versions/:versionId/restore', async (c) => {
+  const { card, board, userId, role } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectCardVersionRestoreSchema)
+  if (input.expectedUpdateAt !== card.updateAt) throw ApiError.conflict('Card changed on another device')
+  const version = await getProjectCardVersion(c.env.DB, card.id, c.req.param('versionId'))
+  if (!version) throw ApiError.notFound('Version not found')
+  await createProjectCardVersion(c.env.DB, card.id, userId, Date.now())
+  const restored = await restoreProjectCardVersion(c.env.DB, c.env, board, card, version, userId, Math.max(Date.now(), card.updateAt + 1))
+  const properties = await readBoardProperties(c.env.DB, card.boardId)
+  return c.json({ card: projectCardForRole(restored, properties, role) })
 })
 
 projectRoutes.get('/cards/:id/comments', async (c) => {

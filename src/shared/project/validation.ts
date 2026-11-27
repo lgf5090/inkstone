@@ -219,6 +219,12 @@ export const ProjectCardPatchSchema = z.object({
 })
 export type ProjectCardPatchInput = z.infer<typeof ProjectCardPatchSchema>
 
+export const ProjectCardVersionRestoreSchema = z.object({
+  expectedUpdateAt: stamp,
+})
+
+export type ProjectCardVersionRestoreInput = z.infer<typeof ProjectCardVersionRestoreSchema>
+
 export const ProjectCardMoveSchema = z.object({ targetBoardId: projectId })
 
 export const ProjectDefaultViewPutSchema = z.object({
@@ -309,6 +315,33 @@ export const ProjectContentMoveSchema = z.object({
   where: z.enum(['before', 'after']),
   targetId: projectId,
 })
+
+export const ProjectCardVersionSnapshotSchema = z.object({
+  card: z.object({
+    title,
+    icon,
+    parentId: z.union([projectId, z.literal('')]),
+    contentOrder: z.array(z.union([projectId, z.array(projectId).max(64)])).max(PROJECT_LIMITS.contentsPerCard),
+    values: z.record(projectId, propertyValue),
+    recurrence: ProjectRecurrenceSchema.nullable().optional(),
+  }),
+  contents: z.array(z.object({
+    id: projectId,
+    cardId: projectId,
+    boardId: projectId,
+    type: z.enum(PROJECT_CONTENT_TYPES),
+    title: z.string().max(PROJECT_LIMITS.fieldsRunes),
+    fields: ProjectContentFieldsSchema,
+    position,
+    createdBy: z.string().min(1).max(64),
+    modifiedBy: z.string().min(1).max(64),
+    createAt: stamp,
+    updateAt: stamp,
+    deleteAt: stamp,
+  })).max(PROJECT_LIMITS.contentsPerCard),
+})
+
+export type ProjectCardVersionSnapshotInput = z.infer<typeof ProjectCardVersionSnapshotSchema>
 
 export const ProjectCommentCreateSchema = z.object({
   id: projectId.optional(),

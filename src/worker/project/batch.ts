@@ -68,6 +68,14 @@ async function readViewsByIds(db: D1Database, ids: readonly string[]): Promise<M
   return map
 }
 
+export function projectBatchStatementCount(input: ProjectBatchInput): number {
+  const cards = input.cards ?? []
+  const contents = input.contents ?? []
+  const views = input.views ?? []
+  return cards.reduce((total, { patch }) => total + 1 + Object.keys(patch.values ?? {}).length, 0)
+    + contents.length + views.length
+}
+
 export async function batchPatchProjectBoard(
   db: D1Database,
   board: ProjectBoard,
@@ -80,9 +88,7 @@ export async function batchPatchProjectBoard(
   const cards = input.cards ?? []
   const contents = input.contents ?? []
   const views = input.views ?? []
-  const statementCount = cards.reduce((total, { patch }) => total + 1 + Object.keys(patch.values ?? {}).length, 0)
-    + contents.length + views.length
-  assertProjectBatchStatementLimit(statementCount)
+  assertProjectBatchStatementLimit(projectBatchStatementCount(input))
   const properties = await readBoardProperties(db, board.id)
   const relationTargets = projectRelationTargets(properties)
   for (const { patch } of cards) {

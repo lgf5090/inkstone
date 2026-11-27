@@ -8,6 +8,23 @@
  * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.
  */
 
+export const PROJECT_VERSION_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_card_versions (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_versions_card
+     ON project_card_versions(card_id, created_at DESC, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_versions_board
+     ON project_card_versions(board_id, created_at DESC, id DESC)`,
+]
+
 export const PROJECT_AUDIT_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS project_activity_changes (
     id TEXT PRIMARY KEY,
@@ -39,6 +56,7 @@ export const PROJECT_PRESENCE_SCHEMA_STATEMENTS: readonly string[] = [
 ]
 
 export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
+  ...PROJECT_VERSION_SCHEMA_STATEMENTS,
   ...PROJECT_AUDIT_SCHEMA_STATEMENTS,
   ...PROJECT_PRESENCE_SCHEMA_STATEMENTS,
   `CREATE TABLE IF NOT EXISTS project_boards (
@@ -745,6 +763,7 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_settings',
   'project_activity',
   'project_activity_changes',
+  'project_card_versions',
   'project_card_links',
   'project_todo_links',
   'project_card_relations',
@@ -787,6 +806,8 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_activity_created',
   'idx_project_activity_changes_activity',
   'idx_project_activity_changes_board',
+  'idx_project_card_versions_card',
+  'idx_project_card_versions_board',
   'idx_project_card_links_to',
   'idx_project_card_links_board',
   'idx_project_todo_links_todo',
@@ -854,6 +875,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   project_activity_changes: [
     'id', 'activity_id', 'board_id', 'actor_id', 'entity_type', 'entity_id', 'field_key', 'old_value', 'new_value', 'created_at',
   ],
+  project_card_versions: ['id', 'card_id', 'board_id', 'actor_id', 'title', 'payload', 'size', 'created_at'],
   project_card_links: ['from_card_id', 'to_card_id', 'kind', 'board_id', 'created_at'],
   project_todo_links: ['card_id', 'todo_id', 'user_id', 'created_at'],
   project_card_relations: ['board_id', 'from_card_id', 'to_card_id', 'property_id', 'created_at'],

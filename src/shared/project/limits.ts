@@ -18,6 +18,7 @@ export const PROJECT_LIMITS = {
   propertiesPerBoard: 100,
   optionsPerProperty: 200,
   contentsPerCard: 500,
+  cardVersions: 50,
   undoDepth: 100,
   idLength: 27,
   batchOperations: 200,

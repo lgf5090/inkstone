@@ -413,6 +413,31 @@ export interface ProjectRecurrence {
   anchor?: number
 }
 
+export interface ProjectCardVersion {
+  id: string
+  cardId: string
+  title: string
+  actorId: string
+  size: number
+  createdAt: number
+}
+
+export interface ProjectCardVersionSnapshot {
+  card: {
+    title: string
+    icon: string
+    parentId: string
+    contentOrder: (string | string[])[]
+    values: Record<string, string>
+    recurrence?: ProjectRecurrence | null
+  }
+  contents: ProjectContent[]
+}
+
+export interface ProjectCardVersionDetail extends ProjectCardVersion {
+  snapshot: ProjectCardVersionSnapshot
+}
+
 export interface ProjectCard {
   id: string
   boardId: string

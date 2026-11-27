@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactElement } from 'react'
-import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Link2, Minus, MoreHorizontal, Pencil, Plus, Repeat, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
+import { Archive, Bell, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, History, Link2, Minus, MoreHorizontal, Pencil, Plus, Repeat, SlidersHorizontal, Sparkles, Trash2, Type, type LucideIcon } from 'lucide-react'
 import type { ProjectAttachment, ProjectBoardMember, ProjectCard, ProjectCardLink, ProjectComment, ProjectContent, ProjectPeople, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone, projectDonePatch, projectPersonLabel } from '@shared/project/model'
 import { projectInputToStamp, projectStampToInput } from '@shared/project/date'
@@ -22,6 +22,7 @@ import { useProjectWatch } from './use-watch'
 import type { UndoCommand } from './undo'
 import { CardAttachmentsSection, CardCommentsSection, CardDependenciesSection, CardSubtasksSection } from './CardDialogSections'
 import { PROJECT_REALTIME_EVENT, type ProjectRealtimeDetail } from './realtime-events'
+import { CardVersionsDialog } from './CardVersionsDialog'
 
 interface CardDialogProps {
   card: ProjectCard
@@ -66,6 +67,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   const [commentsAttempt, setCommentsAttempt] = useState(0)
   const [commentDraft, setCommentDraft] = useState('')
   const [posting, setPosting] = useState(false)
+  const [showVersions, setShowVersions] = useState(false)
   const [blocks, setBlocks] = useState<ProjectContent[]>(contents)
   const [links, setLinks] = useState<ProjectCardLink[] | null>(null)
   const [linksError, setLinksError] = useState(false)
@@ -576,6 +578,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
   }
 
   return (
+    <>
     <Modal open onClose={onClose} title={card.title || t('project.board.untitled_card')} width={980}>
       <div className="flex flex-col gap-4 md:flex-row" data-card-detail={card.id}>
       <div className="min-w-0 flex-1 space-y-4">
@@ -633,6 +636,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
             onClose={() => setMenuOpen(false)}
             label={t('project.card.menu')}
             items={[
+              { id: 'versions', label: t('common.version_history'), icon: <History size={15} />, onSelect: () => setShowVersions(true) },
               ...(canEdit ? [
                 { id: 'duplicate', label: t('project.card.duplicate'), icon: <Copy size={15} />, onSelect: () => { void duplicateCard() } },
                 { id: 'ai-summarize', label: t(aiSummarizing ? 'project.card.ai_summarizing' : 'project.card.ai_summarize'), icon: <Sparkles size={15} />, disabled: aiSummarizing, onSelect: () => { void summarizeCardWithAi() } },
@@ -782,5 +786,21 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       </div>
     </div>
     </Modal>
+    {showVersions && (
+      <CardVersionsDialog
+        cardId={card.id}
+        cardTitle={card.title || t('project.board.untitled_card')}
+        expectedUpdateAt={card.updateAt}
+        canEdit={canEdit}
+        onClose={() => setShowVersions(false)}
+        onRestored={(updated) => {
+          onUpdated(updated)
+          onRefresh()
+          setShowVersions(false)
+          onClose()
+        }}
+      />
+    )}
+    </>
   )
 }
