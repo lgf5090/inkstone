@@ -366,7 +366,7 @@ function parseDiscoveryXml(xml: string): DiscoveryElement {
     const stack: OpenElement[] = []
     const parser = new Parser({
       onopentag(name, attributes) {
-        if (stack.length === 0 && root) throw new Error('Multiple XML roots')
+        if (stack.length === 0 && rootBox.current) throw new Error('Multiple XML roots')
         const namespaces = new Map(stack.at(-1)?.namespaces ?? [])
         for (const [attribute, value] of Object.entries(attributes)) {
           if (attribute === 'xmlns') namespaces.set('', value)
@@ -417,7 +417,8 @@ function parseDiscoveryXml(xml: string): DiscoveryElement {
       throw new Error('Expected a DAV multistatus document')
     }
     return root
-  } catch {
+  } catch (error) {
+    console.warn('[inkstone] CalDAV discovery XML rejected:', error instanceof Error ? error.message : error)
     throw new ApiError(502, 'internal', 'The calendar server returned malformed discovery XML')
   }
 }
