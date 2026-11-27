@@ -11,8 +11,8 @@
 import { api } from '../../../lib/api'
 import type { ReaderUsage } from '@shared/types'
 import { downloadAsBlob, uploadWithProgress } from '../../../lib/transfer'
-import type { BookRecord, BookStats, Highlight, LocationMark, ReadingNoteLinks, ReadingProgress } from '../types'
-import type { BookGroup } from '../book-groups'
+import type { BookRecord } from '../types'
+import type { LibraryData, TombstonePayload } from '../sync-merge'
 
 export interface SyncState {
   phase: 'idle' | 'uploading' | 'downloading' | 'pushing' | 'pulling'
@@ -27,15 +27,7 @@ export interface SyncState {
 export const IDLE_SYNC: SyncState = { phase: 'idle', bookId: null, sent: 0, total: 0, message: null, at: 0 }
 
 /** The shelf as text: everything the local store holds except the book files themselves. */
-export interface LibraryPayload {
-  books: BookRecord[]
-  progress: Record<string, ReadingProgress>
-  highlights: Record<string, Highlight[]>
-  marks: Record<string, LocationMark[]>
-  stats: Record<string, BookStats>
-  notes: ReadingNoteLinks
-  groups: BookGroup[]
-}
+export type LibraryPayload = Omit<LibraryData, 'deleted'> & { deleted: TombstonePayload }
 
 /** Upload a book's bytes. The row must already exist server-side, which the push of the state does. */
 export async function uploadBookBytes(
@@ -72,7 +64,7 @@ export async function pushLibrary(library: LibraryPayload): Promise<PushResult> 
   }
 }
 
-export async function pullLibrary(): Promise<{ library: LibraryPayload | null; usage: ReaderUsage | null }> {
+export async function pullLibrary(): Promise<{ library: LibraryData | null; usage: ReaderUsage | null }> {
   const answer = await api.readerLibrary.get()
   return { library: answer?.library ?? null, usage: answer?.usage ?? null }
 }

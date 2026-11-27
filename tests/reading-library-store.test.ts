@@ -13,7 +13,7 @@ function exportOf(books: unknown[]): string {
 }
 
 beforeEach(() => {
-  useLibrary.setState({ books: [], progress: {}, highlights: {}, marks: {}, stats: {}, notes: { byBook: {}, vocabulary: null } })
+  useLibrary.setState({ books: [], progress: {}, highlights: {}, marks: {}, stats: {}, notes: { byBook: {}, updatedAt: {}, vocabulary: null, vocabularyUpdatedAt: null }, groups: [], deleted: { books: [], progress: [], highlights: [], marks: [], stats: [], notes: [], groups: [], vocabulary: null } })
 })
 
 describe('importing a library file', () => {

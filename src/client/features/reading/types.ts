@@ -15,6 +15,8 @@ export interface BookRecord {
   filename: string
   size: number
   addedAt: number
+  /** Last local or remote change to this shelf row; older snapshots must not replace it. */
+  updatedAt?: number
   /** Number of spine items or pages; the denominator of every progress figure the shelf shows. */
   unitCount: number
   /** Package path of the cover inside the archive, when the format carries one. */
@@ -78,6 +80,7 @@ export interface LocationMark {
   label: string
   position: BookPosition
   createdAt: number
+  updatedAt?: number
 }
 
 export interface BookStats {
@@ -85,12 +88,16 @@ export interface BookStats {
   seconds: number
   /** Day keys (`YYYY-MM-DD`) to seconds, which is what the daily goal is measured against. */
   days: Record<string, number>
+  updatedAt?: number
 }
 
 /** Which note a book's highlights are being written into, and where the vocabulary note lives. */
 export interface ReadingNoteLinks {
   byBook: Record<string, string>
+  /** Per-book link versions, so unlinking and relinking participate in the same merge as other rows. */
+  updatedAt: Record<string, number>
   vocabulary: string | null
+  vocabularyUpdatedAt: number | null
 }
 
 export interface ImportFailure {
