@@ -1443,6 +1443,10 @@ export const api = {
       request<{ feedId: string, articles: RssEntry[] }>(`/api/rss/articles?feedId=${encodeURIComponent(feedId)}`),
     search: (query: string, feedId = '') =>
       request<{ articles: RssEntry[] }>(`/api/rss/search?q=${encodeURIComponent(query)}${feedId ? `&feedId=${encodeURIComponent(feedId)}` : ''}`),
+    rules: () => request<{ rules: Array<{ id: string, feedId: string, keyword: string, enabled: boolean, createdAt: number }> }>('/api/rss/rules'),
+    addRule: (keyword: string, feedId = '') =>
+      request<{ rule: { id: string, feedId: string, keyword: string, enabled: boolean, createdAt: number } }>('/api/rss/rules', { method: 'POST', body: { keyword, feedId } }),
+    deleteRule: (id: string) => request<{ ok: true }>(`/api/rss/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     /**
      * Hand one feed's articles to the account, so the assistant can read them.
      *

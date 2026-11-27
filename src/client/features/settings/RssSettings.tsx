@@ -33,6 +33,7 @@ import { clearLegacyAiKey, loadLegacyAiKey, type LegacyRssAi } from '../rss/ai'
 import { useAssistant } from '../chat/assistant-store'
 import { useRss } from '../rss/store'
 import { SourceHealth } from '../rss/SourceHealth'
+import { RssRules } from '../rss/RssRules'
 
 export function RssSettings(): ReactElement {
   const rss = useSession(state => state.settings.rss)
@@ -331,6 +332,8 @@ export function RssSettings(): ReactElement {
           </div>
         )}
       </section>
+
+      <RssRules />
 
       <SourceHealth />
 

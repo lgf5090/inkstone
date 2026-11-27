@@ -1,7 +1,8 @@
 import { fetchFeed } from './rss-fetch'
 import { parseServerFeed } from './rss-parse'
-import { saveServerRssArticles } from './rss-store'
+import { saveServerRssArticles, listRssRules } from './rss-store'
 import { consumeAttemptBudget } from './throttle'
+import type { RssEntry } from '@shared/rss/model'
 
 interface DueFeed {
   user_id: string
@@ -15,6 +16,24 @@ interface DueFeed {
 
 const TICK_BATCH = 100
 const TICK_CONCURRENCY = 5
+
+async function notifyMatchingRules(db: D1Database, userId: string, feedId: string, entries: RssEntry[], now: number): Promise<void> {
+  const rules = (await listRssRules(db, userId)).filter(rule => rule.enabled && (!rule.feedId || rule.feedId === feedId))
+  const statements = []
+  for (const rule of rules) {
+    const keyword = rule.keyword.toLocaleLowerCase()
+    for (const entry of entries) {
+      const haystack = `${entry.title}\n${entry.summary}\n${entry.content}`.toLocaleLowerCase()
+      if (!haystack.includes(keyword)) continue
+      statements.push(db.prepare(`INSERT OR IGNORE INTO chat_notifications (id, user_id, title, body, automation_id, link, created_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, '/rss', ?6)`).bind(
+          `rss:${rule.id}:${entry.id}`, userId, entry.title || rule.keyword, entry.summary.slice(0, 240),
+          `rss-rule:${rule.id}:${entry.id}`, now,
+        ))
+    }
+  }
+  if (statements.length) await db.batch(statements)
+}
 
 /** Claim and refresh feeds whose account setting has enabled server-side scheduling. */
 export async function runRssSchedulerTick(db: D1Database, now = Date.now()): Promise<{ refreshed: number, failed: number }> {
@@ -50,7 +69,11 @@ export async function runRssSchedulerTick(db: D1Database, now = Date.now()): Pro
         }
         if (result.status !== 304) {
           const parsed = parseServerFeed(result.xml, feed.id, result.finalUrl ?? feed.url)
+          const prior = await db.prepare('SELECT entry_id FROM rss_article WHERE user_id = ?1 AND feed_id = ?2').bind(feed.user_id, feed.id).all<{ entry_id: string }>()
+          const known = new Set(prior.results.map(row => row.entry_id))
+          const fresh = parsed.entries.filter(entry => !known.has(entry.id))
           await saveServerRssArticles(db, feed.user_id, feed.id, parsed.entries, now)
+          await notifyMatchingRules(db, feed.user_id, feed.id, fresh, now)
           await db.prepare(`UPDATE rss_feed SET title = ?1, site_url = ?2, image_url = ?3, url = ?4, etag = ?5, last_modified = ?6,
             updated_at = ?7, error = '', error_count = 0, last_error_at = 0 WHERE user_id = ?8 AND id = ?9 AND title_locked = 0`)
             .bind(parsed.title || feed.title, parsed.siteUrl, parsed.imageUrl, result.finalUrl ?? feed.url, result.etag ?? '', result.lastModified ?? '', now, feed.user_id, feed.id).run()

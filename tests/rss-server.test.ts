@@ -5,7 +5,7 @@ import { emptyLibrary, newFeed } from '../src/shared/rss/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { parseServerFeed } from '../src/worker/lib/rss-parse'
 import { runRssSchedulerTick } from '../src/worker/lib/rss-scheduler'
-import { loadServerRssArticles, saveServerRssArticles, searchServerRssArticles, storeRssLibrary } from '../src/worker/lib/rss-store'
+import { createRssRule, loadServerRssArticles, saveServerRssArticles, searchServerRssArticles, storeRssLibrary } from '../src/worker/lib/rss-store'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER = 'server-rss-user'
@@ -65,9 +65,11 @@ describe('scheduled server refresh', () => {
     sqlite.prepare('UPDATE users SET settings = ?1 WHERE id = ?2').run(JSON.stringify({ rss: { refreshIntervalMinutes: 5 } }), USER)
     const feed = { ...newFeed('f1', 'https://example.com/feed.xml', 'Example', 0), lastAttemptAt: now - 6 * 60_000 }
     await storeRssLibrary(db, USER, { ...emptyLibrary(), feeds: [feed] }, 1)
+    await createRssRule(db, USER, 'f1', 'Fresh')
     vi.stubGlobal('fetch', vi.fn(async () => new Response('<rss><channel><title>Example</title><item><title>Fresh</title><link>https://example.com/fresh</link></item></channel></rss>', { headers: { 'content-type': 'application/rss+xml' } })))
     expect(await runRssSchedulerTick(db, now)).toEqual({ refreshed: 1, failed: 0 })
     expect((await loadServerRssArticles(db, USER, 'f1')).map(entry => entry.title)).toEqual(['Fresh'])
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications WHERE user_id = ?').get(USER)).toMatchObject({ count: 1 })
     expect(await runRssSchedulerTick(db, now + 1000)).toEqual({ refreshed: 0, failed: 0 })
   })
 })

@@ -824,3 +824,36 @@ export async function searchServerRssArticles(db: D1Database, userId: string, qu
   ).bind(...params).all<ArticleRow>()
   return results.map(articleFromRow).filter((entry): entry is RssEntry => entry !== null)
 }
+
+export interface RssRule {
+  id: string
+  feedId: string
+  keyword: string
+  enabled: boolean
+  createdAt: number
+}
+
+interface RuleRow {
+  id: string
+  feed_id: string
+  keyword: string
+  enabled: number
+  created_at: number
+}
+
+export async function listRssRules(db: D1Database, userId: string): Promise<RssRule[]> {
+  const { results } = await db.prepare('SELECT id, feed_id, keyword, enabled, created_at FROM rss_rule WHERE user_id = ?1 ORDER BY created_at DESC, id ASC')
+    .bind(userId).all<RuleRow>()
+  return results.map(row => ({ id: row.id, feedId: row.feed_id, keyword: row.keyword, enabled: row.enabled === 1, createdAt: row.created_at }))
+}
+
+export async function createRssRule(db: D1Database, userId: string, feedId: string, keyword: string): Promise<RssRule> {
+  const rule: RssRule = { id: crypto.randomUUID(), feedId, keyword, enabled: true, createdAt: Date.now() }
+  await db.prepare('INSERT INTO rss_rule (user_id, id, feed_id, keyword, enabled, created_at) VALUES (?1, ?2, ?3, ?4, 1, ?5)')
+    .bind(userId, rule.id, rule.feedId, rule.keyword, rule.createdAt).run()
+  return rule
+}
+
+export async function deleteRssRule(db: D1Database, userId: string, id: string): Promise<void> {
+  await db.prepare('DELETE FROM rss_rule WHERE user_id = ?1 AND id = ?2').bind(userId, id).run()
+}

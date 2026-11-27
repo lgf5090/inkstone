@@ -17,7 +17,7 @@
 import { Hono } from 'hono'
 import { emptyLibrary, parseRssLibrary, rssHash, RSS_LIMITS, safeHttpUrl, type RssFeed, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty, patchIsMarksOnly } from '@shared/rss/patch'
-import { accountExists, deleteRssReadingFeed, loadRssLibrary, loadServerRssArticles, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, searchServerRssArticles, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
+import { accountExists, createRssRule, deleteRssReadingFeed, deleteRssRule, listRssRules, loadRssLibrary, loadServerRssArticles, rssFeedExists, rssMarkPatchFits, saveRssReadingFeed, searchServerRssArticles, storeRssLibrary, storeRssPatch, type RssRowPatch } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -148,6 +148,24 @@ rssRoutes.post('/fetch', async (c) => {
   }
   await Promise.all(Array.from({ length: Math.min(BATCH_CONCURRENCY, queue.length) }, worker))
   return c.json({ results })
+})
+
+rssRoutes.get('/rules', async (c) => c.json({ rules: await listRssRules(c.env.DB, c.get('userId')) }))
+
+rssRoutes.post('/rules', async (c) => {
+  const userId = c.get('userId')
+  const body = await readJson<{ feedId?: unknown, keyword?: unknown }>(c, 8 * 1024)
+  const keyword = typeof body.keyword === 'string' ? body.keyword.trim().slice(0, 80) : ''
+  if (!keyword) throw ApiError.badRequest('A rule keyword is required')
+  const feedId = typeof body.feedId === 'string' ? body.feedId.slice(0, 80) : ''
+  if (feedId && !(await rssFeedExists(c.env.DB, userId, feedId))) throw ApiError.notFound('Subscription not found')
+  const rule = await createRssRule(c.env.DB, userId, feedId, keyword)
+  return c.json({ rule }, 201)
+})
+
+rssRoutes.delete('/rules/:id', async (c) => {
+  await deleteRssRule(c.env.DB, c.get('userId'), c.req.param('id').slice(0, 80))
+  return c.json({ ok: true })
 })
 
 rssRoutes.get('/articles', async (c) => {

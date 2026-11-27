@@ -113,8 +113,8 @@ describe('the WebSSH tables', () => {
     const versions = SCHEMA_MIGRATIONS.map((migration) => migration.version)
     expect(new Set(versions).size).toBe(versions.length)
     // The project tables append 385–396 after this lane's own block; later migrations add assistant,
-    // email, query indexes, properties, webhooks, task reminders, attachment encryption, CloudDrive remediation, all-day to-dos, calendar reliability and server-side RSS reading through 444.
-    expect(Math.max(...versions)).toBe(444)
+    // email, query indexes, properties, webhooks, task reminders, attachment encryption, CloudDrive remediation, all-day to-dos, calendar reliability and server-side RSS reading through 445.
+    expect(Math.max(...versions)).toBe(445)
     const laneVersions = versions.filter((version) => version >= 298 && version <= 317)
     expect(Math.max(...laneVersions)).toBe(317)
     expect(versions.filter((version) => version === 298)).toHaveLength(1)

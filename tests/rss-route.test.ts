@@ -192,6 +192,19 @@ describe('the library', () => {
     expect((sqlite.prepare('SELECT COUNT(*) AS n FROM rss_mark WHERE user_id = ?1').get(USER) as { n: number }).n).toBe(1)
   })
 
+  it('creates, lists and deletes keyword notification rules', async () => {
+    await request('/library', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ library: libraryWith(1) }) })
+    const created = await request('/rules', json({ feedId: 'f0', keyword: 'release' }))
+    expect(created.status).toBe(201)
+    const { rule } = await created.json() as { rule: { id: string, keyword: string } }
+    expect(rule.keyword).toBe('release')
+    const listed = await (await request('/rules')).json() as { rules: Array<{ id: string }> }
+    expect(listed.rules.map(item => item.id)).toContain(rule.id)
+    expect((await request(`/rules/${rule.id}`, { method: 'DELETE' })).status).toBe(200)
+    const after = await (await request('/rules')).json() as { rules: unknown[] }
+    expect(after.rules).toEqual([])
+  })
+
   it('serves stored server articles to another device', async () => {
     await request('/library', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ library: libraryWith(1) }) })
     await saveServerRssArticles(db, USER, 'f0', [{
