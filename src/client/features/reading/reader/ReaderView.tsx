@@ -40,6 +40,7 @@ import { SearchPanel } from './SearchPanel'
 import { CommentCard } from './CommentCard'
 import { LookupCard } from './LookupCard'
 import { useReadingTimer } from './useReadingTimer'
+import { useAutoReadingNote } from './use-auto-reading-note'
 import { shortcutAllowedWhilePanelOpen, shortcutFor } from './shortcuts'
 import { ShortcutsPanel } from './ShortcutsPanel'
 import { StatsPanel } from './StatsPanel'
@@ -116,6 +117,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const noteId = useLibrary((state) => state.notes.byBook[book.id])
   const linkNote = useLibrary((state) => state.linkNote)
   const list = highlights ?? []
+  const refreshAutoNote = useAutoReadingNote(book, settings.autoBookNote)
   const setOpenBook = useReadingPage((state) => state.setOpenBook)
 
   /**
@@ -407,24 +409,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
     setSelection(null)
     window.getSelection()?.removeAllRanges()
     toast({ title: t('reading.highlight_saved'), tone: 'success' })
-    ensureNoteAfterMark()
-  }
-
-  /**
-   * The reader's own setting decides whether a mark files itself straight away.
-   *
-   * It reads the store after the write rather than this render's copy of the list, because the note has
-   * to hold the mark that was just made — and it stays silent, because being taken to a note while a
-   * book is open is the interruption the setting exists to allow turning off.
-   */
-  function ensureNoteAfterMark(): void {
-    if (!settings.autoBookNote || noteId) return
-    void (async () => {
-      const { ensureReadingNote } = await import('../reading-note')
-      const fresh = useLibrary.getState().highlights[book.id] ?? []
-      const id = await ensureReadingNote(book, fresh, undefined)
-      if (id) linkNote(book.id, id)
-    })()
+    refreshAutoNote()
   }
 
   async function addMark(): Promise<void> {
@@ -466,7 +451,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
     })
     setSelection(null)
     setComment({ ids: [created.id], rect: selection.rect })
-    ensureNoteAfterMark()
+    refreshAutoNote()
   }
 
   const translateSelection = useCallback(async () => {
@@ -824,7 +809,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
             />
           ) : null}
           {panel === 'appearance' ? <AppearancePanel /> : null}
-          {panel === 'highlights' ? <HighlightsPanel book={book} list={list} onJump={goToPosition} positionFor={(chapter, start) => isFixed ? { kind: 'fixed', page: chapter + 1 } : { kind: 'epub', chapter, offset: start }} onRemove={(id) => removeHighlight(book.id, id)} onComment={(id, comment) => updateHighlight(book.id, id, { comment })} /> : null}
+          {panel === 'highlights' ? <HighlightsPanel book={book} list={list} onJump={goToPosition} positionFor={(chapter, start) => isFixed ? { kind: 'fixed', page: chapter + 1 } : { kind: 'epub', chapter, offset: start }} onRemove={(id) => { removeHighlight(book.id, id); refreshAutoNote() }} onComment={(id, comment) => { updateHighlight(book.id, id, { comment }); refreshAutoNote() }} /> : null}
           {panel === 'marks' ? <MarksPanel bookId={book.id} onJump={goToPosition} onRemove={(id) => useLibrary.getState().removeMark(book.id, id)} /> : null}
           {panel === 'shortcuts' ? <ShortcutsPanel /> : null}
           {panel === 'stats' ? <StatsPanel bookId={book.id} goalMinutes={settings.dailyGoalMinutes} /> : null}
@@ -880,9 +865,10 @@ export function ReaderView({ book }: { book: BookRecord }) {
           bookId={book.id}
           theme={theme}
           onClose={() => setComment(null)}
-          onEdit={(id, patch) => updateHighlight(book.id, id, patch)}
+          onEdit={(id, patch) => { updateHighlight(book.id, id, patch); refreshAutoNote() }}
           onRemove={(id) => {
             removeHighlight(book.id, id)
+            refreshAutoNote()
             setComment(null)
           }}
         />
