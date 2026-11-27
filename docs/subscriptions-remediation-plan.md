@@ -97,3 +97,5 @@ For each task:
 - Closed the remaining default-rule path in `6eea8e6d4`: `before_trial_end` also requires the first payment to be absent, and the regression test keeps that rule present after conversion.
 - Removed the unused `loadAllSettings` export in `e7227530a` to satisfy the repository's no-dead-code rule.
 - The first parallel full-suite attempt hit the 600-second tool limit without summary lines and is explicitly not counted as a pass. Final verification is running sequentially with an extended timeout.
+- Shard 1 passed: 758 files / 8461 tests. Shard 2 exposed one real regression in `CommitNumberInput` (Escape/Enter during IME composition), fixed in `5c17abf64`; the IME guard and related form/subscription tests now pass. The other shard-2 failures were timeout flakes and passed in isolation.
+- `tests/calendar-sync.test.ts` is unchanged from the baseline and date-sensitive: its fixed 2026-10-28 event falls outside the 30-day sync window on 2026-11-28. It passes all 49 tests when run under its intended 2026-10-29 date. Final verification therefore runs the three shards with that single baseline file excluded, then runs it separately under the fixed date.
