@@ -19,6 +19,7 @@ import { Modal } from '../../components/overlay'
 import { readPublicProjectBoard } from './api'
 import { BoardViews } from './BoardViews'
 import { PublicIntakeDialog } from './PublicIntakeDialog'
+import { GuestEditDialog } from './GuestEditDialog'
 
 type ReadState = 'loading' | 'ready' | 'locked' | 'throttled' | 'gone' | 'error'
 
@@ -29,6 +30,7 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
   const [wrongPasscode, setWrongPasscode] = useState(false)
   const [openCardId, setOpenCardId] = useState<string | null>(null)
   const [showIntake, setShowIntake] = useState(false)
+  const [guestEdit, setGuestEdit] = useState<{ cardId: string, token: string } | null>(null)
   const loadGeneration = useRef(0)
 
   const load = useCallback(async (passcode: string) => {
@@ -60,6 +62,22 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
     void load('')
     return () => { loadGeneration.current += 1 }
   }, [load])
+
+  useEffect(() => {
+    const readHash = (): void => {
+      const match = /^#edit=([^:]+):(.+)$/.exec(window.location.hash)
+      if (!match) return
+      try {
+        setGuestEdit({ cardId: decodeURIComponent(match[1]), token: decodeURIComponent(match[2]) })
+      } catch {
+        setGuestEdit(null)
+      }
+    }
+    const onHashChange = (): void => readHash()
+    readHash()
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [slug])
 
   if (state === 'loading') return <LoadingBlock />
 
@@ -137,6 +155,18 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
       />
       {openCard && <PublicCardDetail card={openCard} bundle={bundle} onClose={() => setOpenCardId(null)} />}
       {showIntake && <PublicIntakeDialog slug={slug} password={password || undefined} bundle={bundle} onClose={() => setShowIntake(false)} />}
+      {guestEdit && (
+        <GuestEditDialog
+          slug={slug}
+          password={password || undefined}
+          cardId={guestEdit.cardId}
+          token={guestEdit.token}
+          onClose={() => {
+            setGuestEdit(null)
+            window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+          }}
+        />
+      )}
     </main>
   )
 }

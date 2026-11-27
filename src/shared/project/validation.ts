@@ -397,6 +397,7 @@ export const ProjectSubscriptionCreateSchema = z.object({
 
 export const ProjectIntakeConfigSchema = z.object({
   enabled: z.boolean(),
+  editable: z.boolean(),
   title: z.string().max(80),
   propertyIds: z.array(projectId).max(PROJECT_LIMITS.propertiesPerBoard),
   requiredPropertyIds: z.array(projectId).max(PROJECT_LIMITS.propertiesPerBoard),
@@ -418,6 +419,24 @@ export const ProjectPublicIntakeSchema = z.object({
 })
 
 export type ProjectPublicIntakeInput = z.infer<typeof ProjectPublicIntakeSchema>
+
+export const ProjectGuestOpenSchema = z.object({
+  cardId: projectId,
+  token: z.string().min(32).max(128),
+  password: z.string().max(128).optional(),
+})
+
+export const ProjectGuestPatchSchema = z.object({
+  cardId: projectId,
+  token: z.string().min(32).max(128),
+  password: z.string().max(128).optional(),
+  expectedUpdateAt: stamp,
+  title: z.string().trim().min(1).max(200).optional(),
+  values: z.record(projectId, propertyValue).refine((values) => Object.keys(values).length <= PROJECT_LIMITS.propertiesPerBoard, 'too many values').optional(),
+}).refine((input) => input.title !== undefined || input.values !== undefined, 'a title or value is required')
+
+export type ProjectGuestOpenInput = z.infer<typeof ProjectGuestOpenSchema>
+export type ProjectGuestPatchInput = z.infer<typeof ProjectGuestPatchSchema>
 
 export const ProjectCardLinkSchema = z.object({
   toCardId: projectId,

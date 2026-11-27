@@ -1,5 +1,5 @@
 /**
- * Public read-only sharing, modelled on the assistant's share links: a slug is the capability, an
+ * Public sharing and form intake, modelled on the assistant's share links: a slug is the capability, an
  * optional password hash gates it, and an expiry lapses it. The hash never leaves the server; the
  * management answer carries only `hasPassword`. Reading increments the view counter and returns the
  * board bundle at viewer role, trimmed to the entities the shared board actually renders: neither the
@@ -28,10 +28,13 @@ interface ShareRow {
   created_at: number
 }
 
-const DEFAULT_INTAKE_CONFIG: ProjectIntakeConfig = { enabled: false, title: '', propertyIds: [], requiredPropertyIds: [] }
+const DEFAULT_INTAKE_CONFIG: ProjectIntakeConfig = { enabled: false, editable: false, title: '', propertyIds: [], requiredPropertyIds: [] }
 
 function parseIntakeConfig(raw: string): ProjectIntakeConfig {
-  const parsed = ProjectIntakeConfigSchema.safeParse(JSON.parse(raw) as unknown)
+  const value = JSON.parse(raw) as unknown
+  const parsed = ProjectIntakeConfigSchema.safeParse(value && typeof value === 'object' && !Array.isArray(value)
+    ? { editable: false, ...value }
+    : value)
   if (!parsed.success) throw new Error('Invalid project share intake config')
   return parsed.data
 }
@@ -116,15 +119,18 @@ export async function authorizePublicProjectShare(
   password: string | undefined,
   now: number,
   ip: string,
-  mode: 'read' | 'intake',
+  mode: 'read' | 'intake' | 'guest',
 ): Promise<PublicProjectShareContext> {
   await assertAttemptBudget(async () => {
-    await consumeAttemptBudget(db, mode === 'intake' ? [
+    await consumeAttemptBudget(db, mode === 'read' ? [
+      { key: `project-share-read:${slug}:ip:${ip}`, maxAttempts: 20, windowMs: 10 * 60 * 1000 },
+      { key: `project-share-read:ip:${ip}`, maxAttempts: 60, windowMs: 10 * 60 * 1000 },
+    ] : mode === 'intake' ? [
       { key: `project-intake:${slug}:ip:${ip}`, maxAttempts: 10, windowMs: 10 * 60 * 1000 },
       { key: `project-intake:ip:${ip}`, maxAttempts: 30, windowMs: 10 * 60 * 1000 },
     ] : [
-      { key: `project-share-read:${slug}:ip:${ip}`, maxAttempts: 20, windowMs: 10 * 60 * 1000 },
-      { key: `project-share-read:ip:${ip}`, maxAttempts: 60, windowMs: 10 * 60 * 1000 },
+      { key: `project-guest:${slug}:ip:${ip}`, maxAttempts: 30, windowMs: 10 * 60 * 1000 },
+      { key: `project-guest:ip:${ip}`, maxAttempts: 60, windowMs: 10 * 60 * 1000 },
     ])
   })
   const row = await db.prepare('SELECT * FROM project_shares WHERE slug = ?1').bind(slug).first<ShareRow>()

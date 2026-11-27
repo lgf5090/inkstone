@@ -17,6 +17,7 @@ import type {
   ProjectCardMarks,
   ProjectCardVersion,
   ProjectCardVersionDetail,
+  ProjectGuestOpenResponse,
   ProjectMyTask,
   ProjectTimeEntry,
   ProjectCategory,
@@ -394,8 +395,23 @@ export async function readPublicProjectBoard(slug: string, password?: string): P
   return request<ProjectBoardBundle>(`/api/project/public/${encodeURIComponent(slug)}`, { method: 'POST', body: password ? { password } : {} })
 }
 
-export async function submitPublicProjectIntake(slug: string, input: { title: string, values: Record<string, string>, password?: string }, idempotencyKey: string): Promise<{ ok: true, cardId: string }> {
-  return request<{ ok: true, cardId: string }>(`/api/project/public/${encodeURIComponent(slug)}/intake`, {
+export async function submitPublicProjectIntake(slug: string, input: { title: string, values: Record<string, string>, password?: string }, idempotencyKey: string): Promise<{ ok: true, cardId: string, editable: boolean, editToken?: string }> {
+  return request<{ ok: true, cardId: string, editable: boolean, editToken?: string }>(`/api/project/public/${encodeURIComponent(slug)}/intake`, {
+    method: 'POST',
+    body: input,
+    idempotencyKey,
+  })
+}
+
+export async function openPublicGuestEdit(slug: string, cardId: string, token: string, password?: string): Promise<ProjectGuestOpenResponse> {
+  return request<ProjectGuestOpenResponse>(`/api/project/public/${encodeURIComponent(slug)}/guest/open`, {
+    method: 'POST',
+    body: { cardId, token, ...(password ? { password } : {}) },
+  })
+}
+
+export async function patchPublicGuestEdit(slug: string, input: { cardId: string, token: string, password?: string, expectedUpdateAt: number, title?: string, values?: Record<string, string> }, idempotencyKey: string): Promise<{ ok: true, cardId: string, updateAt: number }> {
+  return request<{ ok: true, cardId: string, updateAt: number }>(`/api/project/public/${encodeURIComponent(slug)}/guest`, {
     method: 'POST',
     body: input,
     idempotencyKey,

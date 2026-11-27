@@ -249,6 +249,7 @@ import {
   PROJECT_REMINDER_SCHEMA_STATEMENTS,
   PROJECT_REMINDER_BACKFILL_STATEMENT,
   PROJECT_REMINDER_PENDING_INDEX_STATEMENT,
+  PROJECT_GUEST_SCHEMA_STATEMENTS,
   PROJECT_VERSION_SCHEMA_STATEMENTS,
   PROJECT_AUDIT_SCHEMA_STATEMENTS,
   PROJECT_PRESENCE_SCHEMA_STATEMENTS,
@@ -4914,6 +4915,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 440,
     skipIfColumnExists: { table: 'project_shares', column: 'intake_config' },
     statements: [`ALTER TABLE project_shares ADD COLUMN intake_config TEXT NOT NULL DEFAULT '{"enabled":false,"title":"","propertyIds":[],"requiredPropertyIds":[]}'`],
+  },
+  {
+    version: 441,
+    statements: [...PROJECT_GUEST_SCHEMA_STATEMENTS],
   },
 ]
 

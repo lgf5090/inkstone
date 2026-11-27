@@ -8,6 +8,23 @@
  * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.
  */
 
+export const PROJECT_GUEST_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_intake_grants (
+    card_id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    share_slug TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    field_ids TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    revoked_at INTEGER,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_intake_grants_share
+     ON project_intake_grants(share_slug, card_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_intake_grants_board
+     ON project_intake_grants(board_id, created_at DESC)`,
+]
+
 export const PROJECT_VERSION_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS project_card_versions (
     id TEXT PRIMARY KEY,
@@ -56,6 +73,7 @@ export const PROJECT_PRESENCE_SCHEMA_STATEMENTS: readonly string[] = [
 ]
 
 export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
+  ...PROJECT_GUEST_SCHEMA_STATEMENTS,
   ...PROJECT_VERSION_SCHEMA_STATEMENTS,
   ...PROJECT_AUDIT_SCHEMA_STATEMENTS,
   ...PROJECT_PRESENCE_SCHEMA_STATEMENTS,
@@ -420,7 +438,7 @@ export const PROJECT_AUX_SCHEMA_STATEMENTS: readonly string[] = [
     expires_at INTEGER,
     views INTEGER NOT NULL DEFAULT 0,
     show_comments INTEGER NOT NULL DEFAULT 0,
-    intake_config TEXT NOT NULL DEFAULT '{"enabled":false,"title":"","propertyIds":[],"requiredPropertyIds":[]}',
+    intake_config TEXT NOT NULL DEFAULT '{"enabled":false,"editable":false,"title":"","propertyIds":[],"requiredPropertyIds":[]}',
     created_at INTEGER NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_shares_board
@@ -765,6 +783,7 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_activity',
   'project_activity_changes',
   'project_card_versions',
+  'project_intake_grants',
   'project_card_links',
   'project_todo_links',
   'project_card_relations',
@@ -809,6 +828,8 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_activity_changes_board',
   'idx_project_card_versions_card',
   'idx_project_card_versions_board',
+  'idx_project_intake_grants_share',
+  'idx_project_intake_grants_board',
   'idx_project_card_links_to',
   'idx_project_card_links_board',
   'idx_project_todo_links_todo',
@@ -876,6 +897,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
     'id', 'activity_id', 'board_id', 'actor_id', 'entity_type', 'entity_id', 'field_key', 'old_value', 'new_value', 'created_at',
   ],
   project_card_versions: ['id', 'card_id', 'board_id', 'actor_id', 'title', 'payload', 'size', 'created_at'],
+  project_intake_grants: ['card_id', 'board_id', 'share_slug', 'token_hash', 'field_ids', 'expires_at', 'revoked_at', 'created_at'],
   project_card_links: ['from_card_id', 'to_card_id', 'kind', 'board_id', 'created_at'],
   project_todo_links: ['card_id', 'todo_id', 'user_id', 'created_at'],
   project_card_relations: ['board_id', 'from_card_id', 'to_card_id', 'property_id', 'created_at'],

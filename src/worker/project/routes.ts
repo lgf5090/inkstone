@@ -36,6 +36,8 @@ import {
   ProjectAutomationPatchSchema,
   ProjectSharePutSchema,
   ProjectPublicIntakeSchema,
+  ProjectGuestOpenSchema,
+  ProjectGuestPatchSchema,
   ProjectSubscriptionCreateSchema,
   ProjectTodoLinkSchema,
   ProjectViewCreateSchema,
@@ -152,6 +154,7 @@ import { projectBoardToMarkdown } from '@shared/project/markdown'
 import { deleteProjectAttachment, getProjectAttachment, listBoardAttachments, uploadProjectAttachment, PROJECT_UPLOAD_LIMIT, PROJECT_INLINE_MIMES } from './files'
 import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare, authorizePublicProjectShare } from './shares'
 import { assertPublicIntakeValues } from './intake'
+import { createProjectIntakeGrant, openProjectGuestCard, readProjectIntakeGrant, assertProjectGuestValues } from './guests'
 import { projectStatistics } from './statistics'
 import { listProjectMyTasks } from './my-tasks'
 import { deleteTimeEntry, listCardTime, startCardTime, stopCardTime } from './time'
@@ -1572,13 +1575,28 @@ projectPublicRoutes.post('/:slug/intake', async (c) => {
     if (stored.method !== claim.method || stored.path !== claim.path || stored.bodyHash !== bodyHash || stored.boardId !== context.board.id) {
       throw ApiError.conflict('Idempotency key was already used for a different request')
     }
-    return c.json(JSON.parse(stored.body) as { ok: true, cardId: string }, 201)
+    return c.json(JSON.parse(stored.body) as { ok: true, cardId: string, editable: boolean }, 201)
   }
   if (!claimed) throw ApiError.conflict('Intake submission is already in progress')
   try {
     const cardInput = ProjectCardCreateSchema.parse({ title: input.title, values: input.values })
     const card = await createProjectCard(c.env.DB, context.board, 'public:intake', cardInput, now)
-    const response = { ok: true as const, cardId: card.id }
+    let editToken: string | undefined
+    if (context.intake.editable) {
+      try {
+        editToken = await createProjectIntakeGrant(c.env.DB, {
+          cardId: card.id,
+          boardId: card.boardId,
+          shareSlug: slug,
+          fieldIds: context.intake.propertyIds,
+          expiresAt: context.row.expires_at,
+          now,
+        })
+      } catch (error) {
+        console.warn('[inkstone] public intake edit grant failed:', error instanceof Error ? error.message : error)
+      }
+    }
+    const response = { ok: true as const, cardId: card.id, editable: editToken !== undefined }
     await completeProjectWriteReceipt(c.env.DB, receiptUser, key, 201, JSON.stringify(response), now)
     await touchProjectBoard(c.env.DB, context.board.id, now).catch((error: unknown) => {
       console.warn('[inkstone] public intake board cursor bump failed:', error instanceof Error ? error.message : error)
@@ -1598,7 +1616,97 @@ projectPublicRoutes.post('/:slug/intake', async (c) => {
       boardId: context.board.id, event: 'card.created', targetId: card.id, method: 'POST', path: c.req.path, at: now,
     }, now).then((ids) => Promise.all(ids.map((id) => deliverProjectWebhook(c.env.DB, c.env, id, now))))
     schedule(webhook)
-    return c.json(response, 201)
+    return c.json({ ...response, ...(editToken ? { editToken } : {}) }, 201)
+  } catch (error) {
+    await discardProjectWriteReceipt(c.env.DB, receiptUser, key)
+    throw error
+  }
+})
+
+projectPublicRoutes.post('/:slug/guest/open', async (c) => {
+  const input = await projectBody(c, ProjectGuestOpenSchema)
+  const now = Date.now()
+  const slug = c.req.param('slug')
+  const context = await authorizePublicProjectShare(c.env.DB, slug, input.password, now, requestClientIp(c), 'guest')
+  const grant = await readProjectIntakeGrant(c.env.DB, slug, input.cardId, input.token, now)
+  if (!grant || grant.card.boardId !== context.board.id) throw ApiError.notFound('Edit link not found')
+  return c.json(await openProjectGuestCard(c.env.DB, context.board.id, grant.card, grant.fieldIds))
+})
+
+projectPublicRoutes.post('/:slug/guest', async (c) => {
+  const key = c.req.header('Idempotency-Key')
+  if (!key || !/^[A-Za-z0-9_-]{8,64}$/.test(key)) throw ApiError.badRequest('A valid Idempotency-Key is required')
+  const input = await projectBody(c, ProjectGuestPatchSchema)
+  const now = Date.now()
+  const slug = c.req.param('slug')
+  const context = await authorizePublicProjectShare(c.env.DB, slug, input.password, now, requestClientIp(c), 'guest')
+  const grant = await readProjectIntakeGrant(c.env.DB, slug, input.cardId, input.token, now)
+  if (!grant || grant.card.boardId !== context.board.id) throw ApiError.notFound('Edit link not found')
+  const receiptUser = `public:guest:${slug}:${input.cardId}`
+  const bodyHash = await projectWriteFingerprint(new TextEncoder().encode(JSON.stringify(input)).buffer as ArrayBuffer)
+  const claim = {
+    method: 'POST',
+    path: `/api/project/public/${slug}/guest`,
+    bodyHash,
+    boardId: context.board.id,
+    requiredRole: '' as const,
+    ownerRequired: false,
+  }
+  let claimed = false
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    claimed = await claimProjectWriteReceipt(c.env.DB, receiptUser, key, claim, now)
+    if (claimed) break
+    const stored = await readProjectWriteReceipt(c.env.DB, receiptUser, key)
+    if (stored?.state === 'legacy' || (stored?.state === 'pending' && now - stored.createdAt > PROJECT_WRITE_CLAIM_TTL_MS)) {
+      await discardProjectWriteReceipt(c.env.DB, receiptUser, key)
+      continue
+    }
+    if (!stored || stored.state !== 'complete') throw ApiError.conflict('Guest edit is already in progress')
+    if (stored.method !== claim.method || stored.path !== claim.path || stored.bodyHash !== bodyHash || stored.boardId !== context.board.id) {
+      throw ApiError.conflict('Idempotency key was already used for a different request')
+    }
+    return c.json(JSON.parse(stored.body) as { ok: true, cardId: string, updateAt: number }, 200)
+  }
+  if (!claimed) throw ApiError.conflict('Guest edit is already in progress')
+  try {
+    if (input.expectedUpdateAt !== grant.card.updateAt) throw ApiError.conflict('Card changed on another device')
+    const properties = await readBoardProperties(c.env.DB, context.board.id)
+    await assertProjectGuestValues(c.env.DB, context.board.id, properties, grant.fieldIds, input.values ?? {})
+    await createProjectCardVersion(c.env.DB, grant.card.id, 'public:guest', now).catch((error: unknown) => {
+      console.warn('[inkstone] public guest version snapshot failed:', error instanceof Error ? error.message : error)
+    })
+    const patch = ProjectCardPatchSchema.parse({ title: input.title, values: input.values })
+    const updated = await patchProjectCard(c.env.DB, grant.card, patch, 'public:guest', now, projectRelationTargets(properties))
+    await applyCardValueEffects(c.env.DB, c.env, context.board, grant.card, updated, properties, 'public:guest', now).catch((error: unknown) => {
+      console.warn('[inkstone] public guest value effects failed:', error instanceof Error ? error.message : error)
+    })
+    const response = { ok: true as const, cardId: updated.id, updateAt: updated.updateAt }
+    await completeProjectWriteReceipt(c.env.DB, receiptUser, key, 200, JSON.stringify(response), now)
+    await touchProjectBoard(c.env.DB, context.board.id, now).catch((error: unknown) => {
+      console.warn('[inkstone] public guest board cursor bump failed:', error instanceof Error ? error.message : error)
+    })
+    const changes: ProjectActivityChange[] = []
+    if (input.title !== undefined && input.title !== grant.card.title) {
+      changes.push({ entity: 'card', entityId: updated.id, field: 'title', oldValue: grant.card.title, newValue: input.title })
+    }
+    for (const [propertyId, value] of Object.entries(input.values ?? {})) {
+      if (value === grant.card.values[propertyId]) continue
+      changes.push({ entity: 'card', entityId: updated.id, field: `values.${propertyId}`, oldValue: '[redacted]', newValue: '[redacted]' })
+    }
+    const schedule = (task: Promise<unknown>): void => {
+      try { c.executionCtx?.waitUntil(task) } catch { /* no ExecutionContext in tests */ }
+    }
+    schedule(broadcastProjectChange(c.env, context.board.id, now, null, { entity: 'card', cardId: updated.id }))
+    const activity = (async () => {
+      const activityId = await recordProjectActivity(c.env.DB, context.board.id, 'public:guest', 'patch', updated.id, 'Public guest edited a submission', now)
+      await recordProjectActivityChanges(c.env.DB, activityId, context.board.id, 'public:guest', changes, now)
+    })()
+    schedule(activity)
+    const webhook = enqueueProjectWebhookEvents(c.env.DB, context.board.id, 'card.updated', {
+      boardId: context.board.id, event: 'card.updated', targetId: updated.id, method: 'POST', path: c.req.path, at: now,
+    }, now).then((ids) => Promise.all(ids.map((id) => deliverProjectWebhook(c.env.DB, c.env, id, now))))
+    schedule(webhook)
+    return c.json(response)
   } catch (error) {
     await discardProjectWriteReceipt(c.env.DB, receiptUser, key)
     throw error

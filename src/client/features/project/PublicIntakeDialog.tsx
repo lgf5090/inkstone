@@ -20,6 +20,8 @@ export function PublicIntakeDialog({ slug, password, bundle, onClose }: {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [createdId, setCreatedId] = useState<string | null>(null)
+  const [editLink, setEditLink] = useState('')
+  const [copied, setCopied] = useState(false)
   const key = useRef<string | null>(null)
   if (!config?.enabled) return <></>
   const allowed = new Set(config.propertyIds)
@@ -43,6 +45,7 @@ export function PublicIntakeDialog({ slug, password, bundle, onClose }: {
     try {
       const result = await submitPublicProjectIntake(slug, { title: title.trim(), values, ...(password ? { password } : {}) }, key.current)
       setCreatedId(result.cardId)
+      if (result.editToken) setEditLink(`${window.location.origin}/p/${encodeURIComponent(slug)}#edit=${encodeURIComponent(result.cardId)}:${encodeURIComponent(result.editToken)}`)
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -56,6 +59,24 @@ export function PublicIntakeDialog({ slug, password, bundle, onClose }: {
         ? (
             <div className="space-y-3">
               <p role="status" className="text-[length:var(--text-13)] text-[var(--text-secondary)]">{t('project.intake.success')}</p>
+              {editLink && (
+                <div className="space-y-2">
+                  <span className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('project.intake.edit_link')}</span>
+                  <div className="flex items-center gap-2">
+                    <Input className="min-w-0 flex-1" readOnly value={editLink} aria-label={t('project.intake.edit_link')} />
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(editLink)
+                          .then(() => setCopied(true))
+                          .catch(() => setCopied(false))
+                      }}
+                    >
+                      {copied ? t('project.intake.edit_copied') : t('project.share.copy')}
+                    </Button>
+                  </div>
+                </div>
+              )}
               <Button variant="primary" onClick={onClose}>{t('common.close')}</Button>
             </div>
           )

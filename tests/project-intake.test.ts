@@ -8,6 +8,7 @@ import type { Env } from '../src/worker/env'
 import type { ProjectBoard, ProjectBoardBundle, ProjectShare } from '@shared/project/model'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
+import { sha256Hex } from '../src/worker/lib/encoding'
 
 const app = createApp()
 const tokens = new Map<string, string>()
@@ -29,7 +30,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  sqlite.exec(`DELETE FROM project_write_receipts; DELETE FROM project_activity_changes; DELETE FROM project_activity;
+  sqlite.exec(`DELETE FROM project_intake_grants; DELETE FROM project_write_receipts; DELETE FROM project_activity_changes; DELETE FROM project_activity;
     DELETE FROM project_shares; DELETE FROM project_comments; DELETE FROM project_card_contents; DELETE FROM project_card_values;
     DELETE FROM project_cards; DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards`)
 })
@@ -78,7 +79,7 @@ async function shareBoard(boardId: string, intake: ProjectShare['intake'], extra
 const textId = `p${'a'.repeat(26)}`
 const numberId = `p${'b'.repeat(26)}`
 const personId = `p${'c'.repeat(26)}`
-const intake = { enabled: true, title: 'Request', propertyIds: [textId, numberId], requiredPropertyIds: [textId] }
+const intake = { enabled: true, editable: false, title: 'Request', propertyIds: [textId, numberId], requiredPropertyIds: [textId] }
 
 describe('public form intake', () => {
   it('creates a card, replays idempotently and exposes only configured form fields', async () => {
@@ -136,5 +137,76 @@ describe('public form intake', () => {
     await memberReq('PATCH', `/boards/${board.id}`, { archived: false })
     await memberReq('DELETE', `/boards/${board.id}/share`)
     expect((await publicReq('POST', `/${expired.slug}/intake`, { title: 'Revoked', values: { [textId]: 'ok' } }, 'intake-key-9')).status).toBe(404)
+  })
+})
+
+describe('restricted guest editing', () => {
+  it('issues a one-time edit capability and stores only its hash', async () => {
+    const board = await createBoard()
+    const share = await shareBoard(board.id, { ...intake, editable: true })
+    const created = await publicReq('POST', `/${share.slug}/intake`, { title: 'Editable', values: { [textId]: 'Before' } }, 'guest-intake-1')
+    expect(created.status).toBe(201)
+    const first = (await created.json()) as { cardId: string, editable: boolean, editToken?: string }
+    expect(first.editable).toBe(true)
+    expect(first.editToken).toBeTruthy()
+    const replay = await publicReq('POST', `/${share.slug}/intake`, { title: 'Editable', values: { [textId]: 'Before' } }, 'guest-intake-1')
+    const replayed = (await replay.json()) as { cardId: string, editable: boolean, editToken?: string }
+    expect(replayed.cardId).toBe(first.cardId)
+    expect(replayed.editable).toBe(true)
+    expect(replayed.editToken).toBeUndefined()
+    const grant = sqlite.prepare('SELECT token_hash, field_ids FROM project_intake_grants WHERE card_id = ?').get(first.cardId) as { token_hash: string, field_ids: string }
+    expect(grant.token_hash).toBe(await sha256Hex(first.editToken!))
+    expect(grant.token_hash).not.toBe(first.editToken)
+    expect(JSON.parse(grant.field_ids)).toEqual([textId, numberId])
+  })
+
+  it('opens and patches only the granted card and fields with redacted audit values', async () => {
+    const board = await createBoard()
+    const share = await shareBoard(board.id, { ...intake, editable: true })
+    const created = await publicReq('POST', `/${share.slug}/intake`, { title: 'Guest edit', values: { [textId]: 'Before', [numberId]: '1' } }, 'guest-intake-2')
+    const submission = (await created.json()) as { cardId: string, editToken: string }
+    await memberReq('PATCH', `/cards/${submission.cardId}`, { values: { [personId]: 'bob' } })
+    const wrong = await publicReq('POST', `/${share.slug}/guest/open`, { cardId: submission.cardId, token: 'x'.repeat(43) })
+    expect(wrong.status).toBe(404)
+    const opened = await publicReq('POST', `/${share.slug}/guest/open`, { cardId: submission.cardId, token: submission.editToken })
+    expect(opened.status).toBe(200)
+    const guest = (await opened.json()) as { card: { title: string, values: Record<string, string>, updateAt: number }, properties: Array<{ id: string }> }
+    expect(guest.card.values).toEqual({ [textId]: 'Before', [numberId]: '1' })
+    expect(guest.properties.map((property) => property.id)).toEqual([textId, numberId])
+
+    const patchBody = { cardId: submission.cardId, token: submission.editToken, expectedUpdateAt: guest.card.updateAt, title: 'Guest edited', values: { [textId]: 'After' } }
+    const patched = await publicReq('POST', `/${share.slug}/guest`, patchBody, 'guest-patch-1')
+    expect(patched.status, await patched.clone().text()).toBe(200)
+    const patchedBody = (await patched.json()) as { updateAt: number }
+    const replay = await publicReq('POST', `/${share.slug}/guest`, patchBody, 'guest-patch-1')
+    expect(replay.status).toBe(200)
+    expect(((await replay.json()) as { updateAt: number }).updateAt).toBe(patchedBody.updateAt)
+    const stale = await publicReq('POST', `/${share.slug}/guest`, { ...patchBody, title: 'Stale' }, 'guest-patch-2')
+    expect(stale.status).toBe(409)
+    const forbidden = await publicReq('POST', `/${share.slug}/guest`, { ...patchBody, expectedUpdateAt: patchedBody.updateAt, values: { [personId]: 'bob' } }, 'guest-patch-3')
+    expect(forbidden.status).toBe(400)
+
+    const memberCard = ((await (await memberReq('GET', `/cards/${submission.cardId}`)).json()) as { card: { title: string, values: Record<string, string> } }).card
+    expect(memberCard.title).toBe('Guest edited')
+    expect(memberCard.values[textId]).toBe('After')
+    const changes = sqlite.prepare('SELECT field_key, old_value, new_value FROM project_activity_changes WHERE board_id = ? AND actor_id = ? ORDER BY created_at, id')
+      .all(board.id, 'public:guest') as Array<{ field_key: string, old_value: string | null, new_value: string | null }>
+    expect(changes).toContainEqual({ field_key: `values.${textId}`, old_value: '"[redacted]"', new_value: '"[redacted]"' })
+    expect(changes.some((change) => String(change.old_value).includes('Before') || String(change.new_value).includes('After'))).toBe(false)
+
+    const other = await memberReq('POST', `/boards/${board.id}/cards`, { title: 'Other' })
+    const otherCard = ((await other.json()) as { card: { id: string } }).card
+    expect((await publicReq('POST', `/${share.slug}/guest/open`, { cardId: otherCard.id, token: submission.editToken })).status).toBe(404)
+    await memberReq('DELETE', `/boards/${board.id}/share`)
+    expect((await publicReq('POST', `/${share.slug}/guest/open`, { cardId: submission.cardId, token: submission.editToken })).status).toBe(404)
+  })
+
+  it('rejects expired grants', async () => {
+    const board = await createBoard()
+    const share = await shareBoard(board.id, { ...intake, editable: true })
+    const created = await publicReq('POST', `/${share.slug}/intake`, { title: 'Expiring', values: { [textId]: 'ok' } }, 'guest-intake-3')
+    const submission = (await created.json()) as { cardId: string, editToken: string }
+    sqlite.prepare('UPDATE project_intake_grants SET expires_at = 1 WHERE card_id = ?').run(submission.cardId)
+    expect((await publicReq('POST', `/${share.slug}/guest/open`, { cardId: submission.cardId, token: submission.editToken })).status).toBe(404)
   })
 })

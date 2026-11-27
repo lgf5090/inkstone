@@ -604,8 +604,21 @@ export interface ProjectCardMarks {
   pinned: string[]
 }
 
+export interface ProjectGuestCard {
+  id: string
+  title: string
+  values: Record<string, string>
+  updateAt: number
+}
+
+export interface ProjectGuestOpenResponse {
+  card: ProjectGuestCard
+  properties: ProjectProperty[]
+}
+
 export interface ProjectIntakeConfig {
   enabled: boolean
+  editable: boolean
   title: string
   propertyIds: string[]
   requiredPropertyIds: string[]

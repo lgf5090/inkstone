@@ -113,6 +113,11 @@ export function ShareDialog({ boardId, properties = [], onClose }: { boardId: st
                   />
                   {share.intake.enabled && (
                     <>
+                      <Checkbox
+                        label={t('project.intake.editable')}
+                        checked={share.intake.editable}
+                        onChange={(editable) => saveIntake({ ...share.intake, editable })}
+                      />
                       <Input
                         className="w-full"
                         value={intakeTitle}
