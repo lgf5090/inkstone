@@ -13,6 +13,7 @@ import { PROJECT_LIMITS } from '@shared/project/limits'
 import { projectInputToStamp } from '@shared/project/date'
 import { ProjectStore } from '../project/store'
 import { createProjectCard, getProjectCard, patchProjectCard, softDeleteProjectCard } from '../project/cards'
+import { createProjectContent } from '../project/contents'
 import { getProjectBoardRow, readBoardProperties } from '../project/boards'
 import { projectCardForRole, projectPropertiesForRole } from '../project/visibility'
 import { ApiError } from '../lib/errors'
@@ -117,6 +118,43 @@ export const PROJECT_BOARD_TOOLS: readonly ToolDefinition[] = [
       const row = await boardRow(ctx, boardId)
       const card = await ask(() => createProjectCard(ctx.env.DB, row, ctx.store.userId, { title: text(args.title, 500), parentId, icon: '', isTemplate: false, values: {} }, ctx.now ?? Date.now()))
       return { created: presentCard(card) }
+    },
+  },
+  {
+    name: 'project_create_card_from_note',
+    description: 'Create a project card from one of the user’s notes, copying the note body into a Markdown content block. Use this for meeting notes and action items.',
+    permission: 'write',
+    fields: {
+      boardId: { type: 'string', description: 'Board id from project_list_boards.', maxLength: 64 },
+      noteId: { type: 'string', description: 'Note id owned by the current account.', maxLength: 64 },
+      title: { type: 'string', description: 'Optional card title; defaults to the note title.', maxLength: 500, optional: true },
+    },
+    async run(args, ctx) {
+      const boardId = text(args.boardId, 64)
+      const noteId = text(args.noteId, 64)
+      await boardFor(ctx, boardId, 'editor')
+      const note = await ask(() => ctx.env.DB.prepare(
+        'SELECT id, title, content, is_encrypted, deleted_at FROM notes WHERE id = ?1 AND user_id = ?2',
+      ).bind(noteId, ctx.store.userId).first<{ id: string, title: string, content: string, is_encrypted: number, deleted_at: number | null }>())
+      if (!note || note.deleted_at !== null) throw new ToolError('Note not found.')
+      if (note.is_encrypted === 1) throw new ToolError('This note is locked; unlock it before creating a card from it.')
+      const row = await boardRow(ctx, boardId)
+      const now = ctx.now ?? Date.now()
+      const card = await ask(() => createProjectCard(ctx.env.DB, row, ctx.store.userId, {
+        title: typeof args.title === 'string' && args.title.trim() ? args.title.trim().slice(0, 500) : note.title.slice(0, 500),
+        parentId: '', icon: '', isTemplate: false, values: {},
+      }, now))
+      const characters = Array.from(note.content)
+      const truncated = characters.length > PROJECT_LIMITS.fieldsRunes
+      try {
+        await ask(() => createProjectContent(ctx.env.DB, card, ctx.store.userId, {
+          type: 'text', title: characters.slice(0, PROJECT_LIMITS.fieldsRunes).join(''), fields: { language: 'md' },
+        }, now))
+      } catch (error) {
+        await ask(() => softDeleteProjectCard(ctx.env.DB, card.id, ctx.store.userId, now))
+        throw error
+      }
+      return { created: presentCard(card), noteId, bodyTruncated: truncated }
     },
   },
   {

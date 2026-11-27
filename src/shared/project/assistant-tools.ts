@@ -8,6 +8,7 @@
  */
 export const PROJECT_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([
   'project_create_card',
+  'project_create_card_from_note',
   'project_update_card',
   'project_schedule_card',
   'project_delete_card',

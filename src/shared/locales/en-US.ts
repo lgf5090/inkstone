@@ -4333,6 +4333,8 @@ const CORE_MESSAGES = {
     "workspace.mention_link_failed": "Could not create the link",
     "workspace.mention_linked": "Mention turned into a link",
     "workspace.mentions_here": "Mentions of this file name",
+    "workspace.project_cards": "Linked project cards",
+    "workspace.could_not_load_project_cards": "Could not load linked project cards",
     "workspace.from_conversations": "Written in a conversation",
     "workspace.conversations_about": "Conversations about this note",
     "workspace.could_not_load_conversations": "Could not load these conversations",

@@ -38,6 +38,7 @@ import {
   ProjectPublicIntakeSchema,
   ProjectGuestOpenSchema,
   ProjectGuestPatchSchema,
+  ProjectCardNoteLinkSchema,
   ProjectTimeEntryCreateSchema,
   ProjectTimeEntryPatchSchema,
   ProjectSubscriptionCreateSchema,
@@ -188,6 +189,7 @@ import {
 } from './views'
 import { projectCardForRole, projectPropertiesForRole } from './visibility'
 import { defaultWorkloadRange, readProjectWorkload } from './workload'
+import { listCardNotes, linkCardNote, unlinkCardNote, listNoteProjectCards } from './card-notes'
 
 export const projectRoutes = new Hono<AppBindings>()
 
@@ -1480,6 +1482,28 @@ projectRoutes.post('/cards/:id/versions/:versionId/restore', async (c) => {
   const restored = await restoreProjectCardVersion(c.env.DB, c.env, board, card, version, userId, Math.max(Date.now(), card.updateAt + 1))
   const properties = await readBoardProperties(c.env.DB, card.boardId)
   return c.json({ card: projectCardForRole(restored, properties, role) })
+})
+
+projectRoutes.get('/cards/:id/notes', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ notes: await listCardNotes(c.env.DB, card.id, projectUserId(c)) })
+})
+
+projectRoutes.post('/cards/:id/notes', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectCardNoteLinkSchema)
+  const note = await linkCardNote(c.env.DB, card.id, input.noteId, projectUserId(c), Date.now())
+  return c.json({ note }, 201)
+})
+
+projectRoutes.delete('/cards/:id/notes/:noteId', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  await unlinkCardNote(c.env.DB, card.id, c.req.param('noteId'), projectUserId(c))
+  return c.json({ ok: true })
+})
+
+projectRoutes.get('/notes/:id/cards', async (c) => {
+  return c.json({ cards: await listNoteProjectCards(c.env.DB, c.req.param('id'), projectUserId(c)) })
 })
 
 projectRoutes.get('/cards/:id/comments', async (c) => {

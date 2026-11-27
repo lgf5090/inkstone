@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ArrowUpRight, Brain, Link2, Link as LinkIcon, MessageSquareText, MessagesSquare, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Brain, Link2, Link as LinkIcon, MessageSquareText, MessagesSquare, Sparkles, SquareKanban } from 'lucide-react';
+import type { ProjectNoteCardLink } from '@shared/project/model';
 import type { AssistantConversation, AssistantMemory } from '@shared/assistant';
 import type { Backlink } from '@shared/types';
 import { api } from '../../lib/api';
@@ -9,6 +10,8 @@ import { t } from "../../lib/i18n";
 import { relativeTime } from '../../lib/time';
 import { openConversationInChat } from '../chat/start-chat';
 import { noteMemories, openAssistantMemories } from '../chat/note-memories';
+import { fetchNoteProjectCards } from '../project/api';
+import { navigateToAddress } from '../../lib/app-history';
 
 /** How many of a note's threads the panel asks for. The section is a pointer list, not the chat's own library. */
 const CONVERSATIONS_SHOWN = 20;
@@ -37,6 +40,8 @@ export function BacklinksPanel({ noteId, fill = false }: {
     const [memoriesError, setMemoriesError] = useState<string | null>(null);
     const [memoriesReload, setMemoriesReload] = useState(0);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [projectCards, setProjectCards] = useState<ProjectNoteCardLink[]>([]);
+    const [projectCardsError, setProjectCardsError] = useState(false);
     const [reload, setReload] = useState(0);
     const [linking, setLinking] = useState<string | null>(null);
     const openNote = useNotes((s) => s.openNote);
@@ -50,6 +55,8 @@ export function BacklinksPanel({ noteId, fill = false }: {
         setAboutError(null);
         setMemories(null);
         setMemoriesError(null);
+        setProjectCards([]);
+        setProjectCardsError(false);
     }, [noteId]);
     // Which threads were started from this note answers from the conversation's own `note_id`, so it follows
     // the note rather than the keystrokes inside it: no debounce and no revision here, and its own retry so a
@@ -138,6 +145,9 @@ export function BacklinksPanel({ noteId, fill = false }: {
                 if (!cancelled)
                     setOrigins([]);
             });
+            fetchNoteProjectCards(noteId, controller.signal)
+                .then((cards) => { if (!cancelled) { setProjectCards(cards); setProjectCardsError(false); } })
+                .catch(() => { if (!cancelled) setProjectCardsError(true); });
         }, 500);
         return () => {
             cancelled = true;
@@ -241,6 +251,21 @@ export function BacklinksPanel({ noteId, fill = false }: {
             <MessageSquareText size={11} aria-hidden="true"/>{t("workspace.mentions_here")}<span className="tabular">· {mentions.length}</span>
           </div>
           {rows(mentions, linkOne)}
+        </>)}
+
+      {(projectCards.length > 0 || projectCardsError) && (<>
+          <div className="sticky top-0 z-10 flex items-center gap-1.5 border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2 text-[length:var(--text-10-5)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+            <SquareKanban size={11} aria-hidden="true"/>{t("workspace.project_cards")}<span className="tabular">· {projectCards.length}</span>
+          </div>
+          {projectCardsError
+            ? <div className="flex items-center justify-between gap-3 px-3 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]"><span>{t("workspace.could_not_load_project_cards")}</span><Button size="sm" variant="ghost" onClick={() => setReload((value) => value + 1)}>{t("common.retry")}</Button></div>
+            : <ul className="p-2">{projectCards.map((card) => (<li key={card.cardId}>
+                <button type="button" className="flex w-full min-w-0 items-center gap-2 rounded-[var(--r-md)] px-2 py-2 text-left hover:bg-[var(--bg-hover)]" onClick={() => navigateToAddress(`/project/boards/${card.boardId}`, `card=${encodeURIComponent(card.cardId)}`)}>
+                  <SquareKanban size={12} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]"/>
+                  <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{card.title || t("project.board.untitled_card")}</span>
+                  <span className="max-w-32 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{card.boardTitle}</span>
+                </button>
+              </li>))}</ul>}
         </>)}
 
       {origins.length > 0 && (<>

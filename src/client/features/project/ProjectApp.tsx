@@ -17,6 +17,7 @@ import { ArchiveDialog } from './ArchiveDialog'
 import { ImportDialog } from './ImportDialog'
 import { MyTasksPage } from './MyTasksPage'
 import { WorkloadPage } from './WorkloadPage'
+import { ProjectBoardEmbed } from './ProjectBoardEmbed'
 import { ProjectSidebar } from './ProjectSidebar'
 import { SearchDialog } from './SearchDialog'
 import { TemplatePicker } from './TemplatePicker'
@@ -43,6 +44,8 @@ export function ProjectApp(): ReactElement {
   useEffect(() => { if (sessionStatus === 'authed') migrateProjectBoardMarks() }, [sessionStatus])
   if (pathname === '/project/my-tasks') return <MyTasksPage />
   if (pathname === '/project/workload') return <WorkloadPage />
+  const embed = /^\/project\/boards\/([^/]+)\/embed\/([^/]+)$/.exec(pathname)
+  if (embed) return <ProjectBoardEmbed boardId={decodeURIComponent(embed[1]!)} viewId={decodeURIComponent(embed[2]!)} />
   const match = /^\/project\/boards\/([^/]+)/.exec(pathname)
   if (match) return <BoardPage key={decodeURIComponent(match[1]!)} boardId={decodeURIComponent(match[1]!)} />
   return <BoardList />

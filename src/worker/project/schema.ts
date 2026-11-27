@@ -8,6 +8,20 @@
  * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.
  */
 
+export const PROJECT_NOTE_LINK_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_card_notes (
+    card_id TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (card_id, note_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_notes_note
+     ON project_card_notes(note_id, user_id, card_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_notes_user
+     ON project_card_notes(user_id, card_id)`,
+]
+
 export const PROJECT_GUEST_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS project_intake_grants (
     card_id TEXT PRIMARY KEY,
@@ -73,6 +87,7 @@ export const PROJECT_PRESENCE_SCHEMA_STATEMENTS: readonly string[] = [
 ]
 
 export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
+  ...PROJECT_NOTE_LINK_SCHEMA_STATEMENTS,
   ...PROJECT_GUEST_SCHEMA_STATEMENTS,
   ...PROJECT_VERSION_SCHEMA_STATEMENTS,
   ...PROJECT_AUDIT_SCHEMA_STATEMENTS,
@@ -783,6 +798,7 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_activity',
   'project_activity_changes',
   'project_card_versions',
+  'project_card_notes',
   'project_intake_grants',
   'project_card_links',
   'project_todo_links',
@@ -828,6 +844,8 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_activity_changes_board',
   'idx_project_card_versions_card',
   'idx_project_card_versions_board',
+  'idx_project_card_notes_note',
+  'idx_project_card_notes_user',
   'idx_project_intake_grants_share',
   'idx_project_intake_grants_board',
   'idx_project_card_links_to',
@@ -897,6 +915,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
     'id', 'activity_id', 'board_id', 'actor_id', 'entity_type', 'entity_id', 'field_key', 'old_value', 'new_value', 'created_at',
   ],
   project_card_versions: ['id', 'card_id', 'board_id', 'actor_id', 'title', 'payload', 'size', 'created_at'],
+  project_card_notes: ['card_id', 'note_id', 'user_id', 'created_at'],
   project_intake_grants: ['card_id', 'board_id', 'share_slug', 'token_hash', 'field_ids', 'expires_at', 'revoked_at', 'created_at'],
   project_card_links: ['from_card_id', 'to_card_id', 'kind', 'board_id', 'created_at'],
   project_todo_links: ['card_id', 'todo_id', 'user_id', 'created_at'],

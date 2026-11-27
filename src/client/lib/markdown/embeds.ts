@@ -121,6 +121,23 @@ async function fetchAttachmentByName(name: string): Promise<Attachment | null> {
   return await request
 }
 
+function renderProjectBoardEmbed(embed: HTMLElement, boardId: string, viewId: string, alias: string | null): void {
+  const body = embed.querySelector<HTMLElement>('.note-embed-body')
+  if (!body) return
+  const frame = document.createElement('iframe')
+  frame.src = `/project/boards/${encodeURIComponent(boardId)}/embed/${encodeURIComponent(viewId)}`
+  frame.title = alias || t('project.title')
+  frame.className = 'h-[480px] w-full border-0'
+  frame.loading = 'lazy'
+  frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox')
+  body.replaceChildren(frame)
+  body.removeAttribute('aria-busy')
+  embed.classList.remove('loading', 'error')
+  embed.classList.add('ready')
+  const head = embed.querySelector<HTMLElement>('.note-embed-head')
+  if (head) head.textContent = alias || t('project.title')
+}
+
 async function resolveAttachmentEmbed(
   embed: HTMLElement,
   target: WikiTarget,
@@ -173,6 +190,11 @@ async function resolveWithin(
     const target = parseWikiTarget(raw)
     if (context.allowTarget && !context.allowTarget(target)) {
       showError(embed, t("markdown.embedded_note_not_found"))
+      continue
+    }
+    const projectView = /^project\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})$/.exec(target.noteTitle)
+    if (projectView) {
+      renderProjectBoardEmbed(embed, projectView[1]!, projectView[2]!, target.alias)
       continue
     }
     // A conversation is not a note: it has no body to embed, and the box is filled from the API.

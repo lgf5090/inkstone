@@ -4326,6 +4326,8 @@ const ZH_CORE_MESSAGES = {
     "workspace.mention_link_failed": "无法创建链接",
     "workspace.mention_linked": "提及已变成链接",
     "workspace.mentions_here": "提到当前文件名",
+    "workspace.project_cards": "关联的项目卡片",
+    "workspace.could_not_load_project_cards": "无法加载关联的项目卡片",
     "workspace.from_conversations": "来自对话",
     "workspace.conversations_about": "关于这篇的对话",
     "workspace.could_not_load_conversations": "无法加载这些对话",

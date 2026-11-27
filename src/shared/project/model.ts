@@ -124,6 +124,20 @@ export type ProjectSubscriptionBlock = (typeof PROJECT_SUBSCRIPTION_BLOCKS)[numb
 export const PROJECT_CARD_LINK_KINDS = ['blocks', 'parent'] as const
 export type ProjectCardLinkKind = (typeof PROJECT_CARD_LINK_KINDS)[number]
 
+export interface ProjectCardNoteLink {
+  cardId: string
+  noteId: string
+  title: string
+  updatedAt: number
+}
+
+export interface ProjectNoteCardLink {
+  cardId: string
+  boardId: string
+  boardTitle: string
+  title: string
+}
+
 export interface ProjectCardLink {
   fromCardId: string
   toCardId: string

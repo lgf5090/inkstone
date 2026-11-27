@@ -1,5 +1,6 @@
 /** The client half of `/api/project`: one typed function per route, no fetch calls elsewhere. */
 import { CLIENT_HEADER } from '@shared/constants'
+import type { SearchResponse } from '@shared/types'
 import { ApiError, request as baseRequest, type RequestOptions } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { randomLocalId } from '../../lib/random-id'
@@ -15,6 +16,8 @@ import type {
   ProjectCard,
   ProjectCardLink,
   ProjectCardMarks,
+  ProjectCardNoteLink,
+  ProjectNoteCardLink,
   ProjectCardVersion,
   ProjectCardVersionDetail,
   ProjectGuestOpenResponse,
@@ -269,6 +272,29 @@ export function projectBoardExportUrl(id: string, kind: 'csv' | 'archive' | 'mar
 
 export async function fetchCardDetail(cardId: string, signal?: AbortSignal): Promise<{ contents: ProjectContent[], comments: ProjectComment[] }> {
   return request<{ contents: ProjectContent[], comments: ProjectComment[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/detail`, { signal })
+}
+
+export async function fetchCardNotes(cardId: string, signal?: AbortSignal): Promise<ProjectCardNoteLink[]> {
+  const body = await request<{ notes: ProjectCardNoteLink[] }>(`/api/project/cards/${encodeURIComponent(cardId)}/notes`, { signal })
+  return body.notes
+}
+
+export async function linkCardNote(cardId: string, noteId: string): Promise<ProjectCardNoteLink> {
+  const body = await request<{ note: ProjectCardNoteLink }>(`/api/project/cards/${encodeURIComponent(cardId)}/notes`, { method: 'POST', body: { noteId } })
+  return body.note
+}
+
+export async function unlinkCardNote(cardId: string, noteId: string): Promise<void> {
+  await request<{ ok: true }>(`/api/project/cards/${encodeURIComponent(cardId)}/notes/${encodeURIComponent(noteId)}`, { method: 'DELETE' })
+}
+
+export async function fetchNoteProjectCards(noteId: string, signal?: AbortSignal): Promise<ProjectNoteCardLink[]> {
+  const body = await request<{ cards: ProjectNoteCardLink[] }>(`/api/project/notes/${encodeURIComponent(noteId)}/cards`, { signal })
+  return body.cards
+}
+
+export async function searchLinkableNotes(query: string, signal?: AbortSignal): Promise<SearchResponse> {
+  return request<SearchResponse>(`/api/search?q=${encodeURIComponent(query)}&limit=20`, { signal })
 }
 
 export async function fetchCardComments(cardId: string, signal?: AbortSignal): Promise<ProjectComment[]> {

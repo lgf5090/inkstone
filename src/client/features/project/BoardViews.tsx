@@ -128,9 +128,11 @@ interface BoardViewsProps {
   onRefresh: () => Promise<void>
   /** A public reader has no session: the member-only reads and exports would answer 401, so they are not offered. */
   publicView?: boolean
+  embedded?: boolean
+  forcedViewId?: string
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onPatchCardsBatch, onDragCards, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onCardCreated, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onPatchCardsBatch, onDragCards, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onCardCreated, onRefresh, publicView = false, embedded = false, forcedViewId }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
   const userPickedView = useRef(false)
   const defaultViewQueue = useRef<Promise<unknown>>(Promise.resolve())
@@ -216,7 +218,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
 
   // C-23: tabs read alphabetically; the default view stays the board's first by position.
   const orderedViews = sortProjectViewsAlphabetically(bundle.views)
-  const active = orderedViews.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
+  const active = orderedViews.find((view) => view.id === forcedViewId) ?? orderedViews.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
   const personalViewKey = active ? `${bundle.board.id}:${active.id}` : ''
   const storedPersonalFields = useSession((state) => personalViewKey ? state.settings.project.personalViews[personalViewKey] : undefined)
   const personalFields = publicView ? undefined : storedPersonalFields
@@ -636,6 +638,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {!embedded && (
       <div
         className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] px-3 py-1.5"
         role="tablist"
@@ -703,7 +706,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           </>
         )}
       </div>
-      {active && (
+      )}
+      {active && !embedded && (
         <div ref={searchRef} className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5">
           <Input
             className="w-44 min-w-0"

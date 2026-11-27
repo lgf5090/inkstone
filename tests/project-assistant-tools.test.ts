@@ -31,7 +31,7 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  sqlite.exec('DELETE FROM project_card_values; DELETE FROM project_cards; DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards')
+  sqlite.exec('DELETE FROM project_card_contents; DELETE FROM project_card_values; DELETE FROM project_cards; DELETE FROM project_properties; DELETE FROM project_board_members; DELETE FROM project_boards; DELETE FROM notes')
 })
 
 async function req(method: string, path: string, body?: unknown, who = token): Promise<Response> {
@@ -86,6 +86,19 @@ describe('the project tool surface (R3-28)', () => {
     expect(created.created.title).toBe('From the assistant')
     const listed = await runTool('project_list_cards', { boardId: board.id }) as { cards: { id: string }[] }
     expect(listed.cards.map((card) => card.id)).toContain(created.created.id)
+  })
+
+  it('creates a card with a Markdown body from an owned note', async () => {
+    const board = await makeBoard()
+    const noteId = 'n'.repeat(26)
+    sqlite.prepare(`INSERT INTO notes (id, user_id, title, title_key, content, rev, created_at, updated_at)
+      VALUES (?, 'alice', 'Meeting notes', 'meeting notes', '## Decisions\n- Ship the draft', 1, 1, 1)`).run(noteId)
+    const created = await runTool('project_create_card_from_note', { boardId: board.id, noteId }) as { created: { id: string, title: string }, bodyTruncated: boolean }
+    expect(created.created.title).toBe('Meeting notes')
+    expect(created.bodyTruncated).toBe(false)
+    const detail = ((await (await req('GET', `/cards/${created.created.id}/detail`)).json()) as { contents: Array<{ title: string, fields: { language?: string } }> })
+    expect(detail.contents).toEqual([expect.objectContaining({ title: '## Decisions\n- Ship the draft', fields: { language: 'md' } })])
+    await expect(runTool('project_create_card_from_note', { boardId: board.id, noteId }, 'bob')).rejects.toThrow(ToolError)
   })
 
   it('redacts hidden properties and values from assistant list and update responses', async () => {

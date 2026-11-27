@@ -453,6 +453,12 @@ export const ProjectTimeEntryPatchSchema = z.object({
 export type ProjectTimeEntryCreateInput = z.infer<typeof ProjectTimeEntryCreateSchema>
 export type ProjectTimeEntryPatchInput = z.infer<typeof ProjectTimeEntryPatchSchema>
 
+export const ProjectCardNoteLinkSchema = z.object({
+  noteId: z.string().min(1).max(64),
+})
+
+export type ProjectCardNoteLinkInput = z.infer<typeof ProjectCardNoteLinkSchema>
+
 export const ProjectCardLinkSchema = z.object({
   toCardId: projectId,
   kind: z.enum(PROJECT_CARD_LINK_KINDS),

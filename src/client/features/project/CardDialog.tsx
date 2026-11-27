@@ -23,6 +23,7 @@ import type { UndoCommand } from './undo'
 import { CardAttachmentsSection, CardCommentsSection, CardDependenciesSection, CardSubtasksSection } from './CardDialogSections'
 import { PROJECT_REALTIME_EVENT, type ProjectRealtimeDetail } from './realtime-events'
 import { CardVersionsDialog } from './CardVersionsDialog'
+import { CardNotesSection } from './CardNotesSection'
 
 interface CardDialogProps {
   card: ProjectCard
@@ -746,6 +747,7 @@ export function CardDialog({ card, properties, members, people, contents, siblin
           onAdd={() => void addDependency()}
           onRemove={(id) => void removeDependency(id)}
         />
+        <CardNotesSection cardId={card.id} canEdit={canEdit} />
         <CardAttachmentsSection
           files={files}
           error={filesError}
