@@ -62,9 +62,10 @@ beforeAll(async () => {
     import('./views/GanttView'), import('./views/ChartView'), import('./views/DashboardView'),
     import('./views/CollectionView'), import('./views/SprintView'),
   ])
+  await initI18n()
 })
 
-beforeEach(async () => {
+beforeEach(() => {
   localStorage.clear()
   vi.mocked(api.saveBoardDefaultView).mockClear()
   const updateSettings = useSession.getState().updateSettings
@@ -75,7 +76,6 @@ beforeEach(async () => {
     },
   }))
   restoreSettingsUpdate = () => useSession.setState({ updateSettings })
-  await initI18n()
 })
 afterEach(() => {
   view?.unmount()

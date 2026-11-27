@@ -219,6 +219,8 @@ describe('clouddrive URL upload', () => {
 
     const pending = request(h, 'POST', '/api/clouddrive/uploads/url', jsonBody({ url: 'https://example.com/stall.txt' }))
     await vi.advanceTimersByTimeAsync(0)
+    for (let attempt = 0; attempt < 50 && fetchMock.mock.calls.length < 2; attempt += 1) await vi.advanceTimersByTimeAsync(0)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(REMOTE_TRANSFER_TIMEOUT_MS + 1)
     expect((await pending).status).toBe(202)
     const task = h.sqlite.prepare('SELECT status, error FROM CloudDrive_tasks WHERE user_id = ?').get(USER_A) as { status: string; error: string | null }
