@@ -261,6 +261,12 @@ export interface Variables {
   memoPatScope?: 'memos' | 'owner'
   /** Set only when the request authenticated with a project API token rather than a session. */
   projectTokenId?: string
+  projectAuditInput?: unknown
+  projectAuditBefore?: Array<{
+    entity: 'board' | 'card' | 'comment' | 'content' | 'view'
+    id: string
+    value: Record<string, unknown> | null
+  }>
 
   sessionId: string
 

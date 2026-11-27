@@ -51,6 +51,14 @@ import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAc
 import { projectBody, projectUserId, requireBoard, requireBoardOwner, requireCard, requireComment, requireContent, requireView } from './auth'
 import { projectWebhookEvent } from '@shared/project/integrations'
 import type { ProjectRealtimeEntity } from '@shared/types'
+import type { ProjectActivityChange } from '@shared/project/model'
+import {
+  createProjectAuditChanges,
+  diffProjectAuditSnapshot,
+  recordProjectActivityChanges,
+  type ProjectAuditEntity,
+  type ProjectAuditSnapshot,
+} from './audit'
 import {
   claimProjectWriteReceipt,
   completeProjectWriteReceipt,
@@ -73,6 +81,7 @@ import {
   patchProjectSprint, readSprintDetail, setCardSprint,
 } from './sprints'
 import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
+import { PROJECT_D1_BATCH_STATEMENT_LIMIT } from './d1'
 import { projectBoardCursor, readProjectBoardBundle, rowToComment, rowToContent, touchProjectBoard } from './bundle'
 import {
   addBoardToCategory,
@@ -267,6 +276,100 @@ async function projectWriteBoardId(c: Context<AppBindings>): Promise<string> {
   return row?.board_id ?? ''
 }
 
+function isAuditRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+async function readProjectAuditSnapshot(c: Context<AppBindings>, entity: ProjectAuditEntity, id: string): Promise<ProjectAuditSnapshot> {
+  if (entity === 'board') {
+    const { board } = await requireBoard(c, id, 'viewer', { allowDeleted: true })
+    return { entity, id, value: board as unknown as Record<string, unknown> }
+  }
+  if (entity === 'card') {
+    const { card } = await requireCard(c, id, 'viewer', { allowDeleted: true })
+    return { entity, id, value: card as unknown as Record<string, unknown> }
+  }
+  if (entity === 'comment') {
+    const { comment } = await requireComment(c, id, 'viewer')
+    return { entity, id, value: comment as unknown as Record<string, unknown> }
+  }
+  if (entity === 'content') {
+    const { content } = await requireContent(c, id, 'viewer', { allowDeleted: true })
+    return { entity, id, value: content as unknown as Record<string, unknown> }
+  }
+  const { view } = await requireView(c, id, 'viewer', { allowDeleted: true })
+  return { entity, id, value: view as unknown as Record<string, unknown> }
+}
+
+function projectAuditTargets(path: string, method: string, input: unknown): Array<{ entity: ProjectAuditEntity, id: string }> {
+  const targets: Array<{ entity: ProjectAuditEntity, id: string }> = []
+  const add = (entity: ProjectAuditEntity, id: string): void => { targets.push({ entity, id }) }
+  const board = /^\/api\/project\/boards\/([^/]+)$/.exec(path)?.[1]
+  if (board && (method === 'PATCH' || method === 'DELETE')) add('board', board)
+  if (/^\/api\/project\/boards\/[^/]+\/batch$/.test(path) && isAuditRecord(input)) {
+    const operationCount = ['cards', 'contents', 'views'].reduce((count, key) => count + (Array.isArray(input[key]) ? input[key].length : 0), 0)
+    if (operationCount <= PROJECT_LIMITS.batchOperations) {
+      for (const [key, entity] of [['cards', 'card'], ['contents', 'content'], ['views', 'view']] as const) {
+        const rows = input[key]
+        if (!Array.isArray(rows)) continue
+        for (const row of rows) if (isAuditRecord(row) && typeof row.id === 'string') add(entity, row.id)
+      }
+    }
+  }
+  if (/^\/api\/project\/boards\/[^/]+\/batch-delete$/.test(path) && isAuditRecord(input)) {
+    const operationCount = ['cardIds', 'contentIds', 'viewIds'].reduce((count, key) => count + (Array.isArray(input[key]) ? input[key].length : 0), 0)
+    if (operationCount <= PROJECT_LIMITS.batchOperations) {
+      for (const [key, entity] of [['cardIds', 'card'], ['contentIds', 'content'], ['viewIds', 'view']] as const) {
+        const ids = input[key]
+        if (!Array.isArray(ids)) continue
+        for (const id of ids) if (typeof id === 'string') add(entity, id)
+      }
+    }
+  }
+  if (method === 'PATCH' || method === 'DELETE') {
+    const card = /^\/api\/project\/cards\/([^/]+)$/.exec(path)?.[1]
+    const comment = /^\/api\/project\/comments\/([^/]+)$/.exec(path)?.[1]
+    const content = /^\/api\/project\/contents\/([^/]+)$/.exec(path)?.[1]
+    const view = /^\/api\/project\/views\/([^/]+)$/.exec(path)?.[1]
+    if (card) add('card', card)
+    if (comment) add('comment', comment)
+    if (content) add('content', content)
+    if (view) add('view', view)
+  }
+  return targets
+}
+
+function projectAuditPatch(input: unknown, entity: ProjectAuditEntity, id: string): unknown {
+  if (!isAuditRecord(input)) return input
+  const key = entity === 'card' ? 'cards' : entity === 'content' ? 'contents' : entity === 'view' ? 'views' : ''
+  if (!key) return input
+  const rows = input[key]
+  if (!Array.isArray(rows)) return input
+  for (const row of rows) {
+    if (isAuditRecord(row) && row.id === id && 'patch' in row) return row.patch
+  }
+  return undefined
+}
+
+async function collectProjectAuditChanges(c: Context<AppBindings>, payload: Record<string, unknown> | null): Promise<ProjectActivityChange[]> {
+  const before = c.get('projectAuditBefore') ?? []
+  const input = c.get('projectAuditInput')
+  const method = c.req.path.endsWith('/batch-delete') ? 'DELETE' : c.req.method.toUpperCase()
+  const changes: ProjectActivityChange[] = []
+  for (const snapshot of before) {
+    const responseValue = payload?.[snapshot.entity]
+    let next = isAuditRecord(responseValue) && responseValue.id === snapshot.id ? responseValue : null
+    if (!next && method !== 'DELETE') next = (await readProjectAuditSnapshot(c, snapshot.entity, snapshot.id)).value
+    changes.push(...diffProjectAuditSnapshot(snapshot, projectAuditPatch(input, snapshot.entity, snapshot.id), next, method))
+  }
+  for (const entity of ['board', 'card', 'comment', 'content', 'view'] as const) {
+    const value = payload?.[entity]
+    if (!isAuditRecord(value) || typeof value.id !== 'string' || before.some((snapshot) => snapshot.entity === entity && snapshot.id === value.id)) continue
+    changes.push(...createProjectAuditChanges(entity, value.id, input, value))
+  }
+  return changes.slice(0, 50)
+}
+
 function projectWriteOwnerRequired(c: Context<AppBindings>, body: string): boolean {
   const method = c.req.method.toUpperCase()
   if (method === 'DELETE' && /^\/api\/project\/boards\/[^/]+$/.test(c.req.path)) return true
@@ -385,6 +488,38 @@ projectRoutes.use('*', async (c, next) => {
   }
 })
 
+projectRoutes.use('*', async (c, next) => {
+  const method = c.req.method.toUpperCase()
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS' || !(c.req.header('content-type') ?? '').includes('application/json')) {
+    await next()
+    return
+  }
+  const raw = await readStreamTextWithinLimit(c.req.raw.clone().body, JSON_BODY_LIMITS.project)
+  let input: unknown
+  try {
+    input = raw ? JSON.parse(raw) as unknown : undefined
+  } catch {
+    input = undefined
+  }
+  c.set('projectAuditInput', input)
+  let batchTooLarge = false
+  if (/^\/api\/project\/boards\/[^/]+\/batch$/.test(c.req.path) && isAuditRecord(input)) {
+    const cards = Array.isArray(input.cards) ? input.cards : []
+    const statementCount = cards.reduce((count, row) => {
+      if (!isAuditRecord(row) || !isAuditRecord(row.patch)) return count
+      const values = isAuditRecord(row.patch.values) ? row.patch.values : {}
+      return count + 1 + Object.keys(values).length
+    }, 0) + (Array.isArray(input.contents) ? input.contents.length : 0) + (Array.isArray(input.views) ? input.views.length : 0)
+    batchTooLarge = statementCount > PROJECT_D1_BATCH_STATEMENT_LIMIT
+  }
+  const oversized = raw === null || new TextEncoder().encode(raw).byteLength > JSON_BODY_LIMITS.project
+  const targets = oversized || batchTooLarge ? [] : projectAuditTargets(c.req.path, method, input)
+  const snapshots: ProjectAuditSnapshot[] = []
+  for (const target of targets) snapshots.push(await readProjectAuditSnapshot(c, target.entity, target.id))
+  c.set('projectAuditBefore', snapshots)
+  await next()
+})
+
 /**
  * After any successful board-scoped write, tell every member's sync hub so open boards refetch. The
  * board id comes from the path for /boards/:id and from a row lookup for the child entities; routes
@@ -435,8 +570,9 @@ projectRoutes.use('*', async (c, next) => {
     console.warn('[inkstone] project board cursor bump failed:', error instanceof Error ? error.message : error)
   })
   const actor = c.get('userId') ?? c.get('user')?.id ?? ''
+  let payload: Record<string, unknown> | null = null
   if ((c.res.headers.get('content-type') ?? '').includes('application/json')) {
-    const payload = await c.res.clone().json().catch((error: unknown) => {
+    payload = await c.res.clone().json().catch((error: unknown) => {
       console.warn('[inkstone] project activity response read failed:', error instanceof Error ? error.message : error)
       return null
     }) as Record<string, unknown> | null
@@ -447,8 +583,16 @@ projectRoutes.use('*', async (c, next) => {
       }
     }
   }
-  const record = recordProjectActivity(c.env.DB, boardId, actor, method.toLowerCase(), targetId, `${method} ${path} board=${boardId} target=${targetId}`, now)
+  const record = (async () => {
+    const changes = await collectProjectAuditChanges(c, payload).catch((error: unknown) => {
+      console.warn('[inkstone] project activity diff failed:', error instanceof Error ? error.message : error)
+      return []
+    })
+    const activityId = await recordProjectActivity(c.env.DB, boardId, actor, method.toLowerCase(), targetId, `${method} ${path} board=${boardId} target=${targetId}`, now)
+    await recordProjectActivityChanges(c.env.DB, activityId, boardId, actor, changes, now)
+  })()
   record.catch((error: unknown) => console.warn('[inkstone] project activity record failed:', error instanceof Error ? error.message : error))
+  try { c.executionCtx?.waitUntil(record) } catch { /* no ExecutionContext in tests */ }
   const task = broadcastProjectChange(c.env, boardId, now, originOf(c), {
     entity,
     ...(cardId ? { cardId } : {}),

@@ -8,6 +8,25 @@
  * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.
  */
 
+export const PROJECT_AUDIT_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_activity_changes (
+    id TEXT PRIMARY KEY,
+    activity_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('board','card','comment','content','view')),
+    entity_id TEXT NOT NULL,
+    field_key TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_activity_changes_activity
+     ON project_activity_changes(activity_id, created_at, id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_activity_changes_board
+     ON project_activity_changes(board_id, created_at, id)`,
+]
+
 export const PROJECT_PRESENCE_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS project_board_presence (
     board_id TEXT NOT NULL,
@@ -20,6 +39,7 @@ export const PROJECT_PRESENCE_SCHEMA_STATEMENTS: readonly string[] = [
 ]
 
 export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
+  ...PROJECT_AUDIT_SCHEMA_STATEMENTS,
   ...PROJECT_PRESENCE_SCHEMA_STATEMENTS,
   `CREATE TABLE IF NOT EXISTS project_boards (
     id TEXT PRIMARY KEY,
@@ -724,6 +744,7 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_shares',
   'project_settings',
   'project_activity',
+  'project_activity_changes',
   'project_card_links',
   'project_todo_links',
   'project_card_relations',
@@ -764,6 +785,8 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_shares_board',
   'idx_project_activity_board',
   'idx_project_activity_created',
+  'idx_project_activity_changes_activity',
+  'idx_project_activity_changes_board',
   'idx_project_card_links_to',
   'idx_project_card_links_board',
   'idx_project_todo_links_todo',
@@ -828,6 +851,9 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   ],
   project_settings: ['user_id', 'key', 'value', 'updated_at'],
   project_activity: ['board_id', 'id', 'actor_id', 'type', 'target_id', 'summary', 'created_at'],
+  project_activity_changes: [
+    'id', 'activity_id', 'board_id', 'actor_id', 'entity_type', 'entity_id', 'field_key', 'old_value', 'new_value', 'created_at',
+  ],
   project_card_links: ['from_card_id', 'to_card_id', 'kind', 'board_id', 'created_at'],
   project_todo_links: ['card_id', 'todo_id', 'user_id', 'created_at'],
   project_card_relations: ['board_id', 'from_card_id', 'to_card_id', 'property_id', 'created_at'],

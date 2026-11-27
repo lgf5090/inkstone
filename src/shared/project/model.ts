@@ -157,6 +157,14 @@ export interface ProjectMyTask {
   updatedAt: number
 }
 
+export interface ProjectActivityChange {
+  entity: 'board' | 'card' | 'comment' | 'content' | 'view'
+  entityId: string
+  field: string
+  oldValue?: unknown
+  newValue?: unknown
+}
+
 export interface ProjectActivityEntry {
   id: string
   actorId: string
@@ -164,6 +172,7 @@ export interface ProjectActivityEntry {
   targetId: string
   summary: string
   createdAt: number
+  changes?: ProjectActivityChange[]
 }
 
 export const PROJECT_STORAGE_KINDS = ['r2', 'kv'] as const

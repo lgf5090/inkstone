@@ -52,6 +52,12 @@ function isOfflineReadFailure(reason: unknown): boolean {
     || (reason instanceof ApiError && (reason.isOffline || reason.status === 429 || reason.status >= 500))
 }
 
+function formatActivityValue(value: unknown): string {
+  if (value === undefined) return '—'
+  const text = typeof value === 'string' ? value : JSON.stringify(value)
+  return text.length > 120 ? `${text.slice(0, 120)}…` : text
+}
+
 const ACTIVITY_VERB: Record<string, Parameters<typeof t>[0]> = {
   post: 'project.dashboard.act_created',
   patch: 'project.dashboard.act_updated',
@@ -812,6 +818,11 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
                         <span className="text-[var(--text-tertiary)]">{new Date(entry.createdAt).toLocaleString(locale)}</span> — {verb
                           ? `${t(verb)}${target ? ` ${target.title || t('project.board.untitled_card')}` : ''}`
                           : entry.summary}
+                        {entry.changes?.map((change, index) => (
+                          <p key={`${change.entity}:${change.entityId}:${change.field}:${index}`} className="mt-1 break-words pl-3 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                            <code>{change.field}</code>: {formatActivityValue(change.oldValue)} → {formatActivityValue(change.newValue)}
+                          </p>
+                        ))}
                       </li>
                     )
                   })}

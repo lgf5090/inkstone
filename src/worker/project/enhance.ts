@@ -16,6 +16,7 @@ import { projectRelationTargets } from './relations'
 import { readBoardProperties } from './boards'
 import { runProjectAutomations } from './automations'
 import { projectRoleForBoard } from './visibility'
+import { listProjectActivityChanges } from './audit'
 
 export type { ProjectActivityEntry, ProjectCardLink }
 
@@ -43,10 +44,12 @@ export async function recordProjectActivity(
   targetId: string,
   summary: string,
   now: number,
-): Promise<void> {
+): Promise<string> {
+  const id = newProjectId('activity')
   await db.prepare(
     'INSERT INTO project_activity (board_id, id, actor_id, type, target_id, summary, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)',
-  ).bind(boardId, newProjectId('activity'), actorId, type, targetId, summary, now).run()
+  ).bind(boardId, id, actorId, type, targetId, summary, now).run()
+  return id
 }
 
 export async function listProjectActivity(db: D1Database, boardId: string, limit: number): Promise<ProjectActivityEntry[]> {
@@ -54,7 +57,12 @@ export async function listProjectActivity(db: D1Database, boardId: string, limit
     .prepare('SELECT id, actor_id, type, target_id, summary, created_at FROM project_activity WHERE board_id = ?1 ORDER BY created_at DESC LIMIT ?2')
     .bind(boardId, limit)
     .all<{ id: string, actor_id: string, type: string, target_id: string, summary: string, created_at: number }>()
-  return results.map((row) => ({ id: row.id, actorId: row.actor_id, type: row.type, targetId: row.target_id, summary: row.summary, createdAt: row.created_at }))
+  const entries = results.map((row) => ({ id: row.id, actorId: row.actor_id, type: row.type, targetId: row.target_id, summary: row.summary, createdAt: row.created_at }))
+  const changes = await listProjectActivityChanges(db, entries.map((entry) => entry.id))
+  return entries.map((entry) => {
+    const entryChanges = changes.get(entry.id)
+    return entryChanges?.length ? { ...entry, changes: entryChanges } : entry
+  })
 }
 
 export async function listCardLinks(db: D1Database, cardId: string): Promise<ProjectCardLink[]> {
