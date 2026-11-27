@@ -14,7 +14,7 @@ import { MAX_BOOK_BYTES } from '../types'
 import { randomLocalId } from '../../../lib/random-id'
 
 export class ImportRejected extends Error {
-  constructor(readonly reason: 'format' | 'size' | 'corrupt', message?: string) {
+  constructor(readonly reason: 'format' | 'size' | 'corrupt' | 'storage', message?: string) {
     super(message ?? `This file could not be read as a book (${reason})`)
   }
 }

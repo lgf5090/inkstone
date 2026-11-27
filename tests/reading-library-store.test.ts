@@ -82,6 +82,18 @@ describe('importing a library file', () => {
     vi.useRealTimers()
   })
 
+  it('drops malformed child records instead of poisoning later syncs', async () => {
+    const result = await useLibrary.getState().importLibrary(JSON.stringify({
+      books: [{ id: 'b1', format: 'epub', title: '一本', author: '', language: '', publisher: '', filename: 'a.epub', size: 1, addedAt: 2, unitCount: 3, coverPath: null, toc: [] }],
+      progress: { b1: { bookId: 'b1', position: { kind: 'epub', chapter: -1, offset: 0 }, fraction: 0.2, updatedAt: 2, finishedAt: null } },
+      highlights: { b1: [{ id: 'h1', bookId: 'b1', chapter: 0, start: 5, end: 2, color: 'yellow', quote: '坏范围', createdAt: 2, updatedAt: 2 }] },
+      marks: {}, stats: {}, notes: { byBook: {}, updatedAt: {}, vocabulary: null, vocabularyUpdatedAt: null },
+    }))
+    expect(result.rejected).toBe(2)
+    expect(useLibrary.getState().progress).toEqual({})
+    expect(useLibrary.getState().highlights).toEqual({})
+  })
+
   it('merges highlights by id instead of doubling a re-imported list', async () => {
     const mark: Highlight = { id: 'h1', bookId: 'b1', chapter: 0, start: 1, end: 2, color: 'yellow', quote: 'q', prefix: '', suffix: '', comment: '', createdAt: 1, updatedAt: 1 }
     await useLibrary.getState().importLibrary(exportOf([{ id: 'b1', format: 'epub', title: 'x', filename: 'a', size: 1, addedAt: 1, unitCount: 1, toc: [] }]))

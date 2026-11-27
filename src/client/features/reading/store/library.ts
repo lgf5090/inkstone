@@ -19,6 +19,7 @@ import { LIMITS, READER_COVER_TYPES } from '@shared/constants'
 import { deleteBookOnServer, downloadBookBytes, IDLE_SYNC, pullLibrary, pushLibrary, uploadBookBytes, uploadCoverBytes, type SyncState } from './cloud'
 import { createGroup, deleteGroup, normaliseGroups, pruneGroups, renameGroup, toggleBook, type BookGroup, type GroupResult } from '../book-groups'
 import { dayKey } from '../format-time'
+import { parseLibraryExport } from '../library-import'
 import type { ReaderUsage } from '@shared/types'
 import {
   clearTombstone,
@@ -428,13 +429,21 @@ export const useLibrary = create<LibraryState>((set, get) => {
           const tombstone = get().deleted.books.find((one) => one.id === id)
           const record = { ...imported.record, id, updatedAt: nextTimestamp(tombstone?.updatedAt), localOnly: false }
           known.add(id)
-          await idbSet(keyFor(userId, `book:${id}`), new Blob([imported.bytes as unknown as BlobPart]), store)
+          try {
+            await idbSet(keyFor(userId, `book:${id}`), new Blob([imported.bytes as unknown as BlobPart]), store)
+          } catch {
+            throw new ImportRejected('storage')
+          }
           if (!isCurrentAccount(epoch, userId)) return { added, failed }
           const coverBlob = imported.cover
             ? new Blob([imported.cover as unknown as BlobPart], { type: imported.coverType })
             : null
           if (coverBlob) {
-            await idbSet(keyFor(userId, `cover:${id}`), coverBlob, store)
+            try {
+              await idbSet(keyFor(userId, `cover:${id}`), coverBlob, store)
+            } catch {
+              throw new ImportRejected('storage')
+            }
             if (!isCurrentAccount(epoch, userId)) return { added, failed }
             set((state) => ({ covers: { ...state.covers, [id]: URL.createObjectURL(coverBlob) } }))
           }
@@ -861,37 +870,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
     },
 
     async importLibrary(raw) {
-      const parsed = JSON.parse(raw) as Partial<PersistedLibrary>
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.books)) {
-        throw new Error('This file is not a reading-library export')
-      }
-      // The file is a stranger's JSON that later decides which engine reads a book and what the shelf
-      // paints, so every field the app trusts is checked rather than copied.
-      const wanted = parsed.books.filter((book) => isRecord(book)
-        && typeof book.id === 'string' && book.id.length > 0 && book.id.length <= 200
-        && typeof book.title === 'string'
-        && ['epub', 'pdf', 'cbz'].includes(book.format as string)
-        && typeof book.unitCount === 'number' && Number.isFinite(book.unitCount))
-        .map((book) => ({ ...book, localOnly: typeof book.size === 'number' && book.size > LIMITS.readerBookMaxBytes, toc: Array.isArray(book.toc) ? book.toc.filter(isRecord) : [] }))
-      const rejected = parsed.books.length - wanted.length
+      const { data: incoming, rejected } = parseLibraryExport(raw)
       const state = get()
-      const incoming: LibraryData = {
-        books: wanted,
-        progress: parsed.progress ?? {},
-        highlights: parsed.highlights ?? {},
-        marks: parsed.marks ?? {},
-        stats: parsed.stats ?? {},
-        notes: {
-          byBook: parsed.notes?.byBook ?? {},
-          updatedAt: parsed.notes?.updatedAt ?? {},
-          vocabulary: parsed.notes?.vocabulary ?? null,
-          vocabularyUpdatedAt: parsed.notes?.vocabularyUpdatedAt ?? null,
-        },
-        groups: normaliseStoredGroups(parsed.groups),
-        deleted: emptyDeletions(),
-      }
-      // Import is the same id-versioned merge as a pull, except an export never carries deletions:
-      // newer live rows replace older ones and clear the matching local tombstone.
+      // Import is the same id-versioned merge as a pull, including explicit deletion tombstones.
       const merged = mergeRemoteLibrary({
         books: state.books,
         progress: state.progress,
@@ -905,18 +886,13 @@ export const useLibrary = create<LibraryState>((set, get) => {
       set(merged)
       schedulePersist(get)
       return {
-        books: wanted.length,
+        books: incoming.books.length,
         highlights: Object.values(merged.highlights).reduce((total, list) => total + list.length, 0),
         rejected,
       }
     },
   }
 })
-
-/** A JSON value that can be indexed as an object rather than an array or a primitive. */
-function isRecord(value: unknown): value is Record<string, never> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 /**
  * The bytes of a book's file: this device's copy if it has one, the server's otherwise.
