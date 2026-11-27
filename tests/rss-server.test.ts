@@ -61,6 +61,7 @@ describe('server feed parsing and storage', () => {
       VALUES ('hook-notes', ?1, 'Notes', 'https://hooks.example/notes', 'cipher', '["note.created"]', 1, 1, 1)`).run(USER)
     const parsed = parseServerFeed(`<rss><channel><title>Hook</title><item><title>Public title</title><description>Private body ${'x'.repeat(1000)} Private tail</description></item></channel></rss>`, 'f1', 'https://example.com/feed')
     await saveServerRssArticles(db, USER, 'f1', parsed.entries, 10)
+    await saveServerRssArticles(db, USER, 'f1', parsed.entries, 11)
     const rows = sqlite.prepare('SELECT webhook_id, event, payload FROM note_webhook_deliveries ORDER BY webhook_id').all() as Array<{ webhook_id: string, event: string, payload: string }>
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ webhook_id: 'hook-rss', event: 'rss.article.new' })
@@ -99,5 +100,7 @@ describe('scheduled server refresh', () => {
     expect((await loadServerRssArticles(db, USER, 'f1')).map(entry => entry.title)).toEqual(['Fresh'])
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications WHERE user_id = ?').get(USER)).toMatchObject({ count: 1 })
     expect(await runRssSchedulerTick(db, now + 1000)).toEqual({ refreshed: 0, failed: 0 })
+    expect(await runRssSchedulerTick(db, now + 6 * 60_000)).toEqual({ refreshed: 1, failed: 0 })
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM chat_notifications WHERE user_id = ?').get(USER)).toMatchObject({ count: 1 })
   })
 })

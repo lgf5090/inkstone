@@ -2941,6 +2941,7 @@ const ZH_CORE_MESSAGES = {
     "settings.mcp_scope_todo_read": "读取待办",
     "settings.mcp_scope_todo_write": "修改待办",
     "settings.mcp_scope_todo_danger": "删除待办",
+    "settings.mcp_scope_rss_read": "读取 RSS",
     "settings.mcp_database_scope_read": "读取数据库",
     "settings.mcp_database_scope_write": "修改数据库",
     "settings.mcp_scope_write": "写入",

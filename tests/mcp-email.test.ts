@@ -514,6 +514,7 @@ describe('the scope catalogue hides email while the switch is off', () => {
       MCP_SCOPES.todoRead,
       MCP_SCOPES.todoWrite,
       MCP_SCOPES.todoDanger,
+      MCP_SCOPES.rssRead,
       MCP_SCOPES.databaseRead,
       MCP_SCOPES.databaseWrite,
     ])
@@ -532,6 +533,7 @@ describe('the scope catalogue hides email while the switch is off', () => {
       MCP_SCOPES.todoRead,
       MCP_SCOPES.todoWrite,
       MCP_SCOPES.todoDanger,
+      MCP_SCOPES.rssRead,
       MCP_SCOPES.databaseRead,
       MCP_SCOPES.databaseWrite,
       MCP_SCOPES.emailRead,

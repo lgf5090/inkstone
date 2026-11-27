@@ -42646,6 +42646,7 @@ const allowed = new Map([
     "/** Server-side article storage: metadata and bounded bodies in D1 for cross-device reading. */",
     "/**\n * The reading library as rows.\n *\n * The account used to keep this as one JSON column, so starring an article sent the whole library\n * and a second device's newer save quietly replaced subscriptions it had never touched. Rows let one\n * change stay one change: a write is diffed against what is stored and only the rows that moved are\n * touched. Article rows live separately from the library: the scheduler stores bounded article text\n * for cross-device reading, while this module keeps subscriptions and the decisions made about them.\n *\n * The legacy column doubles as the migration marker, which is what separates an empty library from\n * an unmigrated one: rows are only authoritative once the account has an `rss_state` row, and the\n * column is set to NULL the moment it has been split. A reader who deleted every subscription keeps\n * the state row and an empty table set, and never re-runs the split.\n */",
     "/** Replace one account's articles without publishing restore rows as new-article webhooks. */",
+    "/** Replace rows rather than updating them in place; article inserts must not fire webhook triggers twice. */",
   ]],
   ["src/worker/lib/security-headers.ts", [
     "// The OAuth provider and the MCP handler answer their own responses, so the app",

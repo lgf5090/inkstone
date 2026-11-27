@@ -800,6 +800,7 @@ const DEFAULT_KEY_SCOPE_CHOICES = [
   'todos:read',
   'todos:write',
   'todos:danger',
+  'rss:read',
   ...EMAIL_SCOPE_CHOICES,
 ] as const
 
@@ -830,6 +831,7 @@ function scopeSummary(scopes: string[]): string {
     if (scope === 'todos:read') return t('settings.mcp_scope_todo_read')
     if (scope === 'todos:write') return t('settings.mcp_scope_todo_write')
     if (scope === 'todos:danger') return t('settings.mcp_scope_todo_danger')
+    if (scope === 'rss:read') return t('settings.mcp_scope_rss_read')
     if (scope === 'email:read') return t('settings.mcp_email_scope_read')
     if (scope === 'email:write') return t('settings.mcp_email_scope_write')
     if (scope === 'email:send') return t('settings.mcp_email_scope_send')

@@ -29,6 +29,8 @@ interface RowSpec {
   columns: readonly string[]
   /** The identifying columns, without `user_id`. */
   key: readonly string[]
+  /** Replace rows rather than updating them in place; article inserts must not fire webhook triggers twice. */
+  replace?: boolean
 }
 
 const FEED_ROW: RowSpec = {
@@ -54,6 +56,7 @@ const ARTICLE_ROW: RowSpec = {
   table: 'rss_article',
   columns: ['entry_id', 'feed_id', 'title', 'link', 'author', 'published_ts', 'summary', 'content', 'content_released', 'image_url', 'audio_url', 'duration', 'episode', 'season', 'fetched_at'],
   key: ['entry_id'],
+  replace: false,
 }
 
 const STATE_ROW: RowSpec = { table: 'rss_state', columns: ['last_channel', 'saved_at'], key: [] }
@@ -240,8 +243,14 @@ function upserts(spec: RowSpec, userId: string, values: SqlValue[][]): RssStatem
   for (let start = 0; start < values.length; start += fit) {
     const chunk = values.slice(start, start + fit)
     const rows = chunk.map((_row, j) => `(${columns.map((_column, i) => `?${j * per + i + 1}`).join(', ')})`)
+    const conflict = spec.replace === false
+      ? ` ON CONFLICT(${['user_id', ...spec.key].join(', ')}) DO UPDATE SET ${spec.columns
+        .filter(column => !spec.key.includes(column))
+        .map(column => `${column} = excluded.${column}`).join(', ')}`
+      : ''
+    const verb = spec.replace === false ? 'INSERT' : 'INSERT OR REPLACE'
     out.push({
-      sql: `INSERT OR REPLACE INTO ${spec.table} (${columns.join(', ')}) VALUES ${rows.join(', ')}`,
+      sql: `${verb} INTO ${spec.table} (${columns.join(', ')}) VALUES ${rows.join(', ')}${conflict}`,
       params: chunk.map(row => [userId, ...row]).flat(),
     })
   }

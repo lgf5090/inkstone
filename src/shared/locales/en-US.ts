@@ -2948,6 +2948,7 @@ const CORE_MESSAGES = {
     "settings.mcp_scope_todo_read": "Read to-dos",
     "settings.mcp_scope_todo_write": "Change to-dos",
     "settings.mcp_scope_todo_danger": "Delete to-dos",
+    "settings.mcp_scope_rss_read": "Read RSS",
     "settings.mcp_database_scope_read": "Read databases",
     "settings.mcp_database_scope_write": "Change databases",
     "settings.mcp_scope_write": "Write",
