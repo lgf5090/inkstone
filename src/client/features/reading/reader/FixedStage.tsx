@@ -19,7 +19,7 @@ import type { BookPosition } from '../position'
 import { DEFAULT_HIGHLIGHT_PAINT, type ReaderTheme } from '../themes'
 import type { ReaderSettings } from '../store/reader-settings'
 import { buildTextIndex, offsetForPoint, type TextIndex } from '../engine/text-index'
-import { paintHighlights, resolveAnchor } from '../engine/highlight-anchor'
+import { anchorFrom, paintHighlights, resolveAnchor } from '../engine/highlight-anchor'
 import type { PdfPageText } from '../engine/pdf'
 import { Button } from '../../../components/primitives'
 import { useAssistant } from '../../chat/assistant-store'
@@ -64,7 +64,7 @@ interface FixedStageProps {
   start: BookPosition | null
   zoom: number
   onPosition: (position: BookPosition, fraction: number) => void
-  onSelection: (selection: { page: number; start: number; end: number; text: string; rect: DOMRect } | null) => void
+  onSelection: (selection: { page: number; start: number; end: number; text: string; rect: DOMRect; prefix: string; suffix: string } | null) => void
   onMarkClick: (ids: string[], rect: DOMRect) => void
   onPage: (page: number, pages: number) => void
   /** Null for a book whose pages hold no words, which is what disables its search box. */
@@ -215,7 +215,8 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
   const lastSent = useRef('')
   useEffect(() => {
     const perView = settings.readMode === 'scroll' ? 1 : spread
-    const fraction = pages ? Math.min(1, (page - 1) / Math.max(1, pages / perView)) : 0
+    const visibleEnd = settings.readMode === 'scroll' ? page : Math.min(pages, page + perView - 1)
+    const fraction = pages ? Math.min(1, visibleEnd / pages) : 0
     const signature = `${page}:${pages}:${fraction.toFixed(4)}`
     if (signature === lastSent.current) return
     lastSent.current = signature
@@ -339,6 +340,7 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
     const start = offsetForPoint(index, range.startContainer, range.startOffset)
     const end = offsetForPoint(index, range.endContainer, range.endOffset)
     const text = selection.toString()
+    const anchor = anchorFrom(index, start, end)
     if (start < 0 || end <= start || !text.trim()) {
       onSelection(null)
       return
@@ -349,6 +351,8 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
       end,
       text,
       rect: range.getBoundingClientRect(),
+      prefix: anchor.prefix,
+      suffix: anchor.suffix,
     })
   }, [onSelection])
 

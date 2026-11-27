@@ -567,13 +567,12 @@ export const useLibrary = create<LibraryState>((set, get) => {
     markFinished(bookId, finished) {
       set((state) => {
         const current = state.progress[bookId]
-        if (!current) return {}
-        const updatedAt = nextTimestamp(current.updatedAt)
+        const updatedAt = nextTimestamp(current?.updatedAt)
+        const progress: ReadingProgress = current
+          ? { ...current, finishedAt: finished ? updatedAt : null, updatedAt }
+          : { bookId, position: null, fraction: finished ? 1 : 0, updatedAt, finishedAt: finished ? updatedAt : null }
         return {
-          progress: {
-            ...state.progress,
-            [bookId]: { ...current, finishedAt: finished ? updatedAt : null, updatedAt },
-          },
+          progress: { ...state.progress, [bookId]: progress },
           deleted: withoutTombstone(state.deleted, 'progress', bookId),
         }
       })

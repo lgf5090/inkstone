@@ -402,8 +402,8 @@ export function ReaderView({ book }: { book: BookRecord }) {
       end: selection.end,
       color,
       quote: selection.text,
-      prefix: '',
-      suffix: '',
+      prefix: selection.prefix ?? '',
+      suffix: selection.suffix ?? '',
       comment: '',
     })
     setSelection(null)
@@ -445,8 +445,8 @@ export function ReaderView({ book }: { book: BookRecord }) {
       end: selection.end,
       color: settings.defaultHighlightColor,
       quote: selection.text,
-      prefix: '',
-      suffix: '',
+      prefix: selection.prefix ?? '',
+      suffix: selection.suffix ?? '',
       comment: '',
     })
     setSelection(null)
@@ -536,8 +536,8 @@ export function ReaderView({ book }: { book: BookRecord }) {
     setPage((current) => (current.page === next && current.pages === total ? current : { page: next, pages: total }))
   }, [])
 
-  const onFixedSelection = useCallback((next: { page: number; start: number; end: number; text: string; rect: DOMRect } | null) => {
-    setSelection(next ? { start: next.start, end: next.end, text: next.text, rect: next.rect, chapter: next.page - 1 } : null)
+  const onFixedSelection = useCallback((next: { page: number; start: number; end: number; text: string; rect: DOMRect; prefix: string; suffix: string } | null) => {
+    setSelection(next ? { start: next.start, end: next.end, text: next.text, rect: next.rect, chapter: next.page - 1, prefix: next.prefix, suffix: next.suffix } : null)
   }, [])
 
   function moreItems(): MenuItem[] {

@@ -100,7 +100,7 @@ vi.mock('../src/client/features/reading/reader/EpubStage', async () => {
       }))
       return createElement('div', null,
         createElement('button', {
-          onClick: () => props.onSelection?.({ start: 0, end: 5, text: '第一句', rect: new DOMRect(0, 0, 10, 10) }),
+          onClick: () => props.onSelection?.({ start: 0, end: 5, text: '第一句', prefix: '上文', suffix: '下文', rect: new DOMRect(0, 0, 10, 10) }),
         }, 'select'),
         createElement('button', {
           onClick: () => props.onMarkClick?.(['h1'], new DOMRect(0, 0, 10, 10)),
@@ -368,6 +368,7 @@ describe('ReaderView auto-note wiring', () => {
     clickText('highlight')
 
     expect(mocks.library.addHighlight).toHaveBeenCalledTimes(1)
+    expect(mocks.library.addHighlight).toHaveBeenCalledWith(expect.objectContaining({ prefix: '上文', suffix: '下文' }))
     expect(mocks.scheduleRefresh).toHaveBeenCalledTimes(1)
   })
 
@@ -379,6 +380,7 @@ describe('ReaderView auto-note wiring', () => {
     clickText('comment')
 
     expect(mocks.library.addHighlight).toHaveBeenCalledTimes(1)
+    expect(mocks.library.addHighlight).toHaveBeenCalledWith(expect.objectContaining({ prefix: '上文', suffix: '下文' }))
     expect(mocks.scheduleRefresh).toHaveBeenCalledTimes(1)
   })
 

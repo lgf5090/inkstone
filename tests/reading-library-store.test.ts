@@ -65,6 +65,13 @@ describe('importing a library file', () => {
     expect(useLibrary.getState().books[0]?.localOnly).toBe(true)
   })
 
+  it('creates progress when a book is marked finished before it was opened', () => {
+    useLibrary.getState().markFinished('b1', true)
+    expect(useLibrary.getState().progress.b1).toMatchObject({ bookId: 'b1', fraction: 1, finishedAt: expect.any(Number) })
+    useLibrary.getState().markFinished('b1', false)
+    expect(useLibrary.getState().progress.b1).toMatchObject({ fraction: 1, finishedAt: null })
+  })
+
   it('files reading time under the local calendar day', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 10, 25, 0, 30))

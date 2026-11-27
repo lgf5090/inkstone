@@ -19,7 +19,7 @@ import {
 import type { EpubHandle } from './useEpubHandle'
 import type { PreparedChapter } from '../engine/chapter'
 import { buildTextIndex, offsetForPoint, pointForOffset, type TextIndex } from '../engine/text-index'
-import { paintHighlights, resolveAnchor } from '../engine/highlight-anchor'
+import { anchorFrom, paintHighlights, resolveAnchor } from '../engine/highlight-anchor'
 import {
   chapterProgress,
   computeGeometry,
@@ -44,6 +44,8 @@ export interface StageSelection {
   end: number
   text: string
   rect: DOMRect
+  prefix?: string
+  suffix?: string
   /** Which chapter or page the selection was made on; the stage's own slot when it is absent. */
   chapter?: number
 }
@@ -606,7 +608,8 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     const text = selection.toString()
     if (!text.trim()) return null
     const rect = range.getBoundingClientRect()
-    return { start, end, text, rect }
+    const anchor = anchorFrom(index, start, end)
+    return { start, end, text, rect, prefix: anchor.prefix, suffix: anchor.suffix }
   }, [])
 
   useEffect(() => {
