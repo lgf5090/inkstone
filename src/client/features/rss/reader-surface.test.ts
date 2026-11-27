@@ -17,6 +17,7 @@ import { DEFAULT_SETTINGS, mergeSettings } from '@shared/constants'
 import { channelKey, type RssChannel } from '@shared/rss/reading'
 import { initI18n, t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
+import { useUi } from '../../store/ui'
 import { useRss } from './store'
 import { RssReader } from './RssReader'
 
@@ -123,6 +124,28 @@ describe('the reading versions', () => {
     expect(container.querySelector('[data-rss-version]')).toBeNull()
     expect(container.textContent).toContain('One paragraph of body.')
     expect(container.textContent).toContain(t('rss.version_original'))
+  })
+})
+
+describe('copying an article link', () => {
+  it('shows a danger toast when the clipboard refuses the write', async () => {
+    await mount(entryFor(PLAIN_LINK, 'copy-entry'))
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    const writeText = vi.fn().mockRejectedValue(new Error('clipboard denied'))
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const toast = vi.spyOn(useUi.getState(), 'toast').mockImplementation(() => '')
+    try {
+      const button = [...container.querySelectorAll<HTMLButtonElement>('button')]
+        .find(node => node.textContent?.includes(t('rss.copy_link')))
+      if (!button) throw new Error('the copy link button is not on the reader')
+      await act(async () => { button.click() })
+      expect(toast).toHaveBeenCalledWith({ title: t('rss.copy_failed'), tone: 'danger' })
+    }
+    finally {
+      toast.mockRestore()
+      if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor)
+      else Reflect.deleteProperty(navigator, 'clipboard')
+    }
   })
 })
 

@@ -270,8 +270,9 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
       await navigator.clipboard.writeText(entry.link)
       useUi.getState().toast({ title: t('rss.copied'), tone: 'success' })
     }
-    catch {
-      // A browser that will not hand over the clipboard has already said so in its own words.
+    catch (error) {
+      console.warn('[inkstone] RSS article link could not be copied', error)
+      useUi.getState().toast({ title: t('rss.copy_failed'), tone: 'danger' })
     }
   }
 
