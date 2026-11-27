@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyLibrary, newFeed, newGroup, parseRssLibrary, type RssLibrary } from './model'
+import { emptyLibrary, newFeed, newGroup, parseRssLibrary, RSS_LIMITS, type RssLibrary } from './model'
 import { applyLibraryPatch, diffLibrary, patchChars, patchIsEmpty, parseRssPatch } from './patch'
 
 const NOW = 1_700_000_000_000
@@ -201,6 +201,16 @@ describe('a change set from the network', () => {
     expect(parseRssPatch({ ...good, feeds: { upsert: [{ id: 'f9' }], remove: [] } })).toBeNull()
     expect(parseRssPatch({ ...good, groups: { upsert: [{ id: 'g9', name: 4 }], remove: [] } })).toBeNull()
     expect(parseRssPatch({ ...good, tags: { upsert: [{ feedId: 'f1' }], remove: [] } })).toBeNull()
+  })
+
+  it('uses the mark ceiling instead of the feed ceiling for marks', () => {
+    const good = diffLibrary(library(), library(), clock)
+    const marks = Array.from({ length: 401 }, (_unused, index) => ({ kind: 'read', entryId: `e${index}`, value: '', at: index }))
+    expect(parseRssPatch({ ...good, marks: { upsert: marks, remove: [] } })).not.toBeNull()
+    const limit = RSS_LIMITS.readIds + RSS_LIMITS.favorites + RSS_LIMITS.readLater + RSS_LIMITS.hiddenIds
+      + RSS_LIMITS.openedRecords + RSS_LIMITS.savedNotes
+    const tooMany = Array.from({ length: limit + 1 }, (_unused, index) => ({ kind: 'read', entryId: `e${index}`, value: '', at: index }))
+    expect(parseRssPatch({ ...good, marks: { upsert: tooMany, remove: [] } })).toBeNull()
   })
 
   it('refuses a section larger than the library it claims to update', () => {

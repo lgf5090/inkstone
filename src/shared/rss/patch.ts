@@ -33,6 +33,9 @@ const LISTS: [RssMarkKind, 'readIds' | 'favorites' | 'readLater' | 'hiddenIds'][
   ['later', 'readLater'],
   ['hidden', 'hiddenIds'],
 ]
+const TAG_PATCH_LIMIT = RSS_LIMITS.feeds * RSS_LIMITS.tagsPerFeed
+const MARK_PATCH_LIMIT = RSS_LIMITS.readIds + RSS_LIMITS.favorites + RSS_LIMITS.readLater
+  + RSS_LIMITS.hiddenIds + RSS_LIMITS.openedRecords + RSS_LIMITS.savedNotes
 
 function markKey(kind: string, entryId: string): string {
   return `${kind}\u0000${entryId}`
@@ -153,10 +156,10 @@ export function patchIsEmpty(patch: RssPatch): boolean {
  */
 export function parseRssPatch(value: unknown): RssPatch | null {
   if (!isRecord(value)) return null
-  const feeds = readSection(value.feeds, 'upsert', 'remove')
-  const groups = readSection(value.groups, 'upsert', 'remove')
-  const tags = readSection(value.tags, 'upsert', 'remove')
-  const marks = readSection(value.marks, 'upsert', 'remove')
+  const feeds = readSection(value.feeds, 'upsert', 'remove', RSS_LIMITS.feeds)
+  const groups = readSection(value.groups, 'upsert', 'remove', RSS_LIMITS.groups)
+  const tags = readSection(value.tags, 'upsert', 'remove', TAG_PATCH_LIMIT)
+  const marks = readSection(value.marks, 'upsert', 'remove', MARK_PATCH_LIMIT)
   if (!feeds || !groups || !tags || !marks) return null
   const patch: RssPatch = { feeds, groups, tags, marks, state: null }
   if (value.state !== null && value.state !== undefined) {
@@ -192,12 +195,12 @@ function isMarkKind(value: unknown): value is RssMarkKind {
 }
 
 /** `{ upsert: [...], remove: [...] }`, each side an array of at most the ceiling it belongs to. */
-function readSection(value: unknown, upsertName: string, removeName: string): { upsert: never[], remove: never[] } | null {
+function readSection(value: unknown, upsertName: string, removeName: string, limit: number): { upsert: never[], remove: never[] } | null {
   if (!isRecord(value)) return null
   const upsert = Array.isArray(value[upsertName]) ? value[upsertName] : null
   const remove = Array.isArray(value[removeName]) ? value[removeName] : null
   if (!upsert || !remove) return null
-  if (upsert.length > RSS_LIMITS.feeds || remove.length > RSS_LIMITS.feeds) return null
+  if (upsert.length > limit || remove.length > limit) return null
   return { upsert, remove } as unknown as { upsert: never[], remove: never[] }
 }
 
