@@ -14,49 +14,62 @@ import { useState, type ReactElement } from 'react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { shortSince } from '../../lib/time'
-import type { RssEntry } from '@shared/rss/model'
-import { useRss } from './store'
+import type { RssEntry, RssLibrary } from '@shared/rss/model'
+import { useRss, type RssCacheMeta } from './store'
 
-interface Row {
+export interface SourceHealthRow {
   id: string
   name: string
   group: string
-  cached: number
-  opened: number
-  last: number
+  cached: number | null
+  opened: number | null
+  last: number | null
 }
 
 const DAY_MS = 86_400_000
 
-export function SourceHealth(): ReactElement | null {
-  const library = useRss(state => state.library)
-  const articles = useRss(state => state.articles)
-  const removeFeed = useRss(state => state.removeFeed)
-  const [armed, setArmed] = useState<string | null>(null)
-  if (!library.feeds.length) return null
-
-  const rows: Row[] = library.feeds.map(feed => {
-    const entries: RssEntry[] = articles[feed.id] ?? []
-    let opened = 0
-    let last = 0
-    for (const entry of entries) {
-      const at = library.opened[entry.id]
-      if (at) {
-        opened++
-        if (at > last) last = at
+export function sourceHealthRows(
+  library: RssLibrary,
+  articles: Record<string, RssEntry[]>,
+  cache: Record<string, RssCacheMeta>,
+): SourceHealthRow[] {
+  return library.feeds.map(feed => {
+    const loaded = articles[feed.id]
+    const entries = loaded ?? []
+    let opened: number | null = null
+    let last: number | null = null
+    if (loaded) {
+      opened = 0
+      for (const entry of entries) {
+        const at = library.opened[entry.id]
+        if (at) {
+          opened++
+          if (at > (last ?? 0)) last = at
+        }
       }
     }
     return {
       id: feed.id,
       name: feed.title,
       group: library.groups.find(group => group.id === feed.groupId)?.name ?? t('rss.ungrouped'),
-      cached: entries.length,
+      cached: loaded ? entries.length : cache[feed.id]?.count ?? null,
       opened,
       last,
     }
-  }).sort((a, b) => b.opened - a.opened || b.last - a.last || a.name.localeCompare(b.name))
+  }).sort((a, b) => (b.opened ?? -1) - (a.opened ?? -1) || (b.last ?? 0) - (a.last ?? 0) || a.name.localeCompare(b.name))
+}
 
-  const sleeping = rows.filter(row => row.opened === 0 || Date.now() - row.last > 30 * DAY_MS).length
+export function SourceHealth(): ReactElement | null {
+  const library = useRss(state => state.library)
+  const articles = useRss(state => state.articles)
+  const cache = useRss(state => state.cache)
+  const removeFeed = useRss(state => state.removeFeed)
+  const [armed, setArmed] = useState<string | null>(null)
+  if (!library.feeds.length) return null
+
+  const rows = sourceHealthRows(library, articles, cache)
+  const sleeping = rows.filter(row => row.opened !== null
+    && (row.opened === 0 || (row.last !== null && Date.now() - row.last > 30 * DAY_MS))).length
   const groupNames = new Map(library.groups.map(group => [group.id, group.name]))
 
   return (
@@ -82,11 +95,11 @@ export function SourceHealth(): ReactElement | null {
               <tr key={row.id} className="border-t border-[var(--border-subtle)]">
                 <td className="max-w-[180px] truncate px-2 py-1.5 text-[var(--text-primary)]">{row.name}</td>
                 <td className="px-2 py-1.5 text-[var(--text-tertiary)]">{groupNames.get(row.group) ?? row.group}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums text-[var(--text-secondary)]">{row.cached}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums text-[var(--text-secondary)]">{row.opened}</td>
-                <td className="px-2 py-1.5 text-right text-[var(--text-tertiary)]">{row.last ? shortSince(row.last) : t('rss.health.never')}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-[var(--text-secondary)]">{row.cached ?? '—'}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-[var(--text-secondary)]">{row.opened ?? '—'}</td>
+                <td className="px-2 py-1.5 text-right text-[var(--text-tertiary)]">{row.last ? shortSince(row.last) : row.opened === null ? '—' : t('rss.health.never')}</td>
                 <td className="px-2 py-1 text-right">
-                  {row.opened > 0 && Date.now() - row.last <= 30 * DAY_MS
+                  {row.opened !== null && row.opened > 0 && row.last !== null && Date.now() - row.last <= 30 * DAY_MS
                     ? null
                     : (
                         <button
