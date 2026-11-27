@@ -1266,8 +1266,19 @@ export interface TodosSyncResponse {
   serverTime: number
 }
 
+export type ProjectRealtimeEntity = 'board' | 'card' | 'comment' | 'content' | 'view'
+
 export type RealtimeMessage =
   | { type: 'changed'; cursor: number; origin: string | null }
+  | {
+      type: 'project-changed'
+      cursor: number
+      origin: string | null
+      boardId: string
+      entity: ProjectRealtimeEntity
+      cardId?: string
+      commentId?: string
+    }
   | { type: 'ping' }
   | { type: 'pong'; serverTime: number }
 

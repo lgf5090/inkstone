@@ -314,6 +314,7 @@ export const ZH_CN_PROJECT = {
     "project.card.dependencies": "依赖",
     "project.card.add_dependency": "阻塞于…",
     "project.board.activity": "动态",
+    "project.presence.label": "{count} 人在线",
     "project.board.truncated": "内容较多，本次仅加载一部分；打开卡片可查看完整正文与评论。",
     "project.board.truncated_public": "内容较多，本次仅展示一部分。",
     "project.board.export_md": "导出 Markdown",

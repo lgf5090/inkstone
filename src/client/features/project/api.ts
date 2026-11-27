@@ -150,6 +150,15 @@ export async function fetchBoardCursor(boardId: string, signal?: AbortSignal): P
   return body.cursor
 }
 
+export async function heartbeatProjectBoardPresence(boardId: string, signal?: AbortSignal): Promise<string[]> {
+  const body = await baseRequest<{ users: string[] }>(`/api/project/boards/${encodeURIComponent(boardId)}/presence`, {
+    method: 'POST',
+    body: {},
+    signal,
+  })
+  return body.users
+}
+
 export async function createProjectCard(boardId: string, input: Partial<ProjectCardCreateInput>): Promise<ProjectCard> {
   const body = await request<{ card: ProjectCard }>(`/api/project/boards/${encodeURIComponent(boardId)}/cards`, { method: 'POST', body: input })
   return body.card

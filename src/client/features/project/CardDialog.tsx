@@ -21,6 +21,7 @@ import { useSession } from '../../store/session'
 import { useProjectWatch } from './use-watch'
 import type { UndoCommand } from './undo'
 import { CardAttachmentsSection, CardCommentsSection, CardDependenciesSection, CardSubtasksSection } from './CardDialogSections'
+import { PROJECT_REALTIME_EVENT, type ProjectRealtimeDetail } from './realtime-events'
 
 interface CardDialogProps {
   card: ProjectCard
@@ -227,6 +228,16 @@ export function CardDialog({ card, properties, members, people, contents, siblin
       .catch(() => { if (!controller.signal.aborted) setCommentsError(true) })
     return () => controller.abort()
   }, [card.id, commentsAttempt, detailTruncated])
+  useEffect(() => {
+    const onProjectChange = (event: Event): void => {
+      const detail = (event as CustomEvent<ProjectRealtimeDetail>).detail
+      if (detail?.boardId === card.boardId && detail.entity === 'comment') {
+        setCommentsAttempt((current) => current + 1)
+      }
+    }
+    window.addEventListener(PROJECT_REALTIME_EVENT, onProjectChange)
+    return () => window.removeEventListener(PROJECT_REALTIME_EVENT, onProjectChange)
+  }, [card.boardId])
   useEffect(() => {
     if (!detailTruncated) return
     const controller = new AbortController()

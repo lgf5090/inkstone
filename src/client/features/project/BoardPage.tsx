@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { AlertTriangle, ArrowLeft, Bell, CloudOff, FileDown, History, PanelLeft, Plus, Settings2, Share2, Sparkles, SquareKanban, Trash2, Users } from 'lucide-react'
 import type { ProjectActivityEntry, ProjectCard, ProjectProperty, ProjectView, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
-import { projectRoleAtLeast, emptyProjectViewFields } from '@shared/project/model'
+import { projectRoleAtLeast, emptyProjectViewFields, projectPersonLabel } from '@shared/project/model'
 import { projectFilterPrefill } from '@shared/project/view-eval'
 import { buildProjectAssistantFacts } from '@shared/project/assistant-context'
 import type { AssistantPageContext } from '@shared/assistant'
@@ -14,7 +14,7 @@ import { ApiError } from '../../lib/api'
 import { useAssistant } from '../chat/assistant-store'
 import { AssistantDock } from '../chat/AssistantDock'
 import { useUi } from '../../store/ui'
-import { Button, IconButton } from '../../components/primitives'
+import { Button, IconButton, Avatar } from '../../components/primitives'
 import { Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -22,6 +22,8 @@ import { confirm, Modal } from '../../components/overlay'
 import { batchPatchProjectBoard, createCardFromTemplate, createProjectCard, createProjectView, deleteProjectCard, deleteProjectView, duplicateProjectCard, duplicateProjectView, fetchBoardActivity, fetchBoardCursor, patchProjectBoard, patchProjectCard, patchProjectView, undeleteProjectCard, undeleteProjectView } from './api'
 import { createUndoStack } from './undo'
 import { useBoardSession } from './use-board-session'
+import { useBoardPresence } from './use-board-presence'
+import { PROJECT_REALTIME_EVENT, type ProjectRealtimeDetail } from './realtime-events'
 import { newProjectId, PROJECT_LIMITS } from '@shared/project/limits'
 import type { SkinTone } from '@shared/types'
 import { EmojiPicker } from '../emoji/EmojiPicker'
@@ -121,6 +123,18 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
   const [showMembers, setShowMembers] = useState(false)
   const [showTrash, setShowTrash] = useState(false)
   const boardWatch = useProjectWatch('board', boardId)
+  const onlineUserIds = useBoardPresence(boardId, status === 'ready' && !usingCachedBundle)
+  useEffect(() => {
+    const onProjectChange = (event: Event): void => {
+      const detail = (event as CustomEvent<ProjectRealtimeDetail>).detail
+      if (detail?.boardId !== boardId) return
+      void refresh().catch((cause: unknown) => {
+        console.warn('[inkstone] project realtime refresh failed:', cause)
+      })
+    }
+    window.addEventListener(PROJECT_REALTIME_EVENT, onProjectChange)
+    return () => window.removeEventListener(PROJECT_REALTIME_EVENT, onProjectChange)
+  }, [boardId, refresh])
   useAssistantToolRefresh(PROJECT_WRITE_TOOL_NAMES, refresh)
   const [showActivity, setShowActivity] = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -602,6 +616,24 @@ export function BoardPage({ boardId }: { boardId: string }): ReactElement {
           <h1 className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
             {headerTitle}
           </h1>
+          {onlineUserIds.length > 0 && (
+            <div
+              className="flex shrink-0 items-center -space-x-2"
+              role="status"
+              aria-label={t('project.presence.label', { count: onlineUserIds.length })}
+            >
+              {onlineUserIds.slice(0, 4).map((userId) => (
+                <span key={userId} title={projectPersonLabel(bundle.people, userId)} className="rounded-full ring-2 ring-[var(--bg-elevated)]">
+                  <Avatar src={bundle.people[userId]?.avatarUrl} name={projectPersonLabel(bundle.people, userId)} size={22} />
+                </span>
+              ))}
+              {onlineUserIds.length > 4 && (
+                <span className="flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-[var(--bg-sunken)] px-1 text-[length:var(--text-10)] text-[var(--text-secondary)] ring-2 ring-[var(--bg-elevated)]">
+                  +{onlineUserIds.length - 4}
+                </span>
+              )}
+            </div>
+          )}
           {pendingWrites > 0 && (
             <span role="status" className="shrink-0 rounded-[var(--r-sm)] bg-[var(--accent-soft)] px-2 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)]">
               {t('project.offline.pending', { count: pendingWrites })}

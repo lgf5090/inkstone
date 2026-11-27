@@ -1076,6 +1076,16 @@ export type BroadcastPayload = (
   | { type: 'local-write'; clientId: string }
   | { type: 'pulled'; cursor: number; clientId: string }
   | { type: 'todos-pulled'; clientId: string; cursor: number }
+  | {
+      type: 'project-changed'
+      clientId: string
+      boardId: string
+      cursor: number
+      origin: string | null
+      entity: 'board' | 'card' | 'comment' | 'content' | 'view'
+      cardId?: string
+      commentId?: string
+    }
   | { type: 'claim-leader'; clientId: string; at: number }
   | { type: 'settings-changed'; clientId: string }
   | { type: 'template-library-changed'; clientId: string }

@@ -46,9 +46,11 @@ import { requireAuth } from '../middleware/auth'
 import { consumeAttemptBudget } from '../lib/throttle'
 import { originOf } from '../lib/notify'
 import { broadcastProjectChange } from './realtime'
+import { listProjectBoardPresence, touchProjectBoardPresence } from './presence'
 import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAccountArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireBoardOwner, requireCard, requireComment, requireContent, requireView } from './auth'
 import { projectWebhookEvent } from '@shared/project/integrations'
+import type { ProjectRealtimeEntity } from '@shared/types'
 import {
   claimProjectWriteReceipt,
   completeProjectWriteReceipt,
@@ -395,10 +397,13 @@ projectRoutes.use('*', async (c, next) => {
   const path = c.req.path
   let boardId: string | undefined
   let targetId = ''
+  let entity: ProjectRealtimeEntity = 'card'
+  let cardId: string | undefined
   const boardMatch = /^\/api\/project\/boards\/([^/]+)(?:\/|$)/.exec(path)
   if (boardMatch && boardMatch[1] !== 'import' && boardMatch[1] !== 'from-template') {
     boardId = boardMatch[1]
     targetId = boardMatch[1]
+    entity = 'board'
   } else {
     const child = /^\/api\/project\/(cards|views|contents|comments)\/([^/]+)/.exec(path)
     if (child) {
@@ -406,9 +411,20 @@ projectRoutes.use('*', async (c, next) => {
       const row = await c.env.DB.prepare(`SELECT board_id FROM ${table} WHERE id = ?1`).bind(child[2]).first<{ board_id: string }>()
       boardId = row?.board_id
       targetId = child[2]
+      if (child[1] === 'cards') cardId = child[2]
+      if (child[1] === 'comments') entity = 'comment'
+      else if (child[1] === 'contents') entity = 'content'
+      else if (child[1] === 'views') entity = 'view'
     }
   }
   if (!boardId) return
+  if (/\/presence$/.test(path)) return
+  const cardMatch = /^\/api\/project\/cards\/([^/]+)/.exec(path)
+  if (cardMatch) cardId = cardMatch[1]
+  if (path.includes('/comments')) entity = 'comment'
+  else if (path.includes('/contents')) entity = 'content'
+  else if (path.includes('/views')) entity = 'view'
+  else if (path.includes('/cards')) entity = 'card'
   // Per-reader preferences are not board content: bumping the cursor would make every other tab
   // refetch, and recording them would fill the activity feed with the act of choosing a tab.
   if (/\/(default-view|card-marks)$/.test(path)) return
@@ -425,15 +441,19 @@ projectRoutes.use('*', async (c, next) => {
       return null
     }) as Record<string, unknown> | null
     for (const value of Object.values(payload ?? {})) {
-      if (value && typeof value === 'object' && typeof (value as { id?: unknown }).id === 'string') {
-        targetId = (value as { id: string }).id
-        break
+      if (value && typeof value === 'object') {
+        if (typeof (value as { id?: unknown }).id === 'string') targetId = (value as { id: string }).id
+        if (typeof (value as { cardId?: unknown }).cardId === 'string') cardId = (value as { cardId: string }).cardId
       }
     }
   }
   const record = recordProjectActivity(c.env.DB, boardId, actor, method.toLowerCase(), targetId, `${method} ${path} board=${boardId} target=${targetId}`, now)
   record.catch((error: unknown) => console.warn('[inkstone] project activity record failed:', error instanceof Error ? error.message : error))
-  const task = broadcastProjectChange(c.env, boardId, now, originOf(c), (t) => {
+  const task = broadcastProjectChange(c.env, boardId, now, originOf(c), {
+    entity,
+    ...(cardId ? { cardId } : {}),
+    ...(entity === 'comment' ? { commentId: targetId } : {}),
+  }, (t) => {
     // Best-effort: the test harness fetches without an ExecutionContext, whose getter throws.
     try { c.executionCtx?.waitUntil(t) } catch { /* no ExecutionContext in tests */ }
   })
@@ -519,6 +539,13 @@ projectRoutes.get('/boards/:id/activity', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
   const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 50) || 50, 1), 200)
   return c.json({ activity: await listProjectActivity(c.env.DB, board.id, limit) })
+})
+
+projectRoutes.post('/boards/:id/presence', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const now = Date.now()
+  await touchProjectBoardPresence(c.env.DB, board.id, userId, now)
+  return c.json({ users: await listProjectBoardPresence(c.env.DB, board.id, now) }, 202)
 })
 
 projectRoutes.get('/boards/:id/links', async (c) => {

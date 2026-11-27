@@ -8,7 +8,19 @@
  * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.
  */
 
+export const PROJECT_PRESENCE_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_board_presence (
+    board_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    PRIMARY KEY (board_id, user_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_presence_seen
+     ON project_board_presence(last_seen_at)`,
+]
+
 export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
+  ...PROJECT_PRESENCE_SCHEMA_STATEMENTS,
   `CREATE TABLE IF NOT EXISTS project_boards (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL,
@@ -696,6 +708,7 @@ export const PROJECT_REMINDER_SCHEMA_STATEMENTS: readonly string[] = [
 export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_boards',
   'project_board_members',
+  'project_board_presence',
   'project_properties',
   'project_cards',
   'project_card_values',
@@ -730,6 +743,7 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_boards_owner',
   'idx_project_boards_template',
   'idx_project_members_user',
+  'idx_project_presence_seen',
   'idx_project_properties_order',
   'idx_project_cards_board',
   'idx_project_cards_board_create',
@@ -775,6 +789,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
     'delete_at', 'archived',
   ],
   project_board_members: ['board_id', 'user_id', 'role', 'created_at', 'updated_at'],
+  project_board_presence: ['board_id', 'user_id', 'last_seen_at'],
   project_properties: [
     'board_id', 'id', 'name', 'type', 'options', 'position', 'created_at', 'updated_at',
   ],
