@@ -264,7 +264,6 @@ const allowed = new Map([
     "/**\n * The card a build update puts on the screen.\n *\n * `initializePwa` raises `updateAvailable` the moment a new worker finishes caching its own shell, and\n * this is where that flag becomes something a reader can see and press. It used to be a half-minute\n * toast: a notice that expires in front of a change that does not, leaving a new build installed on the\n * device, unreachable except by a reload nobody asks for. So the card has no dismiss control — that is\n * the design, not an oversight. It goes away when the reader takes the update up, or when another tab\n * already did and this page's waiting worker stopped existing.\n *\n * The other thing it can say is that no update is coming. `updateStuck` is raised when a newer build's\n * worker is discarded before it finishes installing, which is the case where this page is pinned to the\n * build it opened with and every reload re-runs the same failed install; the press clears the worker and\n * the caches it was serving from, the only lever a page has. Same corner, same no-dismiss rule, because\n * the condition behind it is just as standing.\n *\n * The corner is the one this app already uses for a standing, actionable status: the template run's card\n * occupies the same slot, above the phone's navigation row and below a notch, which are the insets the\n * manifest's `display: standalone` makes real rather than decorative.\n */",
     "// One card, two answers to the same question — \"where is my update?\". A build that did finish installing",
     "// is the better answer to a jammed channel, so when both flags are somehow up the ready card owns it.",
-    "/**\n * The attachment hub, hosted above the container switch for the same reason the picture viewer is.\n *\n * `AppShell` is the notebook's own container, so a hub mounted there would simply not exist while\n * the reader sits on memos, chat or the task list — the button in those containers would set state\n * with nothing left to render it. The scope is the slot's whole value: one host, four applications,\n * and the `key` is what keeps one application's filters and selection from being read as the next\n * one's when the hub is opened again somewhere else.\n */",
     "// Only the notebook has somewhere to put a link, and only while one of its notes is open:",
     "// offering the action with no editor behind it would write a request that lands in whichever",
     "// note the reader opens next.",
@@ -281,6 +280,7 @@ const allowed = new Map([
     "/* The floating transport follows every authed app; the music frame keeps its own bar instead. */",
     "// Note-lock keys are session memory, so the lifecycle that drops them lives with the app rather",
     "// than with a screen: switching notes, hiding the tab and leaving the page all re-lock.",
+    "/** Global panels stay above the container switch so every app can open them. */",
   ]],
   ["src/client/components/DrawerSearchField.tsx", [
     "/** The same text `value` holds, compiled: the box says in its own words what a refused expression cost. */",

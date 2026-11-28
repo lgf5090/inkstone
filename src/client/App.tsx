@@ -61,6 +61,9 @@ const DriveSharePage = lazy(() =>
 const SettingsPanel = lazy(() =>
   import('./features/settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel })),
 )
+const NotesWebhooksPanel = lazy(() =>
+  import('./features/notes/NotesWebhooksPanel').then((module) => ({ default: module.NotesWebhooksPanel })),
+)
 const PresentationOverlay = lazy(() =>
   import('./features/presentation').then((module) => ({ default: module.PresentationOverlay })),
 )
@@ -501,20 +504,17 @@ function LightboxLayer() {
   )
 }
 
-/**
- * The attachment hub, hosted above the container switch for the same reason the picture viewer is.
- *
- * `AppShell` is the notebook's own container, so a hub mounted there would simply not exist while
- * the reader sits on memos, chat or the task list — the button in those containers would set state
- * with nothing left to render it. The scope is the slot's whole value: one host, four applications,
- * and the `key` is what keeps one application's filters and selection from being read as the next
- * one's when the hub is opened again somewhere else.
- */
+/** Global panels stay above the container switch so every app can open them. */
 function SettingsLayer() {
   const panel = useUi((s) => s.panel)
   const closePanel = useUi((s) => s.closePanel)
   const userId = useSession((s) => s.user?.id)
-  return panel === 'settings' && <Suspense fallback={null}><SettingsPanel key={userId} onClose={closePanel} /></Suspense>
+  return (
+    <>
+      {panel === 'settings' && <Suspense fallback={null}><SettingsPanel key={userId} onClose={closePanel} /></Suspense>}
+      {panel === 'notes-webhooks' && <Suspense fallback={null}><NotesWebhooksPanel onClose={closePanel} /></Suspense>}
+    </>
+  )
 }
 
 function AttachmentHubLayer() {

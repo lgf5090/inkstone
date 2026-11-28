@@ -107,13 +107,16 @@ describe('settings search index', () => {
 
   it('opens the mounted webhook panel from RSS settings', () => {
     const settings = readFileSync(join(featureRoot, 'RssSettings.tsx'), 'utf8')
+    const app = readFileSync(resolve('src/client/App.tsx'), 'utf8')
     const shell = readFileSync(resolve('src/client/features/shell/AppShell.tsx'), 'utf8')
     expect(settings).toContain("title={t('notes.webhooks_title')}")
     expect(settings).toContain("openPanel('notes-webhooks')")
     expect(settings).toContain('onClose?.()')
     const rssApp = readFileSync(resolve('src/client/features/rss/RssApp.tsx'), 'utf8')
     expect(rssApp).toContain('<RssSettings onClose={() => setPreferences(false)} />')
-    expect(shell).toContain("panel === 'notes-webhooks'")
+    expect(app).toContain("panel === 'notes-webhooks'")
+    expect(app).toContain('<NotesWebhooksPanel onClose={closePanel} />')
+    expect(shell).not.toContain("panel === 'notes-webhooks'")
   })
 })
 
