@@ -20,7 +20,7 @@ import { daysState, daysStateKey, formatAmount, periodUnitKey } from '@shared/su
 import { subscriptionStatus, type SubscriptionItem } from '@shared/subscriptions/model'
 import { StatusPill } from './StatusPill'
 import { CurrencyFlag } from './currency-flag'
-import { SORT_LABEL, SubscriptionAvatar, SubscriptionKebab, subscriptionMenu, subscriptionSubtitle } from './subscription-parts'
+import { SORT_LABEL, SubscriptionAvatar, SubscriptionKebab, SubscriptionMeta, subscriptionMenu } from './subscription-parts'
 import { groupItems, type ListGroup } from './list-view'
 import type { ListSort } from './store'
 
@@ -43,6 +43,8 @@ export interface SubscriptionActions {
 export function SubscriptionList({
   items,
   sort,
+  timezone,
+  showLunar,
   selectedId,
   loading,
   onSelect,
@@ -54,6 +56,8 @@ export function SubscriptionList({
 }: {
   items: readonly SubscriptionItem[]
   sort: ListSort
+  timezone: string
+  showLunar: boolean
   selectedId: string | null
   loading: boolean
   onSelect: (id: string) => void
@@ -110,6 +114,8 @@ export function SubscriptionList({
           <SubscriptionRow
             key={item.id}
             item={item}
+            timezone={timezone}
+            showLunar={showLunar}
             selected={item.id === selectedId}
             onSelect={onSelect}
             actions={actions}
@@ -125,6 +131,8 @@ export function SubscriptionList({
 
 function SubscriptionRow({
   item,
+  timezone,
+  showLunar,
   selected,
   onSelect,
   actions,
@@ -133,6 +141,8 @@ function SubscriptionRow({
   onCheck,
 }: {
   item: SubscriptionItem
+  timezone: string
+  showLunar: boolean
   selected: boolean
   onSelect: (id: string) => void
   actions: SubscriptionActions
@@ -177,8 +187,13 @@ function SubscriptionRow({
             <span className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{item.name}</span>
             <StatusPill status={status} />
           </span>
-          <span className="mt-0.5 block truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
-            {subscriptionSubtitle(item, t(periodUnitKey(item.periodUnit)))}
+          <span className="mt-0.5 block">
+            <SubscriptionMeta
+              item={item}
+              period={t(periodUnitKey(item.periodUnit))}
+              timezone={timezone}
+              showLunar={showLunar}
+            />
           </span>
         </span>
         <span className="shrink-0 text-right">

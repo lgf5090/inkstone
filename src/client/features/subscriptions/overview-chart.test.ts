@@ -161,6 +161,39 @@ describe('the month chart', () => {
   })
 })
 
+describe('the dashboard lists', () => {
+  it('keeps every upcoming renewal reachable in a scrollable list', () => {
+    const upcoming = Array.from({ length: 8 }, (_, index) => ({
+      id: `sub-${index}`,
+      name: `Plan ${index + 1}`,
+      amount: 10,
+      currency: 'CNY',
+      customType: '',
+      renewalDate: '2026-11-01T00:00:00.000Z',
+      daysUntilRenewal: index,
+    })) as SubscriptionOverview['upcoming']
+    mountChart({ upcoming })
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Plan 1')
+    expect(text).toContain('Plan 8')
+    const list = [...document.querySelectorAll<HTMLElement>('ul')].find((node) => node.textContent?.includes('Plan 8'))!
+    expect(list.className).toContain('max-h-72')
+    expect(list.className).toContain('overflow-y-auto')
+  })
+
+  it('folds long category and type legends into an explicit other row', () => {
+    const shares = Array.from({ length: 9 }, (_, index) => ({ label: `Label ${index + 1}`, amount: 10, percentage: 10 }))
+    mountChart({ byCategory: shares, byType: shares })
+    const lists = [...document.querySelectorAll<HTMLElement>('[data-share-list]')]
+    expect(lists).toHaveLength(2)
+    for (const list of lists) {
+      expect(list.querySelectorAll('li')).toHaveLength(8)
+      expect(list.textContent).toContain(t('subscriptions.overview.other_type'))
+      expect(list.textContent).toContain('¥20.00')
+    }
+  })
+})
+
 describe('the rates strip', () => {
   const words = () => (document.body.textContent || '').replace(/\s+/g, ' ')
 

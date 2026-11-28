@@ -29,6 +29,7 @@ export function matchesFilter(item: SubscriptionItem, filter: ListFilter): boole
   if (filter.status === 'soon' && !(item.isActive && item.daysRemaining >= 0 && item.daysRemaining <= SOON_DAYS)) return false
   if (filter.status === 'expired' && !(item.isActive && item.daysRemaining < 0)) return false
   if (filter.status === 'disabled' && item.isActive) return false
+  if (filter.mode !== 'all' && item.subscriptionMode !== filter.mode) return false
   if (filter.category && !categoryList(item).includes(filter.category)) return false
   const query = filter.query.trim()
   if (!query) return true

@@ -128,7 +128,7 @@ export async function buildOverview(
     store.list({ timezone: settings.timezone, paymentLimit: settings.paymentHistoryLimit, now }),
     store.allPayments(),
     loadRates(env, now),
-    recentScheduleLogs(db, userId, 10),
+    recentScheduleLogs(db, userId, 50),
   ])
   // The feed is one answer for everybody; the pins are this account's, and the base is applied last.
   const cnyRates = applyRateOverrides(ratesToday.table, settings.rateOverrides)
@@ -186,8 +186,8 @@ export async function buildOverview(
     },
     yearlyBudget: yearlyBudgetOf(yearly, settings.budgetYearly, settings.timezone, at),
     committedYearly: annualisedCost(items, rates),
-    trials: trialsEnding(items, settings.timezone, at).slice(0, 8),
-    priceChanges: findPriceChanges(items, samples).slice(0, 8),
+    trials: trialsEnding(items, settings.timezone, at),
+    priceChanges: findPriceChanges(items, samples),
     rates: {
       source: ratesToday.source,
       at: ratesToday.at,

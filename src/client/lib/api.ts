@@ -26,6 +26,7 @@ import type {
   RenewOptions,
   ScheduleLogEntry,
   SubscriptionBundle,
+  SubscriptionOverview,
   SubscriptionDetail,
   SubscriptionExpiryPage,
   SubscriptionInput,
@@ -2782,6 +2783,7 @@ export const api = {
    */
   subscriptions: {
     bundle: () => request<SubscriptionBundle>('/api/subscriptions'),
+    overview: () => request<{ overview: SubscriptionOverview }>('/api/subscriptions/overview'),
     expiring: (day: string, limit = 500, cursor?: string, signal?: AbortSignal) =>
       request<SubscriptionExpiryPage>(`/api/subscriptions/expiring${toQuery({ day, limit, cursor })}`, { signal }),
     /**

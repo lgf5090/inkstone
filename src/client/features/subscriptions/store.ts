@@ -30,6 +30,7 @@ import type {
   SubscriptionInput,
   SubscriptionItem,
   SubscriptionOverview,
+  SubscriptionMode,
   SubscriptionSettings,
 } from '@shared/subscriptions/model'
 
@@ -42,6 +43,7 @@ export type ListSort = SharedListSort
 
 export interface ListFilter {
   status: StatusFilter
+  mode: SubscriptionMode | 'all'
   category: string | null
   query: string
   sort: ListSort
@@ -55,6 +57,7 @@ export interface SubscriptionLogs {
 }
 
 let refreshGeneration = 0
+let overviewGeneration = 0
 let selectGeneration = 0
 let logsGeneration = 0
 
@@ -132,6 +135,7 @@ interface SubscriptionsState {
 
   loadLogs: (filter?: NotifyLogFilter) => Promise<void>
   refresh: () => Promise<void>
+  refreshOverview: () => Promise<void>
   /** Take a fresh day of rates from the feed, then redraw every number that used the old one. */
   refreshRates: () => Promise<void>
 }
@@ -160,7 +164,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
   overview: null,
 
   view: 'list',
-  filter: { status: 'all', category: null, query: '', sort: 'expiry' },
+  filter: { status: 'all', mode: 'all', category: null, query: '', sort: 'expiry' },
   selectedId: null,
   detail: null,
   detailLoading: false,
@@ -172,6 +176,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
   async load() {
     if (get().status === 'loading') return
     const generation = ++refreshGeneration
+    ++overviewGeneration
     set({ status: 'loading', error: null })
     try {
       const bundle = await api.subscriptions.bundle()
@@ -183,6 +188,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
 
   async refresh() {
     const generation = ++refreshGeneration
+    ++overviewGeneration
     const selectedId = get().selectedId
     try {
       const bundle = await api.subscriptions.bundle()
@@ -191,6 +197,17 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       if (selectedId && get().selectedId === selectedId) await get().select(selectedId)
     } catch (error) {
       if (generation === refreshGeneration) report(error, 'subscriptions.error.load')
+    }
+  },
+
+  async refreshOverview() {
+    const generation = ++overviewGeneration
+    try {
+      const { overview } = await api.subscriptions.overview()
+      if (generation === overviewGeneration) set({ overview })
+    } catch (error) {
+      // A background refresh leaves the last complete dashboard visible; a full reload remains the retry path.
+      console.warn('[subscriptions] overview refresh failed', error)
     }
   },
 

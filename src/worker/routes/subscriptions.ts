@@ -227,6 +227,12 @@ subscriptionRoutes.get('/', async (c) => {
   return c.json({ items, types, categories, settings, channels, overview, trashCount })
 })
 
+subscriptionRoutes.get('/overview', async (c) => {
+  const { context, settings } = await contextOf(c)
+  const overview = await buildOverview(c.env, c.env.DB, c.get('userId')!, settings, context.now)
+  return c.json({ overview })
+})
+
 subscriptionRoutes.get('/expiring', async (c) => {
   const day = c.req.query('day') ?? ''
   const rawLimit = c.req.query('limit') ?? '100'

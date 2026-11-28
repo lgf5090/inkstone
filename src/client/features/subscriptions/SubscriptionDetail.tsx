@@ -112,6 +112,7 @@ export function SubscriptionDetail({
         <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
           <Fact label={t('subscriptions.detail.amount')} value={amount || '—'} strong />
           <Fact label={t('subscriptions.detail.cycle')} value={`${item.periodValue} ${t(periodUnitKey(item.periodUnit))}`} />
+          {item.startDate && <Fact label={t('subscriptions.detail.start')} value={formatLocalDate(item.startDate, timezone, 'date')} />}
           <Fact label={t('subscriptions.detail.expiry')} value={formatLocalDate(item.expiryDate, timezone, 'date')} />
           <Fact
             label={t('subscriptions.detail.remaining')}
@@ -250,9 +251,17 @@ export function SubscriptionDetail({
                         <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                           {t(PAYMENT_KIND[payment.kind])}
                         </span>
-                        <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">{formatLocalDate(payment.paidAt, timezone, 'date')}</span>
+                        <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">{formatLocalDate(payment.paidAt, timezone, 'datetime')}</span>
                       </span>
                     </div>
+                    {(payment.periodStart || payment.periodEnd) && (
+                      <p className="mt-0.5 text-[length:var(--text-10-5)] tabular-nums text-[var(--text-quaternary)]">
+                        {t('subscriptions.payments.period_range', {
+                          start: payment.periodStart ? formatLocalDate(payment.periodStart, timezone, 'date') : '—',
+                          end: payment.periodEnd ? formatLocalDate(payment.periodEnd, timezone, 'date') : '—',
+                        })}
+                      </p>
+                    )}
                     <div className="mt-0.5 flex items-center gap-1">
                       {payment.note && <span className="min-w-0 flex-1 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{payment.note}</span>}
                       <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100">

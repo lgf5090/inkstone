@@ -181,6 +181,15 @@ describe('the bundle', () => {
     expect(bundle.overview.timezone).toBe('Asia/Shanghai')
   })
 
+  it('refreshes only the dashboard through its own endpoint', async () => {
+    await create({ amount: 120 })
+    const response = await json<any>(await send('GET', '/overview'))
+    expect(response.overview.active.total).toBe(1)
+    expect(response.overview.monthly.amount).toBe(120)
+    expect(response.overview.timezone).toBe('Asia/Shanghai')
+    expect(response.items).toBeUndefined()
+  })
+
   it('counts the month the receipt was written in', async () => {
     await create({ amount: 120 })
     const bundle = await json<any>(await send('GET', '/'))

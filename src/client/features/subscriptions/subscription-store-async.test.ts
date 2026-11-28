@@ -4,6 +4,7 @@ import { useSubscriptions } from './store'
 
 const mocks = vi.hoisted(() => ({
   bundle: vi.fn(),
+  overview: vi.fn(),
   detail: vi.fn(),
   toggle: vi.fn(),
   notifyLogs: vi.fn(),
@@ -49,7 +50,7 @@ beforeEach(() => {
   useSubscriptions.setState({
     status: 'ready', error: null, items: [], trashItems: [], trashCount: 0, types: [], categories: [],
     settings: { ...DEFAULT_SETTINGS }, channels: [], overview: null, view: 'list',
-    filter: { status: 'all', category: null, query: '', sort: 'expiry' }, selectedId: null,
+    filter: { status: 'all', mode: 'all', category: null, query: '', sort: 'expiry' }, selectedId: null,
     detail: null, detailLoading: false, detailDrawerOpen: false, logs: { notify: [], schedule: [], loading: false, error: null },
     saving: false, refreshingRates: false, selection: [],
   })
@@ -87,6 +88,35 @@ describe('subscription store request ordering', () => {
     first.resolve(bundle([item('old')]))
     await oldRequest
     expect(useSubscriptions.getState().items.map((entry) => entry.id)).toEqual(['new'])
+  })
+
+  it('keeps only the newest background dashboard refresh', async () => {
+    const first = deferred<{ overview: SubscriptionOverview }>()
+    const second = deferred<{ overview: SubscriptionOverview }>()
+    mocks.overview.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    const oldRequest = useSubscriptions.getState().refreshOverview()
+    const newRequest = useSubscriptions.getState().refreshOverview()
+    const latest = { active: { active: 2, total: 2, expiringSoon: 0 } } as SubscriptionOverview
+    second.resolve({ overview: latest })
+    await newRequest
+    first.resolve({ overview: { active: { active: 1, total: 1, expiringSoon: 0 } } as SubscriptionOverview })
+    await oldRequest
+    expect(useSubscriptions.getState().overview).toBe(latest)
+  })
+
+  it('does not let a background dashboard response overwrite a newer full bundle', async () => {
+    const background = deferred<{ overview: SubscriptionOverview }>()
+    const full = deferred<SubscriptionBundle>()
+    mocks.overview.mockReturnValueOnce(background.promise)
+    mocks.bundle.mockReturnValueOnce(full.promise)
+    const backgroundRequest = useSubscriptions.getState().refreshOverview()
+    const fullRequest = useSubscriptions.getState().refresh()
+    const latest = { active: { active: 3, total: 3, expiringSoon: 0 } } as SubscriptionOverview
+    full.resolve(bundle([item('new')], latest))
+    await fullRequest
+    background.resolve({ overview: { active: { active: 1, total: 1, expiringSoon: 0 } } as SubscriptionOverview })
+    await backgroundRequest
+    expect(useSubscriptions.getState().overview).toBe(latest)
   })
 
   it('refreshes the overview after a subscription is stopped', async () => {

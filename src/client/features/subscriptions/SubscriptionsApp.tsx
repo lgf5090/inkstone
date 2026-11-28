@@ -51,6 +51,7 @@ const SubscriptionSettings = lazy(() => import('./SubscriptionSettings').then((m
 /** Where the filter rail earns its column, and where the detail panel earns a third one. */
 const NEEDS_RAIL_QUERY = '(min-width: 1024px)'
 const NEEDS_PANEL_QUERY = '(min-width: 1280px)'
+const DASHBOARD_REFRESH_MS = 60_000
 
 export function SubscriptionsApp(): ReactElement {
   const userId = useSession((state) => state.user?.id ?? null)
@@ -106,6 +107,20 @@ export function SubscriptionsApp(): ReactElement {
   useEffect(() => {
     void useSubscriptions.getState().load()
   }, [userId])
+
+  useEffect(() => {
+    if (view !== 'overview' || status !== 'ready') return
+    const refresh = (): void => {
+      if (document.visibilityState === 'visible') void useSubscriptions.getState().refreshOverview()
+    }
+    refresh()
+    const timer = window.setInterval(refresh, DASHBOARD_REFRESH_MS)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [view, status])
 
   // The table the dashboard's own totals were added with, so the list orders money the same way the
   // numbers above it were. Before the bundle lands there is nothing to order by but the built-in table.
@@ -244,6 +259,20 @@ export function SubscriptionsApp(): ReactElement {
         {(view === 'list' || view === 'grid') && (
           <>
             <SelectMenu
+              label={t('subscriptions.list.filter_mode')}
+              value={filter.mode}
+              options={[
+                { value: 'all', label: t('subscriptions.list.mode_all') },
+                { value: 'cycle', label: t('subscriptions.detail.mode_cycle') },
+                { value: 'reset', label: t('subscriptions.detail.mode_reset') },
+              ]}
+              onChange={(mode) => useSubscriptions.getState().setFilter({ mode })}
+              size="sm"
+              width={140}
+              align="end"
+              className="w-[92px] shrink-0 text-[length:var(--text-11-5)]"
+            />
+            <SelectMenu
               label={t('subscriptions.list.sort')}
               value={filter.sort}
               options={LIST_SORTS.map((sort) => ({ value: sort, label: t(SORT_LABEL[sort]) }))}
@@ -371,6 +400,7 @@ export function SubscriptionsApp(): ReactElement {
               <FilterRail
                 view={view}
                 status={filter.status}
+                mode={filter.mode}
                 category={filter.category}
                 items={items}
                 counts={counts}
@@ -378,6 +408,7 @@ export function SubscriptionsApp(): ReactElement {
                 trashCount={trashCount}
                 onView={(next) => useSubscriptions.getState().setView(next)}
                 onStatus={(next) => useSubscriptions.getState().setFilter({ status: next })}
+                onMode={(next) => useSubscriptions.getState().setFilter({ mode: next })}
                 onCategory={(next) => useSubscriptions.getState().setFilter({ category: next })}
                 onSettings={() => setSettingsOpen(true)}
               />
@@ -417,6 +448,8 @@ export function SubscriptionsApp(): ReactElement {
             <SubscriptionList
               items={visible}
               sort={filter.sort}
+              timezone={settings?.timezone ?? 'Asia/Shanghai'}
+              showLunar={settings?.showLunar ?? false}
               selectedId={selectedId}
               loading={status === 'loading'}
               onSelect={openDetail}
@@ -430,6 +463,8 @@ export function SubscriptionsApp(): ReactElement {
           {view === 'grid' && (
             <SubscriptionGrid
               items={visible}
+              timezone={settings?.timezone ?? 'Asia/Shanghai'}
+              showLunar={settings?.showLunar ?? false}
               selectedId={selectedId}
               loading={status === 'loading'}
               onSelect={openDetail}
@@ -493,6 +528,7 @@ export function SubscriptionsApp(): ReactElement {
           <FilterRail
             view={view}
             status={filter.status}
+            mode={filter.mode}
             category={filter.category}
             items={items}
             counts={counts}
@@ -500,6 +536,7 @@ export function SubscriptionsApp(): ReactElement {
             trashCount={trashCount}
             onView={(next) => { useSubscriptions.getState().setView(next); setRailOpen(false) }}
             onStatus={(next) => useSubscriptions.getState().setFilter({ status: next })}
+            onMode={(next) => useSubscriptions.getState().setFilter({ mode: next })}
             onCategory={(next) => useSubscriptions.getState().setFilter({ category: next })}
             onSettings={() => { setSettingsOpen(true); setRailOpen(false) }}
           />

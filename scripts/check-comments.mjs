@@ -16057,6 +16057,7 @@ const allowed = new Map([
     "// rather than the strip being patched with the answer — two sources for one number is how the",
     "// headline and its own disclaimer start disagreeing.",
     "/** Which ordering the toolbar is showing the rows in; the comparison itself lives in `@shared`. */",
+    "// A background refresh leaves the last complete dashboard visible; a full reload remains the retry path.",
   ]],
   ["src/client/features/subscriptions/subscription-detail-spend.test.ts", [
     "/**\n * The money one plan has cost, drawn where the plan is read.\n *\n * The dashboard counts the account; this panel counts a single row, and the two are only trustworthy while\n * they mean the same thing. Pinned here: the receipts are counted per year and per currency rather than\n * merged into a number with no unit, and the yearly projection is the price the plan quotes times the times\n * it charges — not a sum of what happened to arrive.\n *\n * What jsdom cannot tell anyone: how wide the strip gets when four years of history wrap, and whether the\n * chips stay legible against the panel's background.\n */",
