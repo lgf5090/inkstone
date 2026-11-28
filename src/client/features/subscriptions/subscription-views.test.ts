@@ -16,6 +16,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { SubscriptionList, type SubscriptionActions } from './SubscriptionList'
 import { SubscriptionGrid } from './SubscriptionGrid'
+import { SubscriptionCalendar } from './SubscriptionCalendar'
 import { useSubscriptions } from './store'
 
 function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
@@ -36,7 +37,7 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
     autoRenew: true,
     notes: '',
     lastPaymentDate: null,
-    trialEndsAt: null,
+    trialEndsAt: null, paymentMethod: '', managementUrl: '', pausedUntil: null, fixedTerm: false, introPrice: null,
     trialDaysRemaining: null,
     deletedAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -125,6 +126,34 @@ describe('the cards', () => {
     expect(card.querySelector('button')!.contains(kebab), 'the actions button sits inside the button that opens the plan').toBe(false)
     press(kebab, 'the card kebab')
     expect(menuLabels()).toContain(t('subscriptions.trash.move'))
+  })
+})
+
+describe('the month calendar', () => {
+  it('places expiry and trial events on their local days and opens the plan', () => {
+    const onSelect = vi.fn()
+    const today = new Date()
+    const expiry = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 15, 12)).toISOString()
+    const trial = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 16, 12)).toISOString()
+    mount(createElement(SubscriptionCalendar, {
+      items: [item({ expiryDate: expiry, trialEndsAt: trial, trialDaysRemaining: 10 })],
+      timezone: 'UTC',
+      onOpenItem: onSelect,
+    }))
+    const buttons = [...document.querySelectorAll('[role="cell"] button')]
+    expect(buttons).toHaveLength(2)
+    press(buttons[0], 'the expiry event')
+    expect(onSelect).toHaveBeenCalledWith('sub-1')
+  })
+
+  it('moves between months and returns to today', () => {
+    mount(createElement(SubscriptionCalendar, { items: ITEMS, timezone: 'UTC', onOpenItem: () => {} }))
+    const heading = () => document.querySelector('[role="table"]')?.getAttribute('aria-label')
+    const initial = heading()
+    press(document.querySelector(`button[aria-label="${t('subscriptions.calendar.next')}"]`), 'next month')
+    expect(heading()).not.toBe(initial)
+    press([...document.querySelectorAll('button')].find((node) => node.textContent === t('subscriptions.calendar.today')), 'today')
+    expect(heading()).toBe(initial)
   })
 })
 

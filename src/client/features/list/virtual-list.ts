@@ -1,5 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
+export const VIRTUAL_LIST_THRESHOLD = 80
+
 export interface VirtualRange {
   start: number
   end: number
@@ -100,7 +102,10 @@ export function useVirtualList(
         return next
       })
     })
-    for (const element of node.querySelectorAll<HTMLElement>('[data-virtual-index]')) observer.observe(element)
+    for (const element of node.querySelectorAll<HTMLElement>('[data-virtual-index]')) {
+      const index = Number(element.dataset.virtualIndex)
+      if (index >= range.start && index < range.end) observer.observe(element)
+    }
     return () => observer.disconnect()
   }, [measurements, range.end, range.start, resetKey])
 

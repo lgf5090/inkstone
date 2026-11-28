@@ -1,4 +1,4 @@
-import type { RealtimeMessage } from '@shared/types'
+import type { ProjectRealtimeEntity, RealtimeMessage } from '@shared/types'
 import type { Env } from '../env'
 import { evaluateInternalGuard } from '../lib/internal-auth'
 
@@ -18,9 +18,28 @@ export class SyncHub implements DurableObject {
       const body = (await request.json().catch(() => ({}))) as {
         cursor?: number
         origin?: string | null
+        project?: {
+          boardId?: string
+          entity?: ProjectRealtimeEntity
+          cardId?: string
+          commentId?: string
+        }
       }
       const cursor = Number(body.cursor)
-      this.broadcast({
+      const project = body.project
+      const boardId = project?.boardId
+      const entity = project?.entity
+      const validProject = typeof boardId === 'string' && boardId.length > 0
+        && (entity === 'board' || entity === 'card' || entity === 'comment' || entity === 'content' || entity === 'view')
+      this.broadcast(validProject ? {
+        type: 'project-changed',
+        cursor: Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0,
+        origin: typeof body.origin === 'string' ? body.origin.slice(0, 128) : null,
+        boardId: boardId.slice(0, 128),
+        entity,
+        ...(typeof project?.cardId === 'string' ? { cardId: project.cardId.slice(0, 128) } : {}),
+        ...(typeof project?.commentId === 'string' ? { commentId: project.commentId.slice(0, 128) } : {}),
+      } : {
         type: 'changed',
         cursor: Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0,
         origin: typeof body.origin === 'string' ? body.origin.slice(0, 128) : null,
@@ -94,6 +113,12 @@ export async function notifySyncHub(
   cursor: number,
   origin: string | null,
   authKey?: string,
+  project?: {
+    boardId: string
+    entity: ProjectRealtimeEntity
+    cardId?: string
+    commentId?: string
+  },
 ): Promise<void> {
   if (!namespace) return
   try {
@@ -104,7 +129,7 @@ export async function notifySyncHub(
         'Content-Type': 'application/json',
         ...(authKey ? { 'X-Inkstone-Internal': authKey } : {}),
       },
-      body: JSON.stringify({ cursor, origin }),
+      body: JSON.stringify({ cursor, origin, ...(project ? { project } : {}) }),
     })
   } catch (err) {
 

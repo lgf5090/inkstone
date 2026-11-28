@@ -19,7 +19,7 @@ let env: Env
 
 beforeAll(async () => {
   sqlite = new DatabaseSync(':memory:')
-  env = testBindings(makeD1(sqlite))
+  env = testBindings(makeD1(sqlite, { maxBoundParameters: 100 }))
   await app.fetch(new Request('http://localhost/api/health'), env)
   const now = Date.now()
   for (const account of ACCOUNTS) {
@@ -99,23 +99,38 @@ describe('batch patch', () => {
     expect(result.views[0]!.title).toBe('V2')
   })
 
+  it('validates checklist fields before a batch content patch', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id, 'A')
+    const created = await req('alice', 'POST', `/cards/${card.id}/contents`, { type: 'checkbox', title: 'Step', fields: { checked: false } })
+    const content = ((await created.json()) as { content: { id: string } }).content
+    const patch = { contents: [{ id: content.id, patch: { fields: { checked: false, assigneeId: 'bob' } } }] }
+    expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, patch)).status).toBe(400)
+    expect((await bundle('alice', board.id)).contents[0]!.fields).toEqual({ checked: false })
+    addMember(board.id, 'bob', 'editor')
+    expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, patch)).status).toBe(200)
+    expect((await bundle('alice', board.id)).contents[0]!.fields).toEqual({ checked: false, assigneeId: 'bob' })
+  })
+
   it('runs completion, recurrence and assignment effects like a single-card patch', async () => {
     const created = await req('alice', 'POST', '/boards', {
       title: 'Effects',
       cardProperties: [
-        { id: pid(2), name: 'Done', type: 'checkbox', options: [] },
+        { id: pid(2), name: 'Status', type: 'select', options: [{ id: pid(4), value: 'Open', color: '', category: 'todo' }, { id: pid(5), value: 'Done', color: '', category: 'done' }] },
         { id: pid(3), name: 'Owner', type: 'person', options: [] },
       ],
     })
     expect(created.status, await created.clone().text()).toBe(201)
     const board = ((await created.json()) as { board: ProjectBoard }).board
     const cardResponse = await req('alice', 'POST', `/boards/${board.id}/cards`, {
-      title: 'Standup', values: { [pid(2)]: 'false' }, recurrence: { freq: 'daily', interval: 1 },
+      title: 'Standup', values: { [pid(2)]: pid(4) }, recurrence: { freq: 'daily', interval: 1 },
     })
     expect(cardResponse.status, await cardResponse.clone().text()).toBe(201)
     const card = ((await cardResponse.json()) as { card: ProjectCard }).card
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(board.id, 'bob', 'editor')
     const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, {
-      cards: [{ id: card.id, patch: { values: { [pid(2)]: 'true', [pid(3)]: 'bob' } } }],
+      cards: [{ id: card.id, patch: { values: { [pid(2)]: pid(5), [pid(3)]: 'bob' } } }],
     })
     expect(response.status, await response.clone().text()).toBe(200)
     expect((await bundle('alice', board.id)).cards).toHaveLength(2)
@@ -144,6 +159,18 @@ describe('batch patch', () => {
     expect((await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards: [{ id: a.id, patch: { parentId: b.id } }] })).status).toBe(400)
   })
 
+  it('rejects a parent cycle created by two patches in the same batch', async () => {
+    const board = await createBoard('alice')
+    const a = await createCard('alice', board.id, 'A')
+    const b = await createCard('alice', board.id, 'B')
+    const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, {
+      cards: [{ id: a.id, patch: { parentId: b.id } }, { id: b.id, patch: { parentId: a.id } }],
+    })
+    expect(response.status).toBe(400)
+    const result = await bundle('alice', board.id)
+    expect(result.cards.every((card) => card.parentId === '')).toBe(true)
+  })
+
   it('refuses a card from another board and a viewer', async () => {
     const board = await createBoard('alice')
     const other = await createBoard('alice')
@@ -153,13 +180,32 @@ describe('batch patch', () => {
     expect((await req('bob', 'PATCH', `/boards/${board.id}/batch`, { cards: [] })).status).toBe(403)
   })
 
+  it('chunks a valid over-100-id batch before D1 reads', async () => {
+    const board = await createBoard('alice')
+    const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, {
+      cards: Array.from({ length: 101 }, () => ({ id: missingId, patch: { title: 'X' } })),
+    })
+    expect(response.status).toBe(404)
+  })
+
+  it('rejects an unknown property before touching a card', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id, 'A')
+    const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, {
+      cards: [{ id: card.id, patch: { title: 'Changed', values: { [pid(99)]: 'x' } } }],
+    })
+    expect(response.status).toBe(400)
+    const result = await bundle('alice', board.id)
+    expect(result.cards.find((c) => c.id === card.id)!.title).toBe('A')
+  })
+
   it('rejects an over-limit batch before reading any rows', async () => {
     const board = await createBoard('alice')
     const bigValues: Record<string, string> = {}
     for (let index = 0; index < 6; index++) bigValues[pid(index + 10)] = 'x'
     const cards = Array.from({ length: 200 }, () => ({ id: missingId, patch: { values: bigValues } }))
     const response = await req('alice', 'PATCH', `/boards/${board.id}/batch`, { cards })
-    expect(response.status).toBe(413)
+    expect(response.status, await response.clone().text()).toBe(413)
   })
 })
 

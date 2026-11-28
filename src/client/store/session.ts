@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { DEFAULT_SETTINGS, mergeSettings, mergeSettingsPatch } from '@shared/constants'
-import type { PublicUser, SessionInfo, SiteInfo, TotpLoginChallenge, UserSettings } from '@shared/types'
+import type { ProjectSettings, PublicUser, SessionInfo, SiteInfo, TotpLoginChallenge, UserSettings } from '@shared/types'
 import { api, ApiError, CLIENT_ID } from '../lib/api'
 import { getLocale, setLocale, t } from '../lib/i18n'
 import { localDb, publishBroadcast } from '../lib/db'
@@ -476,7 +476,17 @@ function mergeSettingsPatches(
   const merged: Record<string, unknown> = { ...first }
   for (const [key, value] of Object.entries(second)) {
     const base = merged[key]
-    merged[key] = isPlainObject(base) && isPlainObject(value) ? { ...base, ...value } : value
+    if (key === 'project' && isPlainObject(base) && isPlainObject(value)) {
+      const baseProject = base as Partial<ProjectSettings>
+      const valueProject = value as Partial<ProjectSettings>
+      const project = { ...baseProject, ...valueProject }
+      if (isPlainObject(baseProject.personalViews) && isPlainObject(valueProject.personalViews)) {
+        project.personalViews = { ...baseProject.personalViews, ...valueProject.personalViews }
+      }
+      merged[key] = project
+    } else {
+      merged[key] = isPlainObject(base) && isPlainObject(value) ? { ...base, ...value } : value
+    }
   }
   return merged as DeepPartial<UserSettings>
 }

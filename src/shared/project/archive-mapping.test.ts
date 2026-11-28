@@ -32,7 +32,7 @@ function fixture(): ProjectBoardBundle {
     members: [{ boardId: 'b1', userId: 'u1', role: 'admin', createdAt: 10, updatedAt: 20 }],
     people: { u1: { id: 'u1', name: 'Uma', avatarUrl: '' } },
     role: 'admin',
-    cursor: 20,
+    cursor: 20, propertyRevision: 20,
   }
 }
 

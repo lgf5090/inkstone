@@ -61,6 +61,15 @@ describe('attachment embeds', () => {
     expect(box.getAttribute('aria-busy')).toBeNull()
   })
 
+  it('renders a project view as a permission-checked iframe', async () => {
+    const host = await resolve('![[project/b012345678901234567890123/v012345678901234567890123|Roadmap]]', [])
+    const frame = host.querySelector('iframe')!
+    expect(frame.getAttribute('src')).toBe('/project/boards/b012345678901234567890123/embed/v012345678901234567890123')
+    expect(frame.getAttribute('title')).toBe('Roadmap')
+    expect(frame.getAttribute('sandbox')).toBe('allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox')
+    expect(byName).not.toHaveBeenCalled()
+  })
+
   it('still sends ordinary note targets down the note path', async () => {
     const host = await resolve('![[Some Note]]', [ATT])
     expect(byName).not.toHaveBeenCalled()

@@ -55,20 +55,25 @@ export function CardFace({ card, color, cover, chipProperties, excludePropertyId
   )
 }
 
-export function CardGrip({ label, onPointerDown }: {
+export function CardGrip({ label, onPointerDown, onKeyDown, dragging }: {
   label: string
   onPointerDown: (event: React.PointerEvent) => void
+  onKeyDown: (event: React.KeyboardEvent) => void
+  dragging: boolean
 }): ReactElement {
   return (
     <button
       type="button"
       className="pv-card-grip"
       aria-label={label}
+      aria-pressed={dragging}
       data-drag-handle=""
       onPointerDown={onPointerDown}
+      onKeyDown={onKeyDown}
       onClick={(event) => event.preventDefault()}
     >
       <GripVertical size={13} aria-hidden="true" />
+      <span className="sr-only">{t('project.view.keyboard_drag_help')}</span>
     </button>
   )
 }
@@ -119,8 +124,8 @@ export function SubtaskRows({ parentId, subtasks, properties, canEdit, onOpenCar
             />
             <button
               type="button"
-              className={`min-w-0 flex-1 truncate text-left text-[length:var(--text-12)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${done ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)] hover:text-[var(--accent)]'}`}
-              style={{ borderLeft: `2px solid ${colorOf(subtask)}`, paddingLeft: '6px' }}
+              className={`min-w-0 flex-1 truncate pl-1.5 text-left text-[length:var(--text-12)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] ${done ? 'text-[var(--text-tertiary)] line-through' : 'text-[var(--text-primary)] hover:text-[var(--accent)]'}`}
+              style={{ borderLeft: `2px solid ${colorOf(subtask)}` }}
               onClick={() => onOpenCard(subtask.id)}
             >
               {subtask.title || t('project.board.untitled_card')}

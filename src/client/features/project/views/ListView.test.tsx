@@ -9,7 +9,7 @@ import { ListView } from './ListView'
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 const properties: ProjectProperty[] = [
-  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'open', value: 'Open', color: '' }, { id: 'done', value: 'Done', color: '' }] },
+  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'open', value: 'Open', color: '', category: 'todo' }, { id: 'done', value: 'Done', color: '', category: 'done' }] },
   { id: 'pp', name: 'Priority', type: 'select', options: [{ id: 'lo', value: 'Low', color: 'propColorGreen' }, { id: 'hi', value: 'High', color: 'propColorRed' }] },
   { id: 'pd', name: 'Due', type: 'date', options: [] },
 ]
@@ -28,7 +28,7 @@ async function mount(cards: ProjectCard[], extra: Partial<ProjectViewFields> = {
     badgesFor: () => ({ description: false, comments: 0, checked: 0, checkboxes: 0 }),
     onOpenCard: vi.fn(), onCardContextMenu: vi.fn(), onAddSubtask: vi.fn().mockResolvedValue(undefined),
     onToggleCardDone: vi.fn().mockResolvedValue(undefined), onDeleteCard: vi.fn(),
-    onPatchCard: vi.fn().mockResolvedValue(undefined), onPatchFields: vi.fn(), onAddCard: vi.fn().mockResolvedValue(undefined),
+    onPatchCard: vi.fn().mockResolvedValue(undefined), onPatchFields: vi.fn(), onDragCards: vi.fn().mockResolvedValue(undefined), onAddCard: vi.fn().mockResolvedValue(undefined),
   }
   await act(async () => { view = renderElement(createElement(ListView, props)) })
   return props as unknown as Record<string, unknown>
@@ -108,6 +108,30 @@ describe('the trailing columns', () => {
   })
 })
 
+describe('large list rendering', () => {
+  it('keeps rendered rows bounded and reveals the tail on scroll', async () => {
+    const props = await mount(Array.from({ length: 240 }, (_, index) => card(`c${index}`)))
+    expect(view.container.querySelectorAll('[data-project-card]').length).toBeLessThan(30)
+    expect(row('c239')).toBeNull()
+    const list = view.container.querySelector<HTMLElement>('[data-list]')!
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 400 })
+    await act(async () => {
+      Object.defineProperty(list, 'scrollTop', { configurable: true, writable: true, value: 100_000 })
+      list.dispatchEvent(new Event('scroll'))
+    })
+    expect(view.container.querySelectorAll('[data-project-card]').length).toBeLessThan(30)
+    expect(row('c239')).not.toBeNull()
+    const grip = row('c239').querySelector<HTMLButtonElement>('[data-drag-handle]')!
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true })) })
+    await act(async () => { grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(props.onDragCards).toHaveBeenCalledOnce()
+    const order = (props.onDragCards as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string[]
+    expect(order).toHaveLength(240)
+    expect(order.indexOf('c239')).toBe(238)
+  })
+})
+
 describe('hierarchy and drag affordance', () => {
   it('puts the grip before the check and keeps children under their parent', async () => {
     await mount([card('p'), card('c', {}, 'p')])
@@ -117,5 +141,7 @@ describe('hierarchy and drag affordance', () => {
     expect(view.container.querySelector('[data-project-card="c"]')).toBeNull()
     await act(async () => { parent.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.card.expand_subtasks')}"]`)!.click() })
     expect(view.container.querySelector('[data-project-card="c"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-project-card="c"]')?.hasAttribute('data-drag-item')).toBe(false)
+    expect(view.container.querySelector('[data-project-card="c"] [data-drag-handle]')).toBeNull()
   })
 })

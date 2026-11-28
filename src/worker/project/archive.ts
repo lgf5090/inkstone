@@ -7,6 +7,7 @@
  * uploaded file said so.
  */
 import { strFromU8, strToU8, unzipSync, zipSync, type Unzipped } from 'fflate'
+import { z } from 'zod'
 import type { ProjectAttachment, ProjectBoard, ProjectBoardBundle, ProjectBoardSummary, ProjectRole } from '@shared/project/model'
 import {
   PROJECT_ARCHIVE_VERSION,
@@ -23,11 +24,24 @@ import { serializeProjectRecurrence } from '@shared/project/recurrence'
 import { serializeProjectPropertyConfig } from '@shared/project/property-config'
 import { ApiError } from '../lib/errors'
 import { readProjectBoardBundle } from './bundle'
+import { createProjectArchiveDownload, type ProjectArchiveDownload, type ProjectArchiveEntry } from './archive-export'
 import { duplicateProjectBoard } from './duplicate'
 import { listBoardLinks } from './enhance'
-import { rebuildBoardRelations } from './relations'
+import { projectRelationTargets, relationEdgeStatements } from './relations'
 import { listBoardAttachments, projectAttachmentObjectKey } from './files'
 import { ProjectStore } from './store'
+import { assertProjectBatchStatementLimit } from './d1'
+import { projectParentMapHasCycle } from '@shared/project/hierarchy'
+import {
+  ProjectBoardCreateSchema,
+  ProjectCardCreateSchema,
+  ProjectCommentCreateSchema,
+  ProjectContentCreateSchema,
+  ProjectContentFieldsSchema,
+  ProjectPropertyOptionSchema,
+  ProjectPropertySchema,
+  ProjectViewCreateSchema,
+} from '@shared/project/validation'
 
 const ARCHIVE_MAX_BYTES = 32 * 1024 * 1024
 const ARCHIVE_MAX_FILES = 100
@@ -36,7 +50,26 @@ const ARCHIVE_MAX_CONTENTS = 20000
 const ARCHIVE_MAX_COMMENTS = 20000
 const ARCHIVE_MAX_LINKS = 40000
 const ARCHIVE_MAX_ATTACHMENTS = 500
+const ARCHIVE_MEMORY_FALLBACK_MAX_BYTES = 4 * 1024 * 1024
 const ARCHIVE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+const isArchiveId = (value: string): boolean => ARCHIVE_ID_PATTERN.test(value)
+const archiveIdSchema = z.string().refine(isArchiveId, 'invalid id')
+const archiveBoardSchema = ProjectBoardCreateSchema.omit({ id: true })
+const archivePropertySchema = ProjectPropertySchema.extend({
+  id: archiveIdSchema,
+  options: z.array(ProjectPropertyOptionSchema.extend({ id: archiveIdSchema })).max(PROJECT_LIMITS.optionsPerProperty),
+})
+const archiveValueMap = z.record(archiveIdSchema, z.string().max(PROJECT_LIMITS.fieldsRunes))
+  .refine((values) => Object.keys(values).length <= PROJECT_LIMITS.propertiesPerBoard, 'too many values')
+const archiveCardSchema = ProjectCardCreateSchema.omit({ id: true }).extend({
+  parentId: z.union([archiveIdSchema, z.literal('')]).default(''),
+  values: archiveValueMap,
+})
+const archiveViewSchema = ProjectViewCreateSchema.omit({ id: true })
+const archiveContentSchema = ProjectContentCreateSchema.omit({ id: true }).extend({
+  fields: ProjectContentFieldsSchema.extend({ attachmentId: archiveIdSchema.optional() }),
+})
+const archiveCommentSchema = ProjectCommentCreateSchema.omit({ id: true })
 
 /** The two places a project file can live, passed in so the archive logic stays binding-free. */
 export interface ProjectArchiveStorage {
@@ -74,9 +107,20 @@ async function writeProjectFile(
   return true
 }
 
+async function deleteProjectFile(storage: ProjectArchiveStorage, kind: ProjectAttachment['storage'], key: string): Promise<void> {
+  if (kind === 'kv') await storage.kv?.delete(key)
+  else await storage.r2?.delete(key)
+}
+
 function archiveId(value: string, label: string): string {
-  if (!ARCHIVE_ID_PATTERN.test(value)) throw ApiError.badRequest(`${label} has an invalid id`)
+  if (!isArchiveId(value)) throw ApiError.badRequest(`${label} has an invalid id`)
   return value
+}
+
+function assertUniqueArchiveIds(entities: readonly { id: string }[], label: string): void {
+  if (new Set(entities.map((entity) => entity.id)).size !== entities.length) {
+    throw ApiError.badRequest(`archive ${label} ids must be unique`)
+  }
 }
 
 function assertZipBudget(bytes: Uint8Array): void {
@@ -108,35 +152,140 @@ function archiveFiles(bytes: Uint8Array): Unzipped | null {
   try { return unzipSync(bytes) } catch { return null }
 }
 
+function assertCompleteBundle(bundle: ProjectBoardBundle): void {
+  if (bundle.contentsTruncated || bundle.commentsTruncated) {
+    throw ApiError.tooLarge('Archive export is incomplete because the board exceeds the bundle row limit')
+  }
+}
+
+function zipArchive(entries: Record<string, Uint8Array>): Uint8Array {
+  if (Object.keys(entries).length > ARCHIVE_MAX_FILES) throw ApiError.tooLarge('Archive has too many files')
+  const uncompressed = Object.values(entries).reduce((total, bytes) => total + bytes.byteLength, 0)
+  if (uncompressed > ARCHIVE_MAX_UNCOMPRESSED_BYTES) throw ApiError.tooLarge('Archive expands beyond the allowed size')
+  const bytes = zipSync(entries)
+  if (bytes.byteLength > ARCHIVE_MAX_BYTES) throw ApiError.tooLarge('Archive is too large')
+  return bytes
+}
+
+const ARCHIVE_WRITE_LIMITS = {
+  maxFiles: ARCHIVE_MAX_FILES,
+  maxBytes: ARCHIVE_MAX_BYTES,
+  maxUncompressedBytes: ARCHIVE_MAX_UNCOMPRESSED_BYTES,
+}
+
+function assertMemoryFallbackBudget(bytes: number): void {
+  if (bytes > ARCHIVE_MEMORY_FALLBACK_MAX_BYTES) {
+    throw ApiError.tooLarge('Archive export requires R2 storage for large archives')
+  }
+}
+
+async function* byteChunks(bytes: Uint8Array): AsyncGenerator<Uint8Array> {
+  yield bytes
+}
+
+function bytesDownload(bytes: Uint8Array): ProjectArchiveDownload {
+  return {
+    size: bytes.byteLength,
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes)
+        controller.close()
+      },
+    }),
+  }
+}
+
+function assertArchiveVersion(files: Unzipped): void {
+  const raw = files['version.json']
+  if (!raw) return
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(strFromU8(raw))
+  } catch {
+    throw ApiError.badRequest('archive version.json is invalid')
+  }
+  if (!ProjectArchiveHeaderSchema.safeParse(parsed).success) {
+    throw ApiError.badRequest('archive version.json is invalid')
+  }
+}
+
 function assertArchiveImport(imported: ReturnType<typeof projectArchiveLinesToImport>): void {
   archiveId(imported.board.id, 'board')
+  const boardInput = archiveBoardSchema.safeParse({
+    title: imported.board.title,
+    description: imported.board.description,
+    icon: imported.board.icon,
+    showDescription: imported.board.showDescription,
+    type: imported.board.type,
+    minimumRole: imported.board.minimumRole,
+    isTemplate: imported.board.isTemplate,
+  })
+  if (!boardInput.success) throw ApiError.badRequest('archive board or property schema is invalid')
   if (imported.cards.length > PROJECT_LIMITS.cardsPerBoard) throw ApiError.conflict('PROJECT_MAX_CARDS_PER_BOARD')
   if (imported.views.length > PROJECT_LIMITS.viewsPerBoard) throw ApiError.conflict('PROJECT_MAX_VIEWS_PER_BOARD')
-  if (imported.properties.length > PROJECT_LIMITS.propertiesPerBoard) throw ApiError.conflict('PROJECT_MAX_PROPERTIES_PER_BOARD')
+  if (imported.properties.length > PROJECT_LIMITS.propertiesPerBoard) throw ApiError.conflict('PROJECT_MAX_BOARD_PROPERTIES')
   if (imported.contents.length > ARCHIVE_MAX_CONTENTS || imported.comments.length > ARCHIVE_MAX_COMMENTS) {
     throw ApiError.tooLarge('archive has too many rows')
+  }
+  if (imported.attachments.length > ARCHIVE_MAX_ATTACHMENTS) throw ApiError.tooLarge('archive has too many files')
+  assertUniqueArchiveIds(imported.properties, 'property')
+  assertUniqueArchiveIds(imported.cards, 'card')
+  assertUniqueArchiveIds(imported.views, 'view')
+  assertUniqueArchiveIds(imported.contents, 'content')
+  assertUniqueArchiveIds(imported.comments, 'comment')
+  assertUniqueArchiveIds(imported.attachments, 'attachment')
+  const attachmentIds = new Set(imported.attachments.map((attachment) => attachment.id))
+  const propertyIds = new Set<string>()
+  for (const property of imported.properties) {
+    archiveId(property.id, 'property')
+    if (!archivePropertySchema.safeParse(property).success || property.type === 'unknown') {
+      throw ApiError.badRequest('archive property schema is invalid')
+    }
+    if (new Set(property.options.map((option) => option.id)).size !== property.options.length) {
+      throw ApiError.badRequest('archive property option ids must be unique')
+    }
+    propertyIds.add(property.id)
   }
   const cardIds = new Set<string>()
   for (const card of imported.cards) {
     archiveId(card.id, 'card')
+    if (!archiveCardSchema.safeParse({
+      parentId: card.parentId,
+      title: card.title,
+      icon: card.icon,
+      isTemplate: card.isTemplate,
+      values: card.values,
+      recurrence: card.recurrence,
+    }).success) throw ApiError.badRequest('archive card schema is invalid')
+    if (Object.keys(card.values).some((propertyId) => !propertyIds.has(propertyId))) {
+      throw ApiError.badRequest('archive card value references an unknown property')
+    }
     cardIds.add(card.id)
-    for (const propertyId of Object.keys(card.values)) archiveId(propertyId, 'property value')
   }
-  for (const property of imported.properties) archiveId(property.id, 'property')
-  for (const view of imported.views) archiveId(view.id, 'view')
+  for (const view of imported.views) {
+    archiveId(view.id, 'view')
+    if (!archiveViewSchema.safeParse(view).success) throw ApiError.badRequest('archive view schema is invalid')
+  }
   for (const content of imported.contents) {
     archiveId(content.id, 'content')
     if (!cardIds.has(content.cardId)) throw ApiError.badRequest('archive content references an unknown card')
+    if (content.fields.attachmentId && !attachmentIds.has(content.fields.attachmentId)) {
+      throw ApiError.badRequest('archive content references an unknown attachment')
+    }
+    if (!archiveContentSchema.safeParse(content).success) throw ApiError.badRequest('archive content schema is invalid')
   }
   for (const comment of imported.comments) {
     archiveId(comment.id, 'comment')
     if (!cardIds.has(comment.cardId)) throw ApiError.badRequest('archive comment references an unknown card')
+    if (!archiveCommentSchema.safeParse({ body: comment.body }).success) {
+      throw ApiError.badRequest('archive comment schema is invalid')
+    }
   }
   for (const card of imported.cards) {
     if (card.parentId && !cardIds.has(card.parentId)) throw ApiError.badRequest('archive card references an unknown parent')
     if (card.parentId === card.id) throw ApiError.badRequest('archive card is its own parent')
   }
-  if (imported.attachments.length > ARCHIVE_MAX_ATTACHMENTS) throw ApiError.tooLarge('archive has too many files')
+  if (projectParentMapHasCycle(imported.cards)) throw ApiError.badRequest('archive card hierarchy contains a cycle')
   for (const attachment of imported.attachments) {
     archiveId(attachment.id, 'attachment')
     if (attachment.cardId && !cardIds.has(attachment.cardId)) throw ApiError.badRequest('archive file references an unknown card')
@@ -158,23 +307,63 @@ async function collectArchiveAttachments(
   db: D1Database,
   storage: ProjectArchiveStorage,
   boardId: string,
-  files: Record<string, Uint8Array>,
+  files?: Record<string, Uint8Array>,
 ): Promise<ProjectArchiveAttachment[]> {
   const out: ProjectArchiveAttachment[] = []
-  for (const attachment of await listBoardAttachments(db, boardId)) {
-    const bytes = await readProjectFile(storage, attachment)
-    if (!bytes) {
-      console.warn('[inkstone] archive skipped a file whose bytes are unavailable:', attachment.id)
-      continue
+  const attachments = await listBoardAttachments(db, boardId, undefined, PROJECT_LIMITS.attachmentsPerBoard + 1)
+  if (attachments.length > PROJECT_LIMITS.attachmentsPerBoard) throw ApiError.tooLarge('Board attachment quota exceeded')
+  for (const attachment of attachments) {
+    let size = attachment.size
+    if (files) {
+      const bytes = await readProjectFile(storage, attachment)
+      if (!bytes) throw ApiError.badRequest(`Archive file bytes are unavailable: ${attachment.id}`)
+      size = bytes.byteLength
+      files[attachmentPath(boardId, attachment.id)] = bytes
     }
-    const path = attachmentPath(boardId, attachment.id)
-    files[path] = bytes
     out.push({
       id: attachment.id, cardId: attachment.cardId ?? '', filename: attachment.filename, mime: attachment.mime,
-      size: bytes.byteLength, storage: attachment.storage, width: attachment.width, height: attachment.height, path,
+      size, storage: attachment.storage, width: attachment.width, height: attachment.height, path: attachmentPath(boardId, attachment.id),
     })
   }
   return out
+}
+
+async function* projectFileChunks(storage: ProjectArchiveStorage, attachment: ProjectAttachment, onSize: (size: number) => void): AsyncGenerator<Uint8Array> {
+  let stream: ReadableStream<Uint8Array> | null
+  if (attachment.storage === 'kv') {
+    stream = await storage.kv?.get(attachment.objectKey, 'stream') ?? null
+  } else {
+    const object = await storage.r2?.get(attachment.objectKey)
+    stream = object?.body ?? null
+  }
+  if (!stream) throw ApiError.badRequest(`Archive file bytes are unavailable: ${attachment.id}`)
+  let size = 0
+  for await (const chunk of stream) {
+    size += chunk.byteLength
+    yield chunk
+  }
+  onSize(size)
+}
+
+async function* archiveLineChunks(lines: readonly ProjectArchiveLine[]): AsyncGenerator<Uint8Array> {
+  const encoder = new TextEncoder()
+  for (const line of lines) yield encoder.encode(`${JSON.stringify(line)}\n`)
+}
+
+async function* boardArchiveEntries(
+  db: D1Database,
+  storage: ProjectArchiveStorage,
+  bundle: ProjectBoardBundle,
+): AsyncGenerator<ProjectArchiveEntry> {
+  const attachments = await collectArchiveAttachments(db, storage, bundle.board.id)
+  const sources = new Map((await listBoardAttachments(db, bundle.board.id, undefined, PROJECT_LIMITS.attachmentsPerBoard)).map((entry) => [entry.id, entry]))
+  for (const attachment of attachments) {
+    const source = sources.get(attachment.id)
+    if (!source) throw ApiError.badRequest(`Archive file bytes are unavailable: ${attachment.id}`)
+    yield { name: attachment.path, chunks: projectFileChunks(storage, source, (size) => { attachment.size = size }) }
+  }
+  const lines = projectBundleToArchiveLines(bundle, await listBoardLinks(db, bundle.board.id), attachments)
+  yield { name: `${bundle.board.id}/board.jsonl`, chunks: archiveLineChunks(lines) }
 }
 
 export async function exportProjectBoardArchive(
@@ -182,35 +371,96 @@ export async function exportProjectBoardArchive(
   storage: ProjectArchiveStorage,
   board: ProjectBoard,
   role: ProjectRole,
-): Promise<Uint8Array> {
-  const bundle = await readProjectBoardBundle(db, board, role)
-  const files: Record<string, Uint8Array> = {}
+  viewerId?: string,
+): Promise<ProjectArchiveDownload> {
+  const bundle = await readProjectBoardBundle(db, board, role, viewerId)
+  assertCompleteBundle(bundle)
+  const version = strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() }))
+  if (storage.r2) {
+    async function* entries(): AsyncGenerator<ProjectArchiveEntry> {
+      yield { name: 'version.json', chunks: byteChunks(version) }
+      yield* boardArchiveEntries(db, storage, bundle)
+    }
+    return createProjectArchiveDownload(storage.r2, entries(), ARCHIVE_WRITE_LIMITS)
+  }
+  const declaredAttachments = await collectArchiveAttachments(db, storage, board.id)
+  const declaredLines = projectBundleToArchiveLines(bundle, await listBoardLinks(db, board.id), declaredAttachments)
+  assertMemoryFallbackBudget(version.byteLength + new TextEncoder().encode(serializeProjectArchiveLines(declaredLines)).byteLength
+    + declaredAttachments.reduce((total, attachment) => total + attachment.size, 0))
+  const files: Record<string, Uint8Array> = { 'version.json': version }
   const attachments = await collectArchiveAttachments(db, storage, board.id, files)
   const lines = projectBundleToArchiveLines(bundle, await listBoardLinks(db, board.id), attachments)
-  return zipSync({
-    'version.json': strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() })),
-    [`${board.id}/board.jsonl`]: strToU8(serializeProjectArchiveLines(lines)),
-    ...files,
-  })
+  files[`${board.id}/board.jsonl`] = strToU8(serializeProjectArchiveLines(lines))
+  return bytesDownload(zipArchive(files))
 }
 
-/** Whole-account export: one v2 ZIP carrying every readable board's JSONL side by side. */
+/** Whole-account export: one v3 ZIP carrying every readable board's JSONL side by side. */
 export async function exportProjectAccountArchive(
   db: D1Database,
   storage: ProjectArchiveStorage,
   userId: string,
-): Promise<Uint8Array> {
+): Promise<ProjectArchiveDownload> {
   const boards = await new ProjectStore(db, userId).boards()
-  const files: Record<string, Uint8Array> = {
-    'version.json': strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() })),
+  const version = strToU8(JSON.stringify({ version: PROJECT_ARCHIVE_VERSION, date: Date.now() }))
+  if (storage.r2) {
+    async function* entries(): AsyncGenerator<ProjectArchiveEntry> {
+      yield { name: 'version.json', chunks: byteChunks(version) }
+      for (const board of boards) {
+        const bundle = await readProjectBoardBundle(db, board, board.role, userId)
+        assertCompleteBundle(bundle)
+        yield* boardArchiveEntries(db, storage, bundle)
+      }
+    }
+    return createProjectArchiveDownload(storage.r2, entries(), ARCHIVE_WRITE_LIMITS)
   }
+  const files: Record<string, Uint8Array> = { 'version.json': version }
+  let declaredBytes = version.byteLength
   for (const board of boards) {
-    const bundle = await readProjectBoardBundle(db, board, board.role)
+    const bundle = await readProjectBoardBundle(db, board, board.role, userId)
+    assertCompleteBundle(bundle)
     const links = await listBoardLinks(db, board.id)
+    const declaredAttachments = await collectArchiveAttachments(db, storage, board.id)
+    const declaredLines = projectBundleToArchiveLines(bundle, links, declaredAttachments)
+    declaredBytes += new TextEncoder().encode(serializeProjectArchiveLines(declaredLines)).byteLength
+      + declaredAttachments.reduce((total, attachment) => total + attachment.size, 0)
+    assertMemoryFallbackBudget(declaredBytes)
     const attachments = await collectArchiveAttachments(db, storage, board.id, files)
     files[`${board.id}/board.jsonl`] = strToU8(serializeProjectArchiveLines(projectBundleToArchiveLines(bundle, links, attachments)))
   }
-  return zipSync(files)
+  return bytesDownload(zipArchive(files))
+}
+
+async function discardImportedBoard(
+  db: D1Database,
+  storage: ProjectArchiveStorage,
+  boardId: string,
+): Promise<void> {
+  for (const attachment of await listBoardAttachments(db, boardId, undefined, PROJECT_LIMITS.attachmentsPerBoard)) {
+    await deleteProjectFile(storage, attachment.storage, attachment.objectKey).catch((error: unknown) => {
+      console.warn('[inkstone] account import rollback file cleanup failed:', error instanceof Error ? error.message : error)
+    })
+  }
+  await db.batch([
+    db.prepare('DELETE FROM project_card_relations WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_card_links WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_sprint_cards WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_time_entries WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_activity WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_automations WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_webhook_deliveries WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_webhooks WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_shares WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_todo_links WHERE card_id IN (SELECT id FROM project_cards WHERE board_id = ?1)').bind(boardId),
+    db.prepare('DELETE FROM project_card_values WHERE card_id IN (SELECT id FROM project_cards WHERE board_id = ?1)').bind(boardId),
+    db.prepare('DELETE FROM project_comments WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_card_contents WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_attachments WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_cards WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_property_configs WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_properties WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_board_members WHERE board_id = ?1').bind(boardId),
+    db.prepare('DELETE FROM project_boards WHERE id = ?1').bind(boardId),
+  ])
 }
 
 /** Whole-account import: every board.jsonl in the ZIP becomes a fresh board (ids remapped). */
@@ -225,39 +475,53 @@ export async function importProjectAccountArchive(
   if (!files) throw ApiError.badRequest('archive is not a ZIP')
   const jsonlNames = Object.keys(files).filter((name) => name.endsWith('board.jsonl'))
   if (jsonlNames.length === 0) throw ApiError.badRequest('archive ZIP has no board.jsonl')
+  assertArchiveVersion(files)
   const created: ProjectBoardSummary[] = []
-  for (const name of jsonlNames) {
-    const imported = projectArchiveLinesToImport(parseProjectArchiveLines(strFromU8(files[name]!)))
-    assertArchiveImport(imported)
-    const attachmentInputs = imported.attachments.map((attachment) => {
-      const entry = files[attachment.path]
-      if (!entry) throw ApiError.badRequest('archive file is missing from the ZIP')
-      if (entry.byteLength !== attachment.size) throw ApiError.badRequest('archive file size does not match')
-      return { attachment, bytes: entry }
-    })
-    const bundle: ProjectBoardBundle = {
-      board: {
-        id: imported.board.id, ownerId: userId, type: imported.board.type, minimumRole: imported.board.minimumRole as ProjectBoard['minimumRole'],
-        title: imported.board.title, description: imported.board.description, icon: imported.board.icon,
-        showDescription: imported.board.showDescription, isTemplate: false, templateVersion: 0,
-        createdBy: userId, modifiedBy: userId, createAt: now, updateAt: now, deleteAt: 0, archived: false,
-      },
-      properties: imported.properties,
-      views: imported.views.map((view) => ({ ...view, boardId: imported.board.id })),
-      cards: imported.cards.map((card) => ({ ...card, boardId: imported.board.id })),
-      contents: imported.contents.map((content) => ({ ...content, boardId: imported.board.id })),
-      comments: imported.comments.map((comment) => ({ ...comment, boardId: imported.board.id })),
-      members: [], links: imported.links, people: {}, role: 'admin', cursor: now,
+  try {
+    for (const name of jsonlNames) {
+      const imported = projectArchiveLinesToImport(parseProjectArchiveLines(strFromU8(files[name]!)))
+      assertArchiveImport(imported)
+      const attachmentInputs = imported.attachments.map((attachment) => {
+        const entry = files[attachment.path]
+        if (!entry) throw ApiError.badRequest('archive file is missing from the ZIP')
+        if (entry.byteLength !== attachment.size) throw ApiError.badRequest('archive file size does not match')
+        return { attachment, bytes: entry }
+      })
+      const bundle: ProjectBoardBundle = {
+        board: {
+          id: imported.board.id, ownerId: userId, type: imported.board.type, minimumRole: imported.board.minimumRole as ProjectBoard['minimumRole'],
+          title: imported.board.title, description: imported.board.description, icon: imported.board.icon,
+          showDescription: imported.board.showDescription, isTemplate: false, templateVersion: 0,
+          createdBy: userId, modifiedBy: userId, createAt: now, updateAt: now, deleteAt: 0, archived: false,
+        },
+        properties: imported.properties,
+        views: imported.views.map((view) => ({ ...view, boardId: imported.board.id })),
+        cards: imported.cards.map((card) => ({ ...card, boardId: imported.board.id })),
+        contents: imported.contents.map((content) => ({ ...content, boardId: imported.board.id })),
+        comments: imported.comments.map((comment) => ({ ...comment, boardId: imported.board.id })),
+        members: [], links: imported.links, people: {}, role: 'admin', cursor: now, propertyRevision: now,
+      }
+      const writtenStorage = new Map<string, ProjectAttachment['storage']>()
+      created.push(await duplicateProjectBoard(db, bundle, userId, now, {
+        rewriteAuthors: true,
+        attachments: attachmentInputs,
+        onAttachment: async ({ id, attachment, bytes: content }) => {
+          const key = projectAttachmentObjectKey(userId, id, attachment.mime, attachment.filename)
+          const written = await writeProjectFile(storage, attachment.storage, key, content, attachment.mime)
+          if (!written) throw ApiError.badRequest('File storage is not configured')
+          writtenStorage.set(key, attachment.storage)
+          return key
+        },
+        onAttachmentError: async (key) => {
+          await deleteProjectFile(storage, writtenStorage.get(key) ?? 'r2', key)
+        },
+      }))
     }
-    created.push(await duplicateProjectBoard(db, bundle, userId, now, {
-      attachments: attachmentInputs,
-      onAttachment: async ({ id, attachment, bytes: content }) => {
-        const key = projectAttachmentObjectKey(userId, id, attachment.mime, attachment.filename)
-        const written = await writeProjectFile(storage, attachment.storage, key, content, attachment.mime)
-        if (!written) throw ApiError.badRequest('File storage is not configured')
-        return key
-      },
-    }))
+  } catch (error) {
+    for (const board of created) await discardImportedBoard(db, storage, board.id).catch((cause: unknown) => {
+      console.warn('[inkstone] account import rollback failed:', cause instanceof Error ? cause.message : cause)
+    })
+    throw error
   }
   return created
 }
@@ -266,11 +530,7 @@ function linesFromArchiveBytes(bytes: Uint8Array, files: Unzipped | null = archi
   if (files) {
     const jsonl = Object.keys(files).find((name) => name.endsWith('board.jsonl'))
     if (!jsonl) throw ApiError.badRequest('archive ZIP has no board.jsonl')
-    const versionRaw = files['version.json']
-    if (versionRaw) {
-      const header = ProjectArchiveHeaderSchema.safeParse(JSON.parse(strFromU8(versionRaw)))
-      if (!header.success) throw ApiError.badRequest('archive version.json is invalid')
-    }
+    assertArchiveVersion(files)
     return parseProjectArchiveLines(strFromU8(files[jsonl]!))
   }
   // Not a ZIP: the reference's v1 export is a single JSON object with a blocks array.
@@ -294,9 +554,6 @@ function linesFromArchiveBytes(bytes: Uint8Array, files: Unzipped | null = archi
 }
 
 export type ProjectArchiveImportResult = { board: ProjectBoardSummary }
-
-// D1 caps a batch at 1000 statements; a large board can exceed that, so the import runs in chunks.
-const IMPORT_BATCH_SIZE = 500
 
 export async function importProjectBoardArchive(
   db: D1Database,
@@ -345,7 +602,7 @@ export async function importProjectBoardArchive(
     ).bind(
       card.id, source.id, card.parentId, card.title, card.icon, card.isTemplate ? 1 : 0, JSON.stringify(card.contentOrder),
       card.recurrence ? serializeProjectRecurrence(card.recurrence) : null,
-      card.createdBy || userId, card.modifiedBy || userId, card.createAt || now, card.updateAt || now,
+      userId, userId, card.createAt || now, card.updateAt || now,
     ))
     for (const [propertyId, value] of Object.entries(card.values)) {
       statements.push(db.prepare(
@@ -360,7 +617,7 @@ export async function importProjectBoardArchive(
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)`,
     ).bind(
       view.id, source.id, view.title, view.viewType, JSON.stringify(view.fields), view.position,
-      view.createdBy || userId, view.modifiedBy || userId, view.createAt || now, view.updateAt || now,
+      userId, userId, view.createAt || now, view.updateAt || now,
     ))
   }
   for (const content of imported.contents) {
@@ -370,20 +627,29 @@ export async function importProjectBoardArchive(
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0)`,
     ).bind(
       content.id, content.cardId, source.id, content.type, content.title, JSON.stringify(content.fields), content.position,
-      content.createdBy || userId, content.modifiedBy || userId, content.createAt || now, content.updateAt || now,
+      userId, userId, content.createAt || now, content.updateAt || now,
     ))
   }
   for (const comment of imported.comments) {
     statements.push(db.prepare(
       `INSERT INTO project_comments (id, card_id, board_id, author_id, body, create_at, update_at, delete_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)`,
-    ).bind(comment.id, comment.cardId, source.id, comment.authorId || userId, comment.body, comment.createAt || now, comment.updateAt || now))
+    ).bind(comment.id, comment.cardId, source.id, userId, comment.body, comment.createAt || now, comment.updateAt || now))
   }
   for (const link of imported.links) {
     statements.push(db.prepare(
       'INSERT INTO project_card_links (from_card_id, to_card_id, kind, board_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5)',
     ).bind(link.fromCardId, link.toCardId, link.kind, source.id, now))
   }
+  const relationTargets = projectRelationTargets(imported.properties)
+  for (const card of imported.cards) {
+    for (const [propertyId, value] of Object.entries(card.values)) {
+      const targetBoardId = relationTargets.get(propertyId)
+      if (targetBoardId) statements.push(...relationEdgeStatements(db, source.id, card.id, propertyId, targetBoardId, value, now))
+    }
+  }
+  assertProjectBatchStatementLimit(statements.length + imported.attachments.length)
+  const writtenFiles: { storage: ProjectAttachment['storage'], key: string }[] = []
   for (const attachment of imported.attachments) {
     const entry = files?.[attachment.path]
     if (!entry) throw ApiError.badRequest('archive file is missing from the ZIP')
@@ -391,6 +657,7 @@ export async function importProjectBoardArchive(
     const objectKey = projectAttachmentObjectKey(userId, attachment.id, attachment.mime, attachment.filename)
     const written = await writeProjectFile(storage, attachment.storage, objectKey, entry, attachment.mime)
     if (!written) throw ApiError.badRequest('File storage is not configured')
+    writtenFiles.push({ storage: attachment.storage, key: objectKey })
     statements.push(db.prepare(
       `INSERT INTO project_attachments
          (id, user_id, board_id, card_id, filename, mime, size, storage, object_key, width, height, created_at, updated_at)
@@ -401,10 +668,15 @@ export async function importProjectBoardArchive(
     ))
   }
 
-  for (let index = 0; index < statements.length; index += IMPORT_BATCH_SIZE) {
-    await db.batch(statements.slice(index, index + IMPORT_BATCH_SIZE))
+  assertProjectBatchStatementLimit(statements.length)
+  try {
+    await db.batch(statements)
+  } catch (error) {
+    for (const file of writtenFiles) await deleteProjectFile(storage, file.storage, file.key).catch((cause: unknown) => {
+      console.warn('[inkstone] archive import file cleanup failed:', cause)
+    })
+    throw error
   }
-  await rebuildBoardRelations(db, source.id, imported.properties, now)
   const board: ProjectBoard = {
     id: source.id, ownerId: userId, type: source.type, minimumRole: source.minimumRole as ProjectBoard['minimumRole'],
     title: source.title, description: source.description, icon: source.icon, showDescription: source.showDescription,

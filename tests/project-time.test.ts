@@ -8,6 +8,7 @@ import type { Env } from '../src/worker/env'
 import type { ProjectBoard, ProjectCard, ProjectTimeEntry } from '../src/shared/project/model'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
+import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
 
 const app = createApp()
 let sqlite: DatabaseSync
@@ -50,6 +51,21 @@ async function boardWithCard(): Promise<{ board: ProjectBoard, card: ProjectCard
 }
 
 describe('time tracking', () => {
+  it('migration 456 closes duplicate running timers before adding the unique index', () => {
+    const legacy = new DatabaseSync(':memory:')
+    legacy.exec('CREATE TABLE project_time_entries (id TEXT PRIMARY KEY, card_id TEXT, user_id TEXT, started_at INTEGER, ended_at INTEGER)')
+    legacy.prepare('INSERT INTO project_time_entries VALUES (?, ?, ?, ?, NULL)').run('old', 'card', 'alice', 1)
+    legacy.prepare('INSERT INTO project_time_entries VALUES (?, ?, ?, ?, NULL)').run('new', 'card', 'alice', 2)
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 456)
+    expect(migration).toBeDefined()
+    for (const statement of migration!.statements) legacy.exec(statement)
+    expect(legacy.prepare('SELECT id, ended_at FROM project_time_entries ORDER BY id').all()).toEqual([
+      { id: 'new', ended_at: null }, { id: 'old', ended_at: 1 },
+    ])
+    expect(() => legacy.prepare('INSERT INTO project_time_entries VALUES (?, ?, ?, ?, NULL)').run('third', 'card', 'alice', 3)).toThrow()
+    legacy.close()
+  })
+
   it('starts once, stops the same interval and lists it', async () => {
     const { card } = await boardWithCard()
     const started = await req('alice', 'POST', `/cards/${card.id}/time/start`)
@@ -70,11 +86,46 @@ describe('time tracking', () => {
     expect((await req('alice', 'POST', `/cards/${card.id}/time/stop`)).status).toBe(200)
   })
 
+  it('rejects a concurrent second start through the database constraint', async () => {
+    const { card } = await boardWithCard()
+    const responses = await Promise.all([
+      req('alice', 'POST', `/cards/${card.id}/time/start`),
+      req('alice', 'POST', `/cards/${card.id}/time/start`),
+    ])
+    expect(responses.map((response) => response.status).toSorted()).toEqual([201, 409])
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM project_time_entries WHERE card_id = ? AND ended_at IS NULL').get(card.id)).toMatchObject({ count: 1 })
+  })
+
+  it('returns every entry so the displayed total is not capped at 200', async () => {
+    const { card } = await boardWithCard()
+    const insert = sqlite.prepare(`INSERT INTO project_time_entries (id, board_id, card_id, user_id, note, started_at, ended_at, created_at)
+      VALUES (?, ?, ?, 'alice', '', ?, ?, 1)`)
+    for (let index = 0; index < 205; index += 1) insert.run(`t${index}`, card.boardId, card.id, index * 1000, index * 1000 + 500)
+    const listed = ((await (await req('alice', 'GET', `/cards/${card.id}/time`)).json()) as { entries: ProjectTimeEntry[] }).entries
+    expect(listed).toHaveLength(205)
+    expect(listed.reduce((sum, entry) => sum + entry.endedAt! - entry.startedAt, 0)).toBe(205 * 500)
+  })
+
   it('refuses a viewer and deletes an entry through the card route', async () => {
     const { card } = await boardWithCard()
     expect((await req('bob', 'POST', `/cards/${card.id}/time/start`)).status).toBe(403)
     const started = ((await (await req('alice', 'POST', `/cards/${card.id}/time/start`)).json()) as { entry: ProjectTimeEntry }).entry
     expect((await req('alice', 'DELETE', `/cards/${card.id}/time/${started.id}`)).status).toBe(200)
     expect(((await (await req('alice', 'GET', `/cards/${card.id}/time`)).json()) as { entries: ProjectTimeEntry[] }).entries).toEqual([])
+  })
+
+  it('creates and edits manual entries with strict interval validation', async () => {
+    const { card } = await boardWithCard()
+    const startedAt = Date.UTC(2026, 10, 25, 9)
+    const endedAt = startedAt + 90 * 60_000
+    const created = await req('alice', 'POST', `/cards/${card.id}/time`, { note: 'Manual', startedAt, endedAt })
+    expect(created.status, await created.clone().text()).toBe(201)
+    const entry = ((await created.json()) as { entry: ProjectTimeEntry }).entry
+    expect(entry).toMatchObject({ note: 'Manual', startedAt, endedAt, userId: 'alice' })
+    const updated = await req('alice', 'PATCH', `/cards/${card.id}/time/${entry.id}`, { note: 'Edited', endedAt: endedAt + 30 * 60_000 })
+    expect(updated.status).toBe(200)
+    expect(((await updated.json()) as { entry: ProjectTimeEntry }).entry.endedAt).toBe(endedAt + 30 * 60_000)
+    expect((await req('alice', 'PATCH', `/cards/${card.id}/time/${entry.id}`, { startedAt: endedAt, endedAt: startedAt })).status).toBe(400)
+    expect((await req('bob', 'POST', `/cards/${card.id}/time`, { startedAt, endedAt })).status).toBe(403)
   })
 })

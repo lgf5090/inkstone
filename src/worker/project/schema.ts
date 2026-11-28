@@ -8,7 +8,140 @@
  * Timestamps are milliseconds and a delete is a stamp, both as the rest of this database does it.
  */
 
+export const PROJECT_NATIVE_INTEGRATION_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_integrations (
+    id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK (provider IN ('slack','github','jira')),
+    config_ciphertext TEXT NOT NULL,
+    target TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_integrations_board_provider
+     ON project_integrations(board_id, provider)`,
+  `CREATE TABLE IF NOT EXISTS project_external_links (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK (provider IN ('github','jira')),
+    external_id TEXT NOT NULL,
+    external_url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('pending','ready')),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(card_id, provider)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_external_links_board
+     ON project_external_links(board_id, provider)`,
+]
+
+export const PROJECT_CALENDAR_LINK_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_calendar_links (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    calendar_id TEXT NOT NULL,
+    event_id TEXT NOT NULL UNIQUE,
+    property_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_calendar_links_card
+     ON project_calendar_links(card_id, user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_calendar_links_user
+     ON project_calendar_links(user_id, event_id)`,
+]
+
+export const PROJECT_NOTE_LINK_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_card_notes (
+    card_id TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (card_id, note_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_notes_note
+     ON project_card_notes(note_id, user_id, card_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_notes_user
+     ON project_card_notes(user_id, card_id)`,
+]
+
+export const PROJECT_GUEST_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_intake_grants (
+    card_id TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    share_slug TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    field_ids TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    revoked_at INTEGER,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_intake_grants_share
+     ON project_intake_grants(share_slug, card_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_intake_grants_board
+     ON project_intake_grants(board_id, created_at DESC)`,
+]
+
+export const PROJECT_VERSION_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_card_versions (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_versions_card
+     ON project_card_versions(card_id, created_at DESC, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_card_versions_board
+     ON project_card_versions(board_id, created_at DESC, id DESC)`,
+]
+
+export const PROJECT_AUDIT_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_activity_changes (
+    id TEXT PRIMARY KEY,
+    activity_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('board','card','comment','content','view')),
+    entity_id TEXT NOT NULL,
+    field_key TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_activity_changes_activity
+     ON project_activity_changes(activity_id, created_at, id)`,
+  `CREATE INDEX IF NOT EXISTS idx_project_activity_changes_board
+     ON project_activity_changes(board_id, created_at, id)`,
+]
+
+export const PROJECT_PRESENCE_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_board_presence (
+    board_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    PRIMARY KEY (board_id, user_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_presence_seen
+     ON project_board_presence(last_seen_at)`,
+]
+
 export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
+  ...PROJECT_NATIVE_INTEGRATION_SCHEMA_STATEMENTS,
+  ...PROJECT_CALENDAR_LINK_SCHEMA_STATEMENTS,
+  ...PROJECT_NOTE_LINK_SCHEMA_STATEMENTS,
+  ...PROJECT_GUEST_SCHEMA_STATEMENTS,
+  ...PROJECT_VERSION_SCHEMA_STATEMENTS,
+  ...PROJECT_AUDIT_SCHEMA_STATEMENTS,
+  ...PROJECT_PRESENCE_SCHEMA_STATEMENTS,
   `CREATE TABLE IF NOT EXISTS project_boards (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL,
@@ -69,7 +202,9 @@ export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
     icon TEXT NOT NULL DEFAULT '',
     is_template INTEGER NOT NULL DEFAULT 0,
     content_order TEXT NOT NULL DEFAULT '[]',
+    content_order_revision INTEGER NOT NULL DEFAULT 0,
     recurrence TEXT,
+    recurrence_source_id TEXT,
     completed_at INTEGER,
     created_by TEXT NOT NULL,
     modified_by TEXT NOT NULL,
@@ -83,6 +218,8 @@ export const PROJECT_CORE_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_cards(board_id, delete_at, create_at, id)`,
   `CREATE INDEX IF NOT EXISTS idx_project_cards_parent
      ON project_cards(parent_id, delete_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_cards_recurrence_source
+     ON project_cards(recurrence_source_id) WHERE recurrence_source_id IS NOT NULL AND recurrence_source_id <> ''`,
 
   `CREATE TABLE IF NOT EXISTS project_card_values (
     card_id TEXT NOT NULL,
@@ -176,6 +313,147 @@ export const PROJECT_CONTENT_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_category_boards(board_id, user_id)`,
 ]
 
+export const PROJECT_SEARCH_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_search_docs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_key TEXT NOT NULL UNIQUE,
+    card_id TEXT NOT NULL,
+    board_id TEXT NOT NULL,
+    property_id TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_search_docs_board
+     ON project_search_docs(board_id, kind, card_id)`,
+  `CREATE VIRTUAL TABLE IF NOT EXISTS project_search_fts USING fts5(
+    card_id UNINDEXED,
+    board_id UNINDEXED,
+    property_id UNINDEXED,
+    kind UNINDEXED,
+    text,
+    content = 'project_search_docs',
+    content_rowid = 'id',
+    tokenize = 'unicode61 remove_diacritics 2'
+  )`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_docs_insert AFTER INSERT ON project_search_docs
+   BEGIN
+     INSERT INTO project_search_fts(rowid, card_id, board_id, property_id, kind, text)
+     VALUES (NEW.id, NEW.card_id, NEW.board_id, NEW.property_id, NEW.kind, NEW.text);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_docs_delete AFTER DELETE ON project_search_docs
+   BEGIN
+     INSERT INTO project_search_fts(project_search_fts, rowid, card_id, board_id, property_id, kind, text)
+     VALUES ('delete', OLD.id, OLD.card_id, OLD.board_id, OLD.property_id, OLD.kind, OLD.text);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_docs_update
+   AFTER UPDATE OF card_id, board_id, property_id, kind, text ON project_search_docs
+   BEGIN
+     INSERT INTO project_search_fts(project_search_fts, rowid, card_id, board_id, property_id, kind, text)
+     VALUES ('delete', OLD.id, OLD.card_id, OLD.board_id, OLD.property_id, OLD.kind, OLD.text);
+     INSERT INTO project_search_fts(rowid, card_id, board_id, property_id, kind, text)
+     VALUES (NEW.id, NEW.card_id, NEW.board_id, NEW.property_id, NEW.kind, NEW.text);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_card_insert AFTER INSERT ON project_cards
+   WHEN NEW.delete_at = 0
+   BEGIN
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     VALUES ('title:' || NEW.id, NEW.id, NEW.board_id, '', 'title', NEW.title);
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_card_update
+   AFTER UPDATE OF title, board_id, delete_at ON project_cards
+   BEGIN
+     DELETE FROM project_search_docs WHERE card_id = NEW.id;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'title:' || NEW.id, NEW.id, NEW.board_id, '', 'title', NEW.title WHERE NEW.delete_at = 0;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'content:' || x.id, x.card_id, x.board_id, '', 'content', x.title
+     FROM project_card_contents x WHERE x.card_id = NEW.id AND x.delete_at = 0 AND NEW.delete_at = 0;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'comment:' || m.id, m.card_id, m.board_id, '', 'comment', m.body
+     FROM project_comments m WHERE m.card_id = NEW.id AND m.delete_at = 0 AND NEW.delete_at = 0;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'value:' || v.card_id || ':' || v.property_id, v.card_id, NEW.board_id, v.property_id, 'value', v.value
+     FROM project_card_values v WHERE v.card_id = NEW.id AND NEW.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_card_delete AFTER DELETE ON project_cards
+   BEGIN
+     DELETE FROM project_search_docs WHERE card_id = OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_content_insert AFTER INSERT ON project_card_contents
+   WHEN NEW.delete_at = 0
+   BEGIN
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'content:' || NEW.id, NEW.card_id, NEW.board_id, '', 'content', NEW.title
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_content_update
+   AFTER UPDATE OF card_id, board_id, title, delete_at ON project_card_contents
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'content:' || OLD.id;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'content:' || NEW.id, NEW.card_id, NEW.board_id, '', 'content', NEW.title
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0 AND NEW.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_content_delete AFTER DELETE ON project_card_contents
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'content:' || OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_comment_insert AFTER INSERT ON project_comments
+   WHEN NEW.delete_at = 0
+   BEGIN
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'comment:' || NEW.id, NEW.card_id, NEW.board_id, '', 'comment', NEW.body
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_comment_update
+   AFTER UPDATE OF card_id, board_id, body, delete_at ON project_comments
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'comment:' || OLD.id;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'comment:' || NEW.id, NEW.card_id, NEW.board_id, '', 'comment', NEW.body
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0 AND NEW.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_comment_delete AFTER DELETE ON project_comments
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'comment:' || OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_value_insert AFTER INSERT ON project_card_values
+   BEGIN
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'value:' || NEW.card_id || ':' || NEW.property_id, NEW.card_id, c.board_id, NEW.property_id, 'value', NEW.value
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_value_update
+   AFTER UPDATE OF card_id, property_id, value ON project_card_values
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'value:' || OLD.card_id || ':' || OLD.property_id;
+     INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+     SELECT 'value:' || NEW.card_id || ':' || NEW.property_id, NEW.card_id, c.board_id, NEW.property_id, 'value', NEW.value
+     FROM project_cards c WHERE c.id = NEW.card_id AND c.delete_at = 0;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_search_value_delete AFTER DELETE ON project_card_values
+   BEGIN
+     DELETE FROM project_search_docs WHERE source_key = 'value:' || OLD.card_id || ':' || OLD.property_id;
+   END`,
+]
+
+export const PROJECT_SEARCH_BACKFILL_STATEMENTS: readonly string[] = [
+  `INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+   SELECT 'title:' || id, id, board_id, '', 'title', title FROM project_cards WHERE delete_at = 0`,
+  `INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+   SELECT 'content:' || x.id, x.card_id, x.board_id, '', 'content', x.title
+   FROM project_card_contents x JOIN project_cards c ON c.id = x.card_id
+   WHERE c.delete_at = 0 AND x.delete_at = 0`,
+  `INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+   SELECT 'comment:' || m.id, m.card_id, m.board_id, '', 'comment', m.body
+   FROM project_comments m JOIN project_cards c ON c.id = m.card_id
+   WHERE c.delete_at = 0 AND m.delete_at = 0`,
+  `INSERT OR IGNORE INTO project_search_docs(source_key, card_id, board_id, property_id, kind, text)
+   SELECT 'value:' || v.card_id || ':' || v.property_id, v.card_id, c.board_id, v.property_id, 'value', v.value
+   FROM project_card_values v JOIN project_cards c ON c.id = v.card_id WHERE c.delete_at = 0`,
+  `INSERT INTO project_search_fts(project_search_fts) VALUES('rebuild')`,
+]
+
 export const PROJECT_AUX_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS project_attachments (
     id TEXT PRIMARY KEY,
@@ -225,6 +503,7 @@ export const PROJECT_AUX_SCHEMA_STATEMENTS: readonly string[] = [
     expires_at INTEGER,
     views INTEGER NOT NULL DEFAULT 0,
     show_comments INTEGER NOT NULL DEFAULT 0,
+    intake_config TEXT NOT NULL DEFAULT '{"enabled":false,"editable":false,"title":"","propertyIds":[],"requiredPropertyIds":[]}',
     created_at INTEGER NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_shares_board
@@ -270,6 +549,8 @@ export const PROJECT_TIME_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_time_entries(card_id, started_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_project_time_user
      ON project_time_entries(user_id, ended_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_time_running
+     ON project_time_entries(card_id, user_id) WHERE ended_at IS NULL`,
 ]
 
 export const PROJECT_ENHANCE_SCHEMA_STATEMENTS: readonly string[] = [
@@ -383,6 +664,9 @@ export const PROJECT_INTEGRATION_SCHEMA_STATEMENTS: readonly string[] = [
     next_attempt_at INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivered','failed')),
     last_error TEXT NOT NULL DEFAULT '',
+    message_id TEXT NOT NULL DEFAULT '',
+    claim_token TEXT NOT NULL DEFAULT '',
+    lease_until INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_project_webhook_deliveries_due
@@ -431,9 +715,122 @@ export const PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS: readonly string[] = [
      ON project_write_receipts(created_at)`,
 ]
 
+const PROJECT_REMINDER_DUE_SQL = `CASE WHEN json_valid(v.value)
+  THEN COALESCE(json_extract(v.value, '$.from'), CAST(v.value AS INTEGER))
+  ELSE CAST(v.value AS INTEGER) END`
+
+function projectReminderInsert(cardIdSql?: string, propertyIdSql?: string, boardIdSql?: string, preserveNotifiedAt = false): string {
+  const notifiedAtSql = preserveNotifiedAt
+    ? `CASE WHEN COALESCE((SELECT MAX(prior.notified_at) FROM project_subscriptions prior
+                         WHERE prior.block_type = 'card' AND prior.block_id = v.card_id AND prior.delete_at = 0), 0) >= ${PROJECT_REMINDER_DUE_SQL}
+            THEN ${PROJECT_REMINDER_DUE_SQL} ELSE 0 END`
+    : '0'
+  return `INSERT INTO project_reminders (card_id, property_id, due_at, board_id, notified_at, created_at)
+    SELECT v.card_id, v.property_id, ${PROJECT_REMINDER_DUE_SQL}, c.board_id, ${notifiedAtSql}, CAST(unixepoch() * 1000 AS INTEGER)
+    FROM project_card_values v
+    JOIN project_cards c ON c.id = v.card_id AND c.delete_at = 0
+    JOIN project_boards b ON b.id = c.board_id AND b.delete_at = 0 AND b.archived = 0
+    JOIN project_properties p ON p.id = v.property_id AND p.board_id = c.board_id AND p.type = 'date'
+    WHERE ${PROJECT_REMINDER_DUE_SQL} > 0
+      ${cardIdSql ? `AND v.card_id = ${cardIdSql}` : ''}
+      ${propertyIdSql ? `AND v.property_id = ${propertyIdSql}` : ''}
+      ${boardIdSql ? `AND c.board_id = ${boardIdSql}` : ''}
+      AND EXISTS (SELECT 1 FROM project_subscriptions s
+                  WHERE s.block_type = 'card' AND s.block_id = v.card_id AND s.delete_at = 0)
+    ON CONFLICT(card_id, property_id, due_at) DO NOTHING`
+}
+
+export const PROJECT_REMINDER_BACKFILL_STATEMENT = projectReminderInsert(undefined, undefined, undefined, true)
+
+export const PROJECT_REMINDER_PENDING_INDEX_STATEMENT = `CREATE INDEX IF NOT EXISTS idx_project_reminders_pending
+   ON project_reminders(due_at, card_id, property_id) WHERE notified_at = 0`
+
+export const PROJECT_REMINDER_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS project_reminders (
+    card_id TEXT NOT NULL,
+    property_id TEXT NOT NULL,
+    due_at INTEGER NOT NULL,
+    board_id TEXT NOT NULL,
+    notified_at INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (card_id, property_id, due_at)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_project_reminders_due
+     ON project_reminders(notified_at, due_at, card_id, property_id)`,
+  PROJECT_REMINDER_PENDING_INDEX_STATEMENT,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_value_insert AFTER INSERT ON project_card_values
+   BEGIN
+     ${projectReminderInsert('NEW.card_id', 'NEW.property_id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_value_update AFTER UPDATE ON project_card_values
+   BEGIN
+     DELETE FROM project_reminders
+      WHERE card_id = NEW.card_id AND property_id = NEW.property_id
+        AND due_at <> (SELECT ${PROJECT_REMINDER_DUE_SQL.replaceAll('v.value', 'NEW.value')}
+                       FROM project_card_values v WHERE v.card_id = NEW.card_id AND v.property_id = NEW.property_id);
+     ${projectReminderInsert('NEW.card_id', 'NEW.property_id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_value_delete AFTER DELETE ON project_card_values
+   BEGIN
+     DELETE FROM project_reminders WHERE card_id = OLD.card_id AND property_id = OLD.property_id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_card_state AFTER UPDATE OF delete_at, board_id ON project_cards
+   WHEN OLD.delete_at IS NOT NEW.delete_at OR OLD.board_id IS NOT NEW.board_id
+   BEGIN
+     DELETE FROM project_reminders WHERE card_id = NEW.id;
+     ${projectReminderInsert('NEW.id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_card_delete AFTER DELETE ON project_cards
+   BEGIN
+     DELETE FROM project_reminders WHERE card_id = OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_board_state AFTER UPDATE OF delete_at, archived ON project_boards
+   WHEN OLD.delete_at IS NOT NEW.delete_at OR OLD.archived IS NOT NEW.archived
+   BEGIN
+     DELETE FROM project_reminders WHERE board_id = NEW.id;
+     ${projectReminderInsert(undefined, undefined, 'NEW.id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_board_delete AFTER DELETE ON project_boards
+   BEGIN
+     DELETE FROM project_reminders WHERE board_id = OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_property_state AFTER UPDATE OF type ON project_properties
+   WHEN OLD.type IS NOT NEW.type
+   BEGIN
+     DELETE FROM project_reminders WHERE board_id = NEW.board_id AND property_id = NEW.id;
+     ${projectReminderInsert(undefined, 'NEW.id', 'NEW.board_id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_property_delete AFTER DELETE ON project_properties
+   BEGIN
+     DELETE FROM project_reminders WHERE board_id = OLD.board_id AND property_id = OLD.id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_subscription_insert AFTER INSERT ON project_subscriptions
+   WHEN NEW.block_type = 'card' AND NEW.delete_at = 0
+   BEGIN
+     ${projectReminderInsert('NEW.block_id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_subscription_update AFTER UPDATE OF delete_at ON project_subscriptions
+   WHEN OLD.delete_at IS NOT NEW.delete_at
+   BEGIN
+     DELETE FROM project_reminders
+      WHERE card_id = NEW.block_id
+        AND NOT EXISTS (SELECT 1 FROM project_subscriptions s
+                        WHERE s.block_type = 'card' AND s.block_id = NEW.block_id AND s.delete_at = 0);
+     ${projectReminderInsert('NEW.block_id')};
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS trg_project_reminders_subscription_delete AFTER DELETE ON project_subscriptions
+   BEGIN
+     DELETE FROM project_reminders
+      WHERE card_id = OLD.block_id
+        AND NOT EXISTS (SELECT 1 FROM project_subscriptions s
+                        WHERE s.block_type = 'card' AND s.block_id = OLD.block_id AND s.delete_at = 0);
+   END`,
+]
+
 export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_boards',
   'project_board_members',
+  'project_board_presence',
   'project_properties',
   'project_cards',
   'project_card_values',
@@ -442,11 +839,20 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_comments',
   'project_categories',
   'project_category_boards',
+  'project_search_docs',
+  'project_search_fts',
   'project_attachments',
   'project_subscriptions',
   'project_shares',
   'project_settings',
   'project_activity',
+  'project_activity_changes',
+  'project_card_versions',
+  'project_card_notes',
+  'project_calendar_links',
+  'project_integrations',
+  'project_external_links',
+  'project_intake_grants',
   'project_card_links',
   'project_todo_links',
   'project_card_relations',
@@ -459,16 +865,19 @@ export const PROJECT_REQUIRED_TABLES: readonly string[] = [
   'project_sprints',
   'project_sprint_cards',
   'project_write_receipts',
+  'project_reminders',
 ]
 
 export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_boards_owner',
   'idx_project_boards_template',
   'idx_project_members_user',
+  'idx_project_presence_seen',
   'idx_project_properties_order',
   'idx_project_cards_board',
   'idx_project_cards_board_create',
   'idx_project_cards_parent',
+  'idx_project_cards_recurrence_source',
   'idx_project_values_property',
   'idx_project_views_board',
   'idx_project_contents_card',
@@ -484,6 +893,18 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_shares_board',
   'idx_project_activity_board',
   'idx_project_activity_created',
+  'idx_project_activity_changes_activity',
+  'idx_project_activity_changes_board',
+  'idx_project_card_versions_card',
+  'idx_project_card_versions_board',
+  'idx_project_card_notes_note',
+  'idx_project_card_notes_user',
+  'idx_project_calendar_links_card',
+  'idx_project_calendar_links_user',
+  'idx_project_integrations_board_provider',
+  'idx_project_external_links_board',
+  'idx_project_intake_grants_share',
+  'idx_project_intake_grants_board',
   'idx_project_card_links_to',
   'idx_project_card_links_board',
   'idx_project_todo_links_todo',
@@ -496,6 +917,10 @@ export const PROJECT_REQUIRED_INDEXES: readonly string[] = [
   'idx_project_sprints_board',
   'idx_project_sprint_cards_sprint',
   'idx_project_write_receipts_created',
+  'idx_project_search_docs_board',
+  'idx_project_reminders_due',
+  'idx_project_reminders_pending',
+  'idx_project_time_running',
 ]
 
 export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -505,12 +930,13 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
     'delete_at', 'archived',
   ],
   project_board_members: ['board_id', 'user_id', 'role', 'created_at', 'updated_at'],
+  project_board_presence: ['board_id', 'user_id', 'last_seen_at'],
   project_properties: [
     'board_id', 'id', 'name', 'type', 'options', 'position', 'created_at', 'updated_at',
   ],
   project_cards: [
-    'id', 'board_id', 'parent_id', 'title', 'icon', 'is_template', 'content_order', 'recurrence',
-    'completed_at', 'created_by', 'modified_by', 'create_at', 'update_at', 'delete_at',
+    'id', 'board_id', 'parent_id', 'title', 'icon', 'is_template', 'content_order', 'content_order_revision', 'recurrence',
+    'recurrence_source_id', 'completed_at', 'created_by', 'modified_by', 'create_at', 'update_at', 'delete_at',
   ],
   project_card_values: ['card_id', 'property_id', 'value', 'updated_at'],
   project_views: [
@@ -536,12 +962,21 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   project_subscriptions: [
     'block_type', 'block_id', 'subscriber_id', 'notified_at', 'create_at', 'delete_at',
   ],
+  project_reminders: ['card_id', 'property_id', 'due_at', 'board_id', 'notified_at', 'created_at'],
   project_shares: [
-    // The public link is read-only; comments are internal discussion unless the owner opts in.
-    'slug', 'board_id', 'user_id', 'password_hash', 'expires_at', 'views', 'show_comments', 'created_at',
+    'slug', 'board_id', 'user_id', 'password_hash', 'expires_at', 'views', 'show_comments', 'intake_config', 'created_at',
   ],
   project_settings: ['user_id', 'key', 'value', 'updated_at'],
   project_activity: ['board_id', 'id', 'actor_id', 'type', 'target_id', 'summary', 'created_at'],
+  project_activity_changes: [
+    'id', 'activity_id', 'board_id', 'actor_id', 'entity_type', 'entity_id', 'field_key', 'old_value', 'new_value', 'created_at',
+  ],
+  project_card_versions: ['id', 'card_id', 'board_id', 'actor_id', 'title', 'payload', 'size', 'created_at'],
+  project_card_notes: ['card_id', 'note_id', 'user_id', 'created_at'],
+  project_calendar_links: ['id', 'card_id', 'user_id', 'calendar_id', 'event_id', 'property_id', 'created_at', 'updated_at'],
+  project_integrations: ['id', 'board_id', 'provider', 'config_ciphertext', 'target', 'enabled', 'created_by', 'created_at', 'updated_at'],
+  project_external_links: ['id', 'card_id', 'board_id', 'provider', 'external_id', 'external_url', 'title', 'status', 'created_at', 'updated_at'],
+  project_intake_grants: ['card_id', 'board_id', 'share_slug', 'token_hash', 'field_ids', 'expires_at', 'revoked_at', 'created_at'],
   project_card_links: ['from_card_id', 'to_card_id', 'kind', 'board_id', 'created_at'],
   project_todo_links: ['card_id', 'todo_id', 'user_id', 'created_at'],
   project_card_relations: ['board_id', 'from_card_id', 'to_card_id', 'property_id', 'created_at'],
@@ -550,7 +985,7 @@ export const PROJECT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
   project_webhooks: ['id', 'board_id', 'url', 'secret', 'events', 'enabled', 'created_by', 'created_at', 'updated_at'],
   project_webhook_deliveries: [
     'id', 'webhook_id', 'board_id', 'event', 'payload', 'attempts', 'next_attempt_at',
-    'status', 'last_error', 'created_at',
+    'status', 'last_error', 'message_id', 'claim_token', 'lease_until', 'created_at',
   ],
   project_sprints: [
     'id', 'board_id', 'name', 'goal', 'start_at', 'end_at', 'status',

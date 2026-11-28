@@ -8,6 +8,7 @@ import type { Env } from '../src/worker/env'
 import type { ProjectBoard, ProjectCard, ProjectComment, ProjectContent } from '../src/shared/project/model'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
+import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
 
 const ACCOUNTS = ['alice', 'bob', 'carol'] as const
 type Account = (typeof ACCOUNTS)[number]
@@ -79,6 +80,17 @@ async function createContent(account: Account, cardId: string, body: Record<stri
 }
 
 describe('content blocks', () => {
+  it('migration 457 gives existing cards a zero order revision', () => {
+    const legacy = new DatabaseSync(':memory:')
+    legacy.exec("CREATE TABLE project_cards (id TEXT PRIMARY KEY, content_order TEXT NOT NULL DEFAULT '[]')")
+    legacy.prepare('INSERT INTO project_cards (id) VALUES (?)').run('card')
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 457)
+    expect(migration).toBeDefined()
+    for (const statement of migration!.statements) legacy.exec(statement)
+    expect(legacy.prepare('SELECT content_order_revision FROM project_cards WHERE id = ?').get('card')).toEqual({ content_order_revision: 0 })
+    legacy.close()
+  })
+
   it('creates blocks that join the reading order with ascending positions, and refuses a viewer', async () => {
     const board = await createBoard('alice')
     const card = await createCard('alice', board.id)
@@ -90,6 +102,39 @@ describe('content blocks', () => {
     expect(cardOrder(card.id)).toEqual([first.id, second.id])
     addMember(board.id, 'bob', 'viewer')
     expect((await req('bob', 'POST', `/cards/${card.id}/contents`, { type: 'text' })).status).toBe(403)
+  })
+
+  it('preserves every id when blocks and comments append concurrently', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id)
+    const blocks = await Promise.all(Array.from({ length: 5 }, (_, index) => createContent('alice', card.id, { type: 'text', title: `Block ${index}` })))
+    const comments = await Promise.all(Array.from({ length: 5 }, (_, index) => req('alice', 'POST', `/cards/${card.id}/comments`, { body: `Comment ${index}` })))
+    expect(comments.every((response) => response.status === 201)).toBe(true)
+    const posted = await Promise.all(comments.map(async (response) => ((await response.json()) as { comment: ProjectComment }).comment))
+    const ids = [...blocks.map((block) => block.id), ...posted.map((comment) => comment.id)]
+    const order = cardOrder(card.id).flat()
+    expect(order.toSorted()).toEqual(ids.toSorted())
+    expect(new Set(order).size).toBe(ids.length)
+    const row = sqlite.prepare('SELECT content_order_revision FROM project_cards WHERE id = ?').get(card.id) as { content_order_revision: number }
+    expect(row.content_order_revision).toBe(ids.length)
+  })
+
+  it('keeps order and positions consistent when two moves race', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id)
+    const a = await createContent('alice', card.id, { type: 'text', title: 'A' })
+    const b = await createContent('alice', card.id, { type: 'text', title: 'B' })
+    const c = await createContent('alice', card.id, { type: 'text', title: 'C' })
+    const responses = await Promise.all([
+      req('alice', 'POST', `/contents/${b.id}/move`, { where: 'before', targetId: a.id }),
+      req('alice', 'POST', `/contents/${c.id}/move`, { where: 'after', targetId: a.id }),
+    ])
+    expect(responses.map((response) => response.status)).toEqual([200, 200])
+    const order = cardOrder(card.id)
+    expect(order.flat().toSorted()).toEqual([a.id, b.id, c.id].toSorted())
+    const positions = sqlite.prepare('SELECT id, position FROM project_card_contents WHERE card_id = ? ORDER BY position').all(card.id) as { id: string, position: number }[]
+    expect(positions.map((entry) => entry.id)).toEqual(order)
+    expect(positions.map((entry) => entry.position)).toEqual([0, 1, 2])
   })
 
   it('moves a block before another, reordering both the reading order and positions', async () => {
@@ -106,6 +151,19 @@ describe('content blocks', () => {
     expect(positions.map((p) => p.position)).toEqual([0, 1, 2])
   })
 
+  it('reindexes content positions when a card patch restores a full reading order', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id)
+    const a = await createContent('alice', card.id, { type: 'text', title: 'A' })
+    const b = await createContent('alice', card.id, { type: 'text', title: 'B' })
+    const c = await createContent('alice', card.id, { type: 'text', title: 'C' })
+    const response = await req('alice', 'PATCH', `/cards/${card.id}`, { contentOrder: [c.id, a.id, b.id] })
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(cardOrder(card.id)).toEqual([c.id, a.id, b.id])
+    const positions = sqlite.prepare('SELECT id, position FROM project_card_contents WHERE card_id = ? ORDER BY position').all(card.id) as { id: string; position: number }[]
+    expect(positions).toEqual([{ id: c.id, position: 0 }, { id: a.id, position: 1 }, { id: b.id, position: 2 }])
+  })
+
   it('deletes a block out of the reading order and restores it on undelete', async () => {
     const board = await createBoard('alice')
     const card = await createCard('alice', board.id)
@@ -117,6 +175,37 @@ describe('content blocks', () => {
     const restored = await req('alice', 'POST', `/contents/${a.id}/undelete`)
     expect(restored.status).toBe(200)
     expect(cardOrder(card.id)).toEqual([b.id, a.id])
+  })
+
+  it('hides content and comments when their parent card is soft-deleted', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id)
+    const block = await createContent('alice', card.id, { type: 'text', title: 'Body' })
+    const posted = await req('alice', 'POST', `/cards/${card.id}/comments`, { body: 'Comment' })
+    const comment = ((await posted.json()) as { comment: ProjectComment }).comment
+    expect((await req('alice', 'DELETE', `/cards/${card.id}`)).status).toBe(200)
+    expect((await req('alice', 'GET', `/contents/${block.id}`)).status).toBe(404)
+    expect((await req('alice', 'PATCH', `/contents/${block.id}`, { title: 'Changed' })).status).toBe(404)
+    expect((await req('alice', 'GET', `/comments/${comment.id}`)).status).toBe(404)
+    expect((await req('alice', 'PATCH', `/comments/${comment.id}`, { body: 'Changed' })).status).toBe(404)
+  })
+
+  it('persists checklist assignees and due dates and rejects non-members', async () => {
+    const board = await createBoard('alice')
+    const card = await createCard('alice', board.id)
+    const assigneeId = `u${'1'.repeat(26)}`
+    const outsiderId = `u${'2'.repeat(26)}`
+    sqlite.prepare(`INSERT INTO users (id, username, password_hash, login, name, role, created_at, last_seen_at)
+      VALUES (?, 'assignee', 'hash', 'assignee', 'Assignee', 'member', 1, 1)`).run(assigneeId)
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(board.id, assigneeId, 'editor')
+    const dueAt = Date.UTC(2026, 10, 30)
+    const block = await createContent('alice', card.id, { type: 'checkbox', title: 'Ship', fields: { checked: false, assigneeId, dueAt } })
+    expect(block.fields).toEqual({ checked: false, assigneeId, dueAt })
+    const rejected = await req('alice', 'PATCH', `/contents/${block.id}`, { fields: { checked: false, assigneeId: outsiderId, dueAt } })
+    expect(rejected.status).toBe(400)
+    const text = await createContent('alice', card.id, { type: 'text', title: 'Body' })
+    expect((await req('alice', 'PATCH', `/contents/${text.id}`, { fields: { dueAt } })).status).toBe(400)
   })
 
   it('patches a block title and fields', async () => {

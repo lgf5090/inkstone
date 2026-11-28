@@ -14,6 +14,8 @@ import {
   type ProjectWebhookEvent,
 } from '@shared/project/integrations'
 import type { ProjectWebhookCreateInput, ProjectWebhookPatchInput } from '@shared/project/validation'
+import type { Env } from '../env'
+import { decryptProjectWebhookSecret, encryptProjectWebhookSecret } from '../lib/crypto'
 import { fromBase64Url, toBase64, toBase64Url, utf8 } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { checkTarget, outbound } from '../lib/outbound'
@@ -22,6 +24,8 @@ const URL_MAX_LENGTH = 2048
 const DELIVERY_TIMEOUT_MS = 10_000
 const DELIVERY_MAX_BYTES = 4 * 1024
 const DRAIN_LIMIT = 20
+const DELIVERY_LEASE_MS = 60_000
+const DELIVERY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
 export interface ProjectWebhook {
   id: string
@@ -57,6 +61,9 @@ interface DeliveryRow {
   next_attempt_at: number
   status: string
   last_error: string
+  message_id: string
+  claim_token: string
+  lease_until: number
   created_at: number
   url: string | null
   secret: string | null
@@ -119,17 +126,18 @@ export async function listProjectWebhooks(db: D1Database, boardId: string): Prom
 }
 
 export async function createProjectWebhook(
-  db: D1Database, boardId: string, userId: string, input: ProjectWebhookCreateInput, now: number,
+  db: D1Database, env: Env, boardId: string, userId: string, input: ProjectWebhookCreateInput, now: number,
 ): Promise<{ webhook: ProjectWebhook, secret: string }> {
   if (input.url.length > URL_MAX_LENGTH) throw ApiError.badRequest('Webhook URL is too long')
   const url = assertWebhookUrl(input.url)
-  const secret = `${PROJECT_WEBHOOK_SECRET_PREFIX}${toBase64Url(crypto.getRandomValues(new Uint8Array(32)))}`
   const id = newProjectId('webhook')
+  const secret = `${PROJECT_WEBHOOK_SECRET_PREFIX}${toBase64Url(crypto.getRandomValues(new Uint8Array(32)))}`
+  const secretCiphertext = await encryptProjectWebhookSecret(env, id, secret)
   await db.prepare(
     `INSERT INTO project_webhooks (id, board_id, url, secret, events, enabled, created_by, created_at, updated_at)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)`,
   ).bind(
-    id, boardId, url, secret, JSON.stringify(normalizeEvents(input.events)),
+    id, boardId, url, secretCiphertext, JSON.stringify(normalizeEvents(input.events)),
     input.enabled === false ? 0 : 1, userId, now,
   ).run()
   return {
@@ -180,9 +188,9 @@ export async function enqueueProjectWebhookEvents(
     ids.push(id)
     return db.prepare(
       `INSERT INTO project_webhook_deliveries
-        (id, webhook_id, board_id, event, payload, attempts, next_attempt_at, status, last_error, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, 'pending', '', ?6)`,
-    ).bind(id, row.id, boardId, event, body, now)
+        (id, webhook_id, board_id, event, payload, attempts, next_attempt_at, status, last_error, message_id, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, 'pending', '', ?7, ?6)`,
+    ).bind(id, row.id, boardId, event, body, now, `msg_${id}`)
   })
   await db.batch(statements)
   return ids
@@ -197,14 +205,44 @@ async function signProjectWebhook(secret: string, messageId: string, timestamp: 
   return `v1,${toBase64(signature)}`
 }
 
-/** One attempt. A missing webhook, a blocked target and a refused network all end as a retry or a failure. */
-export async function deliverProjectWebhook(db: D1Database, deliveryId: string, now: number): Promise<void> {
+async function readableProjectWebhookSecret(db: D1Database, env: Env, row: DeliveryRow): Promise<string | null> {
+  if (row.secret?.startsWith('v1.')) return decryptProjectWebhookSecret(env, row.webhook_id, row.secret)
+  if (!row.secret) return null
+  const ciphertext = await encryptProjectWebhookSecret(env, row.webhook_id, row.secret)
+  await db.prepare('UPDATE project_webhooks SET secret = ?1 WHERE id = ?2').bind(ciphertext, row.webhook_id).run()
+  return row.secret
+}
+
+export async function encryptLegacyProjectWebhookSecrets(env: Env): Promise<number> {
+  const { results } = await env.DB.prepare("SELECT id, secret FROM project_webhooks WHERE secret <> '' AND secret NOT LIKE 'v1.%'")
+    .all<{ id: string, secret: string }>()
+  let migrated = 0
+  for (const row of results) {
+    const ciphertext = await encryptProjectWebhookSecret(env, row.id, row.secret)
+    await env.DB.prepare('UPDATE project_webhooks SET secret = ?1 WHERE id = ?2 AND secret = ?3')
+      .bind(ciphertext, row.id, row.secret).run()
+    migrated += 1
+  }
+  return migrated
+}
+
+export async function deliverProjectWebhook(db: D1Database, env: Env, deliveryId: string, now: number): Promise<boolean> {
+  const claimToken = toBase64Url(crypto.getRandomValues(new Uint8Array(16)))
+  const claimed = await db.prepare(
+    `UPDATE project_webhook_deliveries
+        SET claim_token = ?2, lease_until = ?3,
+            message_id = COALESCE(NULLIF(message_id, ''), ?5)
+      WHERE id = ?1 AND status = 'pending' AND next_attempt_at <= ?4
+        AND (claim_token = '' OR lease_until <= ?4)
+      RETURNING *`,
+  ).bind(deliveryId, claimToken, now + DELIVERY_LEASE_MS, now, `msg_${deliveryId}`).first<DeliveryRow>()
+  if (!claimed) return false
   const row = await db.prepare(
     `SELECT d.*, w.url, w.secret, w.enabled FROM project_webhook_deliveries d
       LEFT JOIN project_webhooks w ON w.id = d.webhook_id
      WHERE d.id = ?1`,
   ).bind(deliveryId).first<DeliveryRow>()
-  if (!row || row.status !== 'pending') return
+  if (!row) return false
   let error = ''
   if (!row.url || !row.secret || row.enabled !== 1) {
     error = 'Webhook is no longer active'
@@ -213,10 +251,12 @@ export async function deliverProjectWebhook(db: D1Database, deliveryId: string, 
     if (!target.url || target.url.protocol !== 'https:') {
       error = 'Webhook target is not reachable'
     } else {
-      const messageId = `msg_${toBase64Url(crypto.getRandomValues(new Uint8Array(16)))}`
+      const messageId = row.message_id
       const timestamp = Math.floor(now / 1000)
       try {
-        const signature = await signProjectWebhook(row.secret, messageId, timestamp, row.payload)
+        const secret = await readableProjectWebhookSecret(db, env, row)
+        if (!secret) throw new Error('Webhook signing secret is unavailable')
+        const signature = await signProjectWebhook(secret, messageId, timestamp, row.payload)
         const result = await outbound(row.url, {
           method: 'POST',
           headers: {
@@ -240,23 +280,30 @@ export async function deliverProjectWebhook(db: D1Database, deliveryId: string, 
   const status = !error ? 'delivered' : attempts >= PROJECT_WEBHOOK_MAX_ATTEMPTS ? 'failed' : 'pending'
   await db.prepare(
     `UPDATE project_webhook_deliveries
-        SET attempts = ?1, status = ?2, last_error = ?3, next_attempt_at = ?4
-      WHERE id = ?5`,
-  ).bind(attempts, status, error.slice(0, 240), now + projectWebhookRetryDelay(attempts), deliveryId).run()
+        SET attempts = ?1, status = ?2, last_error = ?3, next_attempt_at = ?4,
+            claim_token = '', lease_until = 0
+      WHERE id = ?5 AND claim_token = ?6 AND status = 'pending'`,
+  ).bind(attempts, status, error.slice(0, 240), now + projectWebhookRetryDelay(attempts), deliveryId, claimToken).run()
   if (error) console.warn('[inkstone] project webhook delivery failed:', { deliveryId, attempts, status, error })
+  return true
 }
 
-export async function drainProjectWebhookDeliveries(db: D1Database, now: number, limit = DRAIN_LIMIT): Promise<number> {
+export async function drainProjectWebhookDeliveries(db: D1Database, env: Env, now: number, limit = DRAIN_LIMIT): Promise<number> {
   const { results } = await db.prepare(
     `SELECT id FROM project_webhook_deliveries
-      WHERE status = 'pending' AND next_attempt_at <= ?1 ORDER BY next_attempt_at, id LIMIT ?2`,
+      WHERE status = 'pending' AND next_attempt_at <= ?1
+        AND (claim_token = '' OR lease_until <= ?1)
+      ORDER BY next_attempt_at, id LIMIT ?2`,
   ).bind(now, Math.min(Math.max(limit, 1), DRAIN_LIMIT)).all<{ id: string }>()
+  let delivered = 0
   for (const row of results) {
     try {
-      await deliverProjectWebhook(db, row.id, now)
+      if (await deliverProjectWebhook(db, env, row.id, now)) delivered += 1
     } catch (cause) {
       console.warn('[inkstone] project webhook drain failed:', cause instanceof Error ? cause.message : cause)
     }
   }
-  return results.length
+  await db.prepare("DELETE FROM project_webhook_deliveries WHERE status IN ('delivered', 'failed') AND created_at < ?1")
+    .bind(now - DELIVERY_RETENTION_MS).run()
+  return delivered
 }

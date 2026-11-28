@@ -2,7 +2,7 @@ import { APP_VERSION, mergeSettings } from '@shared/constants'
 import type { PublicUser, SessionInfo, SiteInfo } from '@shared/types'
 import { selectAttachmentStorage } from '../attachments/backend'
 import type { Env, Variables } from '../env'
-import { rowToUser, USER_COLUMNS } from '../middleware/auth'
+import { rowToUser, USER_COLUMNS } from './user-row'
 import { storedObject } from './json'
 import { KEY_REGISTRATION_OPEN } from './instance-settings'
 

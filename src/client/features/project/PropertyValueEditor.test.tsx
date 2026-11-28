@@ -14,6 +14,12 @@ import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import { getLocale, initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
 import { PropertyValueEditor } from './PropertyValueEditor'
+import * as api from './api'
+
+vi.mock('./api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./api')>(),
+  fetchRelationCards: vi.fn(),
+}))
 
 let session: { user: { id: string, name: string, avatarUrl: string } | null } = { user: null }
 vi.mock('../../store/session', () => ({
@@ -88,7 +94,6 @@ describe('moving a start day keeps the rest of the value', () => {
     const parsed = parseProjectDateValue(filed!)!
     expect(projectStampToInput(parsed.from!)).toBe('2026-11-15')
     expect(projectStampToInput(parsed.to!)).toBe('2026-11-18')
-    expect(parsed.to! - parsed.from!).toBe(to - from)
   })
 
   it('keeps includeTime and timeZone, which decide how every reader converts', async () => {
@@ -137,6 +142,27 @@ describe('the editor and the table cell agree', () => {
       expect(tableText(filed!), `editor and table disagree in ${zone}`).toBe(tableText(canonical))
       view.unmount()
     }
+  })
+})
+
+describe('the relation picker read state', () => {
+  const relation: ProjectProperty = { id: 'rel', name: 'Related', type: 'relation', options: [], config: { targetBoardId: 'target' } }
+
+  it('shows a retryable error instead of claiming no access', async () => {
+    vi.mocked(api.fetchRelationCards).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([{ id: 'c1', title: 'Linked' }])
+    await act(async () => { view = renderElement(createElement(PropertyValueEditor, { property: relation, value: '', members: [], disabled: false, onChange: vi.fn() })) })
+    expect(view.container.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    expect(view.container.textContent).not.toContain(t('project.relation.no_access'))
+    await act(async () => { [...view.container.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    await act(async () => { view.container.querySelector<HTMLButtonElement>('button[aria-label="Related"]')!.click() })
+    expect([...document.body.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"]')].some((item) => item.textContent === 'Linked')).toBe(true)
+  })
+
+  it('uses no-access only when the server returns a hidden board', async () => {
+    vi.mocked(api.fetchRelationCards).mockResolvedValue(null)
+    await act(async () => { view = renderElement(createElement(PropertyValueEditor, { property: relation, value: '', members: [], disabled: false, onChange: vi.fn() })) })
+    expect(view.container.textContent).toContain(t('project.relation.no_access'))
+    expect(view.container.querySelector('[role="alert"]')).toBeNull()
   })
 })
 

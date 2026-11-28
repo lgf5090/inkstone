@@ -44,6 +44,7 @@ export interface PaymentSample {
   amount: number
   currency: CurrencyCode
   note?: string
+  periodCount?: number
 }
 
 /** Whether this table can price one unit of `code` at all. */
@@ -53,7 +54,7 @@ export function hasRate(code: string | undefined, rates: RateTable): boolean {
 }
 
 export function convertToBase(amount: number, currency: string | undefined, rates: RateTable): number {
-  if (!Number.isFinite(amount) || amount <= 0) return 0
+  if (!Number.isFinite(amount) || amount === 0) return 0
   const rate = rates[currency || 'CNY']
   // Nothing to multiply by is not a licence to add the money in unchanged: a hundred Singapore dollars
   // counted as a hundred yuan is a made-up number, while leaving it out only makes the total small.
@@ -153,7 +154,7 @@ export function calculateMonthlyExpense(
   let amount = 0
   let lastAmount = 0
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     if (parts.year === current.year && parts.month === current.month) {
       amount += convertToBase(payment.amount, payment.currency, rates)
@@ -190,7 +191,7 @@ export function calculateYearlyExpense(
   const current = getTimezoneDateParts(now, timezone)
   let amount = 0
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     if (parts.year === current.year) amount += convertToBase(payment.amount, payment.currency, rates)
   }
@@ -208,7 +209,7 @@ export function getRecentPayments(
   const since = now.getTime() - days * MS_PER_DAY
   const byId = new Map(items.map((item) => [item.id, item]))
   return payments
-    .filter((payment) => payment.amount > 0 && payment.paidAt >= since && payment.paidAt <= now.getTime())
+    .filter((payment) => payment.amount !== 0 && payment.paidAt >= since && payment.paidAt <= now.getTime())
     .sort((left, right) => right.paidAt - left.paidAt)
     .map((payment) => {
       const item = byId.get(payment.subscriptionId)
@@ -263,7 +264,7 @@ export function getExpenseByType(
   const totals = new Map<string, number>()
   let total = 0
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     if (parts.year !== current.year) continue
     const label = byId.get(payment.subscriptionId)?.customType?.trim() || ''
@@ -300,7 +301,7 @@ export function getExpenseByCategory(
   const totals = new Map<string, number>()
   let total = 0
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     if (parts.year !== current.year) continue
     const item = byId.get(payment.subscriptionId)
@@ -348,7 +349,7 @@ export function expenseByMonth(
     buckets.push({ month: key, amount: 0 })
   }
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     const key = `${parts.year}-${String(parts.month).padStart(2, '0')}`
     const slot = index.get(key)
@@ -428,7 +429,7 @@ export function dailySpend(
   const endStamp = Date.UTC(end.year, end.month - 1, end.day)
   const totals = new Map<string, number>()
   for (const payment of payments) {
-    if (!(payment.amount > 0)) continue
+    if (!Number.isFinite(payment.amount) || payment.amount === 0) continue
     const parts = getTimezoneDateParts(payment.paidAt, timezone)
     const age = Math.round((endStamp - Date.UTC(parts.year, parts.month - 1, parts.day)) / MS_PER_DAY)
     if (age < 0 || age >= days) continue
@@ -444,6 +445,7 @@ export function dailySpend(
 export function renewalsPerYear(item: Pick<SubscriptionItem, 'periodUnit' | 'periodValue'>): number {
   const periods = Math.max(1, item.periodValue)
   if (item.periodUnit === 'day') return 365 / periods
+  if (item.periodUnit === 'week') return 52 / periods
   if (item.periodUnit === 'month') return 12 / periods
   return 1 / periods
 }
@@ -550,9 +552,9 @@ export function findPriceChanges(
     if (!previous || latest.amount === previous.amount) continue
     // A renewal that bought several periods costs more without the plan being dearer, so the comparison
     // is only honest per period.
-    const latestPerPeriod = latest.amount
-    const previousPerPeriod = previous.amount
-    if (previousPerPeriod <= 0) continue
+    const latestPerPeriod = latest.amount / Math.max(1, latest.periodCount ?? 1)
+    const previousPerPeriod = previous.amount / Math.max(1, previous.periodCount ?? 1)
+    if (previousPerPeriod <= 0 || latestPerPeriod === previousPerPeriod) continue
     out.push({
       id: item.id,
       name: item.name,
@@ -581,13 +583,13 @@ export interface PricePoint {
  * oldest points fall off when the history is longer than the plot can hold.
  */
 export function priceHistory(
-  payments: readonly { paidAt: string | number; amount: number; currency: string }[],
+  payments: readonly { paidAt: string | number; amount: number; currency: string; periodCount?: number }[],
   currency: string,
   limit = 12,
 ): PricePoint[] {
   const points = payments
     .filter((payment) => payment.currency === currency && payment.amount > 0)
-    .map((payment) => ({ at: typeof payment.paidAt === 'number' ? new Date(payment.paidAt).toISOString() : payment.paidAt, amount: payment.amount }))
+    .map((payment) => ({ at: typeof payment.paidAt === 'number' ? new Date(payment.paidAt).toISOString() : payment.paidAt, amount: payment.amount / Math.max(1, payment.periodCount ?? 1) }))
     .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
   return points.slice(Math.max(0, points.length - limit))
 }
@@ -599,7 +601,7 @@ export function trialsEnding(
   now: Date = new Date(),
 ): TrialEnding[] {
   return items
-    .filter((item) => item.isActive && item.trialEndsAt)
+    .filter((item) => item.isActive && item.trialEndsAt && (item.trialDaysRemaining ?? -1) >= 0)
     .map((item) => ({
       id: item.id,
       name: item.name,

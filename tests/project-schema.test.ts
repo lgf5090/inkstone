@@ -13,6 +13,8 @@ import {
   PROJECT_INTEGRATION_SCHEMA_STATEMENTS,
   PROJECT_SPRINT_SCHEMA_STATEMENTS,
   PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS,
+  PROJECT_REMINDER_SCHEMA_STATEMENTS,
+  PROJECT_SEARCH_SCHEMA_STATEMENTS,
   PROJECT_REQUIRED_COLUMNS,
   PROJECT_REQUIRED_INDEXES,
   PROJECT_REQUIRED_TABLES,
@@ -28,6 +30,8 @@ const PROJECT_STATEMENTS = [
   ...PROJECT_INTEGRATION_SCHEMA_STATEMENTS,
   ...PROJECT_SPRINT_SCHEMA_STATEMENTS,
   ...PROJECT_IDEMPOTENCY_SCHEMA_STATEMENTS,
+  ...PROJECT_REMINDER_SCHEMA_STATEMENTS,
+  ...PROJECT_SEARCH_SCHEMA_STATEMENTS,
 ]
 
 let sqlite: DatabaseSync
@@ -96,9 +100,13 @@ describe('the project tables', () => {
     expect(migrated.prepare(`SELECT name FROM sqlite_master WHERE name = 'project_boards'`).get()).toBeUndefined()
     // The project block follows the ledger the rest of the app already spent, so it is found by the
     // statements it carries rather than by a version number another feature may claim first.
-    const projectMigrations = SCHEMA_MIGRATIONS.filter((entry) => entry.statements.some((statement) => PROJECT_STATEMENTS.includes(statement)))
-    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 397, 398, 401, 402, 403])
-    for (const entry of projectMigrations) migrated.exec(entry.statements.join(';'))
+    const projectMigrations = SCHEMA_MIGRATIONS.filter((entry) => entry.statements.some((statement) => PROJECT_STATEMENTS.includes(statement)
+      || statement.includes('ALTER TABLE project_shares ADD COLUMN intake_config')))
+    expect(projectMigrations.map((entry) => entry.version)).toEqual([385, 386, 387, 388, 397, 398, 401, 402, 403, 454, 461, 462, 463, 464, 465, 466, 467, 468, 469, 470])
+    for (const entry of projectMigrations) {
+      if (entry.version === 466 && (migrated.prepare('PRAGMA table_info(project_shares)').all() as Array<{ name: string }>).some((column) => column.name === 'intake_config')) continue
+      migrated.exec(entry.statements.join(';'))
+    }
 
     const shape = (db: DatabaseSync): string[] =>
       (db.prepare(`SELECT name, sql FROM sqlite_master WHERE name LIKE 'project_%' ORDER BY name`).all() as Array<{ name: string; sql: string | null }>)
@@ -198,10 +206,14 @@ describe('the project tables', () => {
     sqlite.prepare(link).run('c1', 't2')
   })
 
-  it('leave no full-text index tables behind now that search reads the live rows', () => {
+  it('installs the project full-text index and its incremental maintenance triggers', () => {
     const tables = names('table')
-    expect(tables.has('project_fts')).toBe(false)
-    expect(tables.has('project_fts_queue')).toBe(false)
-    expect(names('index').has('idx_project_fts_queue_due')).toBe(false)
+    expect(tables.has('project_search_docs')).toBe(true)
+    expect(tables.has('project_search_fts')).toBe(true)
+    const triggers = names('trigger')
+    expect(triggers.has('trg_project_search_card_update')).toBe(true)
+    expect(triggers.has('trg_project_search_content_update')).toBe(true)
+    expect(triggers.has('trg_project_search_comment_update')).toBe(true)
+    expect(triggers.has('trg_project_search_value_update')).toBe(true)
   })
 })

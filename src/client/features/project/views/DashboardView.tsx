@@ -16,7 +16,9 @@ import { projectOptionCssColor } from '@shared/project/option-color'
 import { projectEffortStats, projectPriorityBuckets, projectPriorityProperty, projectWeeklyCompletions } from '@shared/project/stats'
 import { t, useLocale } from '../../../lib/i18n'
 import { ViewHead, ViewShell } from './shell'
+import { Button } from '../../../components/primitives'
 import { useProjectPeople } from '../people-context'
+import { useToday } from '../use-today'
 import { fetchBoardActivity } from '../api'
 
 const DAY_MS = 86_400_000
@@ -34,6 +36,7 @@ export interface DashboardProps {
   cards: ProjectCard[]
   properties: ProjectProperty[]
   datePropertyId?: string
+  publicView?: boolean
   onOpenCard: (id: string) => void
 }
 
@@ -70,21 +73,28 @@ export function DashboardView(props: DashboardProps): ReactElement {
   const { cards, properties, boardId } = props
   const locale = useLocale()
   const people = useProjectPeople()
-  const [activity, setActivity] = useState<ProjectActivityEntry[]>([])
+  const [activity, setActivity] = useState<ProjectActivityEntry[] | null>(null)
+  const [activityError, setActivityError] = useState(false)
+  const [activityAttempt, setActivityAttempt] = useState(0)
   const [focus, setFocus] = useState<'overdue' | 'soon' | null>(null)
   const propertyId = projectViewPropertyId(props.datePropertyId) ?? properties.find((property) => property.type === 'date')?.id
   const statusProperty = properties.find((property) => property.type === 'select')
   const personProperty = properties.find((property) => property.type === 'person' || property.type === 'multiPerson')
   const priorityProperty = useMemo(() => projectPriorityProperty(properties), [properties])
-  const effortProperty = properties.find((property) => property.type === 'number')
+  const effortProperty = properties.find((property) => property.type === 'estimate') ?? properties.find((property) => property.type === 'number')
 
   useEffect(() => {
+    if (props.publicView) { setActivity(null); return }
     const controller = new AbortController()
-    fetchBoardActivity(boardId, controller.signal).then(setActivity).catch(() => { if (!controller.signal.aborted) setActivity([]) })
+    setActivity(null)
+    setActivityError(false)
+    fetchBoardActivity(boardId, controller.signal)
+      .then(setActivity)
+      .catch(() => { if (!controller.signal.aborted) setActivityError(true) })
     return () => controller.abort()
-  }, [boardId])
+  }, [boardId, props.publicView, activityAttempt])
 
-  const today = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
+  const today = useToday()
   const buckets = useMemo(() => {
     const overdue: ProjectCard[] = []
     const soon: ProjectCard[] = []
@@ -162,7 +172,7 @@ export function DashboardView(props: DashboardProps): ReactElement {
         <div className="pv-kpis">
           <Kpi label={t('project.dashboard.total')} value={cards.length} color="var(--accent)" icon={<LayoutDashboard size={12} aria-hidden="true" />} />
           <Kpi label={t('project.dashboard.done')} value={buckets.done} note={`${percent}%`} color="var(--success)" icon={<CheckCircle2 size={12} aria-hidden="true" />} />
-          <Kpi label={t('project.dashboard.in_progress')} value={Math.max(0, buckets.later)} color="var(--warning)" icon={<Loader size={12} aria-hidden="true" />} />
+          <Kpi label={t('project.dashboard.in_progress')} value={buckets.overdue.length + buckets.soon.length + buckets.later} color="var(--warning)" icon={<Loader size={12} aria-hidden="true" />} />
           <Kpi label={t('project.dashboard.overdue')} value={buckets.overdue.length} color="var(--danger)" icon={<AlertTriangle size={12} aria-hidden="true" />} onClick={() => setFocus(focus === 'overdue' ? null : 'overdue')} />
           <Kpi label={t('project.dashboard.due_soon')} value={buckets.soon.length} color="var(--accent)" icon={<CalendarClock size={12} aria-hidden="true" />} onClick={() => setFocus(focus === 'soon' ? null : 'soon')} />
           <Kpi label={t('project.dashboard.unscheduled')} value={buckets.unscheduled} color="var(--text-tertiary)" icon={<CalendarClock size={12} aria-hidden="true" />} />
@@ -307,12 +317,22 @@ export function DashboardView(props: DashboardProps): ReactElement {
           )}
         </div>
 
-        <Panel title={t('project.dashboard.activity')}>
-          {activity.length === 0
-            ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.dashboard.nothing_here')}</p>
-            : (
-              <ul className="space-y-1">
-                {activity.slice(0, 12).map((entry) => {
+        {!props.publicView && (
+          <Panel title={t('project.dashboard.activity')}>
+            {activityError
+              ? (
+                  <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
+                    {t('project.common.load_failed')}
+                    <Button size="sm" variant="ghost" onClick={() => setActivityAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+                  </div>
+                )
+              : activity === null
+                ? <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
+                : activity.length === 0
+                  ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.dashboard.nothing_here')}</p>
+                  : (
+            <ul className="space-y-1">
+              {(activity ?? []).slice(0, 12).map((entry) => {
                   const verb = ACTIVITY_VERB[entry.type]
                   const target = cards.find((card) => card.id === entry.targetId)
                   return (
@@ -332,6 +352,7 @@ export function DashboardView(props: DashboardProps): ReactElement {
               </ul>
             )}
         </Panel>
+        )}
       </div>
     </ViewShell>
   )

@@ -32,6 +32,19 @@ export class ApiError extends Error {
   }
 }
 
+/** A bounded, credential-free description for logs; never pass the original Error to the console. */
+export function errorLogContext(err: unknown): { name: string; message: string } {
+  const name = err instanceof Error ? err.name : 'Error'
+  const raw = err instanceof Error ? err.message : String(err)
+  const message = raw
+    .replace(/https?:\/\/[^\s"'<>]+/gi, '[url]')
+    .replace(/((?:api[-_]?key|token|secret|password|authorization|sendkey)\s*[=:]\s*)[^\s,;&"'<>]+/gi, '$1[redacted]')
+    .replace(/(Bearer\s+)[\w.-]+/gi, '$1[redacted]')
+    .replace(/\b(?:select|insert|update|delete|drop|alter|create|pragma|with)\b[\s\S]*/gi, '[sql]')
+    .slice(0, 500)
+  return { name: name.slice(0, 80), message }
+}
+
 export function errorResponse(c: Context, err: unknown): Response {
   if (err instanceof ApiError) {
     return c.json(
@@ -39,7 +52,7 @@ export function errorResponse(c: Context, err: unknown): Response {
       err.status,
     )
   }
-  console.error('[inkstone] Unhandled error:', c.req.method, c.req.path, err)
+  console.error('[inkstone] Unhandled error:', c.req.method, c.req.path, errorLogContext(err))
 
   return c.json({ error: { code: 'internal', message: "Internal server error" } }, 500)
 }

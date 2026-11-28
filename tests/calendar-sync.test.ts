@@ -48,7 +48,11 @@ const OTHER = 'b'.repeat(26)
 const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar'
 const GOOGLE_READ_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
 
-const mocks = vi.hoisted(() => ({ userId: 'a'.repeat(26) }))
+const mocks = vi.hoisted(() => ({ userId: 'a'.repeat(26), projectSync: vi.fn() }))
+
+vi.mock('../src/worker/project/project-calendar', () => ({
+  syncProjectCardForCalendarEvent: mocks.projectSync,
+}))
 
 vi.mock('../src/worker/middleware/auth', () => ({
   requireAuth: async (
@@ -152,6 +156,8 @@ beforeEach(() => {
     OUTLOOK_CLIENT_SECRET: 'outlook-secret',
   })
   mocks.userId = USER
+  mocks.projectSync.mockReset()
+  mocks.projectSync.mockResolvedValue(undefined)
 })
 
 async function request(path: string, init?: RequestInit, bindings: Env = env): Promise<Response> {

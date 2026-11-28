@@ -14,6 +14,7 @@ import { IconButton, SectionLabel } from '../../components/primitives'
 import { Select } from '../../components/form'
 import { LoadingBlock } from '../../components/feedback'
 import { channelLabelKey } from '@shared/subscriptions/channels'
+import { formatLocalDate } from '@shared/subscriptions/time'
 import { CHANNEL_KINDS, type ChannelKind, type NotifyLogEntry, type ScheduleLogEntry, type SubscriptionItem } from '@shared/subscriptions/model'
 import type { SubscriptionLogs } from './store'
 
@@ -28,10 +29,12 @@ function sinceOf(period: Period): string | undefined {
 export function LogsView({
   logs,
   items,
+  timezone = 'UTC',
   onLoad,
 }: {
   logs: SubscriptionLogs
   items: readonly SubscriptionItem[]
+  timezone?: string
   onLoad: (filter: { subscriptionId?: string; channel?: ChannelKind; status?: 'success' | 'failed'; since?: string }) => void
 }): ReactElement {
   const [period, setPeriod] = useState<Period>('week')
@@ -45,6 +48,20 @@ export function LogsView({
       channel: channel || undefined,
       status: status || undefined,
       subscriptionId: subscriptionId || undefined,
+    })
+  }
+
+  const apply = (next: { period?: Period; channel?: ChannelKind | ''; status?: 'success' | 'failed' | ''; subscriptionId?: string }): void => {
+    const merged = { period, channel, status, subscriptionId, ...next }
+    if (next.period !== undefined) setPeriod(next.period)
+    if (next.channel !== undefined) setChannel(next.channel)
+    if (next.status !== undefined) setStatus(next.status)
+    if (next.subscriptionId !== undefined) setSubscriptionId(next.subscriptionId)
+    onLoad({
+      since: sinceOf(merged.period),
+      channel: merged.channel || undefined,
+      status: merged.status || undefined,
+      subscriptionId: merged.subscriptionId || undefined,
     })
   }
 
@@ -63,18 +80,18 @@ export function LogsView({
         <Metric label={t('subscriptions.logs.failed')} value={String(failed)} tone={failed > 0 ? 'danger' : undefined} />
         <Metric
           label={t('subscriptions.logs.latest')}
-          value={logs.notify[0] ? logs.notify[0].createdAt.slice(0, 16).replace('T', ' ') : '—'}
+          value={logs.notify[0] ? formatLocalDate(logs.notify[0].createdAt, timezone, 'datetime') : '—'}
           small
         />
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        <Select aria-label={t('subscriptions.logs.filter_period')} value={period} onChange={(event) => setPeriod(event.target.value as Period)} className="h-7 w-[120px] text-[length:var(--text-11-5)]">
+        <Select aria-label={t('subscriptions.logs.filter_period')} value={period} onChange={(event) => apply({ period: event.target.value as Period })} className="h-7 w-[120px] text-[length:var(--text-11-5)]">
           <option value="today">{t('subscriptions.logs.period_today')}</option>
           <option value="week">{t('subscriptions.logs.period_week')}</option>
           <option value="month">{t('subscriptions.logs.period_month')}</option>
         </Select>
-        <Select aria-label={t('subscriptions.logs.filter_channel')} value={channel} onChange={(event) => setChannel(event.target.value as ChannelKind | '')} className="h-7 w-[132px] text-[length:var(--text-11-5)]">
+        <Select aria-label={t('subscriptions.logs.filter_channel')} value={channel} onChange={(event) => apply({ channel: event.target.value as ChannelKind | '' })} className="h-7 w-[132px] text-[length:var(--text-11-5)]">
           <option value="">{t('subscriptions.logs.all')}</option>
           {/* The registry of kinds, not a copy of it: the hand-written list here had already fallen behind
               and left the in-app channel unfilterable. */}
@@ -82,12 +99,12 @@ export function LogsView({
             <option key={kind} value={kind}>{t(channelLabelKey(kind))}</option>
           ))}
         </Select>
-        <Select aria-label={t('subscriptions.logs.filter_status')} value={status} onChange={(event) => setStatus(event.target.value as 'success' | 'failed' | '')} className="h-7 w-[112px] text-[length:var(--text-11-5)]">
+        <Select aria-label={t('subscriptions.logs.filter_status')} value={status} onChange={(event) => apply({ status: event.target.value as 'success' | 'failed' | '' })} className="h-7 w-[112px] text-[length:var(--text-11-5)]">
           <option value="">{t('subscriptions.logs.all')}</option>
           <option value="success">{t('subscriptions.logs.status_success')}</option>
           <option value="failed">{t('subscriptions.logs.status_failed')}</option>
         </Select>
-        <Select aria-label={t('subscriptions.logs.filter_subscription')} value={subscriptionId} onChange={(event) => setSubscriptionId(event.target.value)} className="h-7 max-w-[180px] text-[length:var(--text-11-5)]">
+        <Select aria-label={t('subscriptions.logs.filter_subscription')} value={subscriptionId} onChange={(event) => apply({ subscriptionId: event.target.value })} className="h-7 max-w-[180px] text-[length:var(--text-11-5)]">
           <option value="">{t('subscriptions.logs.all')}</option>
           {items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </Select>
@@ -104,7 +121,7 @@ export function LogsView({
             ? <p className="mt-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('subscriptions.logs.empty')}</p>
             : (
                 <ul className="mt-2 divide-y divide-[var(--border-subtle)]">
-                  {logs.notify.map((entry) => <LogRow key={entry.id} entry={entry} />)}
+                  {logs.notify.map((entry) => <LogRow key={entry.id} entry={entry} timezone={timezone} />)}
                 </ul>
               )}
 
@@ -114,7 +131,7 @@ export function LogsView({
           ? <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('subscriptions.overview.scheduler_never')}</p>
           : (
               <ul className="mt-1.5 space-y-1">
-                {logs.schedule.slice(0, 10).map((entry) => <ScheduleRow key={entry.id} entry={entry} />)}
+                {logs.schedule.slice(0, 10).map((entry) => <ScheduleRow key={entry.id} entry={entry} timezone={timezone} />)}
               </ul>
             )}
       </section>
@@ -139,7 +156,7 @@ function Metric({ label, value, tone, small }: { label: string; value: string; t
   )
 }
 
-function LogRow({ entry }: { entry: NotifyLogEntry }): ReactElement {
+function LogRow({ entry, timezone }: { entry: NotifyLogEntry; timezone: string }): ReactElement {
   const [open, setOpen] = useState(false)
   return (
     <li className="py-1.5">
@@ -162,7 +179,7 @@ function LogRow({ entry }: { entry: NotifyLogEntry }): ReactElement {
           {entry.subscriptionName || entry.title}
         </span>
         <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t(channelLabelKey(entry.channel))}</span>
-        <span className="shrink-0 text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{entry.createdAt.slice(5, 16).replace('T', ' ')}</span>
+        <span className="shrink-0 text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{formatLocalDate(entry.createdAt, timezone, 'datetime')}</span>
         <ChevronDown size={13} aria-hidden="true" className={cn('shrink-0 text-[var(--text-quaternary)] transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
@@ -176,7 +193,7 @@ function LogRow({ entry }: { entry: NotifyLogEntry }): ReactElement {
   )
 }
 
-function ScheduleRow({ entry }: { entry: ScheduleLogEntry }): ReactElement {
+function ScheduleRow({ entry, timezone }: { entry: ScheduleLogEntry; timezone: string }): ReactElement {
   const label = entry.status === 'error' ? 'subscriptions.logs.sched_error' : entry.status === 'skipped' ? 'subscriptions.logs.sched_skipped' : 'subscriptions.logs.sched_ok'
   return (
     <li className="flex items-center gap-2 rounded-[var(--r-md)] px-1 py-1 text-[length:var(--text-11)] hover:bg-[var(--bg-hover)]">
@@ -192,7 +209,7 @@ function ScheduleRow({ entry }: { entry: ScheduleLogEntry }): ReactElement {
       >
         {t(label)}
       </span>
-      <span className="shrink-0 tabular-nums text-[var(--text-quaternary)]">{entry.startedAt.slice(5, 16).replace('T', ' ')}</span>
+      <span className="shrink-0 tabular-nums text-[var(--text-quaternary)]">{formatLocalDate(entry.startedAt, timezone, 'datetime')}</span>
       <span className="min-w-0 flex-1 truncate text-[var(--text-tertiary)]">{entry.reason}</span>
       <span className="shrink-0 tabular-nums text-[var(--text-quaternary)]">
         {t('subscriptions.overview.scheduler_counts', {

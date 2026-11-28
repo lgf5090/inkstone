@@ -4,17 +4,24 @@ import type { ProjectProperty } from '@shared/project/model'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { BoardPropertiesDialog } from './BoardPropertiesDialog'
+import * as api from './api'
+
+vi.mock('./api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./api')>(),
+  fetchProjectBoards: vi.fn().mockResolvedValue([]),
+  fetchBoardProperties: vi.fn().mockResolvedValue([]),
+}))
 
 const existing: ProjectProperty[] = [{ id: 'p1', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '' }] }]
 
 type SaveFn = (properties: ProjectProperty[], deletedIds: string[]) => Promise<void>
 let view: RenderedElement
 let onSave: Mock<SaveFn>
-async function mount(): Promise<void> {
+async function mount(properties: ProjectProperty[] = existing): Promise<void> {
   onSave = vi.fn<SaveFn>()
   onSave.mockResolvedValue(undefined)
   await act(async () => {
-    view = renderElement(createElement(BoardPropertiesDialog, { boardId: 'b1', properties: existing, onClose: vi.fn(), onSave }))
+    view = renderElement(createElement(BoardPropertiesDialog, { boardId: 'b1', properties, onClose: vi.fn(), onSave }))
   })
 }
 beforeEach(async () => { await initI18n() })
@@ -25,6 +32,31 @@ function setInput(el: HTMLInputElement, value: string) {
   setter.call(el, value)
   el.dispatchEvent(new Event('input', { bubbles: true }))
 }
+
+describe('the property dialog read states', () => {
+  it('keeps a failed relation-board list distinct from an empty list', async () => {
+    vi.mocked(api.fetchProjectBoards).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([])
+    await mount([{ id: 'rel', name: 'Related', type: 'relation', options: [], config: { targetBoardId: 'target' } }])
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    expect(document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.props.relation_board')}"]`)?.disabled).toBe(true)
+    await act(async () => { [...document.body.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchProjectBoards).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not offer an empty rollup target list or save after the target read fails', async () => {
+    vi.mocked(api.fetchBoardProperties).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([])
+    await mount([
+      { id: 'rel', name: 'Related', type: 'relation', options: [], config: { targetBoardId: 'target' } },
+      { id: 'roll', name: 'Count', type: 'rollup', options: [], config: { rollup: { relationPropertyId: 'rel', targetPropertyId: '', aggregation: 'count' } } },
+    ])
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    expect(document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.props.rollup_target')}"]`)?.disabled).toBe(true)
+    expect([...document.body.querySelectorAll('button')].find((button) => button.textContent === t('common.save'))?.disabled).toBe(true)
+    await act(async () => { [...document.body.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchBoardProperties).toHaveBeenCalledTimes(2)
+    expect([...document.body.querySelectorAll('button')].find((button) => button.textContent === t('common.save'))?.disabled).toBe(false)
+  })
+})
 
 describe('the property dialog', () => {
   it('adds a property and saves the draft as a whole-array replace', async () => {
@@ -68,6 +100,20 @@ describe('option colour and name (R3-12)', () => {
     expect(draft[0]!.options[0]).toEqual({ id: 'o1', value: 'Open', color: 'propColorRed' })
   })
 
+  it('marks a status option as done without relying on its label', async () => {
+    await mount()
+    const trigger = document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.props.option_category')}: Open"]`)
+    expect(trigger, 'no status category affordance on the option row').not.toBeNull()
+    await act(async () => { trigger!.click() })
+    const done = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"], [role="menuitem"]')].find((button) => button.textContent === t('project.status.done'))
+    expect(done, 'the category menu never opened').toBeDefined()
+    await act(async () => { done!.click() })
+    const save = [...document.body.querySelectorAll('button')].find((b) => b.textContent === t('common.save'))
+    await act(async () => { save!.click() })
+    const [draft] = onSave.mock.calls[0]!
+    expect(draft[0]!.options[0]).toEqual({ id: 'o1', value: 'Open', color: '', category: 'done' })
+  })
+
   it('renames an option in place without changing its id or colour', async () => {
     await mount()
     const field = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('project.props.option_value')}: Open"]`)
@@ -86,6 +132,9 @@ describe('option colour and name (R3-12)', () => {
     await act(async () => { trigger!.click() })
     const options = [...document.querySelectorAll('[role="menuitemcheckbox"], [role="menuitem"]')].map((row) => row.textContent)
     expect(options).toContain(t('project.prop.type.multiselect'))
+    expect(options).toContain(t('project.prop.type.formula'))
+    expect(options).toContain(t('project.prop.type.multiperson'))
+    expect(options).toContain(t('project.prop.type.file'))
     expect(options).not.toContain('multiSelect')
   })
 })

@@ -126,6 +126,25 @@ describe('filing boards', () => {
     expect(ordered.map((e) => e.position)).toEqual([0, 1])
   })
 
+  it('moves and reorders a board from another category in one request', async () => {
+    const moved = await createBoard('alice')
+    const anchor = await createBoard('alice')
+    const first = await createCategory('alice', 'First')
+    const second = await createCategory('alice', 'Second')
+    await req('alice', 'POST', `/categories/${first.id}/boards/${moved.id}`)
+    await req('alice', 'POST', `/categories/${second.id}/boards/${anchor.id}`)
+    const response = await req('alice', 'PUT', `/categories/${second.id}/boards/order`, { boardIds: [anchor.id, moved.id] })
+    expect(response.status, await response.clone().text()).toBe(200)
+    const edges = (await listCategories('alice')).categoryBoards.filter((edge) => edge.boardId === moved.id)
+    expect(edges).toEqual([{ categoryId: second.id, boardId: moved.id, hidden: false, position: 1 }])
+  })
+
+  it('refuses to reorder a board the caller cannot see', async () => {
+    const board = await createBoard('alice')
+    const category = await createCategory('bob', 'Bob')
+    expect((await req('bob', 'PUT', `/categories/${category.id}/boards/order`, { boardIds: [board.id] })).status).toBe(404)
+  })
+
   it('refuses to file a board the caller cannot see', async () => {
     const board = await createBoard('alice')
     const category = await createCategory('bob', 'Bob')

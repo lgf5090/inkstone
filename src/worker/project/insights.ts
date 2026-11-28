@@ -1,7 +1,7 @@
 /**
  * "Top boards" for the insights surface: the boards this account can read, most recently updated
  * first, with a live card count. The reference ranked by an activity stream; until that lands the
- * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.
+ * board's own update_at remains the recency signal for this surface.
  */
 import { ProjectStore } from './store'
 

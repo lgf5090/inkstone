@@ -16,10 +16,13 @@ export type ProjectRole = (typeof PROJECT_ROLES)[number]
 export type ProjectMinimumRole = '' | ProjectRole
 
 export const PROJECT_PROPERTY_TYPES = [
-  'text', 'number', 'select', 'multiSelect', 'date', 'person', 'multiPerson', 'file',
+  'text', 'number', 'estimate', 'select', 'multiSelect', 'date', 'person', 'multiPerson', 'file',
   'checkbox', 'url', 'email', 'phone', 'formula', 'relation', 'rollup', 'createdTime', 'createdBy', 'updatedTime', 'updatedBy', 'unknown',
 ] as const
 export type ProjectPropertyType = (typeof PROJECT_PROPERTY_TYPES)[number]
+export const PROJECT_INTAKE_PROPERTY_TYPES: readonly ProjectPropertyType[] = [
+  'text', 'number', 'select', 'multiSelect', 'date', 'checkbox', 'url', 'email', 'phone',
+]
 
 export const PROJECT_FILTER_VALUE_TYPES = ['none', 'options', 'boolean', 'text', 'date', 'person', 'number'] as const
 export type ProjectFilterValueType = (typeof PROJECT_FILTER_VALUE_TYPES)[number]
@@ -75,6 +78,7 @@ const NUMBER: ProjectPropertyCapability = { canFilter: true, filterValueType: 'n
 export const PROJECT_PROPERTY_CAPABILITIES: Readonly<Record<ProjectPropertyType, ProjectPropertyCapability>> = {
   text: EDITABLE_TEXT,
   number: NUMBER,
+  estimate: NUMBER,
   select: OPTION_SINGLE,
   multiSelect: OPTION_MULTI,
   date: { canFilter: true, filterValueType: 'date', canGroup: false, readOnly: false },
@@ -120,6 +124,32 @@ export type ProjectSubscriptionBlock = (typeof PROJECT_SUBSCRIPTION_BLOCKS)[numb
 export const PROJECT_CARD_LINK_KINDS = ['blocks', 'parent'] as const
 export type ProjectCardLinkKind = (typeof PROJECT_CARD_LINK_KINDS)[number]
 
+export interface ProjectCalendarLink {
+  id: string
+  cardId: string
+  calendarId: string
+  eventId: string
+  propertyId: string
+  eventTitle: string
+  eventStart: number
+  eventEnd: number
+  allDay: boolean
+}
+
+export interface ProjectCardNoteLink {
+  cardId: string
+  noteId: string
+  title: string
+  updatedAt: number
+}
+
+export interface ProjectNoteCardLink {
+  cardId: string
+  boardId: string
+  boardTitle: string
+  title: string
+}
+
 export interface ProjectCardLink {
   fromCardId: string
   toCardId: string
@@ -157,6 +187,14 @@ export interface ProjectMyTask {
   updatedAt: number
 }
 
+export interface ProjectActivityChange {
+  entity: 'board' | 'card' | 'comment' | 'content' | 'view'
+  entityId: string
+  field: string
+  oldValue?: unknown
+  newValue?: unknown
+}
+
 export interface ProjectActivityEntry {
   id: string
   actorId: string
@@ -164,6 +202,7 @@ export interface ProjectActivityEntry {
   targetId: string
   summary: string
   createdAt: number
+  changes?: ProjectActivityChange[]
 }
 
 export const PROJECT_STORAGE_KINDS = ['r2', 'kv'] as const
@@ -208,10 +247,14 @@ export interface ProjectDateValue {
   timeZone?: string
 }
 
+export const PROJECT_STATUS_CATEGORIES = ['todo', 'doing', 'done'] as const
+export type ProjectStatusCategory = (typeof PROJECT_STATUS_CATEGORIES)[number]
+
 export interface ProjectPropertyOption {
   id: string
   value: string
   color: string
+  category?: ProjectStatusCategory
 }
 
 /**
@@ -363,6 +406,7 @@ export interface ProjectBoardSummary extends ProjectBoard {
   role: ProjectRole
   /** Live card count, present on the list projection so the sidebar needs no request per board. */
   cardCount?: number
+  categoryName?: string
 }
 
 /** The counts the board list shows as a subtitle (reference BoardMetadata). */
@@ -386,6 +430,7 @@ export interface ProjectBoardPatch {
   minimumRole?: ProjectMinimumRole
   updatedCardProperties?: ProjectProperty[]
   deletedCardProperties?: string[]
+  propertyRevision?: number
 }
 
 export type ProjectRecurrenceFreq = 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -398,6 +443,31 @@ export interface ProjectRecurrence {
   anchor?: number
 }
 
+export interface ProjectCardVersion {
+  id: string
+  cardId: string
+  title: string
+  actorId: string
+  size: number
+  createdAt: number
+}
+
+export interface ProjectCardVersionSnapshot {
+  card: {
+    title: string
+    icon: string
+    parentId: string
+    contentOrder: (string | string[])[]
+    values: Record<string, string>
+    recurrence?: ProjectRecurrence | null
+  }
+  contents: ProjectContent[]
+}
+
+export interface ProjectCardVersionDetail extends ProjectCardVersion {
+  snapshot: ProjectCardVersionSnapshot
+}
+
 export interface ProjectCard {
   id: string
   boardId: string
@@ -408,6 +478,7 @@ export interface ProjectCard {
   /** Content and comment ids in reading order; a nested array threads comments under one block. */
   contentOrder: (string | string[])[]
   values: Record<string, string>
+  valueErrors?: Record<string, string>
   /** A repeating card spawns its next instance when completed; absent is an ordinary card. */
   recurrence?: ProjectRecurrence | null
   completedAt?: number
@@ -426,68 +497,42 @@ export interface ProjectCardPatch {
   values?: Record<string, string | null>
 }
 
-// A board's "done" column is named by whoever made the board, so the reader recognises the word in
-// the languages the interface ships: U+5B8C U+6210 is "finished". The lookbehind keeps the negated
-// form (U+672A / U+6CA1 / U+4E0D in front of it) out of the match.
-export const CARD_DONE_PATTERN = /done|complete|finished|(?<![\u672a\u6ca1\u4e0d])\u5b8c\u6210/i
-
 export function isProjectCardDone(card: ProjectCard, properties: readonly ProjectProperty[]): boolean {
   for (const property of properties) {
+    if (property.type !== 'select') continue
     const raw = card.values[property.id]
-    if (!raw) continue
-    if (property.type === 'checkbox' && raw === 'true') return true
-    if (property.type === 'select') {
-      const option = property.options.find((o) => o.id === raw)
-      if (option && CARD_DONE_PATTERN.test(option.value)) return true
-    }
+    const option = property.options.find((entry) => entry.id === raw)
+    if (option?.category === 'done') return true
   }
   return false
 }
 
-/**
- * The option a board means by "done", and the one it falls back to when a card is reopened.
- *
- * The reader (`isProjectCardDone`) and every writer have to agree on this, or a checkbox can clear a
- * status it cannot set: an English-only writer on a board whose options are named in Chinese finds no
- * done option and writes null, so the tick never sticks.
- */
 export function projectDoneOption(properties: readonly ProjectProperty[]): { property: ProjectProperty, option: ProjectPropertyOption } | null {
   for (const property of properties) {
     if (property.type !== 'select') continue
-    const option = property.options.find((entry) => CARD_DONE_PATTERN.test(entry.value))
+    const option = property.options.find((entry) => entry.category === 'done')
     if (option) return { property, option }
   }
   return null
 }
 
-/** The state a reopened card goes back to: the first option that is not the done one. */
 export function projectOpenOption(property: ProjectProperty, doneOptionId: string): ProjectPropertyOption | null {
-  return property.options.find((entry) => entry.id !== doneOptionId) ?? null
+  const open = property.options.filter((entry) => entry.id !== doneOptionId && entry.category !== 'done')
+  return open.find((entry) => entry.category === 'todo') ?? open.find((entry) => entry.category === 'doing') ?? open[0] ?? null
 }
 
-/**
- * The property write that ticks or unticks a card, or null when the board cannot express it.
- *
- * A select board writes the option; a checkbox board writes the boolean; a board with neither has no
- * tick to offer, and saying so lets the caller hide the control instead of writing a value that does
- * nothing.
- */
 export function projectDonePatch(
   properties: readonly ProjectProperty[],
   done: boolean,
 ): Record<string, string | null> | null {
   const target = projectDoneOption(properties)
-  if (target) {
-    const open = projectOpenOption(target.property, target.option.id)
-    return { [target.property.id]: done ? target.option.id : (open?.id ?? null) }
-  }
-  const checkbox = properties.find((property) => property.type === 'checkbox')
-  return checkbox ? { [checkbox.id]: done ? 'true' : 'false' } : null
+  if (!target) return null
+  const open = projectOpenOption(target.property, target.option.id)
+  return { [target.property.id]: done ? target.option.id : (open?.id ?? null) }
 }
 
-/** Whether the board has any way to mark a card done, so a tick is only offered when it can work. */
 export function projectCanMarkDone(properties: readonly ProjectProperty[]): boolean {
-  return projectDonePatch(properties, true) !== null
+  return projectDoneOption(properties) !== null
 }
 
 export interface ProjectView {
@@ -515,6 +560,8 @@ export interface ProjectContentFields {
   checked?: boolean
   attachmentId?: string
   language?: string
+  assigneeId?: string
+  dueAt?: number
 }
 
 export interface ProjectContent {
@@ -584,6 +631,73 @@ export interface ProjectCardMarks {
   pinned: string[]
 }
 
+export type ProjectIntegrationProvider = 'slack' | 'github' | 'jira'
+
+export interface ProjectIntegration {
+  id: string
+  boardId: string
+  provider: ProjectIntegrationProvider
+  target: string
+  enabled: boolean
+  createdAt: number
+}
+
+export interface ProjectExternalLink {
+  id: string
+  cardId: string
+  provider: 'github' | 'jira'
+  externalId: string
+  externalUrl: string
+  title: string
+}
+
+export interface ProjectWorkloadCard {
+  cardId: string
+  boardId: string
+  boardTitle: string
+  title: string
+  estimateMinutes: number
+  actualMinutes: number
+  assigneeIds: string[]
+}
+
+export interface ProjectWorkloadUser {
+  userId: string
+  name: string
+  avatarUrl: string
+  capacityMinutes: number
+  estimatedMinutes: number
+  actualMinutes: number
+  cardCount: number
+}
+
+export interface ProjectWorkloadReport {
+  from: number
+  to: number
+  users: ProjectWorkloadUser[]
+  cards: ProjectWorkloadCard[]
+}
+
+export interface ProjectGuestCard {
+  id: string
+  title: string
+  values: Record<string, string>
+  updateAt: number
+}
+
+export interface ProjectGuestOpenResponse {
+  card: ProjectGuestCard
+  properties: ProjectProperty[]
+}
+
+export interface ProjectIntakeConfig {
+  enabled: boolean
+  editable: boolean
+  title: string
+  propertyIds: string[]
+  requiredPropertyIds: string[]
+}
+
 export interface ProjectShare {
   slug: string
   boardId: string
@@ -591,6 +705,7 @@ export interface ProjectShare {
   expiresAt: number | null
   views: number
   showComments: boolean
+  intake: ProjectIntakeConfig
   createdAt: number
 }
 
@@ -650,6 +765,9 @@ export interface ProjectBoardBundle {
   properties: ProjectProperty[]
   views: ProjectView[]
   cards: ProjectCard[]
+  cardCount?: number
+  cardsHasMore?: boolean
+  cardsNextCursor?: string
   contents: ProjectContent[]
   /** Set when the board holds more detail rows than one read carries; open a card for the rest. */
   contentsTruncated?: boolean
@@ -663,6 +781,8 @@ export interface ProjectBoardBundle {
   /** The caller's effective role, already resolved against the board's minimum role. */
   role: ProjectRole
   cursor: number
+  propertyRevision: number
+  intake?: ProjectIntakeConfig | null
 }
 
 const ROLE_RANK: Readonly<Record<ProjectMinimumRole, number>> = {

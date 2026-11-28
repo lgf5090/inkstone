@@ -6,7 +6,7 @@
  * off, rather than by a second renderer that could drift from what the owner previewed; the member-only
  * reads (dependencies, exports, attachments) are not offered because they would answer 401.
  */
-import { useCallback, useEffect, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { Lock, SquareKanban } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCard } from '@shared/project/model'
 import { projectPropertyDisplayText } from '@shared/project/view-eval'
@@ -18,8 +18,10 @@ import { LoadingBlock } from '../../components/feedback'
 import { Modal } from '../../components/overlay'
 import { readPublicProjectBoard } from './api'
 import { BoardViews } from './BoardViews'
+import { PublicIntakeDialog } from './PublicIntakeDialog'
+import { GuestEditDialog } from './GuestEditDialog'
 
-type ReadState = 'loading' | 'ready' | 'locked' | 'throttled' | 'gone'
+type ReadState = 'loading' | 'ready' | 'locked' | 'throttled' | 'gone' | 'error'
 
 export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
   const [bundle, setBundle] = useState<ProjectBoardBundle | null>(null)
@@ -27,13 +29,20 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
   const [password, setPassword] = useState('')
   const [wrongPasscode, setWrongPasscode] = useState(false)
   const [openCardId, setOpenCardId] = useState<string | null>(null)
+  const [showIntake, setShowIntake] = useState(false)
+  const [guestEdit, setGuestEdit] = useState<{ cardId: string, token: string } | null>(null)
+  const loadGeneration = useRef(0)
 
   const load = useCallback(async (passcode: string) => {
+    const generation = ++loadGeneration.current
     setState('loading')
     try {
-      setBundle(await readPublicProjectBoard(slug, passcode || undefined))
+      const next = await readPublicProjectBoard(slug, passcode || undefined)
+      if (generation !== loadGeneration.current) return
+      setBundle(next)
       setState('ready')
     } catch (error) {
+      if (generation !== loadGeneration.current) return
       // A refusal is the passcode's answer, not a broken page: the server hands over no board at all
       // until the gate is passed, so treating it as "gone" would hide the one control that gets in.
       if (error instanceof ApiError && error.status === 401) {
@@ -41,11 +50,34 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
         setWrongPasscode(passcode.length > 0)
         return
       }
-      setState(error instanceof ApiError && error.status === 429 ? 'throttled' : 'gone')
+      if (error instanceof ApiError && error.status === 404) {
+        setState('gone')
+        return
+      }
+      setState(error instanceof ApiError && error.status === 429 ? 'throttled' : 'error')
     }
   }, [slug])
 
-  useEffect(() => { void load('') }, [load])
+  useEffect(() => {
+    void load('')
+    return () => { loadGeneration.current += 1 }
+  }, [load])
+
+  useEffect(() => {
+    const readHash = (): void => {
+      const match = /^#edit=([^:]+):(.+)$/.exec(window.location.hash)
+      if (!match) return
+      try {
+        setGuestEdit({ cardId: decodeURIComponent(match[1]), token: decodeURIComponent(match[2]) })
+      } catch {
+        setGuestEdit(null)
+      }
+    }
+    const onHashChange = (): void => readHash()
+    readHash()
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [slug])
 
   if (state === 'loading') return <LoadingBlock />
 
@@ -74,11 +106,14 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
 
   if (state !== 'ready' || !bundle) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-[640px] flex-col items-center justify-center gap-3 px-6 text-center">
+      <main role={state === 'error' ? 'alert' : undefined} className="mx-auto flex min-h-screen max-w-[640px] flex-col items-center justify-center gap-3 px-6 text-center">
         <h1 className="text-[length:var(--text-18)] font-semibold text-[var(--text-primary)]">
-          {state === 'throttled' ? t('project.share.page_throttled') : t('project.share.page_gone_title')}
+          {state === 'throttled' ? t('project.share.page_throttled') : state === 'gone' ? t('project.share.page_gone_title') : t('project.common.load_failed')}
         </h1>
-        <p className="text-[length:var(--text-13)] text-[var(--text-tertiary)]">{t('project.share.page_gone_desc')}</p>
+        <p className="text-[length:var(--text-13)] text-[var(--text-tertiary)]">
+          {state === 'gone' ? t('project.share.page_gone_desc') : t('project.common.load_failed_hint')}
+        </p>
+        {state === 'error' && <Button variant="primary" onClick={() => void load(password)}>{t('project.common.retry')}</Button>}
       </main>
     )
   }
@@ -93,6 +128,9 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
         <h1 className="min-w-0 truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
           {bundle.board.title || t('project.boards.untitled')}
         </h1>
+        {bundle.intake?.enabled && (
+          <Button size="sm" variant="primary" onClick={() => setShowIntake(true)}>{t('project.intake.open')}</Button>
+        )}
         <span className="ml-auto shrink-0 rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
           {t('project.share.page_readonly')}
         </span>
@@ -116,6 +154,19 @@ export function ProjectSharePage({ slug }: { slug: string }): ReactElement {
         onRefresh={async () => {}}
       />
       {openCard && <PublicCardDetail card={openCard} bundle={bundle} onClose={() => setOpenCardId(null)} />}
+      {showIntake && <PublicIntakeDialog slug={slug} password={password || undefined} bundle={bundle} onClose={() => setShowIntake(false)} />}
+      {guestEdit && (
+        <GuestEditDialog
+          slug={slug}
+          password={password || undefined}
+          cardId={guestEdit.cardId}
+          token={guestEdit.token}
+          onClose={() => {
+            setGuestEdit(null)
+            window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+          }}
+        />
+      )}
     </main>
   )
 }

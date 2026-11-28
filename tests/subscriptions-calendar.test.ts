@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
+import ICAL from 'ical.js'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -8,10 +9,10 @@ import type { AppBindings } from '../src/worker/env'
 import { subscriptionInboundRoutes } from '../src/worker/routes/subscriptions-inbound'
 import { buildEvents, toICal } from '../src/worker/subscriptions/calendar'
 import { parseIcsCalendar } from '../src/worker/calendar/ics'
-import { rotateInboundToken } from '../src/worker/subscriptions/settings'
+import { rotateCalendarToken, rotateInboundToken } from '../src/worker/subscriptions/settings'
 import { SubscriptionsStore, storeContext } from '../src/worker/subscriptions/store'
 import { DEFAULT_SETTINGS } from '../src/shared/subscriptions/model'
-import type { SubscriptionItem } from '../src/shared/subscriptions/model'
+import type { ReminderRule, SubscriptionItem } from '../src/shared/subscriptions/model'
 import { makeD1 } from './doubles/d1-sqlite'
 
 /**
@@ -50,7 +51,7 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
     autoRenew: true,
     notes: '',
     lastPaymentDate: null,
-    trialEndsAt: null,
+    trialEndsAt: null, paymentMethod: '', managementUrl: '', pausedUntil: null, fixedTerm: false, introPrice: null,
     trialDaysRemaining: null,
     deletedAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -66,8 +67,23 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
 
 const STAMP = Date.parse('2026-10-21T00:00:00.000Z')
 
-function document(items: Partial<SubscriptionItem>[]): string {
-  return toICal(buildEvents(items.map((overrides) => item(overrides))), { name: 'Inkstone', stamp: STAMP })
+function rule(overrides: Partial<ReminderRule> = {}): ReminderRule {
+  return {
+    id: 'rule-1',
+    type: 'before_expiry',
+    value: 7,
+    unit: 'days',
+    repeatInterval: null,
+    repeatUntil: 'renewed',
+    acknowledgedAt: null,
+    isEnabled: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+function document(items: Partial<SubscriptionItem>[], now = STAMP): string {
+  return toICal(buildEvents(items.map((overrides) => item(overrides)), 'UTC', now), { name: 'Inkstone', stamp: now })
 }
 
 beforeEach(() => {
@@ -86,6 +102,11 @@ describe('the calendar file', () => {
     expect(text).toContain('VERSION:2.0')
     expect(text).toContain('END:VCALENDAR')
     expect(text).toContain('DTSTAMP:20261021T000000Z')
+  })
+
+  it('uses the account timezone for the all-day date', () => {
+    const [event] = buildEvents([item({ expiryDate: '2026-11-01T00:00:00.000Z' })], 'America/New_York')
+    expect(event?.day).toBe('2026-10-31')
   })
 
   it('spans one whole day: the expiry is the start, and the day after is the exclusive end', () => {
@@ -156,6 +177,103 @@ describe('the calendar file', () => {
     expect(text).not.toContain('张伟')
     expect(text).not.toContain('密码')
   })
+
+  it('publishes a solar cycle from its current expiry with the requested frequency and interval', () => {
+    const cases = [
+      { periodUnit: 'day', periodValue: 3, expected: 'RRULE:FREQ=DAILY;INTERVAL=3' },
+      { periodUnit: 'week', periodValue: 2, expected: 'RRULE:FREQ=WEEKLY;INTERVAL=2' },
+      { periodUnit: 'month', periodValue: 4, expected: 'RRULE:FREQ=MONTHLY;INTERVAL=4' },
+      { periodUnit: 'year', periodValue: 1, expected: 'RRULE:FREQ=YEARLY' },
+    ] as const
+    for (const entry of cases) {
+      const text = document([item({
+        ...entry,
+        startDate: '2025-01-01T00:00:00.000Z',
+        expiryDate: '2026-11-01T00:00:00.000Z',
+      })])
+      expect(text).toContain('DTSTART;VALUE=DATE:20261101')
+      expect(text).toContain(entry.expected)
+      expect(text).toContain('METHOD:PUBLISH')
+    }
+  })
+
+  it('does not invent recurrence for lunar, reset, fixed-term, or manually renewed plans', () => {
+    for (const overrides of [
+      { useLunar: true },
+      { subscriptionMode: 'reset' as const },
+      { fixedTerm: true },
+      { autoRenew: false },
+    ]) {
+      const text = document([item(overrides)])
+      expect(text).toContain('DTSTART;VALUE=DATE:20261101')
+      expect(text).toContain('DTEND;VALUE=DATE:20261102')
+      expect(text).not.toContain('RRULE:')
+    }
+  })
+
+  it('turns enabled future before/on rules into alarms and leaves disabled, past, and after rules out', () => {
+    const text = document([item({
+      reminderRules: [
+        rule(),
+        rule({ id: 'hours', value: 2, unit: 'hours' }),
+        rule({ id: 'on', type: 'on_expiry', value: 0 }),
+        rule({ id: 'off', value: 5, isEnabled: false }),
+        rule({ id: 'past', value: 30 }),
+        rule({ id: 'after', type: 'after_expiry', value: 1 }),
+      ],
+    })])
+    expect(text).toContain('BEGIN:VALARM')
+    expect(text).toContain('ACTION:DISPLAY')
+    expect(text).toContain('TRIGGER:-P7D')
+    expect(text).toContain('TRIGGER:-PT2H')
+    expect(text).toContain('TRIGGER:0')
+    expect(text.match(/BEGIN:VALARM/g)).toHaveLength(3)
+    expect(text).not.toContain('TRIGGER:-P5D')
+    expect(text).not.toContain('TRIGGER:-P30D')
+  })
+
+  it('anchors future trial alarms to a separate single event rather than the expiry series', () => {
+    const text = document([item({
+      expiryDate: '2026-12-01T00:00:00.000Z',
+      trialEndsAt: '2026-11-10T00:00:00.000Z',
+      reminderRules: [
+        rule({ id: 'trial', type: 'before_trial_end', value: 3 }),
+        rule({ id: 'expired-trial', type: 'before_trial_end', value: 30 }),
+      ],
+    })])
+    expect(text).toContain('UID:sub-1@inkstone.subscriptions')
+    expect(text).toContain('UID:sub-1-trial@inkstone.subscriptions')
+    expect(text).toContain('DTSTART;VALUE=DATE:20261110')
+    expect(text).toContain('TRIGGER:-P3D')
+    expect(text).not.toContain('TRIGGER:-P30D')
+    expect(text.match(/RRULE:/g)).toHaveLength(1)
+    const parsed = ICAL.Component.fromString(text)
+    const trial = parsed.getAllSubcomponents('vevent')
+      .find(event => event.getFirstPropertyValue('uid') === 'sub-1-trial@inkstone.subscriptions')
+    expect(trial?.getFirstProperty('rrule')).toBeNull()
+  })
+
+  it('omits plans paused beyond the feed clock but keeps active past dates as recurrence anchors', () => {
+    const text = document([
+      item({ id: 'live' }),
+      item({ id: 'past', expiryDate: '2026-10-20T23:59:59.000Z' }),
+      item({ id: 'paused', pausedUntil: '2026-10-22T00:00:00.000Z' }),
+      item({ id: 'resumed', pausedUntil: '2026-10-20T00:00:00.000Z' }),
+    ])
+    expect(text).toContain('UID:live@inkstone.subscriptions')
+    expect(text).toContain('UID:past@inkstone.subscriptions')
+    expect(text).toContain('UID:resumed@inkstone.subscriptions')
+    expect(text).not.toContain('UID:paused@inkstone.subscriptions')
+  })
+
+  it('keeps expiry alarms but not trial events once the trial target has passed', () => {
+    const text = document([item({
+      trialEndsAt: '2026-10-20T00:00:00.000Z',
+      reminderRules: [rule({ id: 'trial', type: 'before_trial_end', value: 3 }), rule()],
+    })])
+    expect(text).not.toContain('UID:sub-1-trial@inkstone.subscriptions')
+    expect(text).toContain('TRIGGER:-P7D')
+  })
 })
 
 describe('the calendar link', () => {
@@ -164,7 +282,7 @@ describe('the calendar link', () => {
   }
 
   async function token(): Promise<string> {
-    const created = await rotateInboundToken(db, ALICE)
+    const created = await rotateCalendarToken(db, ALICE)
     return created.token
   }
 
@@ -200,10 +318,22 @@ describe('the calendar link', () => {
 
   it('hands out no plan of anybody else to a token from another account', async () => {
     await seed('MineOnly')
-    const other = await rotateInboundToken(db, 'user-bob')
+    const other = await rotateCalendarToken(db, 'user-bob')
     const response = await app.request(`/hooks/subscriptions/calendar/${other.token}`, undefined, env())
     expect(response.status).toBe(200)
     expect(await response.text()).not.toContain('MineOnly')
+  })
+
+  it('keeps calendar read tokens and webhook write tokens separate', async () => {
+    const calendar = await rotateCalendarToken(db, ALICE)
+    const inbound = await rotateInboundToken(db, ALICE)
+    expect((await app.request(`/hooks/subscriptions/calendar/${inbound.token}`, undefined, env())).status).toBe(404)
+    expect((await app.request(`/hooks/subscriptions/${calendar.token}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'must not send' }),
+    }, env())).status).toBe(404)
+    expect((await app.request(`/hooks/subscriptions/calendar/${calendar.token}`, undefined, env())).status).toBe(200)
   })
 
   it('brakes a client that polls the same link past the minute, and leaves the neighbours alone', async () => {
@@ -217,7 +347,7 @@ describe('the calendar link', () => {
     expect(statuses.slice(0, 30)).toEqual(Array.from({ length: 30 }, () => 200))
     expect(statuses[30]).toBe(429)
     // The brake is keyed by link, so a second device with its own token is not punished for the first.
-    const neighbour = await rotateInboundToken(db, 'user-carol')
+    const neighbour = await rotateCalendarToken(db, 'user-carol')
     expect((await app.request(`/hooks/subscriptions/calendar/${neighbour.token}`, undefined, env())).status).toBe(200)
   })
 })

@@ -13069,7 +13069,6 @@ const allowed = new Map([
     "// Realtime fallback (D-11): the sync hub notifies members on writes, but a tab that misses the",
     "// notification (or a deployment without the DO) still converges via a quiet 30s refetch.",
     "/* best-effort convergence poll: a failed refetch keeps the last good bundle */",
-    "/* best-effort: dialog stays usable if the refetch fails */",
     "// Ask the cheap question first: an unchanged cursor means the copy on screen is still current,",
     "// and a busy board's whole-bundle read is the expensive half of this poll.",
     "/* best-effort wake-up refetch: the interval still converges on its next beat */",
@@ -13116,9 +13115,6 @@ const allowed = new Map([
   ["src/client/features/project/CardDialog.test.tsx", [
     "// jsdom lays nothing out, so the drag reads the bands a real dialog would report.",
   ]],
-  ["src/client/features/project/CardDialog.tsx", [
-    "/* best-effort: the bundle copy stays on screen */",
-  ]],
   ["src/client/features/project/FilterEditor.test.tsx", [
     "/** The row a stored value is offered under: a property name, a join word, or a condition's own label. */",
   ]],
@@ -13149,7 +13145,6 @@ const allowed = new Map([
     "// jsdom lays nothing out, so the drag reads the bands a real sidebar would report.",
   ]],
   ["src/client/features/project/ProjectSidebar.tsx", [
-    "/* best-effort: an unreadable category list leaves the board list usable */",
     "/* A board sits one level deeper than the folder holding it, or the tree reads flat. */",
     "// The open board comes from the address, not from a value read once at mount: switching between",
     "// two boards keeps this sidebar mounted, and a mount-time read would leave the highlight behind.",
@@ -13189,12 +13184,12 @@ const allowed = new Map([
     "/** The card a project notice points at, or null when the tail is not this app's pair. */",
   ]],
   ["src/client/features/project/offline-outbox.ts", [
-    "/**\n * Project writes that failed on the network are kept in the account's IndexedDB outbox and replayed\n * in order. The queued row's write id becomes the server's Idempotency-Key, so a create whose answer\n * was lost cannot be repeated by the replay. A permanent refusal is announced and then dropped —\n * keeping it forever would retry a request the server has already rejected.\n */",
     "/** Ask the service worker for a Background Sync pass in case the tab is closed before it reconnects. */",
     "/**\n * The queue row is removed by the store that owns the replay loop, after this module has returned,\n * so the \"one fewer pending\" event has to come from there rather than from the replay itself.\n */",
     "// Background Sync is a best-effort extra: `serviceWorker.ready` never settles when no worker is",
     "// registered (the dev server, or a browser that refused the registration), and awaiting it here",
     "// would keep the failed write from ever reaching the caller as an error.",
+    "/**\n * Project writes that failed on the network are kept in the account's IndexedDB outbox and replayed\n * in order. The queued row's write id becomes the server's Idempotency-Key, so a create whose answer\n * was lost cannot be repeated by the replay. A conflict is kept for the reader to resolve; other\n * permanent refusals are announced and then dropped rather than retried forever.\n */",
   ]],
   ["src/client/features/project/people-context.tsx", [
     "/**\n * The board's people directory, for the surfaces that draw a card without holding the bundle.\n *\n * A card face is drawn by the board, the list, the gallery and the day panel, none of which receive\n * the whole bundle; the directory is board-scoped, so it travels as context rather than as a prop on\n * every view in between.\n */",
@@ -15892,7 +15887,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/subscriptions/SubscriptionSettings.tsx", [
     "/**\n * Settings, in two halves: how this app behaves, and where its reminders may go.\n *\n * The channel half is drawn from the shared field table rather than from nine hand-written forms, so a\n * field added to an adapter appears here without this file knowing what a bot token is. What it does own\n * is the shape of the interaction: a secret that is already stored is never shown, and leaving the box\n * empty keeps it — the only arrangement that lets a reader change a webhook address without retyping a\n * token they cannot see.\n */",
-    "/** A dialog wrapper, so the app does not repeat the modal's own props at its call site. */",
     "/* A ceiling the reader sets, not one the app infers: the dashboard already says what was\n                spent, and the number only means anything against a limit they chose themselves. */",
     "// A channel with fields cannot send until they are filled in; one with none is ready as soon as it is",
     "// switched on, so gating its switch on `configured` would ask the reader to configure nothing.",
@@ -15905,8 +15899,6 @@ const allowed = new Map([
     "// Built once: the address the copy button puts on the clipboard and the line that shows it to the reader",
     "// must not be two strings that can drift.",
     "/**\n * Which currencies get a box.\n *\n * Not every currency the app can be told in: thirty boxes is a wall, and a reader pins a rate because a\n * number on their own dashboard is wrong, so the currencies they are actually billed in are the ones that\n * belong here — plus anything they have already pinned, plus the currency the totals are added up in, in\n * case that one is the number nobody can find. Anything else is one choice away in the add list.\n */",
-    "// The calendar link carries the same token: a calendar client polls a URL and sends no header anybody",
-    "// could ask it to keep the secret out of the address bar of its own logs.",
     "/* The year is its own ceiling because an annual plan spends twelve months of cost in one\n                month, and a reader who set only the monthly number is told they overspent on the day they\n                bought the thing that makes their other months cheap. */",
     "/**\n   * Send the ceilings as one map, for the same reason the pins are sent that way: the boxes are the map.\n   *\n   * A blank box is a ceiling the reader gave up on, which has to be absent from what goes out rather than\n   * sent as zero — zero would come back as a ceiling nobody can spend under.\n   */",
     "/* A ceiling on a category is the question about a pile rather than about one plan: the dashboard\n              already splits the year by category, and this is where a reader says what each pile may cost. */",
@@ -16052,9 +16044,7 @@ const allowed = new Map([
   ["src/client/features/subscriptions/store.ts", [
     "/**\n * The subscription app's state, and the only place it is written.\n *\n * Two rules shape it. A mutation never guesses what the server did — every write answers with the\n * subscription it produced, and that answer replaces the row in place, so a screen and a database\n * cannot disagree about a date the server rolled forward. And a write that moves money reloads the\n * bundle instead of patching the overview by hand: the dashboard's totals are a year of receipts\n * aggregated in the account's time zone, and a second implementation of that arithmetic in the browser\n * is a second answer waiting to be wrong.\n */",
     "/** Replace one row in the list, keeping the list's own order. */",
-    "// A slower answer for a row the reader has already left must not replace the one they are on.",
     "/** The trash, loaded on demand — the bundle carries only its count. */",
-    "// The rule that just muted itself may have been the one the panel said was coming next.",
     "/**\n   * Give a label a face.\n   *\n   * Only the registry moves, so the list is swapped in place rather than reloaded — the subscriptions\n   * that wear the face are unchanged, and a reload would throw away the reader's selection and scroll\n   * for a colour change.\n   */",
     "/**\n   * Rename a label, and reload.\n   *\n   * The server rewrites every subscription that carried the old word, so the rows the browser is\n   * holding are stale the moment this succeeds — unlike a style change, this one has to refetch.\n   */",
     "/**\n   * One action over the selected rows, then a full reload.\n   *\n   * The reload is not laziness: `deactivate` changes every countdown colour and `set_category` moves\n   * rows between the rail's counts, and patching all of that locally would be a second implementation\n   * of the summary that can disagree with the first.\n   */",
@@ -34035,9 +34025,6 @@ const allowed = new Map([
     "/** Reader: a stored stamp becomes the calendar day it was picked on, in the zone it was picked in. */",
     "/**\n * The value a writer stores: a day, an optional end day and the zone they were picked in. Keeping the\n * zone on the value rather than on the request is what lets a board opened in another country show the\n * same day the author saw.\n */",
   ]],
-  ["src/shared/project/formula.ts", [
-    "/**\n * The formula property: a small arithmetic language over the card's other properties.\n *\n * Deliberately not JavaScript. A board is shared, and an expression typed by one member runs in\n * everyone's browser and in the server's exports, so the grammar is a fixed set of operators and\n * functions with no property access, no assignment and no host objects. A reference is written\n * `{Property name}`, which is what the column header shows, and an unknown name is zero rather than an\n * error so a renamed property degrades instead of blanking the column.\n */",
-  ]],
   ["src/shared/project/hierarchy.ts", [
     "/**\n * Keeping a parent's tick in step with its children.\n *\n * A parent with subtasks is done when every subtask is done — that is what the fraction on its row\n * already claims. Ticking the last child therefore ticks the parent, and reopening one child reopens\n * the parent, all the way up. A card with no children is never touched: its tick is the reader's own.\n */",
     "/**\n * The ancestor writes a child's new state implies, nearest parent first.\n *\n * `cards` is the board as it will read after the child's own write, so the caller passes the child\n * with its new values already applied. Each ancestor is judged against the state the walk has just\n * decided for its own children, which is what makes a three-level tree settle in one pass.\n */",
@@ -34093,15 +34080,8 @@ const allowed = new Map([
     "/** Live card count, present on the list projection so the sidebar needs no request per board. */",
     "/** Column ids in the reader's order; an id absent from the property is dropped when read. */",
     "/** `quarter` is a fourth step the schedule views offer; the axis window itself never changes. */",
-    "// A board's \"done\" column is named by whoever made the board, so the reader recognises the word in",
-    "// the languages the interface ships: U+5B8C U+6210 is \"finished\". The lookbehind keeps the negated",
-    "// form (U+672A / U+6CA1 / U+4E0D in front of it) out of the match.",
     "/**\n * A view's optional property pick, read as \"unset\" when it is blank.\n *\n * A cleared picker is stored as `''`, not omitted: the server merges a patch over the saved fields,\n * so an absent key means \"leave alone\" and `undefined` could never turn a grouping back off.\n */",
     "/** The board draws its cards as a compact line or as a full card; the reader flips it per view. */",
-    "/**\n * The option a board means by \"done\", and the one it falls back to when a card is reopened.\n *\n * The reader (`isProjectCardDone`) and every writer have to agree on this, or a checkbox can clear a\n * status it cannot set: an English-only writer on a board whose options are named in Chinese finds no\n * done option and writes null, so the tick never sticks.\n */",
-    "/** The state a reopened card goes back to: the first option that is not the done one. */",
-    "/**\n * The property write that ticks or unticks a card, or null when the board cannot express it.\n *\n * A select board writes the option; a checkbox board writes the boolean; a board with neither has no\n * tick to offer, and saying so lets the caller hide the control instead of writing a value that does\n * nothing.\n */",
-    "/** Whether the board has any way to mark a card done, so a tick is only offered when it can work. */",
     "/**\n * A person as the board may name them. Cards, comments and the member roster all key on a user id,\n * which is a 26-character opaque string; this is the readable face of it, resolved once per bundle.\n */",
     "/** The name a reader sees for a user id, or the id itself when the board has never met them. */",
     "/** The ids a multi-value column holds: a JSON array, or the one bare id an older write left behind. */",
@@ -34715,7 +34695,6 @@ const allowed = new Map([
     "/** A currency code the app knows, or the default. Unknown codes are refused at the route instead. */",
     "/** Round to cents, which is the only precision a subscription amount ever has. */",
     "/** The settings an account starts with: Shanghai time, every hour open, Chinese bodies. */",
-    "/**\n * The hours a reminder may be sent in, as the scheduler compares them.\n *\n * Three spellings mean \"any hour\" and all three normalise to `['*']`: an empty list, a literal `*`,\n * and the word `ALL`. A number is clamped and padded, because `8` and `08` are the same hour and a\n * comparison against `'08'` would miss the former.\n */",
     "/** Whether a reminder may be sent at this hour, given the account's window. */",
     "/**\n * Where one category tag ends and the next begins.\n *\n * A category is a slash-separated pile of tags — the reference project's own form hint said so — so\n * every consumer that counts, filters or suggests by category has to split it the same way. One\n * definition lives here because the day it differs between the rail and the aggregate is the day a\n * reader sees a category in one place and not the other.\n */",
     "/**\n * A type or a category, as the registry holds it.\n *\n * The name is what a subscription stores; the icon and colour are what the app draws for it. They are\n * separate rows on purpose — a subscription carries a free-text label so renaming one is a single\n * edit, and the label carries its own face so that edit does not have to visit every row.\n */",
@@ -34775,6 +34754,7 @@ const allowed = new Map([
     "/**\n * How many weeks the day-by-day heat grid covers, and the window the day buckets are built for.\n *\n * Half a year: long enough that a quarterly or annual charge appears more than once, short enough that a\n * week reads as a week rather than as one pixel in a wall. The server cuts its buckets at this number, so\n * the grid can never draw weeks whose data was never sent.\n */",
     "/** One day's receipts, in the total currency. Only days that charged something are listed. */",
     "/** The last `HEAT_WEEKS` weeks, day by day, for the grid that shows when the money actually left. */",
+    "/**\n * The hours a reminder may be sent in, as the scheduler compares them.\n *\n * Three spellings mean \"any hour\" and all three normalise to `['*']`: an empty list, a literal `*`,\n * and the word `ALL`. A number from 0 through 23 is padded, because `8` and `08` are the same hour and a\n * comparison against `'08'` would miss the former. Invalid stored values are ignored; new input is\n * rejected by `areValidNotificationHours` before it reaches this normaliser.\n */",
   ]],
   ["src/shared/subscriptions/notify-copy.ts", [
     "/**\n * Which catalog a notification body is written from, and the two helpers that assemble one.\n *\n * The language is the account's, stored on its settings row: the scheduler runs on a cron tick with no\n * request behind it, so there is nobody to ask. `fill` is deliberately smaller than the interface's\n * formatter — two placeholders and no plural rules, because the only number these sentences carry is a\n * day count and both languages write that the same way.\n */",
@@ -34794,6 +34774,8 @@ const allowed = new Map([
     "// repeat rather than deleting the rule: the next term has to be able to nag again on its own.",
     "// Nothing is coming if the reader already said they had seen it — the detail panel would otherwise",
     "// promise a next reminder that the scheduler has been told not to send.",
+    "/** Whole local days to trial end, when this is a trial reminder. */",
+    "/** Hours to trial end, fractional. */",
   ]],
   ["src/shared/subscriptions/search.ts", [
     "/**\n * One spelling of \"which subscription does this text name\".\n *\n * The chat tool filters a listing and the global search filters the same rows over HTTP. Two hand-written\n * haystacks drift — one grows the notes field, the other keeps ignoring it — and then a reader can find a\n * subscription by typing in one place and not the other. So the fields and the folding live here.\n */",
@@ -34833,7 +34815,8 @@ const allowed = new Map([
     "/**\n * Format an instant for display, in a zone, without the browser's locale deciding the shape.\n *\n * The app ships two languages and a date that switches between `05/24/2026` and `2026/05/24` when the\n * interface language changes is a second, quieter localization nobody asked for. `YYYY-MM-DD` reads\n * the same in both.\n */",
     "/** The zone's offset from UTC in whole hours, as of now. */",
     "/** `UTC+8`, `UTC-5`, `UTC+5.5` — the half-hour zones exist and a rounded label would be a lie. */",
-    "/** `YYYYMMDDHH` in a zone: the key a delivery is deduplicated on, one message per local hour. */",
+    "/** `YYYYMMDD` in a zone: the key a one-shot daily delivery is deduplicated on. */",
+    "/** `YYYYMMDDHH` in a zone: the key an hourly delivery is deduplicated on. */",
   ]],
   ["src/shared/templater-settings.test.ts", [
     "/**\n * The templater section of a stored profile.\n *\n * Every list here is a set of references — a folder, a template, a chord — so the cases that matter are the\n * ones where a row cannot be used as written. Dropping it is the chosen answer, and each of these tests says\n * which half had to be wrong for the row to go: the guard tests for the ceilings themselves live beside the\n * ceilings in `./constants.ts`.\n */",
@@ -42539,6 +42522,9 @@ const allowed = new Map([
   ["src/worker/lib/encoding.ts", [
     "/**\n * The five markup metacharacters, for a string headed into an HTML document.\n *\n * The share shells interpolate a note title into `<title>` and an `og:title` attribute, and a title is\n * author text: without this a title of `</title><script>` would close the tag the server just opened.\n * It lives here rather than beside each shell because three routes needed the same rule and a route may\n * not import another one.\n */",
   ]],
+  ["src/worker/lib/errors.ts", [
+    "/** A bounded, credential-free description for logs; never pass the original Error to the console. */",
+  ]],
   ["src/worker/lib/host-guard.ts", [
     "// An authoritative empty answer and a resolver that never answered are different facts, and the caller",
     "// has to be able to tell them apart: the first means the name has no address, the second means we do",
@@ -42681,6 +42667,7 @@ const allowed = new Map([
     "// stop at, so `LOCKOUT_LADDER_MS` stays the only place a duration is written down.",
     "/**\n * Count budget rows whose key falls in `[lowKey, highKey)` and were touched at or after `since`.\n *\n * `login_attempts` belongs to this module, so the only read of it that is not a lock check lives here\n * too rather than in the route that happens to want the number. The caller picks the range and the\n * window: a reader that keys a metric off the budget writes the prefix, and this just counts rows in\n * it. The range is spelled as `>= / <` (not `LIKE`) so a key that contains a SQL wildcard character\n * still only matches literally. The result column is named for the one caller that reads it.\n */",
     "/** How many attempts this call spends; defaults to one. */",
+    "/** Spend independent account and caller-address budgets through the shared 429 mapping. */",
   ]],
   ["src/worker/lib/update-check.ts", [
     "/** Isolate-level TTL cache: the published version changes daily at most. */",
@@ -43607,11 +43594,10 @@ const allowed = new Map([
   ]],
   ["src/worker/project/archive.ts", [
     "// Not a ZIP: the reference's v1 export is a single JSON object with a blocks array.",
-    "// D1 caps a batch at 1000 statements; a large board can exceed that, so the import runs in chunks.",
-    "/** Whole-account export: one v2 ZIP carrying every readable board's JSONL side by side. */",
     "/** Whole-account import: every board.jsonl in the ZIP becomes a fresh board (ids remapped). */",
     "/**\n * The archive transport: a v3 ZIP out, a v3 ZIP or a v1 JSON in. The JSONL mapping itself lives in\n * the shared module so the browser converters and this server agree byte for byte; this file only\n * zips, unzips, and writes the imported rows. Import preserves the archive's ids (so a round trip is\n * field-equal) but the new board belongs to whoever imports it. Member rows are deliberately not\n * restored: an archive is data, not an invitation, and no local account may join a board because an\n * uploaded file said so.\n */",
     "/** The two places a project file can live, passed in so the archive logic stays binding-free. */",
+    "/** Whole-account export: one v3 ZIP carrying every readable board's JSONL side by side. */",
   ]],
   ["src/worker/project/auth.ts", [
     "/** Every project write parses through this, so a rejected field reads the same on every route. */",
@@ -43622,22 +43608,18 @@ const allowed = new Map([
   ]],
   ["src/worker/project/batch.ts", [
     "/**\n * Atomic multi-entity writes (§6.3). A drag that moves three cards across a column, or a multi-select\n * delete, must land as one transaction so a half-applied gesture cannot survive. Every target is read\n * and checked for board membership before any statement runs, then all statements commit in a single\n * D1 batch; the statement count is bounded because D1 caps a batch.\n */",
-    "// D1's per-batch statement ceiling; a batch that would exceed it is rejected rather than split, since",
-    "// splitting would surrender the atomicity this endpoint exists to provide.",
-    "// Contents of one card share a reading order, so scrub them together rather than re-reading per block.",
   ]],
   ["src/worker/project/boards.ts", [
     "/**\n * A new board belongs to its creator, who gets an admin membership row so the member picker and the\n * last-admin count both see them. Properties are written in the order given, position = index.\n */",
     "/**\n * A board patch. The two property lists run through the shared ordering rule (§6.2); the board's own\n * fields are a sparse update. Everything lands in one D1 batch so a half-applied patch cannot survive.\n */",
   ]],
   ["src/worker/project/bundle.ts", [
-    "/**\n * The whole-board read. The reference made the client page through blocks and stitch them together;\n * every screen that opens a board needs all of it, so this gathers board, properties, views, cards,\n * values, contents, comments and members in one round trip. The cursor is the newest update stamp\n * across them all, which is what a realtime `changed` notification carries so a client knows whether\n * its copy is stale.\n */",
-    "// Values are keyed to a card, so a deleted card's values drop out with it rather than lingering.",
-    "/**\n * The newest stamp across everything the bundle carries, without reading any of it.\n *\n * The bundle's own cursor is computed from rows it already fetched; a poller only needs the number,\n * so this asks each table for its MAX instead. An unchanged answer means the copy the reader holds\n * is still current and the whole-board read can be skipped.\n */",
     "/** Advances the board's own stamp; the cursor poll and the sidebar's recency both read it. */",
     "// One SELECT with scalar subqueries rather than a UNION of six: the local D1 runtime caps a",
     "// compound SELECT at five terms, and a 500 here made every 30-second convergence poll fail",
     "// silently because the caller treats a cursor error as best-effort.",
+    "/**\n * The board read. Interactive clients ask for a bounded card page and fetch older pages on demand;\n * internal exports and duplication pass the full card limit. The cursor is sampled before the rows so\n * a concurrent write can only make the response newer than its cursor, never the other way around.\n */",
+    "/**\n * The newest stamp across everything the board carries, without reading any of it. A bundle samples\n * this before its rows; an unchanged answer means the copy the reader holds is still current.\n */",
   ]],
   ["src/worker/project/cards.ts", [
     "/**\n * Cards and their property values. A card is a row plus a bag of values keyed by property id; the\n * value bag lives in its own table so changing one property never rewrites the whole card. Writes\n * land in one D1 batch, and a delete is a stamp so a card can come back with its values intact.\n */",
@@ -43667,7 +43649,6 @@ const allowed = new Map([
     "/** Adding a 'blocks' edge that would close a cycle is refused, keeping the dependency graph acyclic. */",
     "/** New card from a template card: copies its values and content blocks into a fresh live card. */",
     "/** X-5: a card ↔ /todo task mapping, one task per card. */",
-    "/** A card reads as done when a checkbox property is ticked or its status option names completion. */",
     "/** X-5 card→todo: mirror the card's completion onto its linked task. */",
     "/** X-5 todo→card: mirror a task's completion onto the linked card's checkbox/status property. */",
     "/**\n * Every writer of card values owes the same follow-up work: the linked todo, the next occurrence of a\n * repeating card, and a notice to anyone newly assigned. Keeping it here stops the single-card and\n * batch routes from drifting apart.\n */",
@@ -43677,10 +43658,10 @@ const allowed = new Map([
     "/** Mimes safe to render inline in this origin; everything else downloads as an opaque blob. */",
   ]],
   ["src/worker/project/idempotency.ts", [
-    "/**\n * Receipts for writes carrying an `Idempotency-Key`. An offline client replays a queued write with\n * the key it minted before the network failed; if the first attempt reached the database but its\n * answer did not reach the browser, the replay must get that same answer rather than a second card.\n */",
+    "/**\n * Receipts for writes carrying an `Idempotency-Key`. A key is bound to one request fingerprint and the\n * resource role that created it, so replaying it cannot repeat a write or bypass a later permission\n * change. A pending row is a short-lived claim that prevents concurrent duplicate execution.\n */",
   ]],
   ["src/worker/project/insights.ts", [
-    "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at is the recency signal, which is what put it at the top of the sidebar anyway.\n */",
+    "/**\n * \"Top boards\" for the insights surface: the boards this account can read, most recently updated\n * first, with a live card count. The reference ranked by an activity stream; until that lands the\n * board's own update_at remains the recency signal for this surface.\n */",
   ]],
   ["src/worker/project/members.ts", [
     "/**\n * The reference guards the last admin only in the client; here the server refuses the write that would\n * leave a board with no admin member, because a client check is not a trust boundary.\n */",
@@ -43732,9 +43713,9 @@ const allowed = new Map([
     "/** A reader's landing tab follows the account, so another device opens the same view. */",
     "/**\n * Machine clients authenticate with a hashed, board-scoped token instead of a cookie. Setting\n * `userId` lets every existing route reuse `requireBoard`; the scope and board checks below are the\n * extra boundaries a token needs, and the management endpoints stay session-only so a token can\n * never mint another token or add an outbound target.\n */",
     "/** Account-level machine credentials; the plaintext secret is returned once, at creation only. */",
-    "/**\n * A queued offline write replays under the key it was minted with. Returning the stored answer before\n * the route runs also keeps the cursor bump, activity row and webhook delivery from firing twice.\n */",
     "// Per-reader preferences are not board content: bumping the cursor would make every other tab",
     "// refetch, and recording them would fill the activity feed with the act of choosing a tab.",
+    "/**\n * A queued offline write replays under the key it was minted with. A pending claim prevents concurrent\n * duplicate execution; a completed receipt is replayed only after its original resource role is checked\n * again, and only for the same method, path and request body.\n */",
   ]],
   ["src/worker/project/scheduler.ts", [
     "/**\n * Card due reminders (F-10), fired from the shared every-minute cron. A date property whose `from`\n * falls inside the next day reminds the card's subscribers once; `notified_at` is the dedupe stamp so\n * a per-minute sweep never repeats a reminder. The scan is bounded per fire so one cron tick stays cheap.\n */",
@@ -43749,7 +43730,6 @@ const allowed = new Map([
     "// No Category.sorting column: the reference declares it but never reads or writes it, so order is",
     "// carried entirely by project_category_boards.position.",
     "// No subscriber type column: the reference's `channel` subscribers have no counterpart here.",
-    "// The public link is read-only; comments are internal discussion unless the owner opts in.",
     "/** One row per worked interval on a card; `ended_at` null means the timer is still running. */",
     "/**\n * Per-property settings that are not part of the column list: which board a relation points at, a\n * formula, or which roles may read and edit the property. Kept beside `project_properties` so the\n * hot property table's shape does not change for every new capability.\n */",
     "/** Machine credentials and outbound deliveries. Token bytes are never stored; only their SHA-256. */",
@@ -43757,11 +43737,11 @@ const allowed = new Map([
     "/** A replayed offline write must not create a second card. The receipt is scoped to the account. */",
   ]],
   ["src/worker/project/search.ts", [
-    "/**\n * Cross-board search. Results are filtered to the boards the caller can actually read BEFORE any\n * matching, so a private board's titles never leak through a search hit. Cards match on their title,\n * their content blocks, their comments and their property values. The scan is bounded by the number of\n * readable boards and the result limit, so no index table is needed to keep it correct.\n */",
+    "/**\n * Cross-board search. Results are filtered to the boards and properties the caller can read before\n * matching, so private board titles and restricted field values never leak through a search hit.\n */",
   ]],
   ["src/worker/project/shares.ts", [
     "/**\n * The passcode ledger, keyed per surface.\n *\n * The note share and the collection directory budget the same gate with the same numbers; a project's\n * public answer is wider than either — the whole board bundle — so an unbudgeted slug would be the\n * cheapest of the three to walk. The namespace is its own so probing a board can never lock a note's\n * reader out, and the budgets match so no surface is the soft one.\n */",
-    "/**\n * Public read-only sharing, modelled on the assistant's share links: a slug is the capability, an\n * optional password hash gates it, and an expiry lapses it. The hash never leaves the server; the\n * management answer carries only `hasPassword`. Reading increments the view counter and returns the\n * board bundle at viewer role, trimmed to the entities the shared board actually renders: neither the\n * member roster nor names referenced only by hidden comments travel to an anonymous reader.\n */",
+    "/**\n * Public sharing and form intake, modelled on the assistant's share links: a slug is the capability, an\n * optional password hash gates it, and an expiry lapses it. The hash never leaves the server; the\n * management answer carries only `hasPassword`. Reading increments the view counter and returns the\n * board bundle at viewer role, trimmed to the entities the shared board actually renders: neither the\n * member roster nor names referenced only by hidden comments travel to an anonymous reader.\n */",
   ]],
   ["src/worker/project/sprints.ts", [
     "/**\n * Iterations are board-owned, but a card's membership is an edge: moving a card between sprints is\n * one upsert, and deleting a sprint leaves its cards on the board rather than deleting work.\n */",
@@ -43796,7 +43776,6 @@ const allowed = new Map([
   ]],
   ["src/worker/project/webhooks.ts", [
     "/**\n * Outbound board events. Every target is checked against the shared SSRF guard both when it is saved\n * and when it is used, so a DNS answer that changes after creation cannot turn a saved webhook into a\n * request for a metadata endpoint. Delivery is a durable row: the same write that produced the event\n * answers the caller, while retries come from the cron rather than from an in-memory promise.\n */",
-    "/** One attempt. A missing webhook, a blocked target and a refused network all end as a retry or a failure. */",
   ]],
   ["src/worker/quickadd/store.ts", [
     "/**\n * Every read and write the QuickAdd HTTP routes make against D1.\n *\n * The shape follows `share/store.ts`: a store built per request from the account it serves, methods\n * that hand back rows, the boolean a guarded write matched, or the answers the route prints, and no\n * `Response` in between. Two kinds of read live here:\n *  - the library envelope on the account's own `users` row. `WHERE id = ?1` binds `c.get('userId')`,\n *    and `users.id` *is* the account, so one device can neither read nor overwrite another's library.\n *    The envelope text is the route's to build and to parse; the store only moves the column;\n *  - the property scans behind `{{FIELD:}}`. Their `user_id` predicate is not a literal in the\n *    template but the first clause `fieldScopeWhere()` always splices — `n.user_id = ?1` bound to the\n *    account the store was built with — because the optional folder/tag scopes are named by the\n *    caller and have to be numbered after it.\n *\n * The scan's three bounds (`FIELD_SCAN_LIMIT`, `FIELD_VALUE_LIMIT`, `FIELD_VALUE_MAX_LENGTH`) are part\n * of the answer rather than configuration: a value list is a convenience, and a slow one is worse than\n * the author typing the word.\n */",
@@ -45128,14 +45107,15 @@ const allowed = new Map([
     "// said nothing about colour would clear it, and a colour change would quietly cost the reader an icon.",
     "/**\n * One action over a named set.\n *\n * `trash` rather than purge: a bulk operation is the one place where a wrong choice is multiplied by\n * however many rows were selected, so the recoverable verb is the only one offered.\n */",
     "/**\n * Rows from a CSV the browser parsed.\n *\n * The file is read on the client and the rows arrive as JSON so that every value goes through the same\n * `inputOf` guard a hand-typed form does — a spreadsheet is an untrusted input surface like any other,\n * and a bad row is reported rather than half-written.\n */",
-    "// One bad line should not cost the reader the other two hundred, but it must not be swallowed",
-    "// either: the reason comes back so the import result can say what was not written.",
     "// A kind with no fields has no bundle to read, so its own switch is the whole configuration.",
     "/** To the trash, not gone: the receipts and rules stay, and a restore is one column wide. */",
     "/**\n * The rows a global search can name.\n *\n * Registered above `/:id`, because a literal segment after a parameter route would be swallowed by it and\n * answer with whatever subscription happens to be called `search`. Live rows only: the trash is reached\n * from the app's own rail, and a search that silently resurrects deleted plans in its results is worse\n * than one that omits them.\n */",
     "// Refused rather than trimmed: a caller that named four hundred rows and had two hundred done would be",
     "// told \"200 changed\" and never learn the rest were never even looked at.",
     "/**\n * Forget the cached day of rates and take another.\n *\n * The feed publishes once a day, so this is not a button worth pressing twice in a minute; it is what a\n * reader who was offline when the app last looked, or who has just pinned a rate and wants the rest of\n * the picture beside it, presses to see the numbers move now rather than at the next TTL.\n */",
+    "// One bad line should not cost the reader the other two hundred. Only the store's explicit",
+    "// validation codes become row copy; an unexpected database or upstream error stays in the",
+    "// sanitized server log rather than being reflected into the import result.",
   ]],
   ["src/worker/routes/sync.ts", [
     "// A non-empty `after` key always means the caller is mid-way through a",
@@ -46095,10 +46075,6 @@ const allowed = new Map([
     "/** Ceilings on a restore. Above these the file is not a personal subscription list. */",
     "/**\n * The account's subscription data as JSON, or null when the account has none.\n *\n * Null rather than an empty document: a backup of a reader who never opened the subscriptions tab\n * should not grow a file that a restore then treats as \"clear everything\".\n */",
     "/**\n * Put a carried document back, replacing whatever the account has now.\n *\n * Replace rather than merge, because that is what \"restore this backup\" means and a merge would produce\n * a state that never existed at any moment in time. The whole document is validated *before* anything is\n * written: a file with one unreadable row in the middle must fail as a whole rather than leave the\n * account holding the first ninety per cent of a library.\n */",
-    "// A receipt or a rule that points at a subscription the file does not carry is not restorable, so it",
-    "// is dropped here and the count says so — silently inserting orphans would make the history wrong.",
-    "// Expiry is NOT NULL and every reminder calculation reads it, so a row without one is not a",
-    "// subscription. It is dropped, and the summary reports how many were.",
     "/** Everything the account has now, gone. The token columns go with it, which is the intent. */",
     "/** D1 refuses an oversized batch, and a five-thousand-row library is a plausible personal archive. */",
     "/**\n * A settings field the archive carries as the column's own text — an hour list, a rate map.\n *\n * The document is a dump of rows, so these arrive as the JSON string the column holds, not as the value\n * the app works with. Read straight, a window written as `[\"08\",\"20\"]` would be split on its commas and\n * become two hours that match nothing, and every reminder after a restore would fall silent.\n */",
@@ -46110,11 +46086,16 @@ const allowed = new Map([
     "/** Stable across fetches, so a client updates the event instead of duplicating it. */",
     "/** The day something happens, as YYYY-MM-DD. */",
     "/** The day before, as the exclusive end of an all-day event; a whole number of days is what makes it safe. */",
-    "/** One all-day event per plan still running. A stopped plan has no date the reader is waiting for. */",
     "/** ical.js escapes LF but not a lone CR; normalize every newline form before handing it TEXT values. */",
     "/**\n * The whole document, ready to serve.\n *\n * `stamp` identifies this generated revision; it is not a renewal date. ical.js owns TEXT escaping,\n * DATE values and UTF-8-safe folding so the feed does not maintain a second, drifting ICS encoder.\n */",
     "// ical.js counts its continuation marker outside foldLength; 74 keeps every physical line within",
     "// RFC 5545's 75-octet ceiling. Stringification is synchronous, so the setting cannot leak to a request.",
+    "/** One all-day event per plan still running. Stopped and currently paused plans have no date to wait for. */",
+    "// A trial ends on its own date, not on the expiry series. Keeping it separate means its alarms are",
+    "// anchored to the right day and disappear after conversion instead of recurring with every renewal.",
+    "/**\n * Only a solar cycle has a stable RRULE anchor. Reset terms start on the actual payment day, lunar dates\n * need calendar conversion, and fixed/manual plans have no next term to promise.\n */",
+    "/** Future enabled rules only; duplicate lead times need only one alarm. */",
+    "// ical.js rejects the widely used zero spelling \"0\"; the strict values built above are safe jCal.",
   ]],
   ["src/worker/subscriptions/channels/adapters.ts", [
     "/**\n * The nine ways a reminder leaves the building.\n *\n * Each adapter is a small function with the same shape: read the configuration it was given, build one\n * request, ask `outbound` to send it, and decide from the far end's own vocabulary whether it worked.\n * The decision is the part that cannot be generalized — Telegram says `ok`, WeCom says `errcode: 0`,\n * Bark says `code: 200` — so each one states its own predicate rather than sharing a hopeful `res.ok`.\n *\n * All nine are deliberately tolerant of a missing field: `saveChannel` refuses to store a channel that\n * cannot send, so an adapter reaching a blank value means the row was edited outside this app, and the\n * honest answer is a failed delivery with a reason rather than a throw that takes the sweep down.\n */",
@@ -46170,7 +46151,7 @@ const allowed = new Map([
   ["src/worker/subscriptions/scheduler.ts", [
     "/**\n * Claim one delivery for this hour.\n *\n * The insert is the lock: `INSERT OR IGNORE` on a primary key of (account, subscription, rule, hour)\n * either takes the row or finds it taken, and the answer is the same across two isolates racing on the\n * same tick. A read followed by a write would let both see nothing and both send.\n */",
     "/** The settings a caller needs to explain a schedule, exposed for the diagnostics panel. */",
-    "/**\n * The hourly sweep: who is due, who has already been told, and what actually went out.\n *\n * It runs on every cron fire rather than once an hour, because the deployment fires every minute and a\n * reminder that waits for the next hour is a reminder that arrives up to fifty-nine minutes late.\n * Repeating the sweep is safe for one reason only: a delivery is recorded against the reader's own\n * local hour before it is sent, so the fires that follow find it already claimed and do nothing. That\n * claim is also what gives an \"every N hours after expiry\" rule its interval — the last claim is the last\n * delivery, and a rule that asked for twelve hours is not due after one.\n *\n * Each account is swept inside its own try, so one broken configuration cannot stop the others, and the\n * per-account log row is written even when the sweep throws: a reader whose reminders stopped needs to\n * find a line saying why.\n */",
+    "/**\n * The due-driven sweep: who is due, who has already been told, and what actually went out.\n *\n * It runs on every cron fire, but the first query only returns accounts with an expired auto-renewal or a\n * reminder inside its lead window. One-shot rules claim by local day; expired repeats keep their hourly\n * interval. Routine minutes write nothing, while an hourly heartbeat preserves a visible scheduler status.\n *\n * Each candidate account is swept inside its own try, so one broken configuration cannot stop the others,\n * and a thrown sweep always writes the error line a reader needs to diagnose stopped reminders.\n */",
   ]],
   ["src/worker/subscriptions/schema.ts", [
     "/**\n * The subscription app's tables, declared where the boot can find them.\n *\n * The tables themselves are declared here rather than numbered into the migration ledger, which is\n * what the schema's own ordering allows: tables are created before the ledger is consulted, indexes\n * after it, and `assertFinalSchema` only checks the lists below. Spending a version number on a table\n * that no older shape ever occupied would buy nothing and risk the collision the ledger has already\n * paid for once — a branch that used the same number for other work leaves a database whose ledger says\n * the shape arrived when it did not.\n *\n * Columns added to a table that is already deployed are the exception: those do need a version, and\n * live in `SCHEMA_MIGRATIONS` beside every other one. `sub_category.icon`/`color` and the whole of\n * `sub_type` are that case, so a database created before the identity work still gets them.\n *\n * Two shapes differ from the reference project's KV records on purpose:\n *  - a subscription's payment history is its own table, so one receipt can be edited or removed\n *    without rewriting the subscription and so a year's spending is one query rather than a walk;\n *  - a channel's configuration is one ciphertext, because it is a credential bundle rather than a row\n *    of fields anyone queries.\n */",
@@ -46178,7 +46159,6 @@ const allowed = new Map([
   ]],
   ["src/worker/subscriptions/settings.ts", [
     "/**\n * The account's subscription settings, and the credentials behind its channels.\n *\n * Two things here are deliberately unlike the reference project. A channel's configuration is stored\n * as one ciphertext rather than as forty columns, because it is a bundle nobody queries and because a\n * credential in a plain column is a credential in every backup and every log line. And the inbound\n * token is stored as a hash: the reference project could show a reader their token at any time, which\n * also meant the database could. Rotating it is one press, so nothing is lost.\n */",
-    "/** Every account's settings, for the scheduler's single pass. */",
     "/**\n * Write the settings a caller sent, keeping every field they did not.\n *\n * The timezone is the one field that can be wrong rather than merely absent: an unknown zone would\n * silently make every reminder land at the wrong hour, so it is refused instead of defaulted.\n */",
     "/**\n * A channel's stored configuration, decrypted.\n *\n * Returns null when the row is missing or the ciphertext cannot be read — which is not the same as an\n * empty configuration, and the caller treats it as \"this channel cannot send\" rather than as \"this\n * channel is configured with nothing\".\n */",
     "/**\n * Save one channel, merging rather than replacing.\n *\n * A blank secret means \"keep the one you have\", which is the only way a reader can change a webhook\n * address without retyping a bot token the screen never showed them. A required field that is blank on\n * a channel with nothing stored is refused, because a channel that cannot send should not be enabled.\n */",
@@ -46197,8 +46177,6 @@ const allowed = new Map([
     "// A pin the app cannot convert with is refused rather than dropped: the reader asked for their own",
     "// number, and totals quietly made from the feed instead would look exactly like the ones they asked for.",
     "// An empty object is a real answer — it clears every pin — so it is not the same as sending nothing.",
-    "// Text that is not a list is a window nobody set, which is the same answer as an empty one: every hour",
-    "// stays open rather than the reader's reminders falling silent over one corrupt cell.",
     "/**\n * A ceiling as the account meant it, or null when they meant none.\n *\n * Absent keeps what was already stored; blank, zero and nonsense all mean no ceiling. Two ceilings — the\n * month's and the year's — are asked the same question, so they are read the same way.\n */",
     "/** The same rule for the ceilings: a cell that cannot be read is a reader who set none. */",
     "// The ceilings are sent as a whole map, the way the pins are: the editor shows every one of them, so a",
@@ -46214,8 +46192,6 @@ const allowed = new Map([
     "/**\n   * Remove a receipt, and put the expiry date back where that receipt had left it.\n   *\n   * A receipt is the only record of why the date moved, so deleting one without moving the date back\n   * would leave a subscription whose history does not explain its own expiry — and a reader who\n   * deleted the wrong row would have no way to notice.\n   */",
     "/** Every payment the account has, newest first, for the dashboard's aggregates. */",
     "/**\n   * The expiry date a create or an update should store: the one asked for, or the first future one if\n   * that date is already behind us.\n   *\n   * A reader adding a subscription that lapsed last week means \"this is still running\", so the date is\n   * walked forward a period at a time rather than saved in the past — where it would immediately be\n   * treated as overdue and, with auto-renew on, renew itself on the next tick anyway.\n   */",
-    "/**\n   * Keep the first receipt in step with the subscription's price.\n   *\n   * The initial receipt is what a reader's own history starts from, so a price they typed wrong should\n   * be correctable — but only that one row: every later receipt records what was actually charged and\n   * must not be rewritten by an edit to today's price.\n   */",
-    "/**\n   * Trim a history to the account's ceiling, always keeping the first receipt.\n   *\n   * Without the exception, a subscription older than the ceiling would lose the row that records when\n   * it started — and the \"initial\" receipt is the only thing that says so.\n   */",
     "/** The context a store needs, read off an account's settings row. */",
     "/** Statements per `batch` call when emptying the trash: four per row, kept well under D1's ceiling. */",
     "/**\n   * One shelf of subscriptions.\n   *\n   * `live` is the default and the only thing the scheduler, the overview and the app's first paint ask\n   * for, which is what keeps a trashed subscription from renewing itself or sending reminders while\n   * nobody is looking at it.\n   */",
@@ -53840,7 +53816,7 @@ const allowed = new Map([
   ]],
   ["tests/webssh-schema.test.ts", [
     "// The project tables append 385–396 after this lane's own block; later migrations add assistant,",
-    "// email, query indexes, properties, webhooks, task reminders, attachment encryption, CloudDrive remediation, all-day to-dos, calendar reliability and server-side RSS reading through 448.",
+    "// email, query indexes, properties, webhooks, task reminders, attachment encryption, CloudDrive remediation, all-day to-dos, calendar reliability, subscription remediation, project collaboration and server-side RSS reading through 479.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",

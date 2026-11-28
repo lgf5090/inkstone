@@ -4,7 +4,7 @@ import { runDueAssistantAutomations } from './assistant/scheduler'
 import { sweepTaskReminders } from './assistant/tasks'
 import { sweepNoteTaskReminders } from './notes/task-reminders'
 import { pruneProjectActivity, sweepProjectReminders } from './project/scheduler'
-import { drainProjectWebhookDeliveries } from './project/webhooks'
+import { drainProjectWebhookDeliveries, encryptLegacyProjectWebhookSecrets } from './project/webhooks'
 import { drainNoteWebhookDeliveries } from './notes/webhooks'
 import { pruneProjectWriteReceipts } from './project/idempotency'
 import { runPushCatchUp } from './assistant/push-fanout'
@@ -98,6 +98,9 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
       const { ftsEnabled } = await initializeDatabase(env)
+      await encryptLegacyProjectWebhookSecrets(env).catch((error) => {
+        console.warn('[inkstone] project webhook secret migration failed:', (error as Error).message)
+      })
       const { runCerthubTick } = await import('./development/certhub/worker')
       // The cron fires every minute: a reminder that arrives twenty-nine minutes late is a broken reminder,
       // so the three sweeps below ride every fire. The drains keep the three fires an hour `isDrainFire`
@@ -138,7 +141,7 @@ export default {
         console.warn('[inkstone] project reminder sweep failed:', (error as Error).message)
         return 0
       })
-      const projectWebhookTick = drainProjectWebhookDeliveries(env.DB, event.scheduledTime).catch((error) => {
+      const projectWebhookTick = drainProjectWebhookDeliveries(env.DB, env, event.scheduledTime).catch((error) => {
         console.warn('[inkstone] project webhook drain failed:', (error as Error).message)
         return 0
       })

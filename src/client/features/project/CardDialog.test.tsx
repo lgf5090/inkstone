@@ -1,6 +1,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectComment, ProjectProperty } from '@shared/project/model'
+import { projectInputToStamp } from '@shared/project/date'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import * as api from './api'
@@ -15,11 +16,13 @@ vi.mock('./api', () => ({
   stopCardTimer: vi.fn(),
   deleteCardTime: vi.fn(),
   fetchCardComments: vi.fn(),
+  fetchCardDetail: vi.fn(),
   createCardComment: vi.fn(),
   createCardContent: vi.fn(),
   patchCardContent: vi.fn(),
   moveCardContent: vi.fn(),
   deleteCardContent: vi.fn(),
+  undeleteCardContent: vi.fn().mockResolvedValue(undefined),
   fetchCardLinks: vi.fn(),
   createProjectCard: vi.fn(),
   addCardLink: vi.fn(),
@@ -33,12 +36,22 @@ vi.mock('./api', () => ({
   deleteCardComment: vi.fn(),
   projectFileUrl: vi.fn((id: string) => `/api/project/files/${id}`),
   fetchProjectSubscriptions: vi.fn().mockResolvedValue([]),
+  fetchCardNotes: vi.fn().mockResolvedValue([]),
+  searchLinkableNotes: vi.fn().mockResolvedValue([]),
+  linkCardNote: vi.fn(),
+  unlinkCardNote: vi.fn(),
+  fetchProjectCalendarLinks: vi.fn().mockResolvedValue([]),
+  linkProjectCalendar: vi.fn(),
+  unlinkProjectCalendar: vi.fn(),
+  fetchProjectExternalLinks: vi.fn().mockResolvedValue([]),
+  fetchProjectIntegrations: vi.fn().mockResolvedValue([]),
+  createProjectExternalIssue: vi.fn(),
   watchProjectBlock: vi.fn().mockResolvedValue(undefined),
   unwatchProjectBlock: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../../store/session', () => ({
-  useSession: (selector: (state: { user: { id: string } | null }) => unknown) => selector({ user: { id: 'u1' } }),
+  useSession: (selector: (state: { user: { id: string } | null, settings: { preview: object } }) => unknown) => selector({ user: { id: 'u1' }, settings: { preview: {} } }),
 }))
 
 vi.mock('../chat/editor-ai', () => ({
@@ -49,14 +62,14 @@ const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, de
 const card: ProjectCard = { id: 'c1', boardId: 'b1', parentId: '', title: 'Card', icon: '', isTemplate: false, contentOrder: [], values: { pt: 'old' }, ...stamps }
 const properties: ProjectProperty[] = [
   { id: 'pt', name: 'Notes', type: 'text', options: [] },
-  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '' }, { id: 'o2', value: 'Done', color: '' }] },
+  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: '', category: 'todo' }, { id: 'o2', value: 'Done', color: '', category: 'done' }] },
 ]
 
 let view: RenderedElement
-async function mount(): Promise<void> {
+async function mount(detailTruncated = false): Promise<void> {
   await act(async () => {
     view = renderElement(createElement(CardDialog, {
-      card, properties, members: [], people: {}, contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
+      card, properties, members: [], people: {}, contents: [], siblings: [], canEdit: true, detailTruncated, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
     }))
   })
 }
@@ -84,6 +97,30 @@ describe('the card dialog', () => {
     expect(api.patchProjectCard).toHaveBeenCalledWith('c1', { values: { ps: 'o2' } })
   })
 
+  it('routes dialog title edits through the host undoable card command', async () => {
+    const onPatchCard = vi.fn().mockResolvedValue(undefined)
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], people: {}, contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(), onPatchCard }))
+    })
+    const title = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('project.board.title_column')}"]`)!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(title, 'Renamed'); title.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { title.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    expect(onPatchCard).toHaveBeenCalledWith('c1', { title: 'Renamed' })
+    expect(api.patchProjectCard).not.toHaveBeenCalled()
+  })
+
+  it('shows a formula error instead of an empty cell', async () => {
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, {
+        card: { ...card, valueErrors: { pf: 'unknown reference Missing' } },
+        properties: [...properties, { id: 'pf', name: 'Formula', type: 'formula', options: [], config: { expression: '{Missing}' } }],
+        members: [], people: {}, contents: [], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
+      }))
+    })
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe('#unknown reference Missing')
+  })
+
   it('posts a comment and appends it to the list', async () => {
     const comment: ProjectComment = { id: 'm1', cardId: 'c1', boardId: 'b1', authorId: 'u1', body: 'Hello', createAt: 1, updateAt: 1, deleteAt: 0 }
     vi.mocked(api.createCardComment).mockResolvedValue(comment)
@@ -100,6 +137,36 @@ describe('the card dialog', () => {
     expect(document.body.textContent).toContain('Hello')
   })
 
+  it('renders card body Markdown instead of raw source', async () => {
+    const block = { id: 'text1', cardId: 'c1', boardId: 'b1', type: 'text' as const, title: '**Bold** and *italic*', fields: {}, position: 0, ...stamps }
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], people: {}, contents: [block], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+    })
+    const body = document.body.querySelector('[data-project-content="text1"]')
+    expect(body?.querySelector('strong')?.textContent).toBe('Bold')
+    expect(body?.querySelector('em')?.textContent).toBe('italic')
+    expect(body?.textContent).not.toContain('**Bold**')
+  })
+
+  it('edits a text block in place and persists the new body', async () => {
+    const block = { id: 'text1', cardId: 'c1', boardId: 'b1', type: 'text' as const, title: 'Old body', fields: {}, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
+    vi.mocked(api.patchCardContent).mockResolvedValue({ ...block, title: 'New body' })
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, {
+        card, properties, members: [], people: {}, contents: [block], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
+      }))
+    })
+    const edit = document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.card.edit_content')}"]`)!
+    await act(async () => { edit.click() })
+    const textarea = document.body.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${t('project.card.edit_content')}"]`)!
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(textarea, 'New body'); textarea.dispatchEvent(new Event('input', { bubbles: true })) })
+    const save = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('common.save'))!
+    await act(async () => { save.click() })
+    expect(api.patchCardContent).toHaveBeenCalledWith('text1', { title: 'New body' })
+    expect(document.body.textContent).toContain('New body')
+  })
+
   it('toggles a checkbox content block through patchCardContent', async () => {
     const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'checkbox' as const, title: 'Step', fields: { checked: false }, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
     vi.mocked(api.patchCardContent).mockResolvedValue({ ...block, fields: { checked: true } })
@@ -112,6 +179,79 @@ describe('the card dialog', () => {
     expect(checkbox).not.toBeNull()
     await act(async () => { checkbox.click() })
     expect(api.patchCardContent).toHaveBeenCalledWith('a1', { fields: { checked: true } })
+  })
+
+  it('edits checklist title, assignee and due date through patchCardContent', async () => {
+    const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'checkbox' as const, title: 'Step', fields: { checked: false }, position: 0, ...stamps }
+    const dueAt = projectInputToStamp('2026-12-01', false, 'UTC')!
+    expect(dueAt).toBe(Date.UTC(2026, 11, 1, 12))
+    vi.mocked(api.patchCardContent).mockResolvedValue({ ...block, title: 'Ship', fields: { checked: false, assigneeId: 'u2', dueAt } })
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, {
+        card, properties,
+        members: [{ boardId: 'b1', userId: 'u2', role: 'editor', createdAt: 1, updatedAt: 1 }],
+        people: { u2: { id: 'u2', name: 'Bob', avatarUrl: '' } },
+        contents: [block], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(),
+      }))
+    })
+    await act(async () => { document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.card.edit_checklist')}"]`)!.click() })
+    const title = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('project.card.checkbox_block')}"]`)!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(title, 'Ship'); title.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.card.checklist_assignee')}"]`)!.click() })
+    await act(async () => { [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"], [role="menuitemcheckbox"]')].find((button) => button.textContent === 'Bob')!.click() })
+    const due = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('project.card.checklist_due')}"]`)!
+    await act(async () => { setter.call(due, '2026-12-01'); due.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('common.save'))!.click() })
+    expect(api.patchCardContent).toHaveBeenCalledWith('a1', { title: 'Ship', fields: { checked: false, assigneeId: 'u2', dueAt } })
+  })
+
+  it('keeps an invalid checklist date distinct from clearing it', async () => {
+    const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'checkbox' as const, title: 'Step', fields: { checked: false, dueAt: Date.UTC(2026, 11, 1) }, position: 0, ...stamps }
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card, properties, members: [], people: {}, contents: [block], siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+    })
+    await act(async () => { document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t('project.card.edit_checklist')}"]`)!.click() })
+    const due = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('project.card.checklist_due')}"]`)!
+    Object.defineProperty(due, 'validity', { configurable: true, value: { badInput: true } })
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => { setter.call(due, ''); due.dispatchEvent(new Event('input', { bubbles: true })) })
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe(t('project.card.invalid_due_date'))
+    await act(async () => { [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === t('common.save'))!.click() })
+    expect(api.patchCardContent).not.toHaveBeenCalled()
+  })
+
+  it('shows a retryable time-read error instead of zero minutes', async () => {
+    vi.mocked(api.fetchCardTime).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([])
+    await mount()
+    const section = document.body.querySelector(`section[aria-label="${t('project.time.title')}"]`)!
+    expect(section.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    expect(section.textContent).not.toContain('0m')
+    await act(async () => { [...section.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchCardTime).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps failed comment, dependency and attachment reads distinct from empty data', async () => {
+    vi.mocked(api.fetchCardComments).mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.mocked(api.fetchCardLinks).mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.mocked(api.listBoardFiles).mockRejectedValue(new TypeError('Failed to fetch'))
+    await mount()
+    for (const label of [t('project.card.comments'), t('project.card.dependencies'), t('project.card.attachments')]) {
+      const section = document.body.querySelector(`section[aria-label="${label}"]`)!
+      expect(section.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    }
+    expect(document.body.textContent).not.toContain(t('project.card.comments_empty'))
+    expect(document.body.textContent).not.toContain(t('project.card.dependencies_empty'))
+    expect(document.body.textContent).not.toContain(t('project.card.attachments_empty'))
+  })
+
+  it('keeps the bundle visible but offers retry when the full card detail read fails', async () => {
+    vi.mocked(api.fetchCardDetail).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce({ contents: [], comments: [] })
+    await mount(true)
+    expect(document.body.querySelector('[data-card-detail="c1"]')).not.toBeNull()
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    await act(async () => { [...document.body.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchCardDetail).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -214,6 +354,14 @@ describe('comment edit/delete, paste image, archived placeholder (D-6/D-8/D-11)'
     confirmed.mockRestore()
   })
 
+  it('does not call an image archived when its attachment list failed to load', async () => {
+    const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'image', title: 'pic.png', fields: { attachmentId: 'gone' }, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
+    vi.mocked(api.listBoardFiles).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await mountWith([block])
+    expect(document.body.textContent).toContain(t('project.common.load_failed'))
+    expect(document.body.textContent).not.toContain(t('project.card.archived_file'))
+  })
+
   it('shows an archived placeholder when the image file is gone', async () => {
     const block = { id: 'a1', cardId: 'c1', boardId: 'b1', type: 'image', title: 'pic.png', fields: { attachmentId: 'gone' }, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
     await mountWith([block])
@@ -229,6 +377,7 @@ describe('comment edit/delete, paste image, archived placeholder (D-6/D-8/D-11)'
     Object.defineProperty(event, 'clipboardData', { value: { files: [new File(['x'], 'p.png', { type: 'image/png' })] } })
     await act(async () => { section.dispatchEvent(event) })
     expect(api.uploadBoardFile).toHaveBeenCalled()
+    expect(api.listBoardFiles).toHaveBeenCalledTimes(2)
     expect(api.createCardContent).toHaveBeenCalledWith('c1', expect.objectContaining({ type: 'image', fields: { attachmentId: 'f1' } }))
   })
 })
@@ -236,14 +385,37 @@ describe('comment edit/delete, paste image, archived placeholder (D-6/D-8/D-11)'
 describe('content block reorder (D-1)', () => {
   it('move down persists the new order through the content move route', async () => {
     const blocks = ['a1', 'a2'].map((id) => ({ id, cardId: 'c1', boardId: 'b1', type: 'text' as const, title: id, fields: {}, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }))
+    const onCommand = vi.fn()
     await act(async () => {
-      view = renderElement(createElement(CardDialog, { card: { ...card, contentOrder: ['a1', 'a2'] }, properties, members: [], people: {}, contents: blocks, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn() }))
+      view = renderElement(createElement(CardDialog, { card: { ...card, contentOrder: ['a1', 'a2'] }, properties, members: [], people: {}, contents: blocks, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(), onCommand }))
     })
     const down = document.body.querySelector(`[data-project-content="a1"] button[aria-label="${t('project.card.move_down')}"]`) as HTMLButtonElement
     expect(down).not.toBeNull()
     await act(async () => { down.click() })
     expect(api.moveCardContent).toHaveBeenCalledWith('a1', 'a2', 'after')
     expect(api.patchProjectCard).not.toHaveBeenCalledWith('c1', expect.objectContaining({ contentOrder: expect.anything() }))
+    expect(onCommand).toHaveBeenCalledTimes(1)
+    const command = onCommand.mock.calls[0]![0] as { undo: () => Promise<void>, redo: () => Promise<void> }
+    await act(async () => { await command.undo() })
+    expect(api.patchProjectCard).toHaveBeenLastCalledWith('c1', { contentOrder: ['a1', 'a2'] })
+    await act(async () => { await command.redo() })
+    expect(api.patchProjectCard).toHaveBeenLastCalledWith('c1', { contentOrder: ['a2', 'a1'] })
+  })
+
+  it('restores a deleted content block with its original id and reading order', async () => {
+    const blocks = ['a1', 'a2'].map((id) => ({ id, cardId: 'c1', boardId: 'b1', type: 'text' as const, title: id, fields: {}, position: 0, createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }))
+    const confirmed = vi.spyOn(overlay, 'confirm').mockResolvedValue(true)
+    const onCommand = vi.fn()
+    await act(async () => {
+      view = renderElement(createElement(CardDialog, { card: { ...card, contentOrder: ['a1', 'a2'] }, properties, members: [], people: {}, contents: blocks, siblings: [], canEdit: true, onClose: vi.fn(), onUpdated: vi.fn(), onRefresh: vi.fn(), onDelete: vi.fn(), onCommand }))
+    })
+    await act(async () => { document.body.querySelector<HTMLButtonElement>(`[data-content-id="a1"] button[aria-label="${t('common.delete')}"]`)!.click() })
+    const command = onCommand.mock.calls[0]![0] as { undo: () => Promise<void> }
+    await act(async () => { await command.undo() })
+    expect(api.undeleteCardContent).toHaveBeenCalledWith('a1')
+    expect(api.createCardContent).not.toHaveBeenCalled()
+    expect(api.patchProjectCard).toHaveBeenLastCalledWith('c1', { contentOrder: ['a1', 'a2'] })
+    confirmed.mockRestore()
   })
 
   async function mountBlocks(): Promise<void> {

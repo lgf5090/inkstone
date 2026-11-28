@@ -305,7 +305,7 @@ describe('the server article store', () => {
       (user_id, feed_id, entry_id, title, link, author, content, summary, published_ts, captured_at)
       VALUES (?, 'f1', 'legacy', 'Legacy', 'https://example.test/legacy', 'Rae', 'Legacy body', '', 10, 20)`)
       .run(USER)
-    const migration = SCHEMA_MIGRATIONS.find(item => item.version === 447)
+    const migration = SCHEMA_MIGRATIONS.find(item => item.version === 478)
     expect(migration).toBeDefined()
     for (const statement of migration!.statements) sqlite.exec(statement)
     expect((await queryServerRssArticles(db, USER, { feedId: 'f1' })).entries[0]).toMatchObject({ id: 'legacy', content: 'Legacy body' })

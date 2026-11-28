@@ -6,7 +6,7 @@ import { projectPropertyDisplayText } from '@shared/project/view-eval'
 import type { ProjectRelationOption } from '@shared/project/relation'
 import { parseProjectRelationIds, serializeProjectRelationIds } from '@shared/project/relation'
 import { t, useLocale } from '../../lib/i18n'
-import { Avatar } from '../../components/primitives'
+import { Avatar, Button } from '../../components/primitives'
 import { Checkbox, commitOnEnter, Input } from '../../components/form'
 import { isImeComposing } from '../../lib/ime'
 import { SelectMenu } from '../../components/select-menu'
@@ -44,16 +44,25 @@ function RelationPicker({ targetBoardId, multiple, selected, disabled, label, on
 }): ReactElement {
   const [options, setOptions] = useState<ProjectRelationOption[] | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let alive = true
     setLoading(true)
+    setError(false)
     fetchRelationCards(targetBoardId)
       .then((cards) => { if (alive) setOptions(cards) })
-      .catch(() => { if (alive) setOptions(null) })
+      .catch(() => { if (alive) setError(true) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [targetBoardId])
+  }, [targetBoardId, attempt])
   if (loading) return <span role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.relation.loading')}</span>
+  if (error) return (
+    <span role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
+      {t('project.common.load_failed')}
+      <Button size="sm" variant="ghost" onClick={() => setAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+    </span>
+  )
   if (options === null) return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.relation.no_access')}</span>
   if (!options.length) return <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.relation.empty')}</span>
   if (multiple) {
@@ -196,8 +205,10 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
         />
       )
     case 'formula':
-    case 'rollup':
-      return <span className="text-[length:var(--text-12)] text-[var(--text-secondary)] tabular">{value || t('project.value.empty')}</span>
+    case 'rollup': {
+      const error = card?.valueErrors?.[property.id]
+      return <span role={error ? 'alert' : undefined} className="text-[length:var(--text-12)] text-[var(--text-secondary)] tabular">{error ? `#${error}` : value || t('project.value.empty')}</span>
+    }
     case 'createdBy':
     case 'updatedBy':
     case 'createdTime':
@@ -210,7 +221,7 @@ export function PropertyValueEditor({ property, value, members, disabled, onChan
           value={draft}
           disabled={disabled}
           aria-label={property.name}
-          inputMode={property.type === 'number' ? 'decimal' : undefined}
+          inputMode={property.type === 'number' || property.type === 'estimate' ? 'decimal' : undefined}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={commitText}
           onKeyDown={(event) => {

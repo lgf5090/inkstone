@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { TrashDialog } from './TrashDialog'
+import { ArchiveDialog } from './ArchiveDialog'
 import * as api from './api'
 
 vi.mock('./api', async (importOriginal) => ({
   ...await importOriginal<typeof import('./api')>(),
   fetchProjectTrash: vi.fn(),
+  fetchArchivedBoards: vi.fn(),
   fetchBoardTrash: vi.fn(),
   restoreProjectBoard: vi.fn(),
   undeleteProjectCard: vi.fn(),
@@ -16,6 +18,28 @@ vi.mock('./api', async (importOriginal) => ({
 let view: RenderedElement
 beforeEach(async () => { vi.clearAllMocks(); await initI18n() })
 afterEach(() => { view?.unmount() })
+
+describe('the archive read state', () => {
+  it('shows a retryable error instead of an empty archive', async () => {
+    vi.mocked(api.fetchArchivedBoards).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([])
+    await act(async () => { view = renderElement(createElement(ArchiveDialog, { onClose: vi.fn(), onRestored: vi.fn() })) })
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    expect(document.body.textContent).not.toContain(t('project.archive.empty'))
+    await act(async () => { [...document.body.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchArchivedBoards).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('the trash read state', () => {
+  it('shows a retryable error instead of saying the trash is empty', async () => {
+    vi.mocked(api.fetchProjectTrash).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce([])
+    await act(async () => { view = renderElement(createElement(TrashDialog, { onClose: vi.fn(), onRestored: vi.fn() })) })
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(t('project.common.load_failed'))
+    expect(document.body.textContent).not.toContain(t('project.trash.empty'))
+    await act(async () => { [...document.body.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!.click() })
+    expect(api.fetchProjectTrash).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('the restore panel (R3-5)', () => {
   it('lists deleted cards and restores the one asked for', async () => {

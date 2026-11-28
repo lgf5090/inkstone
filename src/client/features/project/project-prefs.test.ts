@@ -15,6 +15,8 @@ import {
   readStarredBoardsPref,
   writePinnedBoardsPref,
   writeStarredBoardsPref,
+  readRecentBoardsPref,
+  rememberRecentBoardPref,
 } from './project-prefs'
 
 describe('project-prefs', () => {
@@ -40,6 +42,14 @@ describe('project-prefs', () => {
     expect(readStarredBoardsPref()).toEqual(['b3'])
   })
 
+  it('keeps recently opened boards ordered, unique and scoped to the account', () => {
+    expect(rememberRecentBoardPref('u1', 'b1')).toEqual(['b1'])
+    expect(rememberRecentBoardPref('u1', 'b2')).toEqual(['b2', 'b1'])
+    expect(rememberRecentBoardPref('u1', 'b1')).toEqual(['b1', 'b2'])
+    expect(readRecentBoardsPref('u2')).toEqual([])
+    expect(readRecentBoardsPref(undefined)).toEqual([])
+  })
+
   it('handles invalid JSON gracefully', () => {
     localStorage.setItem('inkstone.project.pinnedBoards', 'not json')
     expect(readPinnedBoardsPref()).toEqual([])
@@ -48,7 +58,7 @@ describe('project-prefs', () => {
 
 describe('moving board marks into the account', () => {
   function signIn(pinnedBoards: string[] = [], starredBoards: string[] = []): void {
-    useSession.setState({ status: 'authed', settings: { ...DEFAULT_SETTINGS, project: { pinnedBoards, starredBoards, notifications: {} } } })
+    useSession.setState({ status: 'authed', settings: { ...DEFAULT_SETTINGS, project: { pinnedBoards, starredBoards, notifications: {}, personalViews: {}, capacityMinutesPerWeek: 2400 } } })
   }
 
   beforeEach(() => { installTestGlobals(); localStorage.clear() })
@@ -62,7 +72,7 @@ describe('moving board marks into the account', () => {
     writePinnedBoardsPref(['b1'])
     writeStarredBoardsPref(['b2'])
     migrateProjectBoardMarks()
-    expect(useSession.getState().settings.project).toEqual({ pinnedBoards: ['b1'], starredBoards: ['b2'], notifications: {} })
+    expect(useSession.getState().settings.project).toEqual({ pinnedBoards: ['b1'], starredBoards: ['b2'], notifications: {}, personalViews: {}, capacityMinutesPerWeek: 2400 })
     expect(localStorage.getItem('inkstone.project.pinnedBoards')).toBeNull()
     expect(localStorage.getItem('inkstone.project.starredBoards')).toBeNull()
   })

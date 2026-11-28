@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { relativeTime } from './time'
 
 export function useMediaQuery(query: string): boolean {
@@ -13,6 +13,64 @@ export function useMediaQuery(query: string): boolean {
     return () => media.removeEventListener('change', onChange)
   }, [query])
   return matches
+}
+
+export function usePointerSession(): (event: ReactPointerEvent<Element>, handlers: {
+  onMove: (event: PointerEvent) => void
+  onCommit: (event: PointerEvent) => void
+  onCancel?: () => void
+}) => void {
+  const cancelRef = useRef<(() => void) | null>(null)
+  const removeRef = useRef<(() => void) | null>(null)
+  const handlersRef = useRef<{
+    onMove: (event: PointerEvent) => void
+    onCommit: (event: PointerEvent) => void
+    onCancel?: () => void
+  } | null>(null)
+
+  const start = useCallback((event: ReactPointerEvent<Element>, handlers: {
+    onMove: (event: PointerEvent) => void
+    onCommit: (event: PointerEvent) => void
+    onCancel?: () => void
+  }) => {
+    cancelRef.current?.()
+    handlersRef.current = handlers
+    const pointerId = event.pointerId
+    let active = true
+    const cleanup = (): void => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', onPointerCancel)
+      window.removeEventListener('keydown', key)
+      cancelRef.current = null
+      removeRef.current = null
+      handlersRef.current = null
+    }
+    const finish = (commit: boolean, pointerEvent: PointerEvent): void => {
+      if (!active) return
+      active = false
+      const current = handlersRef.current
+      cleanup()
+      if (commit) current?.onCommit(pointerEvent)
+      else current?.onCancel?.()
+    }
+    const move = (moveEvent: PointerEvent): void => {
+      if (active && moveEvent.pointerId === pointerId) handlersRef.current?.onMove(moveEvent)
+    }
+    const up = (upEvent: PointerEvent): void => { if (upEvent.pointerId === pointerId) finish(true, upEvent) }
+    const onPointerCancel = (cancelEvent: PointerEvent): void => { if (cancelEvent.pointerId === pointerId) finish(false, cancelEvent) }
+    const key = (keyEvent: KeyboardEvent): void => { if (keyEvent.key === 'Escape') finish(false, new PointerEvent('pointercancel')) }
+    const cancelActive = (): void => finish(false, new PointerEvent('pointercancel'))
+    cancelRef.current = cancelActive
+    removeRef.current = cleanup
+    window.addEventListener('pointermove', move, { passive: false })
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', onPointerCancel)
+    window.addEventListener('keydown', key)
+  }, [])
+
+  useEffect(() => () => { removeRef.current?.() }, [])
+  return start
 }
 
 export type Breakpoint = 'mobile' | 'tablet' | 'desktop'

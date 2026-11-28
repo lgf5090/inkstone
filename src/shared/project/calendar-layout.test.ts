@@ -5,7 +5,7 @@ import { projectCalendarDayChips, projectCalendarDayRoles, projectCalendarIndex,
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, updateAt: 1, deleteAt: 0 }
 const properties: ProjectProperty[] = [
-  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: 'propColorBlue' }, { id: 'o2', value: 'Done', color: '' }] },
+  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'o1', value: 'Open', color: 'propColorBlue', category: 'todo' }, { id: 'o2', value: 'Done', color: '', category: 'done' }] },
   { id: 'pd', name: 'Due', type: 'date', options: [] },
 ]
 // Stored stamps go through the module's own writer; keys are the local days a reader resolves.

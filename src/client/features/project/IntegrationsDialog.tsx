@@ -14,6 +14,7 @@ import { SelectMenu } from '../../components/select-menu'
 import { Modal } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useProjectStore } from './store'
+import { NativeIntegrations } from './NativeIntegrations'
 import {
   createProjectApiToken, createProjectWebhook, deleteProjectWebhook,
   fetchProjectApiTokens, fetchProjectWebhooks, patchProjectWebhook, revokeProjectApiToken,
@@ -148,7 +149,7 @@ export function IntegrationsDialog({ boardId, onClose }: IntegrationsDialogProps
       open
       onClose={onClose}
       title={t('project.integrations.title')}
-      width={640}
+      width={760}
       footer={<Button variant="ghost" onClick={onClose}>{t('common.close')}</Button>}
     >
       <div className="space-y-4">
@@ -236,6 +237,8 @@ export function IntegrationsDialog({ boardId, onClose }: IntegrationsDialogProps
                 </Button>
               </div>
             </section>
+
+            <NativeIntegrations boardId={boardId} />
           </>
         )}
       </div>

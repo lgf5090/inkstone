@@ -53,6 +53,11 @@ async function seed(): Promise<void> {
     periodValue: 1,
     periodUnit: 'month',
     notes: 'family plan',
+    paymentMethod: 'Card',
+    managementUrl: 'https://example.com/manage',
+    pausedUntil: new Date(NOW + 2 * DAY).toISOString(),
+    fixedTerm: true,
+    introPrice: 9,
     reminderRules: [
       { type: 'before_expiry', value: 7, unit: 'days' },
       { type: 'after_expiry', value: 0, unit: 'days', repeatInterval: 24, repeatUntil: 'acknowledged' },
@@ -69,6 +74,8 @@ async function seed(): Promise<void> {
   await saveSettings(env.DB, USER, {
     timezone: 'Asia/Tokyo',
     notificationHours: ['08', '20'],
+    digest: 'weekly',
+    digestHour: 9,
     baseCurrency: 'JPY',
     budgetMonthly: 5000,
     budgetYearly: 60000,
@@ -199,6 +206,23 @@ describe('restore', () => {
     expect(restored.budgetMonthly).toBe(5000)
     expect(restored.budgetYearly, 'the year is its own ceiling, not twelve of the month').toBe(60000)
     expect(restored.budgetCategories).toEqual({ family: 500, travel: 1200 })
+  })
+
+  it('leaves the old library intact when the final atomic switch fails', async () => {
+    await seed()
+    const before = rows('sub_item')
+    const text = await readBackupSubscriptions(env.DB, USER)!
+    const originalBatch = env.DB.batch.bind(env.DB)
+    let batchCalls = 0
+    const failingDb = Object.create(env.DB) as D1Database
+    failingDb.batch = async (statements) => {
+      batchCalls++
+      if (batchCalls === 2) throw new Error('injected final switch failure')
+      return originalBatch(statements)
+    }
+    await expect(applyBackupSubscriptions(failingDb, USER, text)).rejects.toThrow('injected final switch failure')
+    expect(rows('sub_item')).toEqual(before)
+    expect(rows('sub_restore_stage')).toEqual([])
   })
 
   it('replaces the current library rather than adding to it', async () => {

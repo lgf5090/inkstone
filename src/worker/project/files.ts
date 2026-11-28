@@ -54,10 +54,11 @@ export function attachmentCategory(mime: string): ProjectAttachmentCategory {
   return 'other'
 }
 
-export async function listBoardAttachments(db: D1Database, boardId: string, cardId?: string): Promise<ProjectAttachment[]> {
+export async function listBoardAttachments(db: D1Database, boardId: string, cardId?: string, limit = ATTACHMENT_LIST_LIMIT, includeDeleted = false): Promise<ProjectAttachment[]> {
+  const liveOnly = includeDeleted ? '' : 'AND (card_id IS NULL OR EXISTS (SELECT 1 FROM project_cards c WHERE c.id = card_id AND c.delete_at = 0))'
   const { results } = cardId
-    ? await db.prepare(`SELECT * FROM project_attachments WHERE board_id = ?1 AND card_id = ?2 ORDER BY created_at DESC LIMIT ${ATTACHMENT_LIST_LIMIT}`).bind(boardId, cardId).all<AttachmentRow>()
-    : await db.prepare(`SELECT * FROM project_attachments WHERE board_id = ?1 ORDER BY created_at DESC LIMIT ${ATTACHMENT_LIST_LIMIT}`).bind(boardId).all<AttachmentRow>()
+    ? await db.prepare(`SELECT * FROM project_attachments WHERE board_id = ?1 AND card_id = ?2 ${liveOnly} ORDER BY created_at DESC LIMIT ?3`).bind(boardId, cardId, limit).all<AttachmentRow>()
+    : await db.prepare(`SELECT * FROM project_attachments WHERE board_id = ?1 ${liveOnly} ORDER BY created_at DESC LIMIT ?2`).bind(boardId, limit).all<AttachmentRow>()
   return results.map(rowToAttachment)
 }
 
@@ -99,8 +100,21 @@ export async function uploadProjectAttachment(
 }
 
 export async function deleteProjectAttachment(db: D1Database, r2: R2Bucket | undefined, attachment: ProjectAttachment): Promise<void> {
-  if (r2) await r2.delete(attachment.objectKey)
-  await db.prepare('DELETE FROM project_attachments WHERE id = ?1').bind(attachment.id).run()
+  const cleanupKey = `${attachment.storage}:${attachment.objectKey}`
+  await db.batch([
+    db.prepare('INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at) VALUES (?1, ?2, ?3)')
+      .bind(cleanupKey, attachment.userId, Date.now()),
+    db.prepare('DELETE FROM project_attachments WHERE id = ?1').bind(attachment.id),
+  ])
+  try {
+    if (attachment.storage === 'r2') {
+      if (!r2) throw new Error('File storage is not configured')
+      await r2.delete(attachment.objectKey)
+      await db.prepare('DELETE FROM attachment_cleanup WHERE object_key = ?1').bind(cleanupKey).run()
+    }
+  } catch (error) {
+    console.warn('[inkstone] project attachment object cleanup will retry later:', error instanceof Error ? error.message : error)
+  }
 }
 
 export const PROJECT_UPLOAD_LIMIT = MAX_UPLOAD_BYTES

@@ -30,7 +30,7 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
     autoRenew: true,
     notes: '',
     lastPaymentDate: null,
-    trialEndsAt: null,
+    trialEndsAt: null, paymentMethod: '', managementUrl: '', pausedUntil: null, fixedTerm: false, introPrice: null,
     trialDaysRemaining: null,
     deletedAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -64,6 +64,17 @@ describe('export', () => {
     const row = toCsv([item({ amount: null })]).split('\r\n')[1].split(',')
     expect(row).toContain('')
     expect(toCsv([item({ amount: 0 })])).toContain(',0,')
+  })
+
+  it('writes dates in the account timezone rather than UTC', () => {
+    const csv = toCsv([item({ expiryDate: '2026-06-01T00:00:00.000Z' })], 'America/New_York')
+    expect(csv).toContain('2026-05-31')
+  })
+
+  it('round-trips plan metadata without losing dates or prices', () => {
+    const csv = toCsv([item({ paymentMethod: 'Card', managementUrl: 'https://example.com/manage', pausedUntil: '2026-06-10T00:00:00.000Z', fixedTerm: true, introPrice: 9 })], 'UTC')
+    const input = rowToInput(parseCsv(csv)[0]!)
+    expect(input).toMatchObject({ paymentMethod: 'Card', managementUrl: 'https://example.com/manage', pausedUntil: '2026-06-10', fixedTerm: true, introPrice: 9 })
   })
 
   it('names the file by the day it was taken', () => {
@@ -121,7 +132,11 @@ describe('import', () => {
   })
 
   it('round-trips what the exporter wrote', () => {
-    const original = item({ name: 'A, B', notes: 'he said "hi"\nand left', category: 'a/b' })
+    const original = item({
+      name: 'A, B', notes: 'he said "hi"\nand left', category: 'a/b', isActive: false,
+      trialEndsAt: '2026-05-20T00:00:00.000Z',
+      reminderRules: [{ id: 'r1', type: 'before_expiry', value: 3, unit: 'days', repeatInterval: null, repeatUntil: 'renewed', acknowledgedAt: null, isEnabled: true, createdAt: '2026-01-01T00:00:00.000Z' }],
+    })
     const [row] = parseCsv(toCsv([original]))
     const input = rowToInput(row)
     expect(input).toMatchObject({
@@ -132,6 +147,9 @@ describe('import', () => {
       currency: 'CNY',
       expiryDate: '2026-06-01',
       periodUnit: 'month',
+      isActive: false,
+      trialEndsAt: '2026-05-20',
+      reminderRules: original.reminderRules,
     })
   })
 })

@@ -2,6 +2,8 @@ import { useSession } from '../../store/session'
 
 const PINNED_BOARDS_KEY = 'inkstone.project.pinnedBoards'
 const STARRED_BOARDS_KEY = 'inkstone.project.starredBoards'
+const RECENT_BOARDS_KEY = 'inkstone.project.recentBoards.'
+const RECENT_BOARDS_LIMIT = 20
 
 /**
  * The reader's board marks, kept in the account settings so they follow the reader across devices.
@@ -81,6 +83,17 @@ export function readStarredBoardsPref(): string[] {
 
 export function writeStarredBoardsPref(boardIds: string[]): void {
   writeArrayPref(STARRED_BOARDS_KEY, boardIds)
+}
+
+export function readRecentBoardsPref(userId: string | undefined): string[] {
+  return userId ? readArrayPref(RECENT_BOARDS_KEY + userId).slice(0, RECENT_BOARDS_LIMIT) : []
+}
+
+export function rememberRecentBoardPref(userId: string | undefined, boardId: string): string[] {
+  if (!userId) return []
+  const next = [boardId, ...readRecentBoardsPref(userId).filter((id) => id !== boardId)].slice(0, RECENT_BOARDS_LIMIT)
+  writeArrayPref(RECENT_BOARDS_KEY + userId, next)
+  return next
 }
 
 const SIDEBAR_WIDTH_KEY = 'inkstone.project.sidebarWidth'

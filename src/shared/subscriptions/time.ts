@@ -202,7 +202,7 @@ export function formatDateInputInTimezone(value: Date | string | number, timezon
 export function addCalendarPeriodInTimezone(
   value: Date | string | number,
   amount: number,
-  unit: 'day' | 'month' | 'year',
+  unit: 'day' | 'week' | 'month' | 'year',
   timezone = 'UTC',
 ): Date {
   const date = value instanceof Date ? value : new Date(value)
@@ -212,8 +212,8 @@ export function addCalendarPeriodInTimezone(
   let month = parts.month
   let day = parts.day
 
-  if (unit === 'day') {
-    const shifted = new Date(Date.UTC(year, month - 1, day + amount))
+  if (unit === 'day' || unit === 'week') {
+    const shifted = new Date(Date.UTC(year, month - 1, day + amount * (unit === 'week' ? 7 : 1)))
     year = shifted.getUTCFullYear()
     month = shifted.getUTCMonth() + 1
     day = shifted.getUTCDate()
@@ -272,7 +272,13 @@ export function formatTimezoneOffset(timezone = 'UTC'): string {
   return `UTC${sign}${Number.isInteger(absolute) ? absolute : absolute.toFixed(1)}`
 }
 
-/** `YYYYMMDDHH` in a zone: the key a delivery is deduplicated on, one message per local hour. */
+/** `YYYYMMDD` in a zone: the key a one-shot daily delivery is deduplicated on. */
+export function localDayKey(timezone = 'UTC', now?: Date): string {
+  const parts = getNowInTimezone(timezone, now).parts
+  return `${parts.year}${String(parts.month).padStart(2, '0')}${String(parts.day).padStart(2, '0')}`
+}
+
+/** `YYYYMMDDHH` in a zone: the key an hourly delivery is deduplicated on. */
 export function localHourKey(timezone = 'UTC', now?: Date): string {
   const parts = getNowInTimezone(timezone, now).parts
   return `${parts.year}${String(parts.month).padStart(2, '0')}${String(parts.day).padStart(2, '0')}${String(parts.hour).padStart(2, '0')}`

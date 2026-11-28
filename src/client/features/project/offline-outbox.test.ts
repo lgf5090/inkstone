@@ -5,7 +5,7 @@ import {
   PROJECT_OUTBOX_CHANGED_EVENT, PROJECT_OUTBOX_FLUSHED_EVENT,
 } from '../../lib/runtime'
 import {
-  enqueueProjectWrite, notifyProjectOutboxFlushed, pendingProjectWrites, replayProjectOutboxItem,
+  discardProjectWriteConflict, enqueueProjectWrite, notifyProjectOutboxFlushed, pendingProjectWrites, projectWriteConflicts, replayProjectOutboxItem,
 } from './offline-outbox'
 import { request } from '../../lib/api'
 
@@ -24,6 +24,7 @@ vi.mock('../../lib/db', async (importOriginal) => {
       completeOutboxItem: vi.fn(),
       completeOutboxBatch: vi.fn(async () => undefined),
       markOutboxFailure: vi.fn(),
+      discardOutboxItem: vi.fn(),
       withOutboxReplayLock: vi.fn(),
     },
   }
@@ -41,6 +42,7 @@ beforeEach(() => {
   vi.mocked(localDb.enqueueOutbox).mockResolvedValue(undefined)
   vi.mocked(localDb.getOutbox).mockResolvedValue([])
   vi.mocked(localDb.markOutboxFailure).mockResolvedValue(undefined)
+  vi.mocked(localDb.discardOutboxItem).mockResolvedValue(undefined)
   vi.mocked(request).mockResolvedValue({ ok: true })
 })
 
@@ -91,14 +93,50 @@ describe('the project offline outbox', () => {
     expect(localDb.markOutboxFailure).toHaveBeenCalled()
   })
 
+  it('retries 429 with the server delay and 5xx without stopping the shared queue', async () => {
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(429, 'rate_limited', 'Too many requests', undefined, undefined, 12_000))
+    expect((await replayProjectOutboxItem(item({ path: '/api/project/cards/c1', method: 'PATCH' }))).status).toBe('retry')
+    expect(localDb.markOutboxFailure).toHaveBeenCalledWith('pw_test', 'pw_test', 'Too many requests', { retryAfterMs: 12_000 })
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(503, 'unavailable', 'Unavailable'))
+    expect((await replayProjectOutboxItem(item({ path: '/api/project/cards/c1', method: 'PATCH' }))).status).toBe('retry')
+  })
+
+  it('keeps a conflicting write for explicit resolution', async () => {
+    vi.mocked(request).mockRejectedValue(new ApiError(409, 'conflict', 'Card changed on another device'))
+    const outcome = await replayProjectOutboxItem(item({ path: '/api/project/cards/c1', method: 'PATCH', body: { title: 'Local' } }))
+    expect(outcome.status).toBe('conflict')
+    expect(localDb.markOutboxFailure).toHaveBeenCalledWith('pw_test', 'pw_test', 'Card changed on another device', { permanent: true, conflict: true })
+    expect(localDb.completeOutboxItem).not.toHaveBeenCalled()
+  })
+
+  it('lists and discards only explicit project conflicts', async () => {
+    const conflict = { ...item({ path: '/api/project/cards/c1', method: 'PATCH' }), conflict: true, failed: true }
+    vi.mocked(localDb.getOutbox).mockResolvedValue([conflict, item({}), { ...item({}), entity: 'note' as const, conflict: true }])
+    expect(await projectWriteConflicts()).toEqual([conflict])
+    let changed = 0
+    const listener = () => { changed += 1 }
+    window.addEventListener(PROJECT_OUTBOX_CHANGED_EVENT, listener)
+    await discardProjectWriteConflict(conflict.id, conflict.writeId)
+    window.removeEventListener(PROJECT_OUTBOX_CHANGED_EVENT, listener)
+    expect(localDb.discardOutboxItem).toHaveBeenCalledWith(conflict.id, conflict.writeId)
+    expect(changed).toBe(1)
+  })
+
   it('drops a permanently refused write after telling the reader', async () => {
     vi.mocked(request).mockRejectedValue(new ApiError(403, 'forbidden', 'Permission denied'))
     const outcome = await replayProjectOutboxItem(item({ path: '/api/project/cards/c1', method: 'DELETE' }))
     expect(outcome.status).toBe('done')
   })
 
-  it('refuses a payload that is not a project write', async () => {
-    expect((await replayProjectOutboxItem(item({ nonsense: true }))).status).toBe('retry')
+  it('finishes an invalid payload instead of leaving it pending forever', async () => {
+    expect((await replayProjectOutboxItem(item({ nonsense: true }))).status).toBe('done')
     expect(request).not.toHaveBeenCalled()
+  })
+
+  it('assigns monotonic queue timestamps for same-millisecond writes', async () => {
+    await enqueueProjectWrite('/api/project/cards/c1', 'PATCH', { title: 'A' }, 'pw_first')
+    await enqueueProjectWrite('/api/project/cards/c1', 'PATCH', { title: 'B' }, 'pw_second')
+    const queued = vi.mocked(localDb.enqueueOutbox).mock.calls.map(([entry]) => entry)
+    expect(queued[1]!.createdAt).toBeGreaterThan(queued[0]!.createdAt)
   })
 })

@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import type { TimelineDay } from '@shared/project/timeline-layout'
 import { t, useLocale } from '../../../lib/i18n'
+import { usePointerSession } from '../../../lib/hooks'
 
 const BUFFER_ROWS = 6
 const HEAD_BUFFER_PX = 400
@@ -54,6 +55,7 @@ export function ScheduleFrame(props: ScheduleFrameProps): ReactElement {
   const { days, columnPx, rowCount, rowHeight, showToday, showWeekends } = props
   const locale = useLocale()
   const scroller = useRef<HTMLDivElement>(null)
+  const startPointerSession = usePointerSession()
   const [offset, setOffset] = useState({ top: 0, left: 0 })
   const [size, setSize] = useState({ width: 900, height: 600 })
   const totalWidth = days.length * columnPx
@@ -134,16 +136,14 @@ export function ScheduleFrame(props: ScheduleFrameProps): ReactElement {
     const startY = event.clientY
     const left = node.scrollLeft
     const top = node.scrollTop
-    const move = (moveEvent: PointerEvent): void => {
-      node.scrollLeft = left - (moveEvent.clientX - startX)
-      node.scrollTop = top - (moveEvent.clientY - startY)
-    }
-    const up = (): void => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+    startPointerSession(event, {
+      onMove: (moveEvent) => {
+        node.scrollLeft = left - (moveEvent.clientX - startX)
+        node.scrollTop = top - (moveEvent.clientY - startY)
+      },
+      onCommit: () => {},
+      onCancel: () => { node.scrollLeft = left; node.scrollTop = top },
+    })
   }
 
   return (

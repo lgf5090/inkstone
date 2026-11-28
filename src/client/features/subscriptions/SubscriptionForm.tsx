@@ -15,9 +15,9 @@ import { Button } from '../../components/primitives'
 import { Field, Input, Select, Switch, Textarea } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { DatePicker } from '../../components/date-picker'
-import { formatAmount } from '@shared/subscriptions/format'
+import { formatAmount, periodUnitKey } from '@shared/subscriptions/format'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
-import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
+import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts, parseDateInputInTimezone } from '@shared/subscriptions/time'
 import {
   labelNamesOf,
   PERIOD_UNITS,
@@ -55,6 +55,11 @@ interface Draft {
   autoRenew: boolean
   notes: string
   trialEndsAt: string
+  paymentMethod: string
+  managementUrl: string
+  pausedUntil: string
+  fixedTerm: boolean
+  introPrice: string
   rules: ReminderRuleInput[]
 }
 
@@ -77,6 +82,11 @@ function draftOf(detail: SubscriptionDetail | null, timezone: string): Draft {
       autoRenew: true,
       notes: '',
       trialEndsAt: '',
+      paymentMethod: '',
+      managementUrl: '',
+      pausedUntil: '',
+      fixedTerm: false,
+      introPrice: '',
       rules: PRESET_RULE_DRAFTS.map((rule) => ({ ...rule })),
     }
   }
@@ -87,8 +97,8 @@ function draftOf(detail: SubscriptionDetail | null, timezone: string): Draft {
     category: item.category,
     amount: item.amount === null ? '' : String(item.amount),
     currency: item.currency,
-    startDate: item.startDate ? item.startDate.slice(0, 10) : '',
-    expiryDate: item.expiryDate.slice(0, 10),
+    startDate: item.startDate ? formatDateInputInTimezone(item.startDate, timezone) : '',
+    expiryDate: formatDateInputInTimezone(item.expiryDate, timezone),
     periodValue: String(item.periodValue),
     periodUnit: item.periodUnit,
     subscriptionMode: item.subscriptionMode,
@@ -96,7 +106,12 @@ function draftOf(detail: SubscriptionDetail | null, timezone: string): Draft {
     isActive: item.isActive,
     autoRenew: item.autoRenew,
     notes: item.notes,
-    trialEndsAt: item.trialEndsAt ? item.trialEndsAt.slice(0, 10) : '',
+    trialEndsAt: item.trialEndsAt ? formatDateInputInTimezone(item.trialEndsAt, timezone) : '',
+    paymentMethod: item.paymentMethod,
+    managementUrl: item.managementUrl,
+    pausedUntil: item.pausedUntil ? formatDateInputInTimezone(item.pausedUntil, timezone) : '',
+    fixedTerm: item.fixedTerm,
+    introPrice: item.introPrice === null ? '' : String(item.introPrice),
     // Carried with their ids so the worker replaces this set rather than appending a second copy of it.
     rules: detail.rules.map((rule) => ({ ...rule })),
   }
@@ -146,7 +161,7 @@ export function SubscriptionForm({
 
   const hint = useMemo(() => {
     if (!draft.expiryDate) return ''
-    const parsed = Date.parse(`${draft.expiryDate}T00:00:00Z`)
+    const parsed = parseDateInputInTimezone(draft.expiryDate, timezone)
     if (!Number.isFinite(parsed)) return ''
     const parts = getTimezoneDateParts(parsed, timezone)
     const lunar = draft.useLunar ? solar2lunar(parts.year, parts.month, parts.day) : null
@@ -157,7 +172,7 @@ export function SubscriptionForm({
   }, [draft.expiryDate, draft.useLunar, timezone])
 
   const computeExpiry = (): void => {
-    const start = draft.startDate ? Date.parse(`${draft.startDate}T00:00:00Z`) : Date.now()
+    const start = draft.startDate ? parseDateInputInTimezone(draft.startDate, timezone).getTime() : Date.now()
     const value = Math.max(1, Math.trunc(Number(draft.periodValue) || 1))
     const unit = draft.periodUnit
     let next: number
@@ -183,7 +198,7 @@ export function SubscriptionForm({
       amount: draft.amount === '' ? null : Number(draft.amount),
       currency: draft.currency,
       startDate: draft.startDate || null,
-      expiryDate: `${draft.expiryDate}T00:00:00Z`,
+      expiryDate: draft.expiryDate,
       periodValue: Math.max(1, Math.trunc(Number(draft.periodValue) || 1)),
       periodUnit: draft.periodUnit,
       subscriptionMode: draft.subscriptionMode,
@@ -192,6 +207,11 @@ export function SubscriptionForm({
       autoRenew: draft.autoRenew,
       notes: draft.notes.trim(),
       trialEndsAt: draft.trialEndsAt || null,
+      paymentMethod: draft.paymentMethod.trim(),
+      managementUrl: draft.managementUrl.trim(),
+      pausedUntil: draft.pausedUntil || null,
+      fixedTerm: draft.fixedTerm,
+      introPrice: draft.introPrice === '' ? null : Number(draft.introPrice),
       reminderRules: draft.rules,
     })
     if (ok) onClose()
@@ -333,6 +353,22 @@ export function SubscriptionForm({
               onChange={(date) => set('trialEndsAt', date)}
             />
           </Field>
+          <Field label={t('subscriptions.form.payment_method')}>
+            <Input value={draft.paymentMethod} maxLength={80} onChange={(event) => set('paymentMethod', event.target.value)} />
+          </Field>
+          <Field label={t('subscriptions.form.management_url')} hint={t('subscriptions.form.management_url_hint')}>
+            <Input type="url" value={draft.managementUrl} maxLength={2048} onChange={(event) => set('managementUrl', event.target.value)} placeholder="https://" />
+          </Field>
+          <Field label={t('subscriptions.form.intro_price')} hint={t('subscriptions.form.intro_price_hint')}>
+            <Input type="number" min={0} step="0.01" inputMode="decimal" value={draft.introPrice} onChange={(event) => set('introPrice', event.target.value)} />
+          </Field>
+          <Field label={t('subscriptions.form.paused_until')} hint={t('subscriptions.form.paused_until_hint')}>
+            <DatePicker label={t('subscriptions.form.paused_until')} value={draft.pausedUntil} onChange={(date) => set('pausedUntil', date)} />
+          </Field>
+          <label className="flex items-center gap-1.5 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+            <Switch checked={draft.fixedTerm} onChange={(next) => set('fixedTerm', next)} label={t('subscriptions.form.fixed_term')} />
+            {t('subscriptions.form.fixed_term')}
+          </label>
         </section>
 
         <section className="space-y-2.5">
@@ -349,7 +385,7 @@ export function SubscriptionForm({
             </Field>
             <Field label={t('subscriptions.form.period_unit')}>
               <Select value={draft.periodUnit} onChange={(event) => set('periodUnit', event.target.value as PeriodUnit)}>
-                {PERIOD_UNITS.map((unit) => <option key={unit} value={unit}>{t(unit === 'day' ? 'subscriptions.unit_day' : unit === 'year' ? 'subscriptions.unit_year' : 'subscriptions.unit_month')}</option>)}
+                {PERIOD_UNITS.map((unit) => <option key={unit} value={unit}>{t(periodUnitKey(unit))}</option>)}
               </Select>
             </Field>
           </div>

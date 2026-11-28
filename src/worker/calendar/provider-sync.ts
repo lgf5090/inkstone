@@ -31,6 +31,7 @@ import {
   updateCalendarConnectionStatus,
   type CalendarConnectionRecord,
 } from './connections'
+import { syncProjectCardForCalendarEvent } from '../project/project-calendar'
 import type { Env } from '../env'
 
 const PROVIDER_SYNC_INTERVAL_MS = 15 * 60 * 1000
@@ -446,7 +447,13 @@ async function syncConnection(
       }
       for (let index = 0; index < inputs.length; index += PROVIDER_EVENT_CHUNK) {
         const chunk = inputs.slice(index, index + PROVIDER_EVENT_CHUNK)
-        events += (await store.createEvents(chunk, 'upsert')).length
+        const created = await store.createEvents(chunk, 'upsert')
+        events += created.length
+        for (const event of created) {
+          await syncProjectCardForCalendarEvent(env.DB, userId, event.id).catch((error: unknown) => {
+            console.warn('[inkstone] Provider-to-project calendar sync failed:', error instanceof Error ? error.message : error)
+          })
+        }
       }
       const rawDeleted = deletedRefs.map(ref => typeof ref === 'string'
         ? ref

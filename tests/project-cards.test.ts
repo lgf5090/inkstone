@@ -72,7 +72,7 @@ async function createCard(account: Account, boardId: string, body: Record<string
 
 describe('creating a card', () => {
   it('stores the card and its values for an editor', async () => {
-    const board = await createBoard('alice', {})
+    const board = await createBoard('alice', { cardProperties: [{ id: pid(1), name: 'Text', type: 'text', options: [] }] })
     addMember(board.id, 'bob', 'editor')
     const card = await createCard('bob', board.id, { title: 'Task', icon: '📌', values: { [pid(1)]: 'hello' } })
     expect(card).toMatchObject({ boardId: board.id, title: 'Task', icon: '📌', createdBy: 'bob', contentOrder: [], values: { [pid(1)]: 'hello' } })
@@ -85,7 +85,11 @@ describe('creating a card', () => {
     addMember(board.id, 'bob', 'viewer')
     expect((await req('bob', 'POST', `/boards/${board.id}/cards`, { title: 'x' })).status).toBe(403)
     expect((await req(null, 'POST', `/boards/${board.id}/cards`, { title: 'x' })).status).toBe(401)
+    const unknownProperty = 'p'.repeat(27)
     expect((await req('alice', 'POST', `/boards/${board.id}/cards`, { values: { 'not-an-id': 'x' } })).status).toBe(400)
+    expect((await req('alice', 'POST', `/boards/${board.id}/cards`, { values: { [unknownProperty]: 'x' } })).status).toBe(400)
+    const card = await createCard('alice', board.id)
+    expect((await req('alice', 'PATCH', `/cards/${card.id}`, { values: { [unknownProperty]: 'x' } })).status).toBe(400)
   })
 
   it('enforces the per-board card ceiling', async () => {
@@ -102,7 +106,7 @@ describe('creating a card', () => {
 
 describe('reading a card', () => {
   it('lets a viewer member read with its values and hides it from a stranger', async () => {
-    const board = await createBoard('alice', {})
+    const board = await createBoard('alice', { cardProperties: [{ id: pid(1), name: 'Text', type: 'text', options: [] }] })
     const card = await createCard('alice', board.id, { title: 'Read me', values: { [pid(1)]: 'v' } })
     addMember(board.id, 'bob', 'viewer')
     const response = await req('bob', 'GET', `/cards/${card.id}`)
@@ -112,9 +116,44 @@ describe('reading a card', () => {
   })
 })
 
+describe('paginated board cards', () => {
+  it('bounds the initial bundle and continues with an opaque keyset cursor', async () => {
+    const board = await createBoard('alice', { cardProperties: [{ id: pid(1), name: 'Text', type: 'text', options: [] }] })
+    const insert = sqlite.prepare(
+      `INSERT INTO project_cards (id, board_id, title, created_by, modified_by, create_at, update_at) VALUES (?, ?, ?, 'alice', 'alice', ?, 1)`,
+    )
+    for (let index = 0; index < 205; index += 1) insert.run(cid(index + 1), board.id, `Card ${index + 1}`, index + 1)
+    sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)')
+      .run(cid(205), pid(1), 'last page value')
+    const insertContent = sqlite.prepare(`INSERT INTO project_card_contents (id, card_id, board_id, type, title, created_by, modified_by, create_at, update_at, position)
+      VALUES (?, ?, ?, 'text', 'Block', 'alice', 'alice', 1, 1, ?)`)
+    for (let index = 0; index < 2001; index += 1) insertContent.run(`x${String(index).padStart(26, '0')}`, cid(205), board.id, index)
+    const first = await req('alice', 'GET', `/boards/${board.id}/bundle`)
+    expect(first.status).toBe(200)
+    const bundle = (await first.json()) as { cards: ProjectCard[], cardCount: number, cardsHasMore: boolean, cardsNextCursor: string, contentsTruncated?: boolean }
+    expect(bundle.cards).toHaveLength(200)
+    expect(bundle.contentsTruncated).toBeUndefined()
+    expect(bundle.cardCount).toBe(205)
+    expect(bundle.cardsHasMore).toBe(true)
+    expect(bundle.cardsNextCursor).toBeTruthy()
+    const second = await req('alice', 'GET', `/boards/${board.id}/cards?cursor=${encodeURIComponent(bundle.cardsNextCursor)}`)
+    expect(second.status, await second.clone().text()).toBe(200)
+    const page = (await second.json()) as { cards: ProjectCard[], cardCount: number, cardsHasMore: boolean, cardsNextCursor?: string, contentsTruncated?: boolean }
+    expect(page.cards.map((card) => card.id)).toEqual([cid(201), cid(202), cid(203), cid(204), cid(205)])
+    expect(page.contentsTruncated).toBe(true)
+    expect(page.cards[4]!.values[pid(1)]).toBe('last page value')
+    expect(page.cardCount).toBe(205)
+    expect(page.cardsHasMore).toBe(false)
+    expect(page.cardsNextCursor).toBeUndefined()
+    expect((await req('alice', 'GET', `/boards/${board.id}/cards?cursor=not-a-cursor`)).status).toBe(400)
+  })
+})
+
 describe('patching a card', () => {
   it('updates fields, upserts a value and deletes another with null', async () => {
-    const board = await createBoard('alice', {})
+    const board = await createBoard('alice', {
+      cardProperties: [1, 2, 3].map((index) => ({ id: pid(index), name: `Field ${index}`, type: 'text', options: [] })),
+    })
     const card = await createCard('alice', board.id, { title: 'Old', values: { [pid(1)]: 'a', [pid(2)]: 'b' } })
     const response = await req('alice', 'PATCH', `/cards/${card.id}`, {
       title: 'New', icon: '✅', contentOrder: [cid(1), [cid(2)]],
@@ -136,7 +175,7 @@ describe('patching a card', () => {
 
 describe('deleting and restoring a card', () => {
   it('soft-deletes for an editor, hides it from reads, and restores it with values intact', async () => {
-    const board = await createBoard('alice', {})
+    const board = await createBoard('alice', { cardProperties: [{ id: pid(1), name: 'Text', type: 'text', options: [] }] })
     addMember(board.id, 'bob', 'editor')
     const card = await createCard('alice', board.id, { title: 'Doomed', values: { [pid(1)]: 'keep' } })
     expect((await req('bob', 'DELETE', `/cards/${card.id}`)).status).toBe(200)

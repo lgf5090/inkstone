@@ -1100,6 +1100,7 @@ function toAnswerVersion(r: AnswerVersionRow): AssistantAnswerVersion {
 }
 
 interface NewNotification {
+  id?: string
   title: string
   body: string
   automationId?: string | null
@@ -8153,7 +8154,7 @@ export class AssistantStore {
     statement: D1PreparedStatement
     notification: AssistantNotification
   } {
-    const id = newId()
+    const id = input.id ?? newId()
     const title = input.title.slice(0, 200)
     const body = input.body.slice(0, 8000)
     const link = (input.link ?? '').trim().slice(0, NOTIFICATION_LINK_MAX_CHARS) || null
@@ -8172,7 +8173,8 @@ export class AssistantStore {
         ).bind(this.userId, id, title, body, automationId, link, subscriptionId, at, guard.reminderId)
       : this.db.prepare(
           `INSERT INTO chat_notifications (id, user_id, title, body, automation_id, link, subscription_id, created_at)
-           VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+           VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)
+           ON CONFLICT(user_id, id) DO NOTHING`,
         ).bind(this.userId, id, title, body, automationId, link, subscriptionId, at)
     return {
       statement,

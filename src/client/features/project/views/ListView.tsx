@@ -6,7 +6,7 @@
  * click on the priority chip walks it to the next level — the two edits the reference's task list
  * lets you make without opening anything. Rows drag to reorder within their group.
  */
-import { memo, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
+import { memo, useCallback, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { Check, ChevronDown, ChevronRight, CornerDownRight, List, Plus, Trash2 } from 'lucide-react'
 import type { ProjectCard, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
@@ -23,9 +23,11 @@ import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { useEvent } from '../../../lib/hooks'
 import { CardBadges, OptionChip } from '../CardBadges'
 import { useProjectPeople } from '../people-context'
+import { useToday } from '../use-today'
 import { CardGrip, DropLine } from './card-face'
 import { QuickAdd, ViewHead, ViewShell } from './shell'
-import { useDragSort } from './use-drag-sort'
+import { useDragSort, type DragGeometry } from './use-drag-sort'
+import { useVirtualList, VIRTUAL_LIST_THRESHOLD } from '../../list/virtual-list'
 
 export interface ListProps {
   cards: ProjectCard[]
@@ -41,7 +43,23 @@ export interface ListProps {
   onDeleteCard: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onPatchFields: (fields: Partial<ProjectViewFields>) => void
+  onDragCards: (patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]) => Promise<void>
   onAddCard: (title: string, optionId: string) => Promise<void>
+}
+
+interface ListVirtualItem {
+  key: string
+  kind: 'header' | 'card' | 'empty' | 'add'
+  zone: string
+  card?: ProjectCard
+  index: number
+  count?: number
+}
+
+interface ListVirtualGroup {
+  key: string
+  start: number
+  end: number
 }
 
 interface ListRowApi {
@@ -58,6 +76,8 @@ interface ListRowApi {
   locale: string
   badgesFor: (cardId: string) => ProjectCardBadges
   onDragStart: (event: React.PointerEvent, id: string) => void
+  onDragKey: (event: React.KeyboardEvent, id: string) => void
+  keyboardDragId: string | null
   onCardContextMenu: (event: MouseEvent, card: ProjectCard) => void
   onToggleCardDone: (card: ProjectCard, done: boolean) => Promise<void>
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
@@ -93,8 +113,8 @@ const ListRow = memo(function ListRow({ card, child, api, expanded, renaming, dr
     <div>
       <div
         className="pv-list-row group"
-        data-drag-item=""
-        data-drag-id={card.id}
+        data-drag-item={child ? undefined : ''}
+        data-drag-id={child ? undefined : card.id}
         data-project-card={card.id}
         data-child={child}
         data-done={done}
@@ -102,7 +122,7 @@ const ListRow = memo(function ListRow({ card, child, api, expanded, renaming, dr
         style={{ paddingLeft: child ? '36px' : undefined }}
         onContextMenu={(event) => api.onCardContextMenu(event, card)}
       >
-        {api.canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => api.onDragStart(event, card.id)} />}
+        {!child && api.canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => api.onDragStart(event, card.id)} onKeyDown={(event) => api.onDragKey(event, card.id)} dragging={api.keyboardDragId === card.id} />}
         {!child && subtasks.length > 0
           ? (
             <IconButton
@@ -232,7 +252,7 @@ export function ListView(props: ListProps): ReactElement {
   const [renaming, setRenaming] = useState<{ id: string, value: string } | null>(null)
   const [columnsOpen, setColumnsOpen] = useState(false)
   const columnsAnchor = useRef<HTMLButtonElement>(null)
-  const today = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
+  const today = useToday()
   const priorityProperty = useMemo(() => projectPriorityProperty(properties), [properties])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const dateProperty = useMemo(() => properties.find((property) => property.type === 'date'), [properties])
@@ -258,24 +278,69 @@ export function ListView(props: ListProps): ReactElement {
   const entries = useMemo<[string, ProjectCard[]][]>(() => groupProperty
     ? projectGroupKeys(roots, fields.groupById, properties).map((key) => [key, groups.get(key) ?? []])
     : [...groups.entries()], [groupProperty, groups, roots, fields.groupById, properties])
+  const { items: virtualItems, groups: virtualGroups } = useMemo(() => {
+    const items: ListVirtualItem[] = []
+    const groups: ListVirtualGroup[] = []
+    for (const [key, list] of entries) {
+      const start = items.length
+      if (fields.groupById) items.push({ key: `${key}:header`, kind: 'header', zone: key, index: 0, count: list.length })
+      for (const [index, card] of list.entries()) items.push({ key: card.id, kind: 'card', zone: key, card, index })
+      if (!list.length) items.push({ key: `${key}:empty`, kind: 'empty', zone: key, index: 0 })
+      if (canEdit) items.push({ key: `${key}:add`, kind: 'add', zone: key, index: list.length })
+      groups.push({ key, start, end: items.length })
+    }
+    return { items, groups }
+  }, [entries, fields.groupById, canEdit])
+  const virtualized = virtualItems.length > VIRTUAL_LIST_THRESHOLD
+  const estimateRow = useCallback((index: number): number => {
+    const kind = virtualItems[index]?.kind
+    return kind === 'header' ? 36 : kind === 'add' ? 52 : kind === 'empty' ? 64 : 56
+  }, [virtualItems])
+  const virtualResetKey = `${fields.groupById}:${entries.map(([key, list]) => `${key}:${list.length}`).join('|')}`
+  const virtual = useVirtualList(virtualized ? virtualItems.length : 0, estimateRow, virtualized ? virtualResetKey : 'list')
+  const dragGeometry = useCallback((): DragGeometry => {
+    const root = virtual.containerRef.current
+    if (!root) return { zones: [], items: new Map(), viewport: true }
+    const rect = root.getBoundingClientRect()
+    const zones = virtualGroups.map((group) => ({
+      key: group.key,
+      left: rect.left,
+      right: rect.right,
+      top: rect.top + (virtual.offsets[group.start] ?? 0) - root.scrollTop,
+      bottom: rect.top + (virtual.offsets[group.end] ?? 0) - root.scrollTop,
+    }))
+    const items = new Map<string, { id: string, top: number, height: number }[]>()
+    for (const group of virtualGroups) {
+      const entriesForGroup: { id: string, top: number, height: number }[] = []
+      for (let index = group.start; index < group.end; index += 1) {
+        const item = virtualItems[index]
+        if (item?.kind !== 'card' || !item.card) continue
+        entriesForGroup.push({
+          id: item.card.id,
+          top: rect.top + (virtual.offsets[index] ?? 0) - root.scrollTop,
+          height: (virtual.offsets[index + 1] ?? 0) - (virtual.offsets[index] ?? 0),
+        })
+      }
+      items.set(group.key, entriesForGroup)
+    }
+    return { zones, items, viewport: true }
+  }, [virtual.containerRef, virtual.offsets, virtualGroups, virtualItems])
 
   const drag = useDragSort({
     enabled: canEdit,
+    geometry: virtualized ? dragGeometry : undefined,
     onDrop: (cardId, target) => {
-      props.onPatchFields({
-        cardOrder: projectKanbanDropOrder({
-          columns: entries.map(([key, list]) => ({ key, cardIds: list.map((card) => card.id) })),
-          cardOrder: fields.cardOrder,
-          draggedIds: [cardId],
-          target,
-        }),
+      const cardOrder = projectKanbanDropOrder({
+        columns: entries.map(([key, list]) => ({ key, cardIds: list.map((card) => card.id) })),
+        cardOrder: fields.cardOrder,
+        draggedIds: [cardId],
+        target,
       })
-      if (groupProperty) {
-        const card = cards.find((entry) => entry.id === cardId)
-        if (card && (card.values[groupProperty.id] ?? '') !== target.zone) {
-          void props.onPatchCard(cardId, { values: { [groupProperty.id]: target.zone === '' ? null : target.zone } })
-        }
-      }
+      const card = cards.find((entry) => entry.id === cardId)
+      const patches = groupProperty && card && (card.values[groupProperty.id] ?? '') !== target.zone
+        ? [{ id: cardId, patch: { values: { [groupProperty.id]: target.zone === '' ? null : target.zone } } }]
+        : []
+      void props.onDragCards(patches, cardOrder)
     },
   })
 
@@ -310,6 +375,8 @@ export function ListView(props: ListProps): ReactElement {
     children, canEdit, canMarkDone, properties, priorityProperty, colorOf, dateProperty, shown, today, people, locale,
     badgesFor: props.badgesFor,
     onDragStart: drag.start,
+    onDragKey: drag.onKeyDown,
+    keyboardDragId: drag.keyboardDragId,
     onCardContextMenu: props.onCardContextMenu,
     onToggleCardDone: props.onToggleCardDone,
     onPatchCard: props.onPatchCard,
@@ -322,7 +389,7 @@ export function ListView(props: ListProps): ReactElement {
     onRenameCommit: commitRename,
     onRenameCancel: cancelRename,
     onCyclePriority: cyclePriority,
-  }), [children, canEdit, canMarkDone, properties, priorityProperty, colorOf, dateProperty, shown, today, people, locale, props.badgesFor, drag.start, props.onCardContextMenu, props.onToggleCardDone, props.onPatchCard, props.onOpenCard, props.onAddSubtask, props.onDeleteCard, toggleExpanded, openRename, changeRename, commitRename, cancelRename, cyclePriority])
+  }), [children, canEdit, canMarkDone, properties, priorityProperty, colorOf, dateProperty, shown, today, people, locale, props.badgesFor, drag.start, drag.onKeyDown, drag.keyboardDragId, props.onCardContextMenu, props.onToggleCardDone, props.onPatchCard, props.onOpenCard, props.onAddSubtask, props.onDeleteCard, toggleExpanded, openRename, changeRename, commitRename, cancelRename, cyclePriority])
 
   const columnItems: MenuItem[] = properties.map((property) => ({
     id: property.id,
@@ -335,6 +402,34 @@ export function ListView(props: ListProps): ReactElement {
     },
   }))
 
+  const renderVirtualItem = (item: ListVirtualItem): ReactElement => {
+    if (item.kind === 'header') return (
+      <h3 className="pv-list-group">
+        {groupProperty && item.zone !== '' && (groupProperty.type === 'select' || groupProperty.type === 'multiSelect')
+          ? <OptionChip property={groupProperty} value={item.zone} />
+          : <span>{item.zone === '' ? t('project.view.no_value') : projectGroupLabel(groupProperty, item.zone, people, locale)}</span>}
+        <span className="pv-head-count">{item.count}</span>
+      </h3>
+    )
+    if (item.kind === 'empty') return (
+      <>
+        <DropLine store={drag.overStore} zone={item.zone} index={0} />
+        <p className="px-3 py-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.view.empty_column')}</p>
+      </>
+    )
+    if (item.kind === 'add') return (
+      <div className="px-3 py-1">
+        <QuickAdd label={t('project.view.add_row')} onAdd={(title) => props.onAddCard(title, item.zone)} />
+      </div>
+    )
+    return (
+      <>
+        <ListRow card={item.card!} child={false} api={rowApi} expanded={expanded} renaming={renaming} draggingId={drag.draggingId} />
+        <DropLine store={drag.overStore} zone={item.zone} index={item.index + 1} />
+      </>
+    )
+  }
+
   return (
     <ViewShell data-view="list">
       <ViewHead icon={<List size={15} aria-hidden="true" />} title={t('project.view.list')} count={cards.length}>
@@ -343,8 +438,33 @@ export function ListView(props: ListProps): ReactElement {
         </IconButton>
         <Menu anchor={columnsAnchor} open={columnsOpen} onClose={() => setColumnsOpen(false)} items={columnItems} align="end" label={t('project.view.list_columns')} />
       </ViewHead>
-      <div className="pv-list pv-scroll" data-drag-root="" data-list="">
-        {entries.map(([key, list]) => (
+      <div ref={virtual.containerRef} className="pv-list pv-scroll" data-drag-root="" data-list="">
+        {virtualized ? (
+          <div className="relative" style={{ height: virtual.total }}>
+            {virtualGroups.filter((group) => group.end > virtual.start && group.start < virtual.end).map((group) => (
+              <section
+                key={group.key || 'all'}
+                data-drag-zone={group.key}
+                className="absolute inset-x-0"
+                style={{ top: virtual.offsets[group.start], height: (virtual.offsets[group.end] ?? 0) - (virtual.offsets[group.start] ?? 0) }}
+              >
+                {virtualItems.slice(Math.max(group.start, virtual.start), Math.min(group.end, virtual.end)).map((item, sliceIndex) => {
+                  const index = Math.max(group.start, virtual.start) + sliceIndex
+                  return (
+                    <div
+                      key={item.key}
+                      data-virtual-index={index}
+                      className="absolute inset-x-0"
+                      style={{ top: (virtual.offsets[index] ?? 0) - (virtual.offsets[group.start] ?? 0) }}
+                    >
+                      {renderVirtualItem(item)}
+                    </div>
+                  )
+                })}
+              </section>
+            ))}
+          </div>
+        ) : entries.map(([key, list]) => (
           <section key={key || 'all'} data-drag-zone={key}>
             {fields.groupById && (
               <h3 className="pv-list-group">

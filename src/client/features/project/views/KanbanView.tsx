@@ -6,10 +6,10 @@
  * order when it landed between two cards. The reference keeps those as one gesture; splitting them
  * made a reorder inside a column silently do nothing.
  */
-import { memo, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, EyeOff, GripVertical, MoreHorizontal, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ProjectCalculation, ProjectCard, ProjectProperty, ProjectViewFields } from '@shared/project/model'
-import { isProjectCardDone } from '@shared/project/model'
+import { isProjectCardDone, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import type { ProjectCardBadges } from '@shared/project/badges'
 import { calculationOptionsFor, computeProjectCalculation } from '@shared/project/calculations'
 import { projectCardColorResolver, projectOptionCssColor, PROJECT_OPTION_COLORS } from '@shared/project/option-color'
@@ -23,10 +23,12 @@ import { optionColorItems } from '../card-menu'
 import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { useEvent } from '../../../lib/hooks'
 import { useProjectPeople } from '../people-context'
+import { useToday } from '../use-today'
 import { QuickAdd, ViewShell } from './shell'
 import { CardFace, CardGrip, DropLine, SubtaskProgress, SubtaskRows } from './card-face'
-import { useDragSort, type DragDropTarget, type DragOverStore } from './use-drag-sort'
+import { useDragSort, type DragDropTarget, type DragGeometry, type DragOverStore } from './use-drag-sort'
 import { useBandDrag } from './use-band-drag'
+import { useVirtualList, VIRTUAL_LIST_THRESHOLD } from '../../list/virtual-list'
 
 export interface KanbanProps {
   cards: ProjectCard[]
@@ -42,6 +44,7 @@ export interface KanbanProps {
   onDeleteCard: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onPatchCards: (ids: readonly string[], values: Record<string, string | null>) => Promise<void>
+  onDragCards: (patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]) => Promise<void>
   onPatchFields: (fields: Partial<ProjectViewFields>) => void
   onAddCard: (title: string, optionId: string) => Promise<void>
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
@@ -55,6 +58,15 @@ export interface KanbanProps {
   onToggleCardDone: (card: ProjectCard, done: boolean) => Promise<void>
   onAddSubtask: (parentId: string) => Promise<void>
 }
+
+const KANBAN_CARD_GAP = 6
+
+interface KanbanColumnGeometry {
+  offsets: number[]
+  cardIds: string[]
+}
+
+type KanbanColumnGeometryProvider = () => KanbanColumnGeometry
 
 /** Column keys in the reader's order: the property's options, then any discovered value, then the ungrouped bucket. */
 export function kanbanColumnKeys(property: ProjectProperty | undefined, fields: ProjectViewFields, discovered: readonly string[] = []): string[] {
@@ -76,6 +88,7 @@ export function kanbanColumnKeys(property: ProjectProperty | undefined, fields: 
 export function KanbanView(props: KanbanProps): ReactElement {
   const { cards, properties, fields, canEdit, selected } = props
   const groupProperty = properties.find((property) => property.id === fields.groupById)
+  const writableGroup = Boolean(groupProperty && !PROJECT_PROPERTY_CAPABILITIES[groupProperty.type].readOnly)
   const groups = useMemo(() => groupProjectCards(cards, fields.groupById, properties), [cards, fields.groupById, properties])
   const keys = useMemo(
     () => kanbanColumnKeys(groupProperty, fields, [...groups.keys()].filter((key) => key !== '')),
@@ -96,12 +109,50 @@ export function KanbanView(props: KanbanProps): ReactElement {
     ? fields.visiblePropertyIds.map((id) => properties.find((property) => property.id === id)).filter((property): property is ProjectProperty => Boolean(property))
     : properties), [fields.visiblePropertyIds, properties])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
-  const todayStamp = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
+  const todayStamp = useToday()
+  const boardRef = useRef<HTMLDivElement>(null)
+  const columnGeometry = useRef(new Map<string, KanbanColumnGeometryProvider>())
+  const registerColumnGeometry = useCallback((key: string, provider: KanbanColumnGeometryProvider | null): (() => void) => {
+    if (provider) columnGeometry.current.set(key, provider)
+    else columnGeometry.current.delete(key)
+    return () => {
+      if (columnGeometry.current.get(key) === provider) columnGeometry.current.delete(key)
+    }
+  }, [])
+  const hasVirtualColumns = columns.some((column) => column.cards.length > VIRTUAL_LIST_THRESHOLD)
+  const dragGeometry = useCallback((): DragGeometry => {
+    const root = boardRef.current
+    if (!root) return { zones: [], items: new Map(), viewport: true }
+    const zones: DragGeometry['zones'][number][] = []
+    const items = new Map<string, { id: string, top: number, height: number }[]>()
+    for (const column of columns) {
+      const node = [...root.querySelectorAll<HTMLElement>('[data-kanban-column]')].find((entry) => entry.dataset.kanbanColumn === column.key)
+      const body = node?.querySelector<HTMLElement>('[data-drag-zone]')
+      if (!body) continue
+      const rect = body.getBoundingClientRect()
+      const paddingTop = Number.parseFloat(getComputedStyle(body).paddingTop) || 0
+      zones.push({ key: column.key, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom })
+      const provided = columnGeometry.current.get(column.key)?.()
+      if (provided) {
+        items.set(column.key, provided.cardIds.map((id, index) => ({
+          id,
+          top: rect.top + paddingTop - body.scrollTop + (provided.offsets[index] ?? 0),
+          height: (provided.offsets[index + 1] ?? 0) - (provided.offsets[index] ?? 0),
+        })))
+      } else {
+        items.set(column.key, [...body.querySelectorAll<HTMLElement>('[data-drag-item]:not([data-child="true"])')].map((entry) => {
+          const cardRect = entry.getBoundingClientRect()
+          return { id: entry.dataset.dragId ?? '', top: cardRect.top, height: cardRect.height }
+        }))
+      }
+    }
+    return { zones, items, viewport: true }
+  }, [columns])
 
   const onDrop = (cardId: string, target: DragDropTarget): void => {
     const bulk = selected.length > 1 && selectedSet.has(cardId)
     const draggedIds = bulk ? cards.filter((card) => selectedSet.has(card.id)).map((card) => card.id) : [cardId]
-    const moving = groupProperty
+    const moving = writableGroup && groupProperty
       ? draggedIds.filter((id) => {
           const card = cards.find((entry) => entry.id === id)
           return card && (card.values[groupProperty.id] ?? '') !== target.zone
@@ -121,14 +172,13 @@ export function KanbanView(props: KanbanProps): ReactElement {
       draggedIds,
       target,
     })
-    props.onPatchFields({ cardOrder: order })
-    if (!groupProperty || moving.length === 0) return
-    const values = { [groupProperty.id]: target.zone === '' ? null : target.zone }
-    if (moving.length === 1) void props.onPatchCard(moving[0]!, { values })
-    else void props.onPatchCards(moving, values)
+    const values = writableGroup && groupProperty ? { [groupProperty.id]: target.zone === '' ? null : target.zone } : {}
+    const patches = moving.map((id) => ({ id, patch: { values } }))
+    void props.onDragCards(patches, order)
   }
   const drag = useDragSort({
     enabled: canEdit,
+    geometry: hasVirtualColumns ? dragGeometry : undefined,
     groupOf: (id) => (selected.length > 1 && selectedSet.has(id) ? selected : [id]),
     onDrop,
   })
@@ -138,7 +188,6 @@ export function KanbanView(props: KanbanProps): ReactElement {
     setAddingGroup(true)
   }
   const [addingGroup, setAddingGroup] = useState(false)
-  const boardRef = useRef<HTMLDivElement>(null)
   const moveColumn = (source: string, target: string): void => {
     if (source === target) return
     // Dragging rightwards lands the column after the one it was dropped on; leftwards, before it.
@@ -171,6 +220,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
       {columns.map((column) => (
         <KanbanColumn
           key={column.key || 'none'}
+          registerColumnGeometry={registerColumnGeometry}
           {...props}
           columnKey={column.key}
           cards={column.cards}
@@ -179,9 +229,11 @@ export function KanbanView(props: KanbanProps): ReactElement {
           colorOf={colorOf}
           todayStamp={todayStamp}
           drag={drag}
-          dragColumn={columnDrag.draggingId}
+          dragColumn={columnDrag.draggingId === column.key ? column.key : null}
+          keyboardColumn={columnDrag.keyboardDragId === column.key ? column.key : null}
           overColumn={columnDrag.overId}
           onColumnDragStart={(event) => columnDrag.start(event, column.key)}
+          onColumnKeyDown={(event) => columnDrag.onKeyDown(event, column.key)}
           selectedSet={selectedSet}
           starredSet={starredSet}
           pinnedSet={pinnedSet}
@@ -216,7 +268,7 @@ export function KanbanView(props: KanbanProps): ReactElement {
   )
 }
 
-function KanbanColumn({ columnKey, cards, groupProperty, properties, chipProperties, fields, colorOf, todayStamp, drag, dragColumn, overColumn, onColumnDragStart, ...props }: KanbanProps & {
+function KanbanColumn({ columnKey, cards, groupProperty, properties, chipProperties, fields, colorOf, todayStamp, drag, dragColumn, keyboardColumn, overColumn, onColumnDragStart, onColumnKeyDown, registerColumnGeometry, ...props }: KanbanProps & {
   columnKey: string
   cards: ProjectCard[]
   groupProperty: ProjectProperty | undefined
@@ -225,8 +277,11 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
   todayStamp: number
   drag: ReturnType<typeof useDragSort>
   dragColumn: string | null
+  keyboardColumn: string | null
   overColumn: string | null
   onColumnDragStart: (event: React.PointerEvent) => void
+  onColumnKeyDown: (event: React.KeyboardEvent) => void
+  registerColumnGeometry: (key: string, provider: KanbanColumnGeometryProvider | null) => () => void
   selectedSet: ReadonlySet<string>
   starredSet: ReadonlySet<string>
   pinnedSet: ReadonlySet<string>
@@ -243,6 +298,13 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
   const calcProperty = groupProperty ?? properties[0]
   const wip = fields.wipLimits?.[columnKey]
   const count = calcProperty ? computeProjectCalculation(cards, calcProperty, calc) : cards.length
+  const virtualized = cards.length > VIRTUAL_LIST_THRESHOLD
+  const estimateCard = useCallback((): number => (fields.boardLayout === 'card' ? 188 : fields.cardSize === 'compact' ? 72 : fields.cardSize === 'spacious' ? 128 : 96) + KANBAN_CARD_GAP, [fields.boardLayout, fields.cardSize])
+  const virtual = useVirtualList(virtualized ? cards.length : 0, estimateCard, virtualized ? `${columnKey}:${cards.length}:${fields.boardLayout}:${fields.cardSize}` : 'kanban')
+  useEffect(() => registerColumnGeometry(columnKey, virtualized ? () => ({
+    offsets: virtual.offsets,
+    cardIds: cards.map((card) => card.id),
+  }) : null), [registerColumnGeometry, columnKey, virtualized, virtual.offsets, cards])
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(label)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
@@ -287,6 +349,41 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
     const value = draft.trim()
     if (value && value !== label && groupProperty && columnKey !== '') await props.onRenameGroupOption(groupProperty.id, columnKey, value)
   }
+  const renderCard = (card: ProjectCard, index: number): ReactElement => (
+    <KanbanCard
+      key={card.id}
+      card={card}
+      index={index}
+      columnKey={columnKey}
+      overStore={drag.overStore}
+      fields={fields}
+      properties={properties}
+      chipProperties={chipProperties}
+      colorOf={colorOf}
+      todayStamp={todayStamp}
+      subtasksByParent={subtasksByParent}
+      selected={selectedSet.has(card.id)}
+      starred={starredSet.has(card.id)}
+      pinned={pinnedSet.has(card.id)}
+      dragging={drag.draggingId === card.id}
+      keyboardDragging={drag.keyboardDragId === card.id}
+      isOpen={expanded.has(card.id)}
+      canEdit={canEdit}
+      canMarkDone={canMarkDone}
+      badges={props.badgesFor(card.id)}
+      cover={props.coverFor?.(card.id) ?? null}
+      description={props.descriptionFor(card.id)}
+      onSelectClick={props.onSelectClick}
+      onDeleteCard={props.onDeleteCard}
+      onCardContextMenu={props.onCardContextMenu}
+      onOpenCard={props.onOpenCard}
+      onToggleCardDone={props.onToggleCardDone}
+      onAddSubtask={props.onAddSubtask}
+      onToggleExpanded={toggleExpanded}
+      onDragStart={drag.start}
+      onDragKey={drag.onKeyDown}
+    />
+  )
 
   return (
     <section
@@ -320,9 +417,10 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
               color={color}
               canEdit={canEdit && Boolean(groupProperty) && columnKey !== ''}
               hideable={canEdit && Boolean(groupProperty) && columnKey !== ''}
-              dragging={dragColumn === columnKey}
-              dropTarget={overColumn === columnKey && dragColumn !== columnKey}
+              dragging={dragColumn === columnKey || keyboardColumn === columnKey}
+              dropTarget={overColumn === columnKey && dragColumn !== columnKey && keyboardColumn !== columnKey}
               onGripDown={onColumnDragStart}
+              onGripKey={onColumnKeyDown}
               calc={calc}
               calcOptions={calcProperty ? calculationOptionsFor(calcProperty) : []}
               wip={wip}
@@ -347,41 +445,29 @@ function KanbanColumn({ columnKey, cards, groupProperty, properties, chipPropert
                 <QuickAdd alwaysOpen label={t('project.board.new_card')} placeholder={t('project.view.add_card_inline')} onAdd={(title) => props.onAddCard(title, columnKey)} />
               </div>
             )}
-            <div className="pv-col-body pv-scroll" data-drag-zone={columnKey}>
-              {cards.length === 0 && <p className="pv-col-empty">{t('project.view.drop_here')}</p>}
-              {cards.map((card, index) => (
-                <KanbanCard
-                  key={card.id}
-                  card={card}
-                  index={index}
-                  columnKey={columnKey}
-                  overStore={drag.overStore}
-                  fields={fields}
-                  properties={properties}
-                  chipProperties={chipProperties}
-                  colorOf={colorOf}
-                  todayStamp={todayStamp}
-                  subtasksByParent={subtasksByParent}
-                  selected={selectedSet.has(card.id)}
-                  starred={starredSet.has(card.id)}
-                  pinned={pinnedSet.has(card.id)}
-                  dragging={drag.draggingId === card.id}
-                  isOpen={expanded.has(card.id)}
-                  canEdit={canEdit}
-                  canMarkDone={canMarkDone}
-                  badges={props.badgesFor(card.id)}
-                  cover={props.coverFor?.(card.id) ?? null}
-                  description={props.descriptionFor(card.id)}
-                  onSelectClick={props.onSelectClick}
-                  onDeleteCard={props.onDeleteCard}
-                  onCardContextMenu={props.onCardContextMenu}
-                  onOpenCard={props.onOpenCard}
-                  onToggleCardDone={props.onToggleCardDone}
-                  onAddSubtask={props.onAddSubtask}
-                  onToggleExpanded={toggleExpanded}
-                  onDragStart={drag.start}
-                />
-              ))}
+            <div ref={virtual.containerRef} className="pv-col-body pv-scroll" data-drag-zone={columnKey}>
+              {virtualized ? (
+                <div className="relative shrink-0" style={{ height: virtual.total }}>
+                  {cards.slice(virtual.start, virtual.end).map((card, sliceIndex) => {
+                    const index = virtual.start + sliceIndex
+                    return (
+                      <div
+                        key={card.id}
+                        data-virtual-index={index}
+                        className="absolute inset-x-0"
+                        style={{ top: virtual.offsets[index], paddingBottom: index === cards.length - 1 ? undefined : 'var(--sp-1-5)' }}
+                      >
+                        {renderCard(card, index)}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <>
+                  {cards.length === 0 && <p className="pv-col-empty">{t('project.view.drop_here')}</p>}
+                  {cards.map(renderCard)}
+                </>
+              )}
               <DropLine store={drag.overStore} zone={columnKey} index={cards.length} />
             </div>
           </>
@@ -422,9 +508,11 @@ interface KanbanCardProps {
   onAddSubtask: (parentId: string) => Promise<void>
   onToggleExpanded: (cardId: string) => void
   onDragStart: (event: React.PointerEvent, id: string) => void
+  onDragKey: (event: React.KeyboardEvent, id: string) => void
+  keyboardDragging: boolean
 }
 
-const KanbanCard = memo(function KanbanCard({ card, index, columnKey, overStore, fields, properties, chipProperties, colorOf, todayStamp, subtasksByParent, selected, starred, pinned, dragging, isOpen, canEdit, canMarkDone, badges, cover, description, onSelectClick, onDeleteCard, onCardContextMenu, onOpenCard, onToggleCardDone, onAddSubtask, onToggleExpanded, onDragStart }: KanbanCardProps): ReactElement {
+const KanbanCard = memo(function KanbanCard({ card, index, columnKey, overStore, fields, properties, chipProperties, colorOf, todayStamp, subtasksByParent, selected, starred, pinned, dragging, keyboardDragging, isOpen, canEdit, canMarkDone, badges, cover, description, onSelectClick, onDeleteCard, onCardContextMenu, onOpenCard, onToggleCardDone, onAddSubtask, onToggleExpanded, onDragStart, onDragKey }: KanbanCardProps): ReactElement {
   const subtasks = subtasksByParent.get(card.id) ?? []
   const done = subtasks.filter((entry) => isProjectCardDone(entry, properties)).length
   const layout = fields.boardLayout ?? 'compact'
@@ -477,7 +565,7 @@ const KanbanCard = memo(function KanbanCard({ card, index, columnKey, overStore,
               <Trash2 size={12} />
             </IconButton>
           )}
-          {canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => onDragStart(event, card.id)} />}
+          {canEdit && <CardGrip label={t('project.view.drag_card', { title: card.title || t('project.board.untitled_card') })} onPointerDown={(event) => onDragStart(event, card.id)} onKeyDown={(event) => onDragKey(event, card.id)} dragging={keyboardDragging} />}
         </CardFace>
         {subtasks.length > 0 && (
           <>
@@ -518,7 +606,7 @@ const KanbanCard = memo(function KanbanCard({ card, index, columnKey, overStore,
  * The name is a button so a double click renames the option itself — the column and every card wearing
  * that option change together, which is what renaming a status means.
  */
-function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, calcOptions, wip, renaming, draft, dragging, dropTarget, onGripDown, onDraft, onRename, onCommit, onCancelRename, onCollapse, onCalc, onWip, onHide }: {
+function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, calcOptions, wip, renaming, draft, dragging, dropTarget, onGripDown, onGripKey, onDraft, onRename, onCommit, onCancelRename, onCollapse, onCalc, onWip, onHide }: {
   label: string
   count: string | number
   overLimit: boolean
@@ -533,6 +621,7 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
   dragging: boolean
   dropTarget: boolean
   onGripDown: (event: React.PointerEvent) => void
+  onGripKey: (event: React.KeyboardEvent) => void
   onDraft: (value: string) => void
   onRename: () => void
   onCommit: () => void
@@ -567,9 +656,12 @@ function ColumnHead({ label, count, overLimit, color, canEdit, hideable, calc, c
           className="pv-col-grip"
           data-column-grip={label}
           aria-label={t('project.view.drag_column', { title: label })}
+          aria-pressed={dragging}
           onPointerDown={onGripDown}
+          onKeyDown={onGripKey}
         >
           <GripVertical size={12} aria-hidden="true" />
+          <span className="sr-only">{t('project.view.keyboard_drag_help')}</span>
         </button>
       )}
       <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />

@@ -26,6 +26,7 @@ interface SprintViewProps {
   boardId: string
   cards: ProjectCard[]
   canEdit: boolean
+  publicView?: boolean
   onOpenCard: (id: string) => void
 }
 
@@ -98,7 +99,7 @@ function Burndown({ burndown }: { burndown: ProjectSprintBurndown }): ReactEleme
   )
 }
 
-export function SprintView({ boardId, cards, canEdit, onOpenCard }: SprintViewProps): ReactElement {
+export function SprintView({ boardId, cards, canEdit, publicView = false, onOpenCard }: SprintViewProps): ReactElement {
   const [sprints, setSprints] = useState<{ id: string, name: string }[]>([])
   const [activeId, setActiveId] = useState('')
   const [detail, setDetail] = useState<ProjectSprintDetail | null>(null)
@@ -113,6 +114,12 @@ export function SprintView({ boardId, cards, canEdit, onOpenCard }: SprintViewPr
 
   useEffect(() => {
     let alive = true
+    if (publicView) {
+      setSprints([])
+      setActiveId('')
+      setStatus('ready')
+      return () => { alive = false }
+    }
     setStatus('loading')
     fetchProjectSprints(boardId)
       .then((list) => {
@@ -127,16 +134,16 @@ export function SprintView({ boardId, cards, canEdit, onOpenCard }: SprintViewPr
         describeFailure(reason)
       })
     return () => { alive = false }
-  }, [boardId, reload])
+  }, [boardId, reload, publicView])
 
   useEffect(() => {
-    if (!activeId) { setDetail(null); return }
+    if (publicView || !activeId) { setDetail(null); return }
     let alive = true
     fetchProjectSprintDetail(boardId, activeId)
       .then((value) => { if (alive) setDetail(value) })
       .catch((reason: unknown) => { if (alive) describeFailure(reason) })
     return () => { alive = false }
-  }, [boardId, activeId, reload])
+  }, [boardId, activeId, reload, publicView])
 
   const create = async () => {
     const startAt = dateStamp(start)

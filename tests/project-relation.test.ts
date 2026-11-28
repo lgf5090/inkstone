@@ -67,6 +67,12 @@ async function bundle(account: string, boardId: string): Promise<ProjectBoardBun
   return (await response.json()) as ProjectBoardBundle
 }
 
+async function propertyRevision(boardId: string): Promise<number> {
+  const response = await req('alice', 'GET', `/boards/${boardId}`)
+  expect(response.status).toBe(200)
+  return ((await response.json()) as { propertyRevision: number }).propertyRevision
+}
+
 async function setup(): Promise<{ boardA: ProjectBoard, boardB: ProjectBoard, relationId: string, target: ProjectCard }> {
   const boardB = await createBoard('alice', { title: 'Targets' })
   const target = await createCard('alice', boardB.id, {})
@@ -74,6 +80,7 @@ async function setup(): Promise<{ boardA: ProjectBoard, boardB: ProjectBoard, re
   const relationId = pid(1)
   const patched = await req('alice', 'PATCH', `/boards/${boardA.id}`, {
     updatedCardProperties: [{ id: relationId, name: 'Link', type: 'relation', options: [], config: { targetBoardId: boardB.id } }],
+    propertyRevision: await propertyRevision(boardA.id),
   })
   expect(patched.status, await patched.clone().text()).toBe(200)
   sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
@@ -105,6 +112,40 @@ describe('the relation property', () => {
     expect(body.references[0]).toMatchObject({ fromCardId: card.id, title: 'Linked', visible: true })
   })
 
+  it('omits invisible backreferences instead of returning their ids', async () => {
+    const { boardA, boardB, relationId, target } = await setup()
+    await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
+    sqlite.prepare('DELETE FROM project_board_members WHERE board_id = ? AND user_id = ?').run(boardA.id, 'bob')
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)').run(boardB.id, 'bob', 'viewer')
+    const response = await req('bob', 'GET', `/cards/${target.id}/relations`)
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(((await response.json()) as { references: unknown[] }).references).toEqual([])
+  })
+
+  it('omits backreferences whose relation property is hidden from the viewer', async () => {
+    const { boardA, boardB, relationId, target } = await setup()
+    await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(boardB.id, 'bob', 'viewer')
+    sqlite.prepare(
+      `INSERT INTO project_property_configs (board_id, property_id, config, updated_at)
+       VALUES (?1, ?2, ?3, 1)
+       ON CONFLICT(board_id, property_id) DO UPDATE SET config = excluded.config`,
+    ).run(boardA.id, relationId, JSON.stringify({ targetBoardId: boardB.id, viewRoles: ['admin'] }))
+    const response = await req('bob', 'GET', `/cards/${target.id}/relations`)
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(((await response.json()) as { references: unknown[] }).references).toEqual([])
+  })
+
+  it('applies relation redaction to a single-card page read', async () => {
+    const { boardA, boardB, relationId, target } = await setup()
+    const source = await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
+    const response = await req('bob', 'GET', `/boards/${boardA.id}/cards/${source.id}`)
+    expect(response.status, await response.clone().text()).toBe(200)
+    const card = ((await response.json()) as { card: ProjectCard }).card
+    expect(card.values[relationId]).toBe('')
+  })
+
   it('returns a null placeholder and no target titles when the target board is hidden', async () => {
     const { boardA, boardB, relationId, target } = await setup()
     await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
@@ -125,17 +166,22 @@ describe('the relation property', () => {
     expect(relationRows()).toHaveLength(0)
   })
 
-  it('clears relation edges when a card is deleted', async () => {
+  it('preserves relation edges through soft delete and restores their visibility', async () => {
     const { boardA, relationId, target } = await setup()
     const card = await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
     expect((await req('alice', 'DELETE', `/cards/${card.id}`)).status).toBe(200)
-    expect(relationRows()).toHaveLength(0)
+    expect(relationRows()).toHaveLength(1)
+    const hidden = await req('alice', 'GET', `/cards/${target.id}/relations`)
+    expect(((await hidden.json()) as { references: unknown[] }).references).toEqual([])
+    expect((await req('alice', 'POST', `/cards/${card.id}/undelete`)).status).toBe(200)
+    const restored = await req('alice', 'GET', `/cards/${target.id}/relations`)
+    expect(((await restored.json()) as { references: unknown[] }).references).toHaveLength(1)
   })
 
   it('clears relation edges when the property is deleted', async () => {
     const { boardA, relationId, target } = await setup()
     await createCard('alice', boardA.id, { [relationId]: JSON.stringify([target.id]) })
-    const response = await req('alice', 'PATCH', `/boards/${boardA.id}`, { deletedCardProperties: [relationId] })
+    const response = await req('alice', 'PATCH', `/boards/${boardA.id}`, { deletedCardProperties: [relationId], propertyRevision: await propertyRevision(boardA.id) })
     expect(response.status, await response.clone().text()).toBe(200)
     expect(relationRows()).toHaveLength(0)
   })
@@ -145,6 +191,7 @@ describe('the relation property', () => {
     const relationId = pid(1)
     const patched = await req('alice', 'PATCH', `/boards/${board.id}`, {
       updatedCardProperties: [{ id: relationId, name: 'Peer', type: 'relation', options: [], config: { targetBoardId: board.id } }],
+      propertyRevision: await propertyRevision(board.id),
     })
     expect(patched.status, await patched.clone().text()).toBe(200)
     const first = await createCard('alice', board.id, {})

@@ -1,16 +1,19 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import type { ProjectAutomation, ProjectAutomationAction, ProjectAutomationCondition } from '@shared/project/automation'
+import type { ProjectProperty } from '@shared/project/model'
+import { PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
 import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Input } from '../../components/form'
 import { SelectMenu } from '../../components/select-menu'
-import { Modal } from '../../components/overlay'
+import { confirm, Modal } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { createProjectAutomation, deleteProjectAutomation, fetchProjectAutomations, patchProjectAutomation } from './api'
 
 interface AutomationsDialogProps {
   boardId: string
+  properties: readonly ProjectProperty[]
   onClose: () => void
 }
 
@@ -18,8 +21,10 @@ function describeFailure(reason: unknown): void {
   useUi.getState().toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
 }
 
-export function AutomationsDialog({ boardId, onClose }: AutomationsDialogProps): ReactElement {
-  const [rules, setRules] = useState<ProjectAutomation[]>([])
+export function AutomationsDialog({ boardId, properties, onClose }: AutomationsDialogProps): ReactElement {
+  const [rules, setRules] = useState<ProjectAutomation[] | null>(null)
+  const [error, setError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const [actionType, setActionType] = useState<'setValue' | 'notify'>('setValue')
   const [propertyId, setPropertyId] = useState('')
   const [value, setValue] = useState('')
@@ -28,14 +33,50 @@ export function AutomationsDialog({ boardId, onClose }: AutomationsDialogProps):
   const [conditionValue, setConditionValue] = useState('')
   const [enabled, setEnabled] = useState(true)
   const [busy, setBusy] = useState(false)
+  const actionProperties = properties.filter((property) => !PROJECT_PROPERTY_CAPABILITIES[property.type].readOnly)
+  const actionProperty = actionProperties.find((property) => property.id === propertyId)
+  const conditionProperty = properties.find((property) => property.id === conditionPropertyId)
+
+  const valueEditor = (property: ProjectProperty | undefined, current: string, label: string, change: (value: string) => void): ReactElement => {
+    if (property?.type === 'select') {
+      return (
+        <SelectMenu
+          className="w-full"
+          value={current}
+          label={label}
+          onChange={change}
+          options={[{ value: '', label: t('project.value.empty') }, ...property.options.map((option) => ({ value: option.id, label: option.value }))]}
+        />
+      )
+    }
+    if (property?.type === 'checkbox') {
+      return <Checkbox label={label} checked={current === 'true'} onChange={(checked) => change(checked ? 'true' : 'false')} />
+    }
+    return <Input className="w-full" value={current} placeholder={label} aria-label={label} onChange={(event) => change(event.target.value)} />
+  }
+
+  const ruleSummary = (rule: ProjectAutomation): string => {
+    const conditionProperty = properties.find((entry) => entry.id === rule.condition?.propertyId)
+    const conditionValue = conditionProperty?.options.find((option) => option.id === rule.condition?.value)?.value ?? rule.condition?.value ?? ''
+    const condition = rule.condition ? `${conditionProperty?.name ?? rule.condition.propertyId} = ${conditionValue}` : ''
+    const action = rule.action
+    if (action.type === 'setValue') {
+      const property = properties.find((entry) => entry.id === action.propertyId)
+      const value = property?.options.find((option) => option.id === action.value)?.value ?? action.value
+      return `${property?.name ?? action.propertyId} = ${value}${condition ? ` · ${condition}` : ''}`
+    }
+    return `${action.message}${condition ? ` · ${condition}` : ''}`
+  }
 
   useEffect(() => {
     let alive = true
+    setRules(null)
+    setError(false)
     fetchProjectAutomations(boardId)
       .then((list) => { if (alive) setRules(list) })
-      .catch(() => { if (alive) setRules([]) })
+      .catch(() => { if (alive) setError(true) })
     return () => { alive = false }
-  }, [boardId])
+  }, [boardId, attempt])
 
   const add = async () => {
     const action: ProjectAutomationAction = actionType === 'setValue'
@@ -52,7 +93,7 @@ export function AutomationsDialog({ boardId, onClose }: AutomationsDialogProps):
         action,
         enabled,
       })
-      setRules((current) => [...current, created])
+      setRules((current) => [...(current ?? []), created])
     } catch (reason) {
       describeFailure(reason)
     } finally {
@@ -61,9 +102,11 @@ export function AutomationsDialog({ boardId, onClose }: AutomationsDialogProps):
   }
 
   const remove = async (id: string) => {
+    const ok = await confirm({ title: t('project.automations.delete'), tone: 'danger', confirmLabel: t('common.delete') })
+    if (!ok) return
     try {
       await deleteProjectAutomation(boardId, id)
-      setRules((current) => current.filter((rule) => rule.id !== id))
+      setRules((current) => (current ?? []).filter((rule) => rule.id !== id))
     } catch (reason) {
       describeFailure(reason)
     }
@@ -72,7 +115,7 @@ export function AutomationsDialog({ boardId, onClose }: AutomationsDialogProps):
   const toggle = async (rule: ProjectAutomation) => {
     try {
       const updated = await patchProjectAutomation(boardId, rule.id, { enabled: !rule.enabled })
-      setRules((current) => current.map((entry) => (entry.id === rule.id ? updated : entry)))
+      setRules((current) => (current ?? []).map((entry) => (entry.id === rule.id ? updated : entry)))
     } catch (reason) {
       describeFailure(reason)
     }
@@ -87,12 +130,23 @@ export function AutomationsDialog({ boardId, onClose }: AutomationsDialogProps):
       footer={<Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>}
     >
       <div className="space-y-3">
-        {rules.length === 0 && <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.automations.empty')}</p>}
-        {rules.map((rule) => (
+        {error
+          ? (
+              <div role="alert" className="flex flex-wrap items-center gap-2 text-[length:var(--text-12)] text-[var(--danger)]">
+                {t('project.common.load_failed')}
+                <Button size="sm" variant="ghost" onClick={() => setAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+              </div>
+            )
+          : rules === null
+            ? <p role="status" className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('common.loading')}</p>
+            : rules.length === 0
+              ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.automations.empty')}</p>
+              : null}
+        {(rules ?? []).map((rule) => (
           <div key={rule.id} className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
             <Checkbox ariaLabel={t('project.automations.enabled')} checked={rule.enabled} onChange={() => void toggle(rule)} />
             <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-secondary)]">
-              {rule.action.type === 'setValue' ? t('project.automations.action_set') : t('project.automations.action_notify')}
+              {ruleSummary(rule)}
             </span>
             <IconButton label={t('common.delete')} size="sm" onClick={() => void remove(rule.id)}><Trash2 size={14} /></IconButton>
           </div>
@@ -110,17 +164,29 @@ export function AutomationsDialog({ boardId, onClose }: AutomationsDialogProps):
           />
           {actionType === 'setValue' ? (
             <>
-              <Input className="w-full" value={propertyId} placeholder={t('project.automations.property')} aria-label={t('project.automations.property')} onChange={(event) => setPropertyId(event.target.value)} />
-              <Input className="w-full" value={value} placeholder={t('project.automations.value')} aria-label={t('project.automations.value')} onChange={(event) => setValue(event.target.value)} />
+              <SelectMenu
+                className="w-full"
+                value={propertyId}
+                label={t('project.automations.property')}
+                onChange={(next) => { setPropertyId(next); setValue('') }}
+                options={[{ value: '', label: t('project.automations.property') }, ...actionProperties.map((property) => ({ value: property.id, label: property.name }))]}
+              />
+              {valueEditor(actionProperty, value, t('project.automations.value'), setValue)}
             </>
           ) : (
             <Input className="w-full" value={message} placeholder={t('project.automations.message')} aria-label={t('project.automations.message')} onChange={(event) => setMessage(event.target.value)} />
           )}
           <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('project.automations.condition')}</p>
-          <Input className="w-full" value={conditionPropertyId} placeholder={t('project.automations.property')} aria-label={t('project.automations.property')} onChange={(event) => setConditionPropertyId(event.target.value)} />
-          <Input className="w-full" value={conditionValue} placeholder={t('project.automations.value')} aria-label={t('project.automations.value')} onChange={(event) => setConditionValue(event.target.value)} />
+          <SelectMenu
+            className="w-full"
+            value={conditionPropertyId}
+            label={t('project.automations.property')}
+            onChange={(next) => { setConditionPropertyId(next); setConditionValue('') }}
+            options={[{ value: '', label: t('project.automations.condition') }, ...properties.map((property) => ({ value: property.id, label: property.name }))]}
+          />
+          {valueEditor(conditionProperty, conditionValue, t('project.automations.value'), setConditionValue)}
           <Checkbox label={t('project.automations.enabled')} checked={enabled} onChange={setEnabled} />
-          <Button size="sm" variant="primary" icon={<Plus size={14} />} disabled={busy} onClick={() => void add()}>{t('project.automations.add')}</Button>
+          <Button size="sm" variant="primary" icon={<Plus size={14} />} disabled={busy || rules === null || error || (actionType === 'setValue' && !propertyId)} onClick={() => void add()}>{t('project.automations.add')}</Button>
         </div>
       </div>
     </Modal>

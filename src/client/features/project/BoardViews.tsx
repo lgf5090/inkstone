@@ -5,7 +5,7 @@
  * reader who switches tabs is looking at the same set. What a view does with them — columns, cells,
  * bars, tiles — is the view's own business.
  */
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ArrowUpDown, BarChart3, Calendar, CalendarRange, Clock, Copy, Download, Eye, Filter, FolderOpen, LayoutDashboard, LayoutGrid, List, MoreHorizontal, Pencil, Plus, RotateCcw, SquareKanban, Table, Target, Trash2, type LucideIcon } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields, ProjectViewPatch, ProjectViewType } from '@shared/project/model'
 import { emptyProjectViewFields, projectCanMarkDone, projectDonePatch, projectViewPropertyId, PROJECT_PROPERTY_CAPABILITIES } from '@shared/project/model'
@@ -16,6 +16,7 @@ import { t, useLocale } from '../../lib/i18n'
 import { useEvent } from '../../lib/hooks'
 import { isImeComposing } from '../../lib/ime'
 import { useUi } from '../../store/ui'
+import { useSession } from '../../store/session'
 import { useProjectStore } from './store'
 import { Button, IconButton } from '../../components/primitives'
 import { Input } from '../../components/form'
@@ -28,19 +29,21 @@ import { ProjectPeopleProvider, useProjectPeople } from './people-context'
 import { readPinnedCardsPref, readStarredCardsPref, writePinnedCardsPref, writeStarredCardsPref } from './project-prefs'
 import { Seg } from './views/shell'
 import { batchDeleteProjectBoard, batchPatchProjectBoard, createProjectCard, duplicateProjectCard, fetchBoardDefaultView, fetchBoardLinks, fetchProjectCardMarks, moveProjectCard, projectBoardExportUrl, projectFileUrl, saveBoardDefaultView, saveProjectCardMarks } from './api'
-import { KanbanView } from './views/KanbanView'
-import { TableView } from './views/TableView'
-import { GalleryView } from './views/GalleryView'
-import { CalendarView } from './views/CalendarView'
-import { ListView } from './views/ListView'
-import { TimelineView } from './views/TimelineView'
-import { GanttView } from './views/GanttView'
-import { ChartView } from './views/ChartView'
-import { DashboardView } from './views/DashboardView'
-import { CollectionView } from './views/CollectionView'
-import { SprintView } from './views/SprintView'
+import { LoadingBlock } from '../../components/feedback'
 import { ViewEmpty } from './views/shell'
 import { BatchEditDialog } from './BatchEditDialog'
+
+const KanbanView = lazy(() => import('./views/KanbanView').then((module) => ({ default: module.KanbanView })))
+const TableView = lazy(() => import('./views/TableView').then((module) => ({ default: module.TableView })))
+const GalleryView = lazy(() => import('./views/GalleryView').then((module) => ({ default: module.GalleryView })))
+const CalendarView = lazy(() => import('./views/CalendarView').then((module) => ({ default: module.CalendarView })))
+const ListView = lazy(() => import('./views/ListView').then((module) => ({ default: module.ListView })))
+const TimelineView = lazy(() => import('./views/TimelineView').then((module) => ({ default: module.TimelineView })))
+const GanttView = lazy(() => import('./views/GanttView').then((module) => ({ default: module.GanttView })))
+const ChartView = lazy(() => import('./views/ChartView').then((module) => ({ default: module.ChartView })))
+const DashboardView = lazy(() => import('./views/DashboardView').then((module) => ({ default: module.DashboardView })))
+const CollectionView = lazy(() => import('./views/CollectionView').then((module) => ({ default: module.CollectionView })))
+const SprintView = lazy(() => import('./views/SprintView').then((module) => ({ default: module.SprintView })))
 
 const VIEW_LABEL: Record<string, Parameters<typeof t>[0]> = {
   board: 'project.view.board',
@@ -117,6 +120,7 @@ interface BoardViewsProps {
   onActiveViewChange: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onPatchCardsBatch?: (patches: { id: string, patch: Record<string, unknown> }[]) => Promise<void>
+  onDragCards?: (patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]) => Promise<void>
   onAddGroupOption: (propertyId: string, value: string) => Promise<void>
   onRenameGroupOption: (propertyId: string, optionId: string, value: string) => Promise<void>
   onSetGroupOptionColor: (propertyId: string, optionId: string, color: string) => Promise<void>
@@ -124,9 +128,11 @@ interface BoardViewsProps {
   onRefresh: () => Promise<void>
   /** A public reader has no session: the member-only reads and exports would answer 401, so they are not offered. */
   publicView?: boolean
+  embedded?: boolean
+  forcedViewId?: string
 }
 
-export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onPatchCardsBatch, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onCardCreated, onRefresh, publicView = false }: BoardViewsProps): ReactElement {
+export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpenCard, onPatchView, onDeleteView, onDuplicateView, onActiveViewChange, onPatchCard, onPatchCardsBatch, onDragCards, onAddGroupOption, onRenameGroupOption, onSetGroupOptionColor, onCardCreated, onRefresh, publicView = false, embedded = false, forcedViewId }: BoardViewsProps): ReactElement {
   const [activeId, setActiveId] = useState<string | null>(() => readLastViewId(bundle.board.id))
   const userPickedView = useRef(false)
   const defaultViewQueue = useRef<Promise<unknown>>(Promise.resolve())
@@ -163,6 +169,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const [settings, setSettings] = useState<'sort' | 'filter' | 'properties' | null>(null)
   const [search, setSearch] = useState('')
   const [links, setLinks] = useState<ProjectCardLink[]>([])
+  const [linksStatus, setLinksStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [linksAttempt, setLinksAttempt] = useState(0)
   const [selected, setSelected] = useState<string[]>([])
   const [batchOpen, setBatchOpen] = useState(false)
   const [contextPoint, setContextPoint] = useState<{ x: number, y: number } | null>(null)
@@ -210,8 +218,12 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
 
   // C-23: tabs read alphabetically; the default view stays the board's first by position.
   const orderedViews = sortProjectViewsAlphabetically(bundle.views)
-  const active = orderedViews.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
-  const fields = active?.fields ?? emptyProjectViewFields()
+  const active = orderedViews.find((view) => view.id === forcedViewId) ?? orderedViews.find((view) => view.id === activeId) ?? bundle.views[0] ?? null
+  const personalViewKey = active ? `${bundle.board.id}:${active.id}` : ''
+  const storedPersonalFields = useSession((state) => personalViewKey ? state.settings.project.personalViews[personalViewKey] : undefined)
+  const personalFields = publicView ? undefined : storedPersonalFields
+  const fields = useMemo(() => ({ ...(active?.fields ?? emptyProjectViewFields()), ...personalFields }), [active?.fields, personalFields])
+  const effectiveView = active ? { ...active, fields } : null
   const viewType = active?.viewType ?? 'table'
 
   // Only the two dependency-drawing views read links, and a saved dependency must refresh with the
@@ -219,12 +231,16 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   useEffect(() => {
     if (publicView || (viewType !== 'timeline' && viewType !== 'gantt')) {
       setLinks([])
+      setLinksStatus('idle')
       return
     }
     const controller = new AbortController()
-    fetchBoardLinks(bundle.board.id, controller.signal).then(setLinks).catch(() => { if (!controller.signal.aborted) setLinks([]) })
+    setLinksStatus('loading')
+    fetchBoardLinks(bundle.board.id, controller.signal)
+      .then((list) => { if (!controller.signal.aborted) { setLinks(list); setLinksStatus('ready') } })
+      .catch(() => { if (!controller.signal.aborted) setLinksStatus('error') })
     return () => controller.abort()
-  }, [bundle.board.id, bundle.cursor, publicView, viewType])
+  }, [bundle.board.id, bundle.cursor, publicView, viewType, linksAttempt])
   useEffect(() => { onActiveViewChange(active?.id ?? '') }, [active?.id, onActiveViewChange])
 
   const viewPatchQueue = useRef<Promise<void>>(Promise.resolve())
@@ -239,8 +255,17 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     viewPatchQueue.current = task.then(() => undefined)
     return task
   })
-  const patchFields = useEvent((patch: Partial<ProjectViewFields>): void => {
-    if (active) void enqueueViewPatch(active.id, { fields: patch })
+  const patchFields = useEvent(async (patch: Partial<ProjectViewFields>): Promise<boolean> => {
+    if (!active || publicView) return false
+    const key = `${bundle.board.id}:${active.id}`
+    const current = useSession.getState().settings.project.personalViews[key] ?? {}
+    useSession.getState().updateSettings({ project: { personalViews: { [key]: { ...current, ...patch } } } })
+    return true
+  })
+  const resetPersonalFields = useEvent((): void => {
+    if (!active || publicView) return
+    const key = `${bundle.board.id}:${active.id}`
+    useSession.getState().updateSettings({ project: { personalViews: { [key]: {} } } })
   })
   // Every keystroke used to re-match and re-sort the whole board; the box stays immediate while the
   // expensive pass trails one frame behind.
@@ -255,6 +280,14 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     () => (viewType === 'board' || viewType === 'list' ? orderProjectCards(sorted, fields.cardOrder) : sorted),
     [sorted, fields.cardOrder, viewType],
   )
+  useEffect(() => {
+    const visible = new Set(cards.map((card) => card.id))
+    setSelected((current) => {
+      const next = current.filter((id) => visible.has(id))
+      return next.length === current.length ? current : next
+    })
+  }, [cards])
+  const visibleSelected = useMemo(() => selected.filter((id) => cards.some((card) => card.id === id)), [selected, cards])
 
   const badgesByCard = useMemo(() => {
     const contentsByCard = new Map<string, typeof bundle.contents>()
@@ -304,14 +337,14 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
 
   const subtasksByParent = useMemo(() => {
     const map = new Map<string, ProjectCard[]>()
-    for (const card of bundle.cards) {
+    for (const card of filtered) {
       if (!card.parentId) continue
       const list = map.get(card.parentId)
       if (list) list.push(card)
       else map.set(card.parentId, [card])
     }
     return map
-  }, [bundle.cards])
+  }, [filtered])
 
   const badgesFor = useCallback((cardId: string): ProjectCardBadges => badgesByCard.get(cardId) ?? EMPTY_BADGES, [badgesByCard])
   const coverFor = useCallback((cardId: string): string | null => publicView ? null : (coverByCard.get(cardId) ?? null), [coverByCard, publicView])
@@ -319,6 +352,22 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const patchCardsValues = useEvent(async (ids: readonly string[], values: Record<string, string | null>): Promise<void> => {
     await batchPatchProjectBoard(bundle.board.id, { cards: ids.map((id) => ({ id, patch: { values } })) })
     await onRefresh()
+  })
+  const dragCards = useEvent(async (patches: { id: string, patch: Record<string, unknown> }[], cardOrder: string[]): Promise<void> => {
+    if (!active) return
+    try {
+      if (onDragCards) {
+        await onDragCards(patches, cardOrder)
+        return
+      }
+      await batchPatchProjectBoard(bundle.board.id, {
+        cards: patches,
+        views: [{ id: active.id, patch: { fields: { cardOrder } } }],
+      })
+      await onRefresh()
+    } catch (error) {
+      useUi.getState().toast({ title: error instanceof Error ? error.message : String(error), tone: 'danger' })
+    }
   })
   const changeCalendarMode = useEvent((mode: ProjectViewFields['calendarMode']): void => {
     patchFields({ calendarMode: mode })
@@ -432,15 +481,15 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
   const batchDelete = useEvent(async (): Promise<void> => {
     const ok = await confirm({
       title: t('project.view.delete_selected'),
-      description: t('project.view.delete_selected_hint', { count: selected.length }),
+      description: t('project.view.delete_selected_hint', { count: visibleSelected.length }),
       tone: 'danger',
       confirmLabel: t('common.delete'),
     })
     if (!ok) return
-    await runBatch(() => batchDeleteProjectBoard(bundle.board.id, { cardIds: selected }))
+    await runBatch(() => batchDeleteProjectBoard(bundle.board.id, { cardIds: visibleSelected }))
   })
   const batchApply = useEvent(async (values: Record<string, string | null>): Promise<void> => {
-    const ok = await runBatch(() => batchPatchProjectBoard(bundle.board.id, { cards: selected.map((id) => ({ id, patch: { values } })) }))
+    const ok = await runBatch(() => batchPatchProjectBoard(bundle.board.id, { cards: visibleSelected.map((id) => ({ id, patch: { values } })) }))
     if (ok) setBatchOpen(false)
   })
 
@@ -488,7 +537,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     { id: 'rename', label: t('project.view.rename'), icon: <Pencil size={15} />, disabled: !canEdit, onSelect: renameView },
     { id: 'duplicate', label: t('project.view.duplicate'), icon: <Copy size={15} />, disabled: !canEdit, onSelect: () => onDuplicateView(active.id) },
     { id: 'delete', label: t('project.view.delete'), icon: <Trash2 size={15} />, tone: 'danger', disabled: !canEdit || bundle.views.length <= 1, onSelect: () => onDeleteView(active.id) },
-    ...(fields.cardOrder.length > 0 ? [{ id: 'reset-order', label: t('project.view.reset_order'), icon: <RotateCcw size={15} />, separatorBefore: true, disabled: !canEdit, onSelect: () => patchFields({ cardOrder: [] }) }] : []),
+    ...(personalFields && Object.keys(personalFields).length > 0 ? [{ id: 'reset-personal', label: t('project.view.reset_personal'), icon: <RotateCcw size={15} />, separatorBefore: true, onSelect: resetPersonalFields }] : []),
+    ...(fields.cardOrder.length > 0 ? [{ id: 'reset-order', label: t('project.view.reset_order'), icon: <RotateCcw size={15} />, disabled: !canEdit, onSelect: () => { if (active) void enqueueViewPatch(active.id, { fields: { cardOrder: [] } }) } }] : []),
     { id: 'export-csv', label: t('project.view.export_csv'), icon: <Download size={15} />, separatorBefore: true, onSelect: () => { window.open(projectBoardExportUrl(bundle.board.id, 'csv'), '_blank') } },
     { id: 'export-archive', label: t('project.view.export_archive'), icon: <Download size={15} />, onSelect: () => { window.open(projectBoardExportUrl(bundle.board.id, 'archive'), '_blank') } },
   ] : []
@@ -506,6 +556,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     onDeleteCard,
     onPatchCard,
     onPatchCards: patchCardsValues,
+    onDragCards: dragCards,
     onPatchFields: patchFields,
     onAddCard: addCardInColumn,
     onAddGroupOption,
@@ -524,13 +575,13 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
     if (!active) return <ViewEmpty title={t('project.board.empty_cards')} />
     switch (viewType) {
       case 'collection':
-        return <CollectionView boardId={bundle.board.id} canEdit={canEdit} onOpenCard={onOpenCard} />
+        return <CollectionView boardId={bundle.board.id} canEdit={canEdit} onOpenCard={onOpenCard} publicView={publicView} />
       case 'sprint':
-        return <SprintView boardId={bundle.board.id} cards={cards} canEdit={canEdit} onOpenCard={onOpenCard} />
+        return <SprintView boardId={bundle.board.id} cards={cards} canEdit={canEdit} onOpenCard={onOpenCard} publicView={publicView} />
       case 'dashboard':
-        return <DashboardView boardId={bundle.board.id} cards={cards} properties={bundle.properties} datePropertyId={projectViewPropertyId(fields.dateDisplayPropertyId)} onOpenCard={onOpenCard} />
+        return <DashboardView boardId={bundle.board.id} cards={cards} properties={bundle.properties} datePropertyId={projectViewPropertyId(fields.dateDisplayPropertyId)} onOpenCard={onOpenCard} publicView={publicView} />
       case 'chart':
-        return <ChartView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} onPatchFields={patchFields} />
+        return <ChartView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} canPersonalize={!publicView} onPatchFields={patchFields} />
       case 'calendar':
         return (
           <CalendarView
@@ -541,6 +592,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             mode={fields.calendarMode ?? 'month'}
             onModeChange={changeCalendarMode}
             canEdit={canEdit}
+            canPersonalize={!publicView}
             onOpenCard={onOpenCard}
             onPatchCard={onPatchCard}
             onRefresh={onRefresh}
@@ -551,11 +603,11 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
       case 'timeline':
         return <TimelineView cards={cards} properties={bundle.properties} links={links} fields={fields} subtasksByParent={subtasksByParent} canEdit={canEdit} onOpenCard={onOpenCard} onPatchFields={patchFields} />
       case 'gantt':
-        return <GanttView cards={cards} boardId={bundle.board.id} properties={bundle.properties} links={links} fields={fields} subtasksByParent={subtasksByParent} canEdit={canEdit} onOpenCard={onOpenCard} onPatchCard={onPatchCard} onPatchFields={patchFields} onRefresh={onRefresh} />
+        return <GanttView cards={cards} boardId={bundle.board.id} properties={bundle.properties} links={links} fields={fields} subtasksByParent={subtasksByParent} canEdit={canEdit} canPersonalize={!publicView} onOpenCard={onOpenCard} onPatchCard={onPatchCard} onPatchFields={patchFields} onRefresh={onRefresh} />
       case 'gallery':
-        return <GalleryView cards={cards} properties={bundle.properties} chipProperties={columns} fields={fields} badgesFor={badgesFor} coverFor={coverFor} canEdit={canEdit} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onPatchFields={patchFields} onAddCard={addCardInColumn} />
+        return <GalleryView cards={cards} properties={bundle.properties} chipProperties={columns} fields={fields} badgesFor={badgesFor} coverFor={coverFor} canEdit={canEdit} canPersonalize={!publicView} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onPatchFields={patchFields} onAddCard={addCardInColumn} />
       case 'list':
-        return <ListView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} canMarkDone={projectCanMarkDone(bundle.properties)} badgesFor={badgesFor} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onDeleteCard={onDeleteCard} onPatchCard={onPatchCard} onPatchFields={patchFields} onAddCard={addCardInColumn} />
+        return <ListView cards={cards} properties={bundle.properties} fields={fields} canEdit={canEdit} canMarkDone={projectCanMarkDone(bundle.properties)} badgesFor={badgesFor} onOpenCard={onOpenCard} onCardContextMenu={onCardContextMenu} onAddSubtask={handleAddSubtask} onToggleCardDone={toggleCardDone} onDeleteCard={onDeleteCard} onPatchCard={onPatchCard} onPatchFields={patchFields} onDragCards={dragCards} onAddCard={addCardInColumn} />
       case 'board':
         return fields.swimlaneBy
           ? <Swimlanes cards={cards} properties={bundle.properties} fields={fields} kanbanProps={kanbanProps} />
@@ -568,7 +620,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             columns={columns}
             fields={fields}
             canEdit={canEdit}
-            selected={selected}
+            canPersonalize={!publicView}
+            selected={visibleSelected}
             onSelected={setSelected}
             subtasksByParent={subtasksByParent}
             badgesFor={badgesFor}
@@ -585,6 +638,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {!embedded && (
       <div
         className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] px-3 py-1.5"
         role="tablist"
@@ -652,7 +706,8 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           </>
         )}
       </div>
-      {active && (
+      )}
+      {active && !embedded && (
         <div ref={searchRef} className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5">
           <Input
             className="w-44 min-w-0"
@@ -667,7 +722,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               size="sm"
               value={fields.dateDisplayPropertyId ?? ''}
               label={t('project.view.display_by')}
-              disabled={!canEdit}
+              disabled={publicView}
               onChange={(value) => patchFields({ dateDisplayPropertyId: value })}
               options={[{ value: '', label: t('project.view.display_by') }, ...dateProperties.map((property) => ({ value: property.id, label: property.name }))]}
             />
@@ -678,7 +733,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               size="sm"
               value={fields.groupById ?? ''}
               label={t('project.view.group_by')}
-              disabled={!canEdit}
+              disabled={publicView}
               onChange={(value) => patchFields({ groupById: value })}
               options={[{ value: '', label: t('project.view.group_by') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
             />
@@ -687,7 +742,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             <Seg
               value={fields.boardLayout ?? 'compact'}
               label={t('project.view.board_layout')}
-              disabled={!canEdit}
+              disabled={publicView}
               onChange={(next) => patchFields({ boardLayout: next })}
               options={[
                 { value: 'compact', label: t('project.view.layout_compact') },
@@ -701,7 +756,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               size="sm"
               value={fields.swimlaneBy ?? ''}
               label={t('project.view.swimlane')}
-              disabled={!canEdit}
+              disabled={publicView}
               onChange={(value) => patchFields({ swimlaneBy: value })}
               options={[{ value: '', label: t('project.view.swimlane') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
             />
@@ -712,7 +767,7 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
               size="sm"
               value={density}
               label={t('project.view.density')}
-              disabled={!canEdit}
+              disabled={publicView}
               onChange={(value) => patchFields({ cardSize: value as 'compact' | 'comfortable' | 'spacious' })}
               options={[
                 { value: 'compact', label: t('project.view.density_compact') },
@@ -722,9 +777,9 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             />
             {!publicView && (
               <>
-                <IconButton label={t('project.view.sort')} size="sm" disabled={!canEdit} onClick={() => setSettings('sort')}><ArrowUpDown size={15} /></IconButton>
-                <IconButton label={t('project.view.filter')} size="sm" disabled={!canEdit} onClick={() => setSettings('filter')}><Filter size={15} /></IconButton>
-                <IconButton label={t('project.view.properties')} size="sm" disabled={!canEdit} onClick={() => setSettings('properties')}><Eye size={15} /></IconButton>
+                <IconButton label={t('project.view.sort')} size="sm" onClick={() => setSettings('sort')}><ArrowUpDown size={15} /></IconButton>
+                <IconButton label={t('project.view.filter')} size="sm" onClick={() => setSettings('filter')}><Filter size={15} /></IconButton>
+                <IconButton label={t('project.view.properties')} size="sm" onClick={() => setSettings('properties')}><Eye size={15} /></IconButton>
               </>
             )}
           </span>
@@ -735,16 +790,23 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
           {publicView ? t('project.board.truncated_public') : t('project.board.truncated')}
         </p>
       )}
+      {linksStatus === 'error' && (
+        <div role="alert" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-1.5 text-[length:var(--text-12)] text-[var(--danger)]">
+          {t('project.common.load_failed')}
+          <Button size="sm" variant="ghost" onClick={() => setLinksAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+        </div>
+      )}
+      {linksStatus === 'loading' && <p role="status" className="shrink-0 px-3 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('common.loading')}</p>}
       {hiddenCount > 0 && (
         <p className="shrink-0 px-3 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]" role="status">
           {t('project.view.hidden_count', { count: hiddenCount })}
         </p>
       )}
-      {canEdit && selected.length > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--accent-softer)] px-3 py-1.5" role="toolbar" aria-label={t('project.view.selected_count', { count: selected.length })}>
-          <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('project.view.selected_count', { count: selected.length })}</span>
+      {canEdit && visibleSelected.length > 0 && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--accent-softer)] px-3 py-1.5" role="toolbar" aria-label={t('project.view.selected_count', { count: visibleSelected.length })}>
+          <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('project.view.selected_count', { count: visibleSelected.length })}</span>
           <Button size="sm" variant="ghost" onClick={() => void batchDelete()}>{t('project.view.delete_selected')}</Button>
-          <Button size="sm" onClick={() => setBatchOpen(true)}>{t('project.view.batch_edit', { count: selected.length })}</Button>
+          <Button size="sm" onClick={() => setBatchOpen(true)}>{t('project.view.batch_edit', { count: visibleSelected.length })}</Button>
           <Button size="sm" variant="ghost" onClick={() => setSelected([])}>{t('project.view.clear_selection')}</Button>
         </div>
       )}
@@ -769,16 +831,18 @@ export function BoardViews({ bundle, canEdit, onDeleteCard, onCreateView, onOpen
             id={active ? `project-view-panel-${active.id}` : undefined}
             aria-labelledby={active ? `project-view-tab-${active.id}` : undefined}
           >
-            <ProjectPeopleProvider people={bundle.people}>{renderView()}</ProjectPeopleProvider>
+            <ProjectPeopleProvider people={bundle.people}>
+              <Suspense fallback={<LoadingBlock />}>{renderView()}</Suspense>
+            </ProjectPeopleProvider>
           </div>
         )}
-      {active && settings === 'sort' && <SortModal view={active} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={(next) => enqueueViewPatch(active.id, { fields: next })} />}
-      {active && settings === 'filter' && <FilterModal view={active} properties={bundle.properties} members={bundle.members} people={bundle.people} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => enqueueViewPatch(active.id, { fields: next })} />}
-      {active && settings === 'properties' && <PropertiesModal view={active} properties={bundle.properties} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={(next) => enqueueViewPatch(active.id, { fields: next })} />}
+      {effectiveView && settings === 'sort' && <SortModal view={effectiveView} properties={bundle.properties} onClose={() => setSettings(null)} onPatch={patchFields} />}
+      {effectiveView && settings === 'filter' && <FilterModal view={effectiveView} properties={bundle.properties} members={bundle.members} people={bundle.people} canEdit onClose={() => setSettings(null)} onPatch={patchFields} />}
+      {effectiveView && settings === 'properties' && <PropertiesModal view={effectiveView} properties={bundle.properties} canEdit={canEdit} onClose={() => setSettings(null)} onPatch={patchFields} />}
       {contextPoint && <Menu anchor={contextPoint} open onClose={() => setContextPoint(null)} items={contextItems} label={t('project.card.menu')} />}
       {batchOpen && (
         <BatchEditDialog
-          count={selected.length}
+          count={visibleSelected.length}
           properties={bundle.properties}
           members={bundle.members}
           people={bundle.people}

@@ -85,6 +85,25 @@ describe('settings patch queue', () => {
     }
   })
 
+  it('keeps personal view patches for different views inside one debounce window', async () => {
+    const original = useSession.getState().settings
+    const bodies: Partial<UserSettings>[] = []
+    vi.spyOn(api.settings, 'save').mockImplementation(async (body) => {
+      bodies.push(body)
+      return mergeSettingsPatch(original, body)
+    })
+    try {
+      useSession.getState().updateSettings({ project: { personalViews: { 'b1:v1': { groupById: 'p1' } } } })
+      useSession.getState().updateSettings({ project: { personalViews: { 'b1:v2': { cardSize: 'compact' } } } })
+      await flush()
+      expect(bodies).toHaveLength(1)
+      expect(bodies[0]?.project?.personalViews).toEqual({ 'b1:v1': { groupById: 'p1' }, 'b1:v2': { cardSize: 'compact' } })
+      expect(useSession.getState().settings.project.personalViews).toMatchObject({ 'b1:v1': { groupById: 'p1' }, 'b1:v2': { cardSize: 'compact' } })
+    } finally {
+      useSession.setState({ settings: original })
+    }
+  })
+
   it('keeps a write that lands while the previous patch is still in flight', async () => {
     const original = useSession.getState().settings
     const pending: (() => void)[] = []

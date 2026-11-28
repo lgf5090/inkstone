@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono'
 import { projectBoardToCsv } from '@shared/project/csv'
-import { isProjectId } from '@shared/project/limits'
+import { isProjectId, PROJECT_LIMITS } from '@shared/project/limits'
+import type { ProjectRole } from '@shared/project/model'
 import {
   ProjectBoardCreateSchema,
   ProjectBoardFromTemplateSchema,
@@ -12,6 +13,7 @@ import {
   ProjectCardMarksSchema,
   ProjectCardMoveSchema,
   ProjectCardPatchSchema,
+  ProjectCardVersionRestoreSchema,
   ProjectCategoryBoardHiddenSchema,
   ProjectCategoryBoardOrderSchema,
   ProjectCategoryCreateSchema,
@@ -33,6 +35,15 @@ import {
   ProjectAutomationCreateSchema,
   ProjectAutomationPatchSchema,
   ProjectSharePutSchema,
+  ProjectPublicIntakeSchema,
+  ProjectGuestOpenSchema,
+  ProjectGuestPatchSchema,
+  ProjectIntegrationCreateSchema,
+  ProjectIntegrationPatchSchema,
+  ProjectCalendarLinkSchema,
+  ProjectCardNoteLinkSchema,
+  ProjectTimeEntryCreateSchema,
+  ProjectTimeEntryPatchSchema,
   ProjectSubscriptionCreateSchema,
   ProjectTodoLinkSchema,
   ProjectViewCreateSchema,
@@ -45,10 +56,28 @@ import { requireAuth } from '../middleware/auth'
 import { consumeAttemptBudget } from '../lib/throttle'
 import { originOf } from '../lib/notify'
 import { broadcastProjectChange } from './realtime'
+import { listProjectBoardPresence, touchProjectBoardPresence } from './presence'
 import { exportProjectBoardArchive, exportProjectAccountArchive, importProjectAccountArchive, importProjectBoardArchive } from './archive'
 import { projectBody, projectUserId, requireBoard, requireBoardOwner, requireCard, requireComment, requireContent, requireView } from './auth'
 import { projectWebhookEvent } from '@shared/project/integrations'
-import { readProjectWriteReceipt, storeProjectWriteReceipt } from './idempotency'
+import type { ProjectRealtimeEntity } from '@shared/types'
+import type { ProjectActivityChange } from '@shared/project/model'
+import {
+  createProjectAuditChanges,
+  diffProjectAuditSnapshot,
+  recordProjectActivityChanges,
+  type ProjectAuditEntity,
+  type ProjectAuditSnapshot,
+} from './audit'
+import {
+  claimProjectWriteReceipt,
+  completeProjectWriteReceipt,
+  discardProjectWriteReceipt,
+  projectWriteFingerprint,
+  PROJECT_WRITE_CLAIM_TTL_MS,
+  readProjectWriteReceipt,
+  type ProjectWriteReceipt,
+} from './idempotency'
 import {
   createProjectApiToken, listProjectApiTokens, projectTokenFromAuthorization,
   revokeProjectApiToken, verifyProjectApiToken,
@@ -61,7 +90,9 @@ import {
   createProjectSprint, deleteProjectSprint, getProjectSprint, listProjectSprints,
   patchProjectSprint, readSprintDetail, setCardSprint,
 } from './sprints'
-import { batchDeleteProjectBoard, batchPatchProjectBoard } from './batch'
+import { batchDeleteProjectBoard, batchPatchProjectBoard, projectBatchStatementCount } from './batch'
+import { assertProjectBatchStatementLimit, PROJECT_D1_BATCH_STATEMENT_LIMIT } from './d1'
+import { createProjectCardVersion, getProjectCardVersion, listProjectCardVersions, restoreProjectCardVersion } from './versions'
 import { projectBoardCursor, readProjectBoardBundle, rowToComment, rowToContent, touchProjectBoard } from './bundle'
 import {
   addBoardToCategory,
@@ -104,6 +135,7 @@ import {
   patchProjectBoard,
   projectBoardMetadata,
   readBoardProperties,
+  readProjectPropertyRevision,
   softDeleteProjectBoard,
   undeleteProjectBoard,
 } from './boards'
@@ -126,16 +158,19 @@ import { toICal } from '../subscriptions/calendar'
 import { parseProjectDateValue, projectStampToDay } from '@shared/project/date'
 import { projectBoardToMarkdown } from '@shared/project/markdown'
 import { deleteProjectAttachment, getProjectAttachment, listBoardAttachments, uploadProjectAttachment, PROJECT_UPLOAD_LIMIT, PROJECT_INLINE_MIMES } from './files'
-import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare } from './shares'
+import { deleteProjectShare, getProjectShare, putProjectShare, readPublicProjectShare, authorizePublicProjectShare } from './shares'
+import { assertPublicIntakeValues } from './intake'
+import { createProjectIntakeGrant, openProjectGuestCard, readProjectIntakeGrant, assertProjectGuestValues } from './guests'
 import { projectStatistics } from './statistics'
 import { listProjectMyTasks } from './my-tasks'
-import { deleteTimeEntry, listCardTime, startCardTime, stopCardTime } from './time'
+import { deleteTimeEntry, listCardTime, startCardTime, stopCardTime, createManualTime, updateTimeEntry } from './time'
 import { assertProjectValuesWritable } from './property-access'
 import {
   assertProjectRelationValues,
   listBackReferences,
   listRelationOptions,
   projectRelationTargets,
+  projectRelationBoardIds,
   rebuildBoardRelations,
   redactHiddenRelations,
 } from './relations'
@@ -155,8 +190,48 @@ import {
   softDeleteProjectView,
   undeleteProjectView,
 } from './views'
+import { projectCardForRole, projectPropertiesForRole } from './visibility'
+import { defaultWorkloadRange, readProjectWorkload } from './workload'
+import { listCardNotes, linkCardNote, unlinkCardNote, listNoteProjectCards } from './card-notes'
+import { linkProjectCalendar, listProjectCalendarLinks, syncProjectCalendarLinksForCard, unlinkProjectCalendar } from './project-calendar'
+import { createProjectExternalIssue, deleteProjectIntegration, dispatchProjectSlackEvent, listProjectExternalLinks, listProjectIntegrations, patchProjectIntegration, saveProjectIntegration, syncProjectExternalLinksForCard } from './integrations'
 
 export const projectRoutes = new Hono<AppBindings>()
+
+const TOKEN_SESSION_ONLY_PATH = /(?:\/tokens(?:\/|$)|\/webhooks(?:\/|$)|\/integrations(?:\/|$)|\/members(?:\/|$)|\/share$|\/save-as-template$|\/automations(?:\/|$)|\/import(?:-account)?$)/
+const TOKEN_ACCOUNT_EXPORT_PATH = /^\/api\/project\/export$/
+
+function projectTokenValueMaps(value: unknown): Record<string, unknown>[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  const record = value as Record<string, unknown>
+  const maps: Record<string, unknown>[] = []
+  if (record.values && typeof record.values === 'object' && !Array.isArray(record.values)) {
+    maps.push(record.values as Record<string, unknown>)
+  }
+  if (Array.isArray(record.cards)) {
+    for (const card of record.cards) maps.push(...projectTokenValueMaps(card))
+  }
+  if (record.patch) maps.push(...projectTokenValueMaps(record.patch))
+  return maps
+}
+
+async function assertProjectTokenBodyScope(c: Context<AppBindings>, boardId: string): Promise<void> {
+  if (!(c.req.header('Content-Type') ?? '').includes('application/json')) return
+  let body: unknown
+  try { body = await c.req.raw.clone().json() } catch { return }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return
+  const record = body as Record<string, unknown>
+  if (typeof record.targetBoardId === 'string' && record.targetBoardId !== boardId) {
+    throw ApiError.notFound('Board not found')
+  }
+  const maps = projectTokenValueMaps(body)
+  if (!maps.length) return
+  const properties = await readBoardProperties(c.env.DB, boardId)
+  for (const property of properties) {
+    if (property.type !== 'relation' || !property.config?.targetBoardId || property.config.targetBoardId === boardId) continue
+    if (maps.some((values) => Object.hasOwn(values, property.id))) throw ApiError.notFound('Board not found')
+  }
+}
 
 /**
  * Machine clients authenticate with a hashed, board-scoped token instead of a cookie. Setting
@@ -170,8 +245,9 @@ projectRoutes.use('*', async (c, next) => {
   const auth = await verifyProjectApiToken(c.env.DB, secret, Date.now())
   if (!auth) throw ApiError.unauthenticated('Invalid API token')
   const path = c.req.path
-  if (/^\/api\/project\/tokens(\/|$)/.test(path) || path.includes('/webhooks')) {
-    throw ApiError.forbidden('API tokens cannot manage integrations')
+  if (TOKEN_SESSION_ONLY_PATH.test(path) || TOKEN_ACCOUNT_EXPORT_PATH.test(path)
+    || (c.req.method.toUpperCase() === 'DELETE' && /^\/api\/project\/boards\/[^/]+$/.test(path))) {
+    throw ApiError.forbidden('This operation requires a browser session')
   }
   if (auth.scope === 'read' && !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method.toUpperCase())) {
     throw ApiError.forbidden('This token is read-only')
@@ -190,6 +266,7 @@ projectRoutes.use('*', async (c, next) => {
       }
     }
     if (boardId !== auth.boardId) throw ApiError.notFound('Board not found')
+    await assertProjectTokenBodyScope(c, auth.boardId)
   }
   c.set('userId', auth.userId)
   c.set('projectTokenId', auth.id)
@@ -198,30 +275,314 @@ projectRoutes.use('*', async (c, next) => {
 
 projectRoutes.use('*', requireAuth)
 
+const WRITE_CHILD_TABLES = {
+  cards: 'project_cards',
+  views: 'project_views',
+  contents: 'project_card_contents',
+  comments: 'project_comments',
+  files: 'project_attachments',
+} as const
+
+async function projectWriteBoardId(c: Context<AppBindings>): Promise<string> {
+  const board = /^\/api\/project\/boards\/([^/]+)(?:\/|$)/.exec(c.req.path)?.[1]
+  if (board && board !== 'import' && board !== 'from-template') return board
+  const child = /^\/api\/project\/(cards|views|contents|comments|files)\/([^/]+)/.exec(c.req.path)
+  if (!child) return ''
+  const table = WRITE_CHILD_TABLES[child[1] as keyof typeof WRITE_CHILD_TABLES]
+  const row = await c.env.DB.prepare(`SELECT board_id FROM ${table} WHERE id = ?1`).bind(child[2]).first<{ board_id: string }>()
+  return row?.board_id ?? ''
+}
+
+function isAuditRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+async function readProjectAuditSnapshot(c: Context<AppBindings>, entity: ProjectAuditEntity, id: string): Promise<ProjectAuditSnapshot> {
+  if (entity === 'board') {
+    const { board } = await requireBoard(c, id, 'viewer', { allowDeleted: true })
+    return { entity, id, value: board as unknown as Record<string, unknown> }
+  }
+  if (entity === 'card') {
+    const { card } = await requireCard(c, id, 'viewer', { allowDeleted: true })
+    return { entity, id, value: card as unknown as Record<string, unknown> }
+  }
+  if (entity === 'comment') {
+    const { comment } = await requireComment(c, id, 'viewer')
+    return { entity, id, value: comment as unknown as Record<string, unknown> }
+  }
+  if (entity === 'content') {
+    const { content } = await requireContent(c, id, 'viewer', { allowDeleted: true })
+    return { entity, id, value: content as unknown as Record<string, unknown> }
+  }
+  const { view } = await requireView(c, id, 'viewer', { allowDeleted: true })
+  return { entity, id, value: view as unknown as Record<string, unknown> }
+}
+
+function projectAuditTargets(path: string, method: string, input: unknown): Array<{ entity: ProjectAuditEntity, id: string }> {
+  const targets: Array<{ entity: ProjectAuditEntity, id: string }> = []
+  const add = (entity: ProjectAuditEntity, id: string): void => { targets.push({ entity, id }) }
+  const board = /^\/api\/project\/boards\/([^/]+)$/.exec(path)?.[1]
+  if (board && (method === 'PATCH' || method === 'DELETE')) add('board', board)
+  if (/^\/api\/project\/boards\/[^/]+\/batch$/.test(path) && isAuditRecord(input)) {
+    const operationCount = ['cards', 'contents', 'views'].reduce((count, key) => count + (Array.isArray(input[key]) ? input[key].length : 0), 0)
+    if (operationCount <= PROJECT_LIMITS.batchOperations) {
+      for (const [key, entity] of [['cards', 'card'], ['contents', 'content'], ['views', 'view']] as const) {
+        const rows = input[key]
+        if (!Array.isArray(rows)) continue
+        for (const row of rows) if (isAuditRecord(row) && typeof row.id === 'string') add(entity, row.id)
+      }
+    }
+  }
+  if (/^\/api\/project\/boards\/[^/]+\/batch-delete$/.test(path) && isAuditRecord(input)) {
+    const operationCount = ['cardIds', 'contentIds', 'viewIds'].reduce((count, key) => count + (Array.isArray(input[key]) ? input[key].length : 0), 0)
+    if (operationCount <= PROJECT_LIMITS.batchOperations) {
+      for (const [key, entity] of [['cardIds', 'card'], ['contentIds', 'content'], ['viewIds', 'view']] as const) {
+        const ids = input[key]
+        if (!Array.isArray(ids)) continue
+        for (const id of ids) if (typeof id === 'string') add(entity, id)
+      }
+    }
+  }
+  if (method === 'PATCH' || method === 'DELETE') {
+    const card = /^\/api\/project\/cards\/([^/]+)$/.exec(path)?.[1]
+    const comment = /^\/api\/project\/comments\/([^/]+)$/.exec(path)?.[1]
+    const content = /^\/api\/project\/contents\/([^/]+)$/.exec(path)?.[1]
+    const view = /^\/api\/project\/views\/([^/]+)$/.exec(path)?.[1]
+    if (card) add('card', card)
+    if (comment) add('comment', comment)
+    if (content) add('content', content)
+    if (view) add('view', view)
+  }
+  const versionCard = /^\/api\/project\/cards\/([^/]+)\/versions\/[^/]+\/restore$/.exec(path)?.[1]
+  if (versionCard && method === 'POST') add('card', versionCard)
+  return targets
+}
+
+function projectAuditPatch(input: unknown, entity: ProjectAuditEntity, id: string): unknown {
+  if (!isAuditRecord(input)) return input
+  const key = entity === 'card' ? 'cards' : entity === 'content' ? 'contents' : entity === 'view' ? 'views' : ''
+  if (!key) return input
+  const rows = input[key]
+  if (!Array.isArray(rows)) return input
+  for (const row of rows) {
+    if (isAuditRecord(row) && row.id === id && 'patch' in row) return row.patch
+  }
+  return undefined
+}
+
+async function projectVersionCardIds(c: Context<AppBindings>, input: unknown): Promise<string[]> {
+  if (c.req.path.includes('/versions/')) return []
+  const ids = new Set<string>()
+  const add = (id: string | undefined): void => { if (id) ids.add(id) }
+  const addContentCards = async (contentIds: readonly string[]): Promise<void> => {
+    for (let offset = 0; offset < contentIds.length; offset += 90) {
+      const chunk = contentIds.slice(offset, offset + 90)
+      if (chunk.length === 0) continue
+      const marks = chunk.map((_, index) => `?${index + 1}`).join(',')
+      const { results } = await c.env.DB.prepare(`SELECT card_id FROM project_card_contents WHERE id IN (${marks})`).bind(...chunk).all<{ card_id: string }>()
+      for (const row of results) add(row.card_id)
+    }
+  }
+  const card = /^\/api\/project\/cards\/([^/]+)$/.exec(c.req.path)?.[1]
+  if (card && (c.req.method === 'PATCH' || c.req.method === 'DELETE')) add(card)
+  const nestedCreate = /^\/api\/project\/cards\/([^/]+)\/contents$/.exec(c.req.path)?.[1]
+  if (nestedCreate && c.req.method === 'POST') add(nestedCreate)
+  const content = /^\/api\/project\/contents\/([^/]+)$/.exec(c.req.path)?.[1]
+  if (content && (c.req.method === 'PATCH' || c.req.method === 'DELETE')) await addContentCards([content])
+  const movedContent = /^\/api\/project\/contents\/([^/]+)\/move$/.exec(c.req.path)?.[1]
+  if (movedContent && c.req.method === 'POST') await addContentCards([movedContent])
+  if (/^\/api\/project\/contents\/[^/]+\/undelete$/.test(c.req.path) && c.req.method === 'POST') {
+    const id = /^\/api\/project\/contents\/([^/]+)\/undelete$/.exec(c.req.path)?.[1]
+    if (id) await addContentCards([id])
+  }
+  if (isAuditRecord(input)) {
+    if (Array.isArray(input.cards)) for (const row of input.cards) if (isAuditRecord(row) && typeof row.id === 'string') add(row.id)
+    if (Array.isArray(input.contents)) {
+      const contentIds = input.contents.filter((row): row is { id: string } => isAuditRecord(row) && typeof row.id === 'string').map((row) => row.id)
+      await addContentCards(contentIds)
+    }
+    if (Array.isArray(input.cardIds)) for (const id of input.cardIds) if (typeof id === 'string') add(id)
+    if (Array.isArray(input.contentIds)) await addContentCards(input.contentIds.filter((id): id is string => typeof id === 'string'))
+  }
+  return [...ids]
+}
+
+async function snapshotProjectRequestVersions(c: Context<AppBindings>, input: unknown): Promise<void> {
+  for (const cardId of await projectVersionCardIds(c, input)) {
+    await createProjectCardVersion(c.env.DB, cardId, projectUserId(c), Date.now()).catch((error: unknown) => {
+      console.warn('[inkstone] project card version snapshot failed:', error instanceof Error ? error.message : error)
+    })
+  }
+}
+
+async function collectProjectAuditChanges(c: Context<AppBindings>, payload: Record<string, unknown> | null): Promise<ProjectActivityChange[]> {
+  const before = c.get('projectAuditBefore') ?? []
+  const input = c.get('projectAuditInput')
+  const method = c.req.path.endsWith('/batch-delete') ? 'DELETE' : c.req.method.toUpperCase()
+  const changes: ProjectActivityChange[] = []
+  for (const snapshot of before) {
+    const responseValue = payload?.[snapshot.entity]
+    let next = isAuditRecord(responseValue) && responseValue.id === snapshot.id ? responseValue : null
+    if (!next && method !== 'DELETE') next = (await readProjectAuditSnapshot(c, snapshot.entity, snapshot.id)).value
+    const patch = c.req.path.includes('/versions/') && c.req.path.endsWith('/restore') ? next : projectAuditPatch(input, snapshot.entity, snapshot.id)
+    changes.push(...diffProjectAuditSnapshot(snapshot, patch, next, method))
+  }
+  for (const entity of ['board', 'card', 'comment', 'content', 'view'] as const) {
+    const value = payload?.[entity]
+    if (!isAuditRecord(value) || typeof value.id !== 'string' || before.some((snapshot) => snapshot.entity === entity && snapshot.id === value.id)) continue
+    changes.push(...createProjectAuditChanges(entity, value.id, input, value))
+  }
+  return changes.slice(0, 50)
+}
+
+function projectWriteOwnerRequired(c: Context<AppBindings>, body: string): boolean {
+  const method = c.req.method.toUpperCase()
+  if (method === 'DELETE' && /^\/api\/project\/boards\/[^/]+$/.test(c.req.path)) return true
+  if (method === 'POST' && c.req.path.endsWith('/save-as-template')) return true
+  if (c.req.path.endsWith('/share')) return true
+  if (method !== 'PATCH' || !/^\/api\/project\/boards\/[^/]+$/.test(c.req.path)) return false
+  try {
+    const patch = JSON.parse(body) as Record<string, unknown>
+    return ['type', 'minimumRole', 'archived', 'updatedCardProperties', 'deletedCardProperties']
+      .some((key) => patch[key] !== undefined)
+  } catch {
+    return false
+  }
+}
+
+function projectWriteRequiredRole(c: Context<AppBindings>, boardId: string): ProjectRole | '' {
+  if (!boardId) return ''
+  if (/\/(members|automations|webhooks)(\/|$)/.test(c.req.path)) return 'admin'
+  if (/\/(card-marks|default-view|duplicate|join|leave)$/.test(c.req.path)) return 'viewer'
+  return 'editor'
+}
+
+async function assertProjectReceiptAccess(c: Context<AppBindings>, receipt: ProjectWriteReceipt, body: string): Promise<void> {
+  const userId = projectUserId(c)
+  if (receipt.boardId) {
+    const access = await requireBoard(c, receipt.boardId, receipt.requiredRole || 'viewer')
+    if (receipt.ownerRequired && access.board.ownerId !== userId) throw ApiError.forbidden()
+  }
+  if (/^\/api\/project\/cards\/[^/]+\/move$/.test(c.req.path)) {
+    try {
+      const targetBoardId = (JSON.parse(body) as { targetBoardId?: unknown }).targetBoardId
+      if (typeof targetBoardId === 'string') await requireBoard(c, targetBoardId, 'editor')
+    } catch (error) {
+      if (error instanceof ApiError) throw error
+      throw ApiError.badRequest('Invalid move request')
+    }
+  }
+  try {
+    const payload = JSON.parse(receipt.body) as { board?: { id?: unknown }, card?: { boardId?: unknown }, boards?: { id?: unknown }[] }
+    const responseBoardIds = [
+      payload.board?.id,
+      payload.card?.boardId,
+      ...(payload.boards ?? []).map((board) => board.id),
+    ].filter((id): id is string => typeof id === 'string' && id !== receipt.boardId)
+    for (const boardId of responseBoardIds) await requireBoard(c, boardId, 'viewer')
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+  }
+}
+
 /**
- * A queued offline write replays under the key it was minted with. Returning the stored answer before
- * the route runs also keeps the cursor bump, activity row and webhook delivery from firing twice.
+ * A queued offline write replays under the key it was minted with. A pending claim prevents concurrent
+ * duplicate execution; a completed receipt is replayed only after its original resource role is checked
+ * again, and only for the same method, path and request body.
  */
 projectRoutes.use('*', async (c, next) => {
   const key = c.req.header('Idempotency-Key')
   const method = c.req.method.toUpperCase()
-  if (!key || !/^[A-Za-z0-9_-]{8,64}$/.test(key) || method === 'GET' || method === 'HEAD') {
+  if (!key || !/^[A-Za-z0-9_-]{8,64}$/.test(key) || method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
     await next()
     return
   }
   const userId = projectUserId(c)
-  const stored = await readProjectWriteReceipt(c.env.DB, userId, key)
-  if (stored) {
+  const bodyBytes = await c.req.raw.clone().arrayBuffer()
+  const body = new TextDecoder().decode(bodyBytes)
+  const bodyHash = await projectWriteFingerprint(bodyBytes)
+  const url = new URL(c.req.url)
+  const path = `${url.pathname}${url.search}`
+  const boardId = await projectWriteBoardId(c)
+  const ownerRequired = projectWriteOwnerRequired(c, body)
+  const requiredRole = projectWriteRequiredRole(c, boardId)
+
+  let claimed = false
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    claimed = await claimProjectWriteReceipt(c.env.DB, userId, key, {
+      method,
+      path,
+      bodyHash,
+      boardId,
+      requiredRole,
+      ownerRequired,
+    }, Date.now())
+    if (claimed) break
+    const stored = await readProjectWriteReceipt(c.env.DB, userId, key)
+    if (stored?.state === 'legacy' || (stored?.state === 'pending' && Date.now() - stored.createdAt > PROJECT_WRITE_CLAIM_TTL_MS)) {
+      await discardProjectWriteReceipt(c.env.DB, userId, key)
+      continue
+    }
+    if (!stored || stored.state !== 'complete') throw ApiError.conflict('Idempotency key is already in progress')
+    if (stored.method !== method || stored.path !== path || stored.bodyHash !== bodyHash) {
+      throw ApiError.conflict('Idempotency key was already used for a different request')
+    }
+    await assertProjectReceiptAccess(c, stored, body)
     return new Response(stored.body, {
       status: stored.status,
       headers: { 'Content-Type': 'application/json' },
     })
   }
+  if (!claimed) throw ApiError.conflict('Idempotency key is already in progress')
+
+  try {
+    await next()
+    if (!c.res.ok || !(c.res.headers.get('content-type') ?? '').includes('application/json')) {
+      await discardProjectWriteReceipt(c.env.DB, userId, key)
+      return
+    }
+    const responseBody = await c.res.clone().text()
+    if (responseBody.length > 64 * 1024) {
+      await discardProjectWriteReceipt(c.env.DB, userId, key)
+      return
+    }
+    await completeProjectWriteReceipt(c.env.DB, userId, key, c.res.status, responseBody, Date.now())
+  } catch (error) {
+    await discardProjectWriteReceipt(c.env.DB, userId, key)
+    throw error
+  }
+})
+
+projectRoutes.use('*', async (c, next) => {
+  const method = c.req.method.toUpperCase()
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS' || !(c.req.header('content-type') ?? '').includes('application/json')) {
+    await next()
+    return
+  }
+  const raw = await readStreamTextWithinLimit(c.req.raw.clone().body, JSON_BODY_LIMITS.project)
+  let input: unknown
+  try {
+    input = raw ? JSON.parse(raw) as unknown : undefined
+  } catch {
+    input = undefined
+  }
+  c.set('projectAuditInput', input)
+  let batchTooLarge = false
+  if (/^\/api\/project\/boards\/[^/]+\/batch$/.test(c.req.path) && isAuditRecord(input)) {
+    const cards = Array.isArray(input.cards) ? input.cards : []
+    const statementCount = cards.reduce((count, row) => {
+      if (!isAuditRecord(row) || !isAuditRecord(row.patch)) return count
+      const values = isAuditRecord(row.patch.values) ? row.patch.values : {}
+      return count + 1 + Object.keys(values).length
+    }, 0) + (Array.isArray(input.contents) ? input.contents.length : 0) + (Array.isArray(input.views) ? input.views.length : 0)
+    batchTooLarge = statementCount > PROJECT_D1_BATCH_STATEMENT_LIMIT
+  }
+  const oversized = raw === null || new TextEncoder().encode(raw).byteLength > JSON_BODY_LIMITS.project
+  const targets = oversized || batchTooLarge ? [] : projectAuditTargets(c.req.path, method, input)
+  const snapshots: ProjectAuditSnapshot[] = []
+  for (const target of targets) snapshots.push(await readProjectAuditSnapshot(c, target.entity, target.id))
+  c.set('projectAuditBefore', snapshots)
   await next()
-  if (!c.res.ok || !(c.res.headers.get('content-type') ?? '').includes('application/json')) return
-  const body = await c.res.clone().text()
-  if (body.length > 64 * 1024) return
-  await storeProjectWriteReceipt(c.env.DB, userId, key, c.res.status, body, Date.now())
 })
 
 /**
@@ -236,10 +597,13 @@ projectRoutes.use('*', async (c, next) => {
   const path = c.req.path
   let boardId: string | undefined
   let targetId = ''
+  let entity: ProjectRealtimeEntity = 'card'
+  let cardId: string | undefined
   const boardMatch = /^\/api\/project\/boards\/([^/]+)(?:\/|$)/.exec(path)
   if (boardMatch && boardMatch[1] !== 'import' && boardMatch[1] !== 'from-template') {
     boardId = boardMatch[1]
     targetId = boardMatch[1]
+    entity = 'board'
   } else {
     const child = /^\/api\/project\/(cards|views|contents|comments)\/([^/]+)/.exec(path)
     if (child) {
@@ -247,9 +611,20 @@ projectRoutes.use('*', async (c, next) => {
       const row = await c.env.DB.prepare(`SELECT board_id FROM ${table} WHERE id = ?1`).bind(child[2]).first<{ board_id: string }>()
       boardId = row?.board_id
       targetId = child[2]
+      if (child[1] === 'cards') cardId = child[2]
+      if (child[1] === 'comments') entity = 'comment'
+      else if (child[1] === 'contents') entity = 'content'
+      else if (child[1] === 'views') entity = 'view'
     }
   }
   if (!boardId) return
+  if (/\/presence$/.test(path)) return
+  const cardMatch = /^\/api\/project\/cards\/([^/]+)/.exec(path)
+  if (cardMatch) cardId = cardMatch[1]
+  if (path.includes('/comments')) entity = 'comment'
+  else if (path.includes('/contents')) entity = 'content'
+  else if (path.includes('/views')) entity = 'view'
+  else if (path.includes('/cards')) entity = 'card'
   // Per-reader preferences are not board content: bumping the cursor would make every other tab
   // refetch, and recording them would fill the activity feed with the act of choosing a tab.
   if (/\/(default-view|card-marks)$/.test(path)) return
@@ -260,21 +635,34 @@ projectRoutes.use('*', async (c, next) => {
     console.warn('[inkstone] project board cursor bump failed:', error instanceof Error ? error.message : error)
   })
   const actor = c.get('userId') ?? c.get('user')?.id ?? ''
+  let payload: Record<string, unknown> | null = null
   if ((c.res.headers.get('content-type') ?? '').includes('application/json')) {
-    const payload = await c.res.clone().json().catch((error: unknown) => {
+    payload = await c.res.clone().json().catch((error: unknown) => {
       console.warn('[inkstone] project activity response read failed:', error instanceof Error ? error.message : error)
       return null
     }) as Record<string, unknown> | null
     for (const value of Object.values(payload ?? {})) {
-      if (value && typeof value === 'object' && typeof (value as { id?: unknown }).id === 'string') {
-        targetId = (value as { id: string }).id
-        break
+      if (value && typeof value === 'object') {
+        if (typeof (value as { id?: unknown }).id === 'string') targetId = (value as { id: string }).id
+        if (typeof (value as { cardId?: unknown }).cardId === 'string') cardId = (value as { cardId: string }).cardId
       }
     }
   }
-  const record = recordProjectActivity(c.env.DB, boardId, actor, method.toLowerCase(), targetId, `${method} ${path} board=${boardId} target=${targetId}`, now)
+  const record = (async () => {
+    const changes = await collectProjectAuditChanges(c, payload).catch((error: unknown) => {
+      console.warn('[inkstone] project activity diff failed:', error instanceof Error ? error.message : error)
+      return []
+    })
+    const activityId = await recordProjectActivity(c.env.DB, boardId, actor, method.toLowerCase(), targetId, `${method} ${path} board=${boardId} target=${targetId}`, now)
+    await recordProjectActivityChanges(c.env.DB, activityId, boardId, actor, changes, now)
+  })()
   record.catch((error: unknown) => console.warn('[inkstone] project activity record failed:', error instanceof Error ? error.message : error))
-  const task = broadcastProjectChange(c.env, boardId, now, originOf(c), (t) => {
+  try { c.executionCtx?.waitUntil(record) } catch { /* no ExecutionContext in tests */ }
+  const task = broadcastProjectChange(c.env, boardId, now, originOf(c), {
+    entity,
+    ...(cardId ? { cardId } : {}),
+    ...(entity === 'comment' ? { commentId: targetId } : {}),
+  }, (t) => {
     // Best-effort: the test harness fetches without an ExecutionContext, whose getter throws.
     try { c.executionCtx?.waitUntil(t) } catch { /* no ExecutionContext in tests */ }
   })
@@ -283,11 +671,16 @@ projectRoutes.use('*', async (c, next) => {
     const event = projectWebhookEvent(method, path)
     const delivery = enqueueProjectWebhookEvents(c.env.DB, boardId, event, {
       boardId, event, targetId, method, path, at: now,
-    }, now).then((ids) => Promise.all(ids.map((id) => deliverProjectWebhook(c.env.DB, id, Date.now()))))
+    }, now).then((ids) => Promise.all(ids.map((id) => deliverProjectWebhook(c.env.DB, c.env, id, Date.now()))))
     delivery.catch((error: unknown) => {
       console.warn('[inkstone] project webhook dispatch failed:', error instanceof Error ? error.message : error)
     })
     try { c.executionCtx?.waitUntil(delivery) } catch { /* no ExecutionContext in tests */ }
+    if (event.startsWith('card.')) {
+      const slack = dispatchProjectSlackEvent(c.env.DB, c.env, boardId, event, targetId)
+      slack.catch((error: unknown) => console.warn('[inkstone] project Slack dispatch failed:', error instanceof Error ? error.message : error))
+      try { c.executionCtx?.waitUntil(slack) } catch { /* no ExecutionContext in tests */ }
+    }
   }
 })
 
@@ -311,6 +704,19 @@ projectRoutes.get('/statistics', async (c) => {
   return c.json(await projectStatistics(c.env.DB, projectUserId(c)))
 })
 
+projectRoutes.get('/workload', async (c) => {
+  const now = Date.now()
+  const fallback = defaultWorkloadRange(now)
+  const from = Number(c.req.query('from') ?? fallback.from)
+  const to = Number(c.req.query('to') ?? fallback.to)
+  try {
+    return c.json(await readProjectWorkload(c.env.DB, projectUserId(c), from, to, now))
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Invalid workload range') throw ApiError.badRequest(error.message)
+    throw error
+  }
+})
+
 projectRoutes.get('/search', async (c) => {
   const query = (c.req.query('q') ?? '').trim().slice(0, 200)
   if (!query) return c.json({ boards: [], cards: [] })
@@ -320,9 +726,14 @@ projectRoutes.get('/search', async (c) => {
 projectRoutes.get('/export', async (c) => {
   const userId = projectUserId(c)
   await consumeAttemptBudget(c.env.DB, [{ key: `project-export:${userId}`, maxAttempts: 10, windowMs: 60 * 60 * 1000 }])
-  const bytes = await exportProjectAccountArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, userId)
-  return new Response(bytes, {
-    headers: { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="inkstone-project.zip"' },
+  const archive = await exportProjectAccountArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, userId)
+  return new Response(archive.body, {
+    headers: {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': 'attachment; filename="inkstone-project.zip"',
+      'Content-Length': String(archive.size),
+      'Cache-Control': 'private, no-store',
+    },
   })
 })
 
@@ -357,6 +768,13 @@ projectRoutes.get('/boards/:id/activity', async (c) => {
   return c.json({ activity: await listProjectActivity(c.env.DB, board.id, limit) })
 })
 
+projectRoutes.post('/boards/:id/presence', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const now = Date.now()
+  await touchProjectBoardPresence(c.env.DB, board.id, userId, now)
+  return c.json({ users: await listProjectBoardPresence(c.env.DB, board.id, now) }, 202)
+})
+
 projectRoutes.get('/boards/:id/links', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
   return c.json({ links: await listBoardLinks(c.env.DB, board.id) })
@@ -364,7 +782,7 @@ projectRoutes.get('/boards/:id/links', async (c) => {
 
 projectRoutes.get('/boards/:id/markdown', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c))
   const markdown = projectBoardToMarkdown(bundle, c.req.query('groupById'))
   return new Response(markdown, {
     headers: { 'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': `attachment; filename="${projectExportFilename(board.id, 'md')}"` },
@@ -386,6 +804,28 @@ projectRoutes.post('/cards/:id/links', async (c) => {
 projectRoutes.get('/cards/:id/time', async (c) => {
   const { card } = await requireCard(c, c.req.param('id'), 'viewer')
   return c.json({ entries: await listCardTime(c.env.DB, card.id) })
+})
+
+projectRoutes.post('/cards/:id/time', async (c) => {
+  const { card, board } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectTimeEntryCreateSchema)
+  const entry = await createManualTime(c.env.DB, {
+    boardId: board.id,
+    cardId: card.id,
+    userId: projectUserId(c),
+    note: input.note,
+    startedAt: input.startedAt,
+    endedAt: input.endedAt,
+  })
+  return c.json({ entry }, 201)
+})
+
+projectRoutes.patch('/cards/:id/time/:entryId', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectTimeEntryPatchSchema)
+  const entry = await updateTimeEntry(c.env.DB, card.id, c.req.param('entryId'), input)
+  if (!entry) throw ApiError.notFound('Time entry not found')
+  return c.json({ entry })
 })
 
 projectRoutes.post('/cards/:id/time/start', async (c) => {
@@ -457,7 +897,11 @@ projectRoutes.post('/boards/:id/files', async (c) => {
 projectRoutes.get('/files/:id', async (c) => {
   const attachment = await getProjectAttachment(c.env.DB, c.req.param('id'))
   if (!attachment) throw ApiError.notFound('File not found')
-  await requireBoard(c, attachment.boardId, 'viewer')
+  const access = await requireBoard(c, attachment.boardId, 'viewer')
+  if (attachment.cardId) {
+    const card = await getProjectCardRow(c.env.DB, attachment.cardId)
+    if ((!card || card.delete_at !== 0) && access.role !== 'admin') throw ApiError.notFound('File not found')
+  }
   if (!c.env.FILES) throw ApiError.notFound('File not found')
   const object = await c.env.FILES.get(attachment.objectKey)
   if (!object) throw ApiError.notFound('File not found')
@@ -477,7 +921,11 @@ projectRoutes.get('/files/:id', async (c) => {
 projectRoutes.delete('/files/:id', async (c) => {
   const attachment = await getProjectAttachment(c.env.DB, c.req.param('id'))
   if (!attachment) throw ApiError.notFound('File not found')
-  await requireBoard(c, attachment.boardId, 'editor')
+  const access = await requireBoard(c, attachment.boardId, 'editor')
+  if (attachment.cardId) {
+    const card = await getProjectCardRow(c.env.DB, attachment.cardId)
+    if ((!card || card.delete_at !== 0) && access.role !== 'admin') throw ApiError.notFound('File not found')
+  }
   await deleteProjectAttachment(c.env.DB, c.env.FILES, attachment)
   return c.json({ ok: true })
 })
@@ -500,7 +948,7 @@ projectRoutes.post('/boards', async (c) => {
 
 projectRoutes.get('/boards/:id', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  return c.json({ board, properties: await readBoardProperties(c.env.DB, board.id), role })
+  return c.json({ board, properties: projectPropertiesForRole(await readBoardProperties(c.env.DB, board.id), role), role, propertyRevision: await readProjectPropertyRevision(c.env.DB, board.id) })
 })
 
 /** The cheap staleness question: a poller asks this before paying for the whole bundle. */
@@ -541,7 +989,27 @@ projectRoutes.get('/boards/:id/cursor', async (c) => {
 
 projectRoutes.get('/boards/:id/bundle', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c), { limit: PROJECT_LIMITS.bundleCards })
+  await redactHiddenRelations(c.env.DB, bundle, projectUserId(c))
+  return c.json(bundle)
+})
+
+projectRoutes.get('/boards/:id/cards/:cardId', async (c) => {
+  const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c), { cardId: c.req.param('cardId') })
+  await redactHiddenRelations(c.env.DB, bundle, projectUserId(c))
+  const card = bundle.cards[0]
+  if (!card) throw ApiError.notFound('Card not found')
+  return c.json({ card })
+})
+
+projectRoutes.get('/boards/:id/cards', async (c) => {
+  const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
+  const requestedLimit = Number(c.req.query('limit'))
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c), {
+    cursor: c.req.query('cursor'),
+    limit: Number.isFinite(requestedLimit) ? requestedLimit : PROJECT_LIMITS.bundleCards,
+  })
   await redactHiddenRelations(c.env.DB, bundle, projectUserId(c))
   return c.json(bundle)
 })
@@ -552,7 +1020,7 @@ projectRoutes.post('/boards/:id/cards', async (c) => {
   const properties = await readBoardProperties(c.env.DB, board.id)
   await assertProjectValuesWritable(c.env.DB, board.id, role, input.values)
   await assertProjectRelationValues(c.env.DB, properties, input.values, userId)
-  return c.json({ card: await createProjectCard(c.env.DB, board, userId, input, Date.now(), projectRelationTargets(properties)) }, 201)
+  return c.json({ card: projectCardForRole(await createProjectCard(c.env.DB, board, userId, input, Date.now(), projectRelationTargets(properties)), properties, role) }, 201)
 })
 
 projectRoutes.post('/boards/:id/views', async (c) => {
@@ -564,9 +1032,8 @@ projectRoutes.post('/boards/:id/views', async (c) => {
 projectRoutes.patch('/boards/:id/batch', async (c) => {
   const { board, userId, role } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectBatchSchema)
-  for (const entry of input.cards ?? []) {
-    await assertProjectValuesWritable(c.env.DB, board.id, role, entry.patch.values)
-  }
+  assertProjectBatchStatementLimit(projectBatchStatementCount(input))
+  await snapshotProjectRequestVersions(c, input)
   await batchPatchProjectBoard(c.env.DB, board, input, userId, Date.now(), role, c.env)
   return c.json({ ok: true })
 })
@@ -574,6 +1041,7 @@ projectRoutes.patch('/boards/:id/batch', async (c) => {
 projectRoutes.post('/boards/:id/batch-delete', async (c) => {
   const { board, userId, role } = await requireBoard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectBatchDeleteSchema)
+  await snapshotProjectRequestVersions(c, input)
   await batchDeleteProjectBoard(c.env.DB, board, input, userId, Date.now(), role)
   return c.json({ ok: true })
 })
@@ -603,7 +1071,7 @@ projectRoutes.post('/boards/:id/undelete', async (c) => {
 projectRoutes.post('/boards/:id/duplicate', async (c) => {
   const { board, role, userId } = await requireBoard(c, c.req.param('id'), 'viewer')
   await consumeAttemptBudget(c.env.DB, [{ key: `project-duplicate:${userId}`, maxAttempts: 30, windowMs: 60 * 60 * 1000 }])
-  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c))
   return c.json({ board: await duplicateProjectBoard(c.env.DB, bundle, userId, Date.now()) }, 201)
 })
 
@@ -628,6 +1096,46 @@ projectRoutes.delete('/boards/:id/share', async (c) => {
   const { board, userId } = await requireBoardOwner(c, c.req.param('id'))
   await deleteProjectShare(c.env.DB, board.id, userId)
   return c.json({ ok: true })
+})
+
+projectRoutes.get('/boards/:id/integrations', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ integrations: await listProjectIntegrations(c.env.DB, board.id) })
+})
+
+projectRoutes.post('/boards/:id/integrations', async (c) => {
+  const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
+  await consumeAttemptBudget(c.env.DB, [{ key: `project-integration-create:${userId}`, maxAttempts: 20, windowMs: 60 * 60 * 1000 }])
+  const input = await projectBody(c, ProjectIntegrationCreateSchema, JSON_BODY_LIMITS.small)
+  const integration = await saveProjectIntegration(c.env.DB, c.env, board.id, userId, input, Date.now())
+  return c.json({ integration }, 201)
+})
+
+projectRoutes.patch('/boards/:id/integrations/:integrationId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
+  const input = await projectBody(c, ProjectIntegrationPatchSchema, JSON_BODY_LIMITS.small)
+  const integration = await patchProjectIntegration(c.env.DB, board.id, c.req.param('integrationId'), input.enabled, Date.now())
+  if (!integration) throw ApiError.notFound('Integration not found')
+  return c.json({ integration })
+})
+
+projectRoutes.delete('/boards/:id/integrations/:integrationId', async (c) => {
+  const { board } = await requireBoard(c, c.req.param('id'), 'admin')
+  await deleteProjectIntegration(c.env.DB, board.id, c.req.param('integrationId'))
+  return c.json({ ok: true })
+})
+
+projectRoutes.get('/cards/:id/external-links', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ links: await listProjectExternalLinks(c.env.DB, card.id) })
+})
+
+projectRoutes.post('/cards/:id/external-links/:provider', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  const provider = c.req.param('provider')
+  if (provider !== 'github' && provider !== 'jira') throw ApiError.badRequest('Unsupported integration provider')
+  const link = await createProjectExternalIssue(c.env.DB, c.env, card, provider)
+  return c.json({ link }, 201)
 })
 
 projectRoutes.get('/boards/:id/automations', async (c) => {
@@ -683,7 +1191,7 @@ projectRoutes.post('/boards/:id/webhooks', async (c) => {
   const { board, userId } = await requireBoard(c, c.req.param('id'), 'admin')
   await consumeAttemptBudget(c.env.DB, [{ key: `project-webhook-create:${userId}`, maxAttempts: 20, windowMs: 60 * 60 * 1000 }])
   const input = await projectBody(c, ProjectWebhookCreateSchema, JSON_BODY_LIMITS.small)
-  return c.json(await createProjectWebhook(c.env.DB, board.id, userId, input, Date.now()), 201)
+  return c.json(await createProjectWebhook(c.env.DB, c.env, board.id, userId, input, Date.now()), 201)
 })
 
 projectRoutes.patch('/boards/:id/webhooks/:hookId', async (c) => {
@@ -713,7 +1221,7 @@ projectRoutes.post('/boards/:id/sprints', async (c) => {
 
 projectRoutes.get('/boards/:id/sprints/:sprintId', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const detail = await readSprintDetail(c.env.DB, board, role, c.req.param('sprintId'), Date.now())
+  const detail = await readSprintDetail(c.env.DB, board, role, c.req.param('sprintId'), Date.now(), projectUserId(c))
   if (!detail) throw ApiError.notFound('Sprint not found')
   return c.json(detail)
 })
@@ -746,15 +1254,21 @@ projectRoutes.put('/boards/:id/sprints/:sprintId/cards/:cardId', async (c) => {
 
 projectRoutes.delete('/boards/:id/sprints/:sprintId/cards/:cardId', async (c) => {
   const { board } = await requireBoard(c, c.req.param('id'), 'editor')
-  const sprint = await getProjectSprint(c.env.DB, board.id, c.req.param('sprintId'))
+  const sprintId = c.req.param('sprintId')
+  const sprint = await getProjectSprint(c.env.DB, board.id, sprintId)
   if (!sprint) throw ApiError.notFound('Sprint not found')
-  await setCardSprint(c.env.DB, board.id, c.req.param('cardId'), null, Date.now())
+  const cardId = c.req.param('cardId')
+  const edge = await c.env.DB.prepare(
+    'SELECT 1 FROM project_sprint_cards WHERE board_id = ?1 AND sprint_id = ?2 AND card_id = ?3',
+  ).bind(board.id, sprintId, cardId).first()
+  if (!edge) throw ApiError.notFound('Card is not in this sprint')
+  await setCardSprint(c.env.DB, board.id, cardId, null, Date.now())
   return c.json({ ok: true })
 })
 
 projectRoutes.get('/boards/:id/properties', async (c) => {
-  const { board } = await requireBoard(c, c.req.param('id'), 'viewer')
-  return c.json({ properties: await readBoardProperties(c.env.DB, board.id) })
+  const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
+  return c.json({ properties: projectPropertiesForRole(await readBoardProperties(c.env.DB, board.id), role) })
 })
 
 projectRoutes.get('/boards/:id/metadata', async (c) => {
@@ -764,18 +1278,20 @@ projectRoutes.get('/boards/:id/metadata', async (c) => {
 
 projectRoutes.get('/boards/:id/archive', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const bytes = await exportProjectBoardArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, board, role)
-  return new Response(bytes, {
+  const archive = await exportProjectBoardArchive(c.env.DB, { r2: c.env.FILES, kv: c.env.FILES_KV }, board, role, projectUserId(c))
+  return new Response(archive.body, {
     headers: {
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename="${projectExportFilename(board.id, 'boardarchive')}"`,
+      'Content-Length': String(archive.size),
+      'Cache-Control': 'private, no-store',
     },
   })
 })
 
 projectRoutes.get('/boards/:id/csv', async (c) => {
   const { board, role } = await requireBoard(c, c.req.param('id'), 'viewer')
-  const bundle = await readProjectBoardBundle(c.env.DB, board, role)
+  const bundle = await readProjectBoardBundle(c.env.DB, board, role, projectUserId(c))
   return new Response(projectBoardToCsv(bundle), {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
@@ -854,31 +1370,42 @@ projectRoutes.get('/cards/:id/detail', async (c) => {
 })
 
 projectRoutes.patch('/cards/:id', async (c) => {
-  const { card, board, userId, role } = await requireCard(c, c.req.param('id'), 'editor')
+  const { rawCard, board, userId, role } = await requireCard(c, c.req.param('id'), 'editor')
   const patch = await projectBody(c, ProjectCardPatchSchema)
-  const properties = await readBoardProperties(c.env.DB, card.boardId)
-  await assertProjectValuesWritable(c.env.DB, card.boardId, role, patch.values)
+  const properties = await readBoardProperties(c.env.DB, rawCard.boardId)
+  await assertProjectValuesWritable(c.env.DB, rawCard.boardId, role, patch.values)
   await assertProjectRelationValues(c.env.DB, properties, patch.values, userId)
+  await snapshotProjectRequestVersions(c, patch)
   const now = Date.now()
-  const updated = await patchProjectCard(c.env.DB, card, patch, userId, now, projectRelationTargets(properties))
-  if (patch.values !== undefined) {
-    await applyCardValueEffects(c.env.DB, c.env, board, card, updated, properties, userId, now)
-  }
-  return c.json({ card: updated })
+  const updated = await patchProjectCard(c.env.DB, rawCard, patch, userId, now, projectRelationTargets(properties))
+  const fresh = patch.values !== undefined
+    ? await applyCardValueEffects(c.env.DB, c.env, board, rawCard, updated, properties, userId, now)
+    : updated
+  await syncProjectCalendarLinksForCard(c.env.DB, rawCard, fresh, userId, now)
+  const externalSync = syncProjectExternalLinksForCard(c.env.DB, c.env, fresh)
+  externalSync.catch((error: unknown) => console.warn('[inkstone] project external issue dispatch failed:', error instanceof Error ? error.message : error))
+  try { c.executionCtx?.waitUntil(externalSync) } catch { /* no ExecutionContext in tests */ }
+  return c.json({ card: projectCardForRole(fresh, properties, role) })
 })
 
 projectRoutes.delete('/cards/:id', async (c) => {
   const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  await snapshotProjectRequestVersions(c, undefined)
   await softDeleteProjectCard(c.env.DB, card.id, userId, Date.now())
   return c.json({ ok: true })
 })
 
 projectRoutes.post('/cards/:id/undelete', async (c) => {
-  const { card, board, userId } = await requireCard(c, c.req.param('id'), 'editor', { allowDeleted: true })
+  const { card, board, userId, role } = await requireCard(c, c.req.param('id'), 'editor', { allowDeleted: true })
   const now = Date.now()
   await undeleteProjectCard(c.env.DB, card.id, userId, now)
-  await rebuildBoardRelations(c.env.DB, board.id, await readBoardProperties(c.env.DB, board.id), now)
-  return c.json({ card: await getProjectCard(c.env.DB, card.id) })
+  const relatedBoardIds = new Set([board.id, ...await projectRelationBoardIds(c.env.DB, card.id)])
+  for (const relatedBoardId of relatedBoardIds) {
+    await rebuildBoardRelations(c.env.DB, relatedBoardId, await readBoardProperties(c.env.DB, relatedBoardId), now)
+  }
+  const restored = await getProjectCard(c.env.DB, card.id)
+  const properties = await readBoardProperties(c.env.DB, board.id)
+  return c.json({ card: projectCardForRole(restored!, properties, role) })
 })
 
 projectRoutes.get('/boards/:id/relation-cards', async (c) => {
@@ -898,10 +1425,12 @@ projectRoutes.post('/cards/:id/duplicate', async (c) => {
 })
 
 projectRoutes.post('/cards/:id/move', async (c) => {
-  const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
+  const { card, userId, role } = await requireCard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectCardMoveSchema, JSON_BODY_LIMITS.small)
   await requireBoard(c, input.targetBoardId, 'editor')
-  return c.json({ card: await moveProjectCard(c.env.DB, card, input.targetBoardId, userId, Date.now()) })
+  const moved = await moveProjectCard(c.env.DB, card, input.targetBoardId, userId, Date.now(), role)
+  const properties = await readBoardProperties(c.env.DB, moved.boardId)
+  return c.json({ card: projectCardForRole(moved, properties, role) })
 })
 
 projectRoutes.post('/cards/:id/save-as-template', async (c) => {
@@ -947,6 +1476,7 @@ projectRoutes.post('/views/:id/duplicate', async (c) => {
 projectRoutes.post('/cards/:id/contents', async (c) => {
   const { card, userId } = await requireCard(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectContentCreateSchema)
+  await snapshotProjectRequestVersions(c, input)
   return c.json({ content: await createProjectContent(c.env.DB, card, userId, input, Date.now()) }, 201)
 })
 
@@ -958,17 +1488,20 @@ projectRoutes.get('/contents/:id', async (c) => {
 projectRoutes.patch('/contents/:id', async (c) => {
   const { content, userId } = await requireContent(c, c.req.param('id'), 'editor')
   const patch = await projectBody(c, ProjectContentPatchSchema)
+  await snapshotProjectRequestVersions(c, patch)
   return c.json({ content: await patchProjectContent(c.env.DB, content, patch, userId, Date.now()) })
 })
 
 projectRoutes.delete('/contents/:id', async (c) => {
   const { content, userId } = await requireContent(c, c.req.param('id'), 'editor')
+  await snapshotProjectRequestVersions(c, undefined)
   await softDeleteProjectContent(c.env.DB, content, userId, Date.now())
   return c.json({ ok: true })
 })
 
 projectRoutes.post('/contents/:id/undelete', async (c) => {
   const { content, userId } = await requireContent(c, c.req.param('id'), 'editor', { allowDeleted: true })
+  await snapshotProjectRequestVersions(c, undefined)
   await undeleteProjectContent(c.env.DB, content, userId, Date.now())
   return c.json({ content: await getProjectContent(c.env.DB, content.id) })
 })
@@ -976,7 +1509,74 @@ projectRoutes.post('/contents/:id/undelete', async (c) => {
 projectRoutes.post('/contents/:id/move', async (c) => {
   const { content, userId } = await requireContent(c, c.req.param('id'), 'editor')
   const input = await projectBody(c, ProjectContentMoveSchema, JSON_BODY_LIMITS.small)
+  await snapshotProjectRequestVersions(c, input)
   return c.json({ content: await moveProjectContent(c.env.DB, content, input.targetId, input.where, userId, Date.now()) })
+})
+
+projectRoutes.get('/cards/:id/versions', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ versions: await listProjectCardVersions(c.env.DB, card.id) })
+})
+
+projectRoutes.get('/cards/:id/versions/:versionId', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  const version = await getProjectCardVersion(c.env.DB, card.id, c.req.param('versionId'))
+  if (!version) throw ApiError.notFound('Version not found')
+  return c.json({ version })
+})
+
+projectRoutes.post('/cards/:id/versions/:versionId/restore', async (c) => {
+  const { card, board, userId, role } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectCardVersionRestoreSchema)
+  if (input.expectedUpdateAt !== card.updateAt) throw ApiError.conflict('Card changed on another device')
+  const version = await getProjectCardVersion(c.env.DB, card.id, c.req.param('versionId'))
+  if (!version) throw ApiError.notFound('Version not found')
+  await createProjectCardVersion(c.env.DB, card.id, userId, Date.now())
+  const now = Math.max(Date.now(), card.updateAt + 1)
+  const restored = await restoreProjectCardVersion(c.env.DB, c.env, board, card, version, userId, now)
+  await syncProjectCalendarLinksForCard(c.env.DB, card, restored, userId, now)
+  const properties = await readBoardProperties(c.env.DB, card.boardId)
+  return c.json({ card: projectCardForRole(restored, properties, role) })
+})
+
+projectRoutes.get('/cards/:id/notes', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ notes: await listCardNotes(c.env.DB, card.id, projectUserId(c)) })
+})
+
+projectRoutes.post('/cards/:id/notes', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectCardNoteLinkSchema)
+  const note = await linkCardNote(c.env.DB, card.id, input.noteId, projectUserId(c), Date.now())
+  return c.json({ note }, 201)
+})
+
+projectRoutes.delete('/cards/:id/notes/:noteId', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  await unlinkCardNote(c.env.DB, card.id, c.req.param('noteId'), projectUserId(c))
+  return c.json({ ok: true })
+})
+
+projectRoutes.get('/notes/:id/cards', async (c) => {
+  return c.json({ cards: await listNoteProjectCards(c.env.DB, c.req.param('id'), projectUserId(c)) })
+})
+
+projectRoutes.get('/cards/:id/calendar-links', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'viewer')
+  return c.json({ links: await listProjectCalendarLinks(c.env.DB, projectUserId(c), card.id) })
+})
+
+projectRoutes.post('/cards/:id/calendar-links', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  const input = await projectBody(c, ProjectCalendarLinkSchema)
+  const link = await linkProjectCalendar(c.env.DB, projectUserId(c), card, input, Date.now())
+  return c.json({ link }, 201)
+})
+
+projectRoutes.delete('/cards/:id/calendar-links/:linkId', async (c) => {
+  const { card } = await requireCard(c, c.req.param('id'), 'editor')
+  await unlinkProjectCalendar(c.env.DB, projectUserId(c), card.id, c.req.param('linkId'))
+  return c.json({ ok: true })
 })
 
 projectRoutes.get('/cards/:id/comments', async (c) => {
@@ -1065,6 +1665,189 @@ projectPublicRoutes.post('/:slug', async (c) => {
   return c.json(await readPublicProjectShare(c.env.DB, c.req.param('slug'), password, Date.now(), requestClientIp(c)))
 })
 
+projectPublicRoutes.post('/:slug/intake', async (c) => {
+  const key = c.req.header('Idempotency-Key')
+  if (!key || !/^[A-Za-z0-9_-]{8,64}$/.test(key)) throw ApiError.badRequest('A valid Idempotency-Key is required')
+  assertDeclaredBodySize(c.req, JSON_BODY_LIMITS.project)
+  const bytes = await readBytesWithinLimit(c.req.raw.body, JSON_BODY_LIMITS.project)
+  let raw: unknown
+  try {
+    raw = JSON.parse(new TextDecoder().decode(bytes)) as unknown
+  } catch {
+    throw ApiError.badRequest('The request body is not valid JSON')
+  }
+  const parsed = ProjectPublicIntakeSchema.safeParse(raw)
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    throw ApiError.badRequest(issue ? `${issue.path.join('.')}: ${issue.message}` : 'Validation failed')
+  }
+  const input = parsed.data
+  const slug = c.req.param('slug')
+  const now = Date.now()
+  const context = await authorizePublicProjectShare(c.env.DB, slug, input.password, now, requestClientIp(c), 'intake')
+  const properties = await readBoardProperties(c.env.DB, context.board.id)
+  await assertPublicIntakeValues(c.env.DB, context.board.id, properties, context.intake, input.values)
+  const receiptUser = `public:intake:${slug}`
+  const bodyHash = await projectWriteFingerprint(bytes.buffer as ArrayBuffer)
+  const claim = {
+    method: 'POST',
+    path: `/api/project/public/${slug}/intake`,
+    bodyHash,
+    boardId: context.board.id,
+    requiredRole: '' as const,
+    ownerRequired: false,
+  }
+  let claimed = false
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    claimed = await claimProjectWriteReceipt(c.env.DB, receiptUser, key, claim, now)
+    if (claimed) break
+    const stored = await readProjectWriteReceipt(c.env.DB, receiptUser, key)
+    if (stored?.state === 'legacy' || (stored?.state === 'pending' && now - stored.createdAt > PROJECT_WRITE_CLAIM_TTL_MS)) {
+      await discardProjectWriteReceipt(c.env.DB, receiptUser, key)
+      continue
+    }
+    if (!stored || stored.state !== 'complete') throw ApiError.conflict('Intake submission is already in progress')
+    if (stored.method !== claim.method || stored.path !== claim.path || stored.bodyHash !== bodyHash || stored.boardId !== context.board.id) {
+      throw ApiError.conflict('Idempotency key was already used for a different request')
+    }
+    return c.json(JSON.parse(stored.body) as { ok: true, cardId: string, editable: boolean }, 201)
+  }
+  if (!claimed) throw ApiError.conflict('Intake submission is already in progress')
+  try {
+    const cardInput = ProjectCardCreateSchema.parse({ title: input.title, values: input.values })
+    const card = await createProjectCard(c.env.DB, context.board, 'public:intake', cardInput, now)
+    let editToken: string | undefined
+    if (context.intake.editable) {
+      try {
+        editToken = await createProjectIntakeGrant(c.env.DB, {
+          cardId: card.id,
+          boardId: card.boardId,
+          shareSlug: slug,
+          fieldIds: context.intake.propertyIds,
+          expiresAt: context.row.expires_at,
+          now,
+        })
+      } catch (error) {
+        console.warn('[inkstone] public intake edit grant failed:', error instanceof Error ? error.message : error)
+      }
+    }
+    const response = { ok: true as const, cardId: card.id, editable: editToken !== undefined }
+    await completeProjectWriteReceipt(c.env.DB, receiptUser, key, 201, JSON.stringify(response), now)
+    await touchProjectBoard(c.env.DB, context.board.id, now).catch((error: unknown) => {
+      console.warn('[inkstone] public intake board cursor bump failed:', error instanceof Error ? error.message : error)
+    })
+    const schedule = (task: Promise<unknown>): void => {
+      try { c.executionCtx?.waitUntil(task) } catch { /* no ExecutionContext in tests */ }
+    }
+    schedule(broadcastProjectChange(c.env, context.board.id, now, null, { entity: 'card', cardId: card.id }))
+    const activity = (async () => {
+      const activityId = await recordProjectActivity(c.env.DB, context.board.id, 'public:intake', 'post', card.id, 'Public intake created a card', now)
+      await recordProjectActivityChanges(c.env.DB, activityId, context.board.id, 'public:intake', [{
+        entity: 'card', entityId: card.id, field: 'created', newValue: true,
+      }], now)
+    })()
+    schedule(activity)
+    const webhook = enqueueProjectWebhookEvents(c.env.DB, context.board.id, 'card.created', {
+      boardId: context.board.id, event: 'card.created', targetId: card.id, method: 'POST', path: c.req.path, at: now,
+    }, now).then((ids) => Promise.all(ids.map((id) => deliverProjectWebhook(c.env.DB, c.env, id, now))))
+    schedule(webhook)
+    return c.json({ ...response, ...(editToken ? { editToken } : {}) }, 201)
+  } catch (error) {
+    await discardProjectWriteReceipt(c.env.DB, receiptUser, key)
+    throw error
+  }
+})
+
+projectPublicRoutes.post('/:slug/guest/open', async (c) => {
+  const input = await projectBody(c, ProjectGuestOpenSchema)
+  const now = Date.now()
+  const slug = c.req.param('slug')
+  const context = await authorizePublicProjectShare(c.env.DB, slug, input.password, now, requestClientIp(c), 'guest')
+  const grant = await readProjectIntakeGrant(c.env.DB, slug, input.cardId, input.token, now)
+  if (!grant || grant.card.boardId !== context.board.id) throw ApiError.notFound('Edit link not found')
+  return c.json(await openProjectGuestCard(c.env.DB, context.board.id, grant.card, grant.fieldIds))
+})
+
+projectPublicRoutes.post('/:slug/guest', async (c) => {
+  const key = c.req.header('Idempotency-Key')
+  if (!key || !/^[A-Za-z0-9_-]{8,64}$/.test(key)) throw ApiError.badRequest('A valid Idempotency-Key is required')
+  const input = await projectBody(c, ProjectGuestPatchSchema)
+  const now = Date.now()
+  const slug = c.req.param('slug')
+  const context = await authorizePublicProjectShare(c.env.DB, slug, input.password, now, requestClientIp(c), 'guest')
+  const grant = await readProjectIntakeGrant(c.env.DB, slug, input.cardId, input.token, now)
+  if (!grant || grant.card.boardId !== context.board.id) throw ApiError.notFound('Edit link not found')
+  const receiptUser = `public:guest:${slug}:${input.cardId}`
+  const bodyHash = await projectWriteFingerprint(new TextEncoder().encode(JSON.stringify(input)).buffer as ArrayBuffer)
+  const claim = {
+    method: 'POST',
+    path: `/api/project/public/${slug}/guest`,
+    bodyHash,
+    boardId: context.board.id,
+    requiredRole: '' as const,
+    ownerRequired: false,
+  }
+  let claimed = false
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    claimed = await claimProjectWriteReceipt(c.env.DB, receiptUser, key, claim, now)
+    if (claimed) break
+    const stored = await readProjectWriteReceipt(c.env.DB, receiptUser, key)
+    if (stored?.state === 'legacy' || (stored?.state === 'pending' && now - stored.createdAt > PROJECT_WRITE_CLAIM_TTL_MS)) {
+      await discardProjectWriteReceipt(c.env.DB, receiptUser, key)
+      continue
+    }
+    if (!stored || stored.state !== 'complete') throw ApiError.conflict('Guest edit is already in progress')
+    if (stored.method !== claim.method || stored.path !== claim.path || stored.bodyHash !== bodyHash || stored.boardId !== context.board.id) {
+      throw ApiError.conflict('Idempotency key was already used for a different request')
+    }
+    return c.json(JSON.parse(stored.body) as { ok: true, cardId: string, updateAt: number }, 200)
+  }
+  if (!claimed) throw ApiError.conflict('Guest edit is already in progress')
+  try {
+    if (input.expectedUpdateAt !== grant.card.updateAt) throw ApiError.conflict('Card changed on another device')
+    const properties = await readBoardProperties(c.env.DB, context.board.id)
+    await assertProjectGuestValues(c.env.DB, context.board.id, properties, grant.fieldIds, input.values ?? {})
+    await createProjectCardVersion(c.env.DB, grant.card.id, 'public:guest', now).catch((error: unknown) => {
+      console.warn('[inkstone] public guest version snapshot failed:', error instanceof Error ? error.message : error)
+    })
+    const patch = ProjectCardPatchSchema.parse({ title: input.title, values: input.values })
+    const updated = await patchProjectCard(c.env.DB, grant.card, patch, 'public:guest', now, projectRelationTargets(properties))
+    await applyCardValueEffects(c.env.DB, c.env, context.board, grant.card, updated, properties, 'public:guest', now).catch((error: unknown) => {
+      console.warn('[inkstone] public guest value effects failed:', error instanceof Error ? error.message : error)
+    })
+    const response = { ok: true as const, cardId: updated.id, updateAt: updated.updateAt }
+    await completeProjectWriteReceipt(c.env.DB, receiptUser, key, 200, JSON.stringify(response), now)
+    await touchProjectBoard(c.env.DB, context.board.id, now).catch((error: unknown) => {
+      console.warn('[inkstone] public guest board cursor bump failed:', error instanceof Error ? error.message : error)
+    })
+    const changes: ProjectActivityChange[] = []
+    if (input.title !== undefined && input.title !== grant.card.title) {
+      changes.push({ entity: 'card', entityId: updated.id, field: 'title', oldValue: grant.card.title, newValue: input.title })
+    }
+    for (const [propertyId, value] of Object.entries(input.values ?? {})) {
+      if (value === grant.card.values[propertyId]) continue
+      changes.push({ entity: 'card', entityId: updated.id, field: `values.${propertyId}`, oldValue: '[redacted]', newValue: '[redacted]' })
+    }
+    const schedule = (task: Promise<unknown>): void => {
+      try { c.executionCtx?.waitUntil(task) } catch { /* no ExecutionContext in tests */ }
+    }
+    schedule(broadcastProjectChange(c.env, context.board.id, now, null, { entity: 'card', cardId: updated.id }))
+    const activity = (async () => {
+      const activityId = await recordProjectActivity(c.env.DB, context.board.id, 'public:guest', 'patch', updated.id, 'Public guest edited a submission', now)
+      await recordProjectActivityChanges(c.env.DB, activityId, context.board.id, 'public:guest', changes, now)
+    })()
+    schedule(activity)
+    const webhook = enqueueProjectWebhookEvents(c.env.DB, context.board.id, 'card.updated', {
+      boardId: context.board.id, event: 'card.updated', targetId: updated.id, method: 'POST', path: c.req.path, at: now,
+    }, now).then((ids) => Promise.all(ids.map((id) => deliverProjectWebhook(c.env.DB, c.env, id, now))))
+    schedule(webhook)
+    return c.json(response)
+  } catch (error) {
+    await discardProjectWriteReceipt(c.env.DB, receiptUser, key)
+    throw error
+  }
+})
+
 projectRoutes.post('/categories', async (c) => {
   const input = await projectBody(c, ProjectCategoryCreateSchema, JSON_BODY_LIMITS.small)
   return c.json({ category: await createProjectCategory(c.env.DB, projectUserId(c), input, Date.now()) }, 201)
@@ -1097,7 +1880,10 @@ projectRoutes.delete('/categories/:id', async (c) => {
 
 projectRoutes.put('/categories/:id/boards/order', async (c) => {
   const input = await projectBody(c, ProjectCategoryBoardOrderSchema, JSON_BODY_LIMITS.small)
-  await reorderCategoryBoards(c.env.DB, projectUserId(c), c.req.param('id'), input.boardIds, Date.now())
+  const userId = projectUserId(c)
+  const visible = new Set((await new ProjectStore(c.env.DB, userId).boards()).map((board) => board.id))
+  if (input.boardIds.some((boardId) => !visible.has(boardId))) throw ApiError.notFound('Board not found')
+  await reorderCategoryBoards(c.env.DB, userId, c.req.param('id'), input.boardIds, Date.now())
   return c.json({ ok: true })
 })
 

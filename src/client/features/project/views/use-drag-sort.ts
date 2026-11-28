@@ -11,7 +11,7 @@
  * at a low rate while auto-scrolling, which keeps a card whose height is still an intrinsic estimate
  * from leaving a stale drop line behind.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 
 export interface DragDropTarget {
   zone: string
@@ -28,7 +28,7 @@ interface ItemRect {
 
 interface ZoneRect {
   key: string
-  el: HTMLElement
+  el: HTMLElement | null
   left: number
   right: number
   top: number
@@ -38,6 +38,7 @@ interface ZoneRect {
 export interface DragGeometry {
   zones: readonly { key: string, left: number, right: number, top: number, bottom: number }[]
   items: ReadonlyMap<string, readonly { id: string, top: number, height: number }[]>
+  viewport?: boolean
 }
 
 export interface DragOverStore {
@@ -61,8 +62,8 @@ export function resolveDragTarget(
   excluded: ReadonlySet<string>,
   fallback: DragDropTarget | null,
 ): DragDropTarget | null {
-  const x = pointer.x + pointer.scrollX
-  const y = pointer.y + pointer.scrollY
+  const x = pointer.x + (geometry.viewport ? 0 : pointer.scrollX)
+  const y = pointer.y + (geometry.viewport ? 0 : pointer.scrollY)
   const inBand = geometry.zones.filter((entry) => x >= entry.left && x <= entry.right)
   const zone = inBand.find((entry) => y >= entry.top && y <= entry.bottom) ?? inBand[0]
   if (!zone) return fallback
@@ -84,14 +85,19 @@ export function useDragSort(options: {
   enabled: boolean
   /** The full set travelling together when the pressed card is part of a multi-selection. */
   groupOf?: (id: string) => readonly string[]
+  geometry?: () => DragGeometry
   onDrop: (id: string, target: DragDropTarget) => void
 }): {
   draggingId: string | null
+  keyboardDragId: string | null
   overStore: DragOverStore
   start: (event: ReactPointerEvent, id: string) => void
+  onKeyDown: (event: ReactKeyboardEvent, id: string) => void
 } {
-  const { enabled, groupOf, onDrop } = options
+  const { enabled, groupOf, geometry, onDrop } = options
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [keyboardDragId, setKeyboardDragId] = useState<string | null>(null)
+  const keyboardAnchor = useRef<HTMLElement | null>(null)
   const overRef = useRef<DragDropTarget | null>(null)
   const listeners = useRef(new Set<() => void>())
   const notify = useCallback(() => { for (const listener of listeners.current) listener() }, [])
@@ -109,12 +115,33 @@ export function useDragSort(options: {
   dropRef.current = onDrop
   const groupRef = useRef(groupOf)
   groupRef.current = groupOf
+  const geometryRef = useRef(geometry)
+  geometryRef.current = geometry
+  const clearKeyboard = useCallback(() => {
+    keyboardAnchor.current = null
+    setKeyboardDragId(null)
+    overRef.current = null
+    notify()
+  }, [notify])
   const session = useRef<{ cleanup: () => void } | null>(null)
 
   useEffect(() => () => { session.current?.cleanup() }, [])
 
+  useEffect(() => {
+    if (!keyboardDragId) return
+    const key = (event: KeyboardEvent): void => { if (event.key === 'Escape') clearKeyboard() }
+    const focus = (event: FocusEvent): void => { if (event.target !== keyboardAnchor.current) clearKeyboard() }
+    window.addEventListener('keydown', key)
+    document.addEventListener('focusin', focus)
+    return () => {
+      window.removeEventListener('keydown', key)
+      document.removeEventListener('focusin', focus)
+    }
+  }, [keyboardDragId, clearKeyboard])
+
   const start = useCallback((event: ReactPointerEvent, id: string) => {
     if (!enabled || event.button !== 0 || session.current) return
+    clearKeyboard()
     const source = (event.currentTarget as HTMLElement).closest('[data-drag-item]') as HTMLElement | null
     const root = (event.currentTarget as HTMLElement).closest('[data-drag-root]') as HTMLElement | null
     if (!source || !root) return
@@ -160,9 +187,9 @@ export function useDragSort(options: {
 
     const measureZone = (key: string): void => {
       const zone = zones.find((entry) => entry.key === key)
-      if (!zone) return
+      if (!zone?.el) return
       readScroll()
-      const cards = [...zone.el.querySelectorAll<HTMLElement>('[data-drag-item]')]
+      const cards = [...zone.el.querySelectorAll<HTMLElement>('[data-drag-item]:not([data-child="true"])')]
       itemsByZone.set(key, cards.map((el, index) => {
         const rect = el.getBoundingClientRect()
         return { id: el.dataset.dragId ?? '', zone: key, top: rect.top + scrollY, height: rect.height, index }
@@ -178,6 +205,17 @@ export function useDragSort(options: {
         if (/(auto|scroll)/.test(`${style.overflowY}${style.overflowX}`)) scrollers.push(node)
         node = node.parentElement
       }
+      for (const zone of zoneEls) {
+        const style = getComputedStyle(zone)
+        if (/(auto|scroll)/.test(`${style.overflowY}${style.overflowX}`) && !scrollers.includes(zone)) scrollers.push(zone)
+      }
+      const supplied = geometryRef.current?.()
+      if (supplied) {
+        zones = supplied.zones.map((zone) => ({ key: zone.key, el: null, left: zone.left, right: zone.right, top: zone.top, bottom: zone.bottom }))
+        itemsByZone = new Map([...supplied.items].map(([key, entries]) => [key, entries.map((entry, index) => ({ ...entry, zone: key, index }))]))
+        lastRemeasure = performance.now()
+        return
+      }
       measureZones()
       itemsByZone = new Map()
       for (const zone of zones) measureZone(zone.key)
@@ -189,8 +227,11 @@ export function useDragSort(options: {
       const now = performance.now()
       if (now - lastRemeasure < 120) return
       lastRemeasure = now
-      measureZones()
-      if (latest) measureZone(latest.zone)
+      if (geometryRef.current) measure()
+      else {
+        measureZones()
+        if (latest) measureZone(latest.zone)
+      }
     }
 
     const begin = (): void => {
@@ -220,13 +261,14 @@ export function useDragSort(options: {
 
     const resolve = (x: number, y: number): DragDropTarget | null => {
       readScroll()
-      return resolveDragTarget({ zones, items: itemsByZone }, { x, y, scrollX, scrollY }, group, latest)
+      return resolveDragTarget({ zones, items: itemsByZone, viewport: geometryRef.current !== undefined }, { x, y, scrollX, scrollY }, group, latest)
     }
 
     const autoScroll = (): boolean => {
       let moved = false
       for (const el of scrollers) {
         const rect = el.getBoundingClientRect()
+        if (el.hasAttribute('data-drag-zone') && (lastX < rect.left || lastX > rect.right)) continue
         if (lastY < rect.top + EDGE) { el.scrollTop -= EDGE_SPEED; moved = true }
         else if (lastY > rect.bottom - EDGE) { el.scrollTop += EDGE_SPEED; moved = true }
         if (lastX < rect.left + EDGE) { el.scrollLeft -= EDGE_SPEED; moved = true }
@@ -276,7 +318,7 @@ export function useDragSort(options: {
       if (keyEvent.key === 'Escape') cleanup()
     }
 
-    function cleanup(): void {
+    function cleanup(silent: boolean | PointerEvent = false): void {
       if (hold !== null) { window.clearTimeout(hold); hold = null }
       if (frame) { cancelAnimationFrame(frame); frame = 0 }
       window.removeEventListener('pointermove', move)
@@ -289,18 +331,77 @@ export function useDragSort(options: {
       begun = false
       latest = null
       session.current = null
-      setDraggingId(null)
-      overRef.current = null
-      notify()
+      if (silent !== true) {
+        setDraggingId(null)
+        overRef.current = null
+        notify()
+      }
     }
 
-    session.current = { cleanup }
+    const dispose = (): void => cleanup(true)
+    session.current = { cleanup: dispose }
     window.addEventListener('pointermove', move, { passive: false })
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', cleanup)
     window.addEventListener('keydown', key)
     if (touch) hold = window.setTimeout(() => { hold = null; begin(); if (!frame) frame = requestAnimationFrame(paint) }, TOUCH_HOLD_MS)
-  }, [enabled])
+  }, [enabled, clearKeyboard])
 
-  return useMemo(() => ({ draggingId, overStore, start }), [draggingId, overStore, start])
+  const onKeyDown = useCallback((event: ReactKeyboardEvent, id: string) => {
+    if (!enabled) return
+    if (event.key === 'Escape') { event.preventDefault(); clearKeyboard(); return }
+    const root = (event.currentTarget as HTMLElement).closest('[data-drag-root]') as HTMLElement | null
+    if (!root) return
+    const group = new Set(groupRef.current?.(id) ?? [id])
+    const supplied = geometryRef.current?.()
+    const zones = supplied
+      ? supplied.zones.map((zone) => ({ key: zone.key, ids: (supplied.items.get(zone.key) ?? []).map((entry) => entry.id) }))
+      : [...root.querySelectorAll<HTMLElement>('[data-drag-zone]')].map((zone) => ({
+        key: zone.dataset.dragZone ?? '',
+        ids: [...zone.querySelectorAll<HTMLElement>('[data-drag-item]:not([data-child="true"])')]
+          .map((item) => item.dataset.dragId ?? '')
+          .filter((itemId) => Boolean(itemId)),
+      }))
+    const locate = (): DragDropTarget | null => {
+      const zoneIndex = zones.findIndex((zone) => zone.ids.includes(id))
+      if (zoneIndex < 0) return null
+      const ids = zones[zoneIndex]!.ids
+      return { zone: zones[zoneIndex]!.key, index: ids.slice(0, ids.indexOf(id)).filter((itemId) => !group.has(itemId)).length }
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      if (keyboardDragId && keyboardDragId !== id) return
+      event.preventDefault()
+      if (keyboardDragId === id) {
+        const target = overRef.current
+        clearKeyboard()
+        if (target) dropRef.current(id, target)
+      } else if (!keyboardDragId) {
+        const target = locate()
+        if (target) {
+          keyboardAnchor.current = event.currentTarget as HTMLElement
+          setKeyboardDragId(id)
+          overRef.current = target
+          notify()
+        }
+      }
+      return
+    }
+    if (!keyboardDragId || keyboardDragId !== id || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return
+    event.preventDefault()
+    const current = overRef.current ?? locate()
+    if (!current) return
+    let zoneIndex = zones.findIndex((zone) => zone.key === current.zone)
+    let index = current.index
+    if (event.key === 'ArrowLeft') zoneIndex = Math.max(0, zoneIndex - 1)
+    else if (event.key === 'ArrowRight') zoneIndex = Math.min(zones.length - 1, zoneIndex + 1)
+    else if (event.key === 'ArrowUp') index = Math.max(0, index - 1)
+    else index = Math.min(zones[zoneIndex]?.ids.length ?? 0, index + 1)
+    const zone = zones[zoneIndex]
+    if (!zone) return
+    const target = { zone: zone.key, index: Math.min(index, zone.ids.filter((itemId) => !group.has(itemId)).length) }
+    overRef.current = target
+    notify()
+  }, [enabled, keyboardDragId, clearKeyboard, notify])
+
+  return useMemo(() => ({ draggingId, keyboardDragId, overStore, start, onKeyDown }), [draggingId, keyboardDragId, overStore, start, onKeyDown])
 }

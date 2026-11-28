@@ -3,7 +3,7 @@ import { effectiveProjectRole } from '@shared/project/model'
 import { PROJECT_LIMITS } from '@shared/project/limits'
 import { ApiError } from '../lib/errors'
 import { publicUser } from '../lib/session-info'
-import { rowToUser, USER_COLUMNS } from '../middleware/auth'
+import { rowToUser, USER_COLUMNS } from '../lib/user-row'
 
 interface MemberRow {
   board_id: string

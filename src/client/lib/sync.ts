@@ -8,6 +8,7 @@ import { createBroadcast, localDb, type BroadcastPayload } from './db'
 import { applyTodoSync } from '../features/todos/store'
 import { acknowledgeOutboxBaseAdvanced, acknowledgeOutboxResult, useNotes } from '../store/notes'
 import { useSession } from '../store/session'
+import { emitProjectRealtime } from '../features/project/realtime-events'
 
 
 const HEARTBEAT_MS = 25_000
@@ -218,6 +219,17 @@ export class SyncEngine {
       if (payload.cursor > this.todosCursor) void this.pullTodos(false)
       return
     }
+    if (payload.type === 'project-changed') {
+      emitProjectRealtime({
+        boardId: payload.boardId,
+        cursor: payload.cursor,
+        origin: payload.origin,
+        entity: payload.entity,
+        ...(payload.cardId ? { cardId: payload.cardId } : {}),
+        ...(payload.commentId ? { commentId: payload.commentId } : {}),
+      })
+      return
+    }
     if (payload.type === 'local-write') {
 
 
@@ -282,6 +294,29 @@ export class SyncEngine {
         }
         if (message.type === 'pong') {
           this.lastPong = Date.now()
+          return
+        }
+        if (message.type === 'project-changed') {
+          this.broadcast.post({
+            type: 'project-changed',
+            clientId: CLIENT_ID,
+            boardId: message.boardId,
+            cursor: message.cursor,
+            origin: message.origin,
+            entity: message.entity,
+            ...(message.cardId ? { cardId: message.cardId } : {}),
+            ...(message.commentId ? { commentId: message.commentId } : {}),
+          })
+          if (message.origin !== CLIENT_ID) {
+            emitProjectRealtime({
+              boardId: message.boardId,
+              cursor: message.cursor,
+              origin: message.origin,
+              entity: message.entity,
+              ...(message.cardId ? { cardId: message.cardId } : {}),
+              ...(message.commentId ? { commentId: message.commentId } : {}),
+            })
+          }
           return
         }
         if (message.type === 'changed') {
@@ -525,6 +560,14 @@ function isRealtimeMessage(value: unknown): value is RealtimeMessage {  if (!val
   if (message.type === 'ping') return true
   if (message.type === 'pong') {
     return typeof message.serverTime === 'number' && Number.isFinite(message.serverTime)
+  }
+  if (message.type === 'project-changed') {
+    return typeof message.boardId === 'string' && message.boardId.length > 0 &&
+      (message.entity === 'board' || message.entity === 'card' || message.entity === 'comment' || message.entity === 'content' || message.entity === 'view') &&
+      typeof message.cursor === 'number' && Number.isSafeInteger(message.cursor) && message.cursor >= 0 &&
+      (message.origin === null || typeof message.origin === 'string') &&
+      (message.cardId === undefined || typeof message.cardId === 'string') &&
+      (message.commentId === undefined || typeof message.commentId === 'string')
   }
   return message.type === 'changed' &&
     typeof message.cursor === 'number' &&

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   caldavSync: vi.fn(),
   googleSync: vi.fn(),
   outlookSync: vi.fn(),
+  projectSync: vi.fn(),
 }))
 
 vi.mock('@dayflow/caldav', () => ({
@@ -33,6 +34,10 @@ vi.mock('@dayflow/google-sync', () => ({
 vi.mock('@dayflow/outlook-sync', () => ({
   createOutlookSyncAdapter: vi.fn(() => ({})),
   createOutlookSync: vi.fn(() => ({ syncEvents: mocks.outlookSync })),
+}))
+
+vi.mock('../src/worker/project/project-calendar', () => ({
+  syncProjectCardForCalendarEvent: mocks.projectSync,
 }))
 
 const USER = 'p'.repeat(26)
@@ -89,6 +94,8 @@ beforeEach(() => {
   mocks.caldavSync.mockReset()
   mocks.googleSync.mockReset()
   mocks.outlookSync.mockReset()
+  mocks.projectSync.mockReset()
+  mocks.projectSync.mockResolvedValue(undefined)
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CALENDAR_SCHEMA_STATEMENTS) sqlite.exec(statement)
   sqlite.exec(`CREATE TABLE attachments (
@@ -122,6 +129,18 @@ describe('provider adapter boundary', () => {
     expect(sync.mock.calls[1]?.[2]).toBe('token-1')
     expect(storedToken(connectionId)).toBe('token-2')
     expect(sqlite.prepare('SELECT COUNT(*) AS count FROM calendar_events').get()).toEqual({ count: 1 })
+  })
+
+  it('writes provider events back to linked project cards using the created event id', async () => {
+    await seed('google')
+    mocks.googleSync.mockResolvedValueOnce({
+      events: [remoteEvent('linked-project', 'google')], deleted: [], syncToken: 'project-token',
+    })
+
+    expect(await syncDueProviderConnections(env, NOW)).toMatchObject({ events: 1, deleted: 0, failed: 0 })
+    const event = sqlite.prepare('SELECT id FROM calendar_events').get() as { id: string }
+    expect(mocks.projectSync).toHaveBeenCalledTimes(1)
+    expect(mocks.projectSync).toHaveBeenCalledWith(db, USER, event.id)
   })
 
   it('passes CalDAV sync tokens to the adapter and keeps unchanged rows during incremental sync', async () => {

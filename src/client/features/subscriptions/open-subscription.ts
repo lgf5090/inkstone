@@ -15,7 +15,7 @@ export function openSubscriptionById(id: string): void {
   navigateToPath('/subscriptions')
   const store = useSubscriptions.getState()
   store.setView('list')
-  void store.select(id)
+  void store.openDetail(id)
 }
 
 export function openSubscriptionInApp(item: SubscriptionItem): void {

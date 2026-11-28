@@ -10,7 +10,7 @@ import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import type { ProjectCalendarMode, ProjectCard, ProjectProperty } from '@shared/project/model'
 import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
-import { parseProjectDateValue, projectDateValue, projectTimeZoneName } from '@shared/project/date'
+import { moveProjectDateValue, parseProjectDateValue, projectDateValue, projectDayToStamp, projectTimeZoneName } from '@shared/project/date'
 import { projectCardDays } from '@shared/project/timeline-layout'
 import { projectCalendarDayChips, projectCalendarDayRoles, projectCalendarIndex, projectCalendarOverdue, projectCalendarRibbons, projectCalendarWeekSpans, type CalendarEntry } from '@shared/project/calendar-layout'
 import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
@@ -22,7 +22,9 @@ import { dateKey, narrowWeekdayLabels, startOfWeek } from '../../../lib/time'
 import { Button, IconButton } from '../../../components/primitives'
 import { prompt, useDialogFocus, useEscape } from '../../../components/overlay'
 import { createProjectCard } from '../api'
+import { useToday } from '../use-today'
 import { Legend, Seg, ViewHead, ViewShell } from './shell'
+import { usePointerSession } from '../../../lib/hooks'
 
 const MAX_CHIPS = 3
 const RIBBON_ROW_PX = 18
@@ -35,6 +37,7 @@ export interface CalendarProps {
   mode: ProjectCalendarMode
   onModeChange: (mode: ProjectCalendarMode) => void
   canEdit: boolean
+  canPersonalize?: boolean
   onOpenCard: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onRefresh?: () => Promise<void>
@@ -58,9 +61,9 @@ export function CalendarView(props: CalendarProps): ReactElement {
   const [anchor, setAnchor] = useState(() => new Date())
   const [selected, setSelected] = useState<string | null>(null)
   const [dropDay, setDropDay] = useState<string | null>(null)
-  const dragRef = useRef<{ id: string, from: number, to: number } | null>(null)
-  const todayKey = dateKey(new Date())
-  const todayStamp = useMemo(() => { const day = new Date(); day.setHours(0, 0, 0, 0); return day.getTime() }, [])
+  const startPointerSession = usePointerSession()
+  const todayStamp = useToday()
+  const todayKey = dateKey(new Date(todayStamp))
   const keyOf = useCallback((stamp: number) => dateKey(new Date(stamp)), [])
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
 
@@ -134,13 +137,13 @@ export function CalendarView(props: CalendarProps): ReactElement {
 
   const reschedule = (cardId: string, day: Date): void => {
     if (!propertyId) return
-    const range = dragRef.current
     const card = props.cards.find((entry) => entry.id === cardId)
-    const timeZone = (card ? parseProjectDateValue(card.values[propertyId] ?? '')?.timeZone : undefined) ?? projectTimeZoneName()
-    const stamp = projectDateValue(day, { timeZone }).from!
-    const value = range && range.to > range.from
-      ? { from: stamp, to: stamp + (range.to - range.from), timeZone }
-      : { from: stamp, timeZone }
+    const current = card ? parseProjectDateValue(card.values[propertyId] ?? '') : null
+    const includeTime = current?.includeTime === true
+    const timeZone = current?.timeZone
+    const value = moveProjectDateValue(current ?? {}, projectDayToStamp(day, includeTime, timeZone))
+    if (!current) value.timeZone = projectTimeZoneName()
+    if (includeTime) value.includeTime = true
     void props.onPatchCard(cardId, { values: { [propertyId]: JSON.stringify(value) } })
   }
 
@@ -149,30 +152,27 @@ export function CalendarView(props: CalendarProps): ReactElement {
     if (!canEdit || !propertyId || event.button !== 0) return
     const days = projectCardDays(card, propertyId)
     if (!days) return
-    dragRef.current = { id: card.id, from: days.start, to: days.end }
     const startX = event.clientX
     const startY = event.clientY
     let moved = false
-    const move = (moveEvent: PointerEvent): void => {
-      if (!moved && Math.abs(moveEvent.clientX - startX) < 5 && Math.abs(moveEvent.clientY - startY) < 5) return
-      moved = true
-      moveEvent.preventDefault()
-      const under = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest('[data-calendar-day]')
-      setDropDay(under?.getAttribute('data-calendar-day') ?? null)
-    }
-    const up = (upEvent: PointerEvent): void => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      const under = document.elementFromPoint(upEvent.clientX, upEvent.clientY)?.closest('[data-calendar-day]')
-      const key = under?.getAttribute('data-calendar-day')
-      setDropDay(null)
-      if (!moved || !key) { dragRef.current = null; return }
-      const target = cells.find((cell) => cell.key === key)
-      if (target) reschedule(card.id, target.date)
-      dragRef.current = null
-    }
-    window.addEventListener('pointermove', move, { passive: false })
-    window.addEventListener('pointerup', up)
+    startPointerSession(event, {
+      onMove: (moveEvent) => {
+        if (!moved && Math.abs(moveEvent.clientX - startX) < 5 && Math.abs(moveEvent.clientY - startY) < 5) return
+        moved = true
+        moveEvent.preventDefault()
+        const under = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest('[data-calendar-day]')
+        setDropDay(under?.getAttribute('data-calendar-day') ?? null)
+      },
+      onCommit: (upEvent) => {
+        const under = document.elementFromPoint(upEvent.clientX, upEvent.clientY)?.closest('[data-calendar-day]')
+        const key = under?.getAttribute('data-calendar-day')
+        setDropDay(null)
+        if (!moved || !key) return
+        const target = cells.find((cell) => cell.key === key)
+        if (target) reschedule(card.id, target.date)
+      },
+      onCancel: () => setDropDay(null),
+    })
   }
 
   const quickAdd = async (day: Date): Promise<void> => {
@@ -195,7 +195,7 @@ export function CalendarView(props: CalendarProps): ReactElement {
         <Seg
           value={mode}
           label={t('project.view.calendar_range')}
-          disabled={!canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={props.onModeChange}
           options={[
             { value: 'month', label: t('project.view.calendar_month') },

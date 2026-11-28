@@ -9,11 +9,22 @@ import { AssistantStore } from '../assistant/store'
 import { storedObject } from '../lib/json'
 import { projectCommentMentionedIds, projectCommentNotificationTargets } from '@shared/project/mentions'
 import type { ProjectNotificationLevel } from '@shared/constants'
+import { EN_US_PROJECT_NOTIFY } from '@shared/locales/en-US-project-notify'
+import { ZH_CN_PROJECT_NOTIFY } from '@shared/locales/zh-CN-project-notify'
+import { projectRoleForBoard } from './visibility'
+
+function fill(template: string, title: string): string {
+  return template.replace('{title}', () => title)
+}
 
 /** The account's choice for this board: all notices, only direct ones, or none. */
-async function notificationLevel(db: D1Database, boardId: string, userId: string): Promise<ProjectNotificationLevel> {
+async function notificationPreference(db: D1Database, boardId: string, userId: string): Promise<{ level: ProjectNotificationLevel, locale: 'en-US' | 'zh-CN' }> {
   const row = await db.prepare('SELECT settings FROM users WHERE id = ?1').bind(userId).first<{ settings: string }>()
-  return mergeSettings(storedObject(row?.settings ?? '')).project.notifications[boardId] ?? 'all'
+  const settings = mergeSettings(storedObject(row?.settings ?? ''))
+  return {
+    level: settings.project.notifications[boardId] ?? 'all',
+    locale: settings.appearance.language === 'en-US' ? 'en-US' : 'zh-CN',
+  }
 }
 
 export async function notifyProjectAssignment(
@@ -23,13 +34,45 @@ export async function notifyProjectAssignment(
 ): Promise<void> {
   for (const assigneeId of new Set(input.assigneeIds)) {
     if (!assigneeId || assigneeId === input.actorId) continue
-    if (await notificationLevel(db, input.boardId, assigneeId) === 'off') continue
+    if (!await projectRoleForBoard(db, input.boardId, assigneeId)) continue
+    const preference = await notificationPreference(db, input.boardId, assigneeId)
+    if (preference.level === 'off') continue
+    const copy = preference.locale === 'en-US' ? EN_US_PROJECT_NOTIFY : ZH_CN_PROJECT_NOTIFY
     await new AssistantStore(db, assigneeId, env).createNotification({
-      title: `Assigned to ${input.cardTitle}`.slice(0, 200),
+      title: fill(copy.assigned, input.cardTitle).slice(0, 200),
       body: input.cardTitle,
       link: `project:${input.boardId}:${input.cardId}`,
     })
   }
+}
+
+export async function notifyProjectReminder(
+  db: D1Database,
+  env: AppBindings['Bindings'],
+  input: {
+    boardId: string
+    cardId: string
+    propertyId: string
+    dueAt: number
+    cardTitle: string
+    subscriberIds: readonly string[]
+  },
+): Promise<string[]> {
+  const delivered: string[] = []
+  for (const subscriberId of new Set(input.subscriberIds)) {
+    if (!await projectRoleForBoard(db, input.boardId, subscriberId)) continue
+    const preference = await notificationPreference(db, input.boardId, subscriberId)
+    if (preference.level === 'off') continue
+    const copy = preference.locale === 'en-US' ? EN_US_PROJECT_NOTIFY : ZH_CN_PROJECT_NOTIFY
+    await new AssistantStore(db, subscriberId, env).createNotification({
+      id: `project-reminder:${input.boardId}:${input.cardId}:${input.propertyId}:${input.dueAt}:${subscriberId}`,
+      title: fill(copy.due, input.cardTitle).slice(0, 200),
+      body: input.cardTitle,
+      link: `project:${input.boardId}:${input.cardId}`,
+    })
+    delivered.push(subscriberId)
+  }
+  return delivered
 }
 
 export async function notifyProjectComment(
@@ -48,11 +91,13 @@ export async function notifyProjectComment(
   const mentioned = new Set(projectCommentMentionedIds(memberIds, input.body, names))
   const targets = projectCommentNotificationTargets(memberIds, watchers.results.map((row) => row.subscriber_id), input.body, input.authorId, names)
   for (const target of targets) {
-    const level = await notificationLevel(db, input.boardId, target)
-    if (level === 'off') continue
-    if (level === 'mentions' && !mentioned.has(target)) continue
+    if (!await projectRoleForBoard(db, input.boardId, target)) continue
+    const preference = await notificationPreference(db, input.boardId, target)
+    if (preference.level === 'off') continue
+    if (preference.level === 'mentions' && !mentioned.has(target)) continue
+    const copy = preference.locale === 'en-US' ? EN_US_PROJECT_NOTIFY : ZH_CN_PROJECT_NOTIFY
     await new AssistantStore(db, target, env).createNotification({
-      title: `New comment on ${input.cardTitle}`.slice(0, 200),
+      title: fill(copy.comment, input.cardTitle).slice(0, 200),
       body: input.body,
       link: `project:${input.boardId}:${input.cardId}`,
     })

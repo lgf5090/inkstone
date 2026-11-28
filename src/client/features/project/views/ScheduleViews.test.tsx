@@ -2,7 +2,7 @@ import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
-import { projectDayToStamp, projectStampToInput } from '@shared/project/date'
+import { projectDateValue, projectDayToStamp, projectStampToInput } from '@shared/project/date'
 import { PROJECT_TIMELINE_COLUMN_PX } from '@shared/project/timeline-layout'
 import { initI18n, t } from '../../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../../lib/test-render'
@@ -136,6 +136,20 @@ describe('the gantt writes', () => {
     expect(projectStampToInput(written.to)).toBe('2026-11-15')
   })
 
+  it('preserves includeTime and the stored zone while moving a bar', async () => {
+    const value = projectDateValue(new Date(2026, 10, 10), { to: new Date(2026, 10, 13), includeTime: true, timeZone: 'Asia/Shanghai' })
+    const timed = { ...sprint, values: { ...sprint.values, pd: JSON.stringify(value) } }
+    const props = await mountGantt([timed])
+    const bar = view.container.querySelector<HTMLElement>('[data-schedule-bar="Sprint"]')!
+    await act(async () => { pointer('pointerdown', 100, bar) })
+    await act(async () => { pointer('pointermove', 100 + PROJECT_TIMELINE_COLUMN_PX.day) })
+    await act(async () => { pointer('pointerup', 100 + PROJECT_TIMELINE_COLUMN_PX.day) })
+    const patch = (props.onPatchCard as ReturnType<typeof vi.fn>).mock.calls[0]!
+    const written = JSON.parse((patch[1] as { values: Record<string, string> }).values.pd!) as { includeTime?: boolean, timeZone?: string }
+    expect(written.includeTime).toBe(true)
+    expect(written.timeZone).toBe('Asia/Shanghai')
+  })
+
   it('resizes only the end whose handle was pulled', async () => {
     const props = await mountGantt([sprint])
     const handle = view.container.querySelector<HTMLElement>('[data-bar-handle="end"]')!
@@ -162,6 +176,19 @@ describe('the gantt writes', () => {
     const shrunk = JSON.parse(((props.onPatchCard as ReturnType<typeof vi.fn>).mock.calls[1]![1] as { values: Record<string, string> }).values.pd!) as { from: number, to: number }
     expect(projectStampToInput(shrunk.from)).toBe('2026-11-11')
     expect(projectStampToInput(shrunk.to)).toBe('2026-11-13')
+  })
+
+  it('accumulates rapid bar arrow presses instead of reusing stale dates', async () => {
+    const props = await mountGantt([sprint])
+    const bar = view.container.querySelector<HTMLElement>('[data-schedule-bar="Sprint"]')!
+    await act(async () => {
+      bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+      bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+    })
+    await vi.waitFor(() => expect(props.onPatchCard).toHaveBeenCalledTimes(1))
+    const written = JSON.parse(((props.onPatchCard as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { values: Record<string, string> }).values.pd!) as { from: number, to: number }
+    expect(projectStampToInput(written.from)).toBe('2026-11-12')
+    expect(projectStampToInput(written.to)).toBe('2026-11-15')
   })
 
   it('creates a card from the canvas keyboard entry', async () => {
@@ -202,11 +229,11 @@ describe('the gantt writes', () => {
     const y = Number.parseFloat(row.style.top) + 18
     const down = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 40, clientY: y, button: 0, pointerId: 1 })
     await act(async () => { canvas.dispatchEvent(down) })
-    await act(async () => { window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 40 + 3 * PROJECT_TIMELINE_COLUMN_PX.day, clientY: y })) })
+    await act(async () => { window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 40 + 3 * PROJECT_TIMELINE_COLUMN_PX.day, clientY: y, pointerId: 1 })) })
     const ghost = view.container.querySelector<HTMLElement>('[data-draw-preview]')!
     expect(ghost).not.toBeNull()
     expect(ghost.style.width).toBe(`${4 * PROJECT_TIMELINE_COLUMN_PX.day}px`)
-    await act(async () => { window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 40 + 3 * PROJECT_TIMELINE_COLUMN_PX.day, clientY: y })) })
+    await act(async () => { window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 40 + 3 * PROJECT_TIMELINE_COLUMN_PX.day, clientY: y, pointerId: 1 })) })
     expect(view.container.querySelector('[data-draw-preview]')).toBeNull()
     const [boardId, input] = vi.mocked(api.createProjectCard).mock.calls[0]!
     expect(boardId).toBe('b1')
@@ -215,6 +242,20 @@ describe('the gantt writes', () => {
     expect(projectStampToInput(written.from)).toBe('2026-11-08')
     expect(projectStampToInput(written.to)).toBe('2026-11-11')
     expect(props.onRefresh).toHaveBeenCalled()
+  })
+
+  it('cancels an in-progress canvas draw without creating a card', async () => {
+    vi.mocked(api.createProjectCard).mockClear()
+    await mountGantt([sprint])
+    const canvas = view.container.querySelector<HTMLElement>('.pv-sched-canvas')!
+    const row = [...view.container.querySelectorAll<HTMLElement>('[data-schedule-row]')][0]!
+    const y = Number.parseFloat(row.style.top) + 18
+    await act(async () => { canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 40, clientY: y, button: 0, pointerId: 2 })) })
+    await act(async () => { window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 80, clientY: y, pointerId: 2 })) })
+    expect(view.container.querySelector('[data-draw-preview]')).not.toBeNull()
+    await act(async () => { window.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 2 })) })
+    expect(view.container.querySelector('[data-draw-preview]')).toBeNull()
+    expect(api.createProjectCard).not.toHaveBeenCalled()
   })
 
   it('moves a bar to another status from the right-click palette', async () => {
@@ -247,6 +288,23 @@ describe('the gantt writes', () => {
     await act(async () => { pointer('pointerup', 100) })
     await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })) })
     expect(props.onPatchCard).toHaveBeenCalledWith('Sprint', { values: { pd: null } })
+  })
+
+  it('ignores Delete and Backspace while a dialog has focus', async () => {
+    const props = await mountGantt([sprint])
+    const bar = view.container.querySelector<HTMLElement>('[data-schedule-bar="Sprint"]')!
+    await act(async () => { pointer('pointerdown', 100, bar) })
+    await act(async () => { pointer('pointerup', 100) })
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    const button = document.createElement('button')
+    dialog.append(button)
+    document.body.append(dialog)
+    try {
+      await act(async () => { button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })) })
+      await act(async () => { button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })) })
+    } finally { dialog.remove() }
+    expect(props.onPatchCard).not.toHaveBeenCalled()
   })
 
   it('bands rows into lanes, sums lane effort and heads the axis once', async () => {

@@ -28,7 +28,7 @@ const NO_CALLBACKS: DetailCallbacks = {
   onEdit: () => {}, onRenew: () => {}, onToggle: () => {}, onTrash: () => {},
   onAddRule: () => {}, onPresetRules: () => {},
   onUpdateRule: () => {}, onDeleteRule: () => {}, onAcknowledgeRule: () => {},
-  onEditPayment: () => {}, onDeletePayment: () => {},
+  onEditPayment: () => {}, onDeletePayment: () => {}, onRefund: () => {},
 }
 
 function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
@@ -49,7 +49,7 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
     autoRenew: true,
     notes: '',
     lastPaymentDate: null,
-    trialEndsAt: null,
+    trialEndsAt: null, paymentMethod: '', managementUrl: '', pausedUntil: null, fixedTerm: false, introPrice: null,
     trialDaysRemaining: null,
     deletedAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',

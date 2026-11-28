@@ -1,7 +1,7 @@
 import { act, createElement, useState, type ChangeEvent } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useDebouncedDraft } from './hooks'
+import { useDebouncedDraft, usePointerSession } from './hooks'
 import { installTestGlobals } from './test-render'
 
 const DELAY = 200
@@ -64,6 +64,41 @@ function mountDraftProbe(initial = '') {
     },
   }
 }
+
+describe('usePointerSession', () => {
+  it('commits only on pointerup and cancels on pointercancel, Escape or unmount', () => {
+    installTestGlobals()
+    const onCommit = vi.fn()
+    const onCancel = vi.fn()
+    function Probe() {
+      const start = usePointerSession()
+      return createElement('button', {
+        onPointerDown: (event) => start(event, { onMove: () => {}, onCommit, onCancel }),
+      }, 'drag')
+    }
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root: Root = createRoot(container)
+    act(() => { root.render(createElement(Probe)) })
+    const button = container.querySelector('button')!
+    const pointer = (type: string, pointerId: number): PointerEvent => new PointerEvent(type, { bubbles: true, pointerId })
+    act(() => { button.dispatchEvent(pointer('pointerdown', 1)) })
+    act(() => { window.dispatchEvent(pointer('pointerup', 1)) })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    act(() => { button.dispatchEvent(pointer('pointerdown', 2)) })
+    act(() => { window.dispatchEvent(pointer('pointercancel', 2)) })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    act(() => { button.dispatchEvent(pointer('pointerdown', 3)) })
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+    expect(onCancel).toHaveBeenCalledTimes(2)
+    act(() => { button.dispatchEvent(pointer('pointerdown', 4)) })
+    act(() => { root.unmount() })
+    expect(onCancel).toHaveBeenCalledTimes(2)
+    act(() => { window.dispatchEvent(pointer('pointerup', 4)) })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    container.remove()
+  })
+})
 
 describe('useDebouncedDraft', () => {
   it('keeps what was typed while its own commit was on the way back', () => {

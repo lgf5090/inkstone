@@ -43,6 +43,10 @@ vi.mock('../../lib/api', () => ({
   },
 }))
 
+vi.mock('../project/api', () => ({
+  fetchNoteProjectCards: vi.fn(async () => []),
+}))
+
 const NOTE_ID = '01hzzzzzzzzzzzzzzzzzzzzz11'
 const OTHER_NOTE = '01hzzzzzzzzzzzzzzzzzzzzz22'
 const notesOriginal = useNotes.getState()

@@ -92,16 +92,16 @@ export function lunar2solar(lunar: Parameters<typeof calendarLunar2solar>[0]): R
 export function addLunarPeriod(
   lunar: Pick<LunarDate, 'year' | 'month' | 'day' | 'isLeap'>,
   periodValue: number,
-  periodUnit: 'day' | 'month' | 'year',
+  periodUnit: 'day' | 'week' | 'month' | 'year',
 ): Pick<LunarDate, 'year' | 'month' | 'day' | 'isLeap'> {
   let { year, month, day, isLeap } = lunar
   const amount = Math.trunc(periodValue)
   if (!Number.isFinite(amount) || amount === 0) return { year, month, day, isLeap }
 
-  if (periodUnit === 'day') {
+  if (periodUnit === 'day' || periodUnit === 'week') {
     const solar = lunar2solar({ year, month, day, isLeap })
     if (!solar) return { year, month, day, isLeap }
-    const shifted = new Date(Date.UTC(solar.year, solar.month - 1, solar.day + amount))
+    const shifted = new Date(Date.UTC(solar.year, solar.month - 1, solar.day + amount * (periodUnit === 'week' ? 7 : 1)))
     const next = solar2lunar(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, shifted.getUTCDate())
     return next ?? { year, month, day, isLeap }
   }

@@ -12,8 +12,9 @@
  */
 import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
-import { ApiError } from '../lib/errors'
-import { readJson } from '../lib/request'
+import { ApiError, errorLogContext } from '../lib/errors'
+import { readJson, requestClientIp } from '../lib/request'
+import { consumeCallerBudget } from '../lib/throttle'
 import { newId } from '../lib/id'
 import { requireAuth } from '../middleware/auth'
 import {
@@ -50,6 +51,7 @@ import {
   loadSettings,
   readChannelConfig,
   recordChannelTest,
+  rotateCalendarToken,
   rotateInboundToken,
   saveChannel,
   saveSettings,
@@ -59,6 +61,13 @@ import { SubscriptionsStore, storeContext, SUBSCRIPTION_EXPIRY_LIMIT, type Store
 const BODY_LIMIT = 32 * 1024
 /** Rows one import may carry. Above this a reader is syncing, not migrating, and needs a real tool. */
 const IMPORT_LIMIT = 500
+const TEN_MINUTES = 10 * 60 * 1000
+const HOUR = 60 * 60 * 1000
+const WORK_BUDGETS = {
+  import: { maxAttempts: 5, windowMs: TEN_MINUTES },
+  notify: { maxAttempts: 10, windowMs: TEN_MINUTES },
+  rates: { maxAttempts: 12, windowMs: HOUR },
+} as const
 
 type Ctx = Context<AppBindings>
 
@@ -68,6 +77,17 @@ subscriptionRoutes.use('*', requireAuth)
 
 function storeOf(c: Ctx): SubscriptionsStore {
   return new SubscriptionsStore(c.env.DB, c.get('userId')!)
+}
+
+function enforceWorkBudget(c: Ctx, kind: keyof typeof WORK_BUDGETS): Promise<void> {
+  return consumeCallerBudget(
+    c.env.DB,
+    `subscriptions-${kind}`,
+    c.get('userId')!,
+    requestClientIp(c),
+    WORK_BUDGETS[kind],
+    'Too many subscription requests',
+  )
 }
 
 async function contextOf(c: Ctx): Promise<{ store: SubscriptionsStore; context: StoreContext; settings: SubscriptionSettings }> {
@@ -81,12 +101,16 @@ function fail(error: unknown): never {
   if (message.startsWith('missing:')) throw ApiError.badRequest(`The ${message.slice(8)} field is required`)
   if (message.startsWith('invalid_url:')) throw ApiError.badRequest(`The ${message.slice(12)} field is not a valid address`)
   if (message.startsWith('invalid_json:')) throw ApiError.badRequest(`The ${message.slice(13)} field is not valid JSON`)
+  if (message === 'invalid_refund') throw ApiError.badRequest('A refund amount above zero is required')
   if (message === 'invalid_expiry') throw ApiError.badRequest('An expiry date is required')
   if (message === 'invalid_day') throw ApiError.badRequest('Use a calendar day like 2026-11-04')
   if (message === 'invalid_limit') throw ApiError.badRequest(`Limit must be a whole number from 1 to ${SUBSCRIPTION_EXPIRY_LIMIT}`)
   if (message === 'invalid_cursor') throw ApiError.badRequest('That expiry cursor is not valid')
   if (message === 'lunar_out_of_range') throw ApiError.badRequest('That lunar date is outside 1900-2100')
   if (message === 'invalid_timezone') throw ApiError.badRequest('That time zone is not recognised')
+  if (message === 'invalid_notification_hours') throw ApiError.badRequest('Notification hours must be 00 through 23 or *')
+  if (message === 'invalid_digest') throw ApiError.badRequest('Digest must be off, daily, or weekly')
+  if (message === 'invalid_digest_hour') throw ApiError.badRequest('Digest hour must be 00 through 23')
   if (message === 'invalid_base_currency') throw ApiError.badRequest('That currency is not supported')
   if (message === 'invalid_category_budgets') throw ApiError.badRequest('The category budgets are a list of names and numbers')
   if (message.startsWith('invalid_category_budget:')) throw ApiError.badRequest(`The budget for "${message.slice(24)}" is not an amount above zero`)
@@ -106,9 +130,20 @@ function optionalText(value: unknown, max: number, field: string): string | unde
 
 function requireDate(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value.trim()) throw ApiError.badRequest(`${field} is required`)
-  const parsed = Date.parse(value.length === 10 ? `${value}T00:00:00Z` : value)
-  if (!Number.isFinite(parsed)) throw ApiError.badRequest(`${field} is not a date`)
-  return value.trim()
+  const trimmed = value.trim()
+  const bare = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed)
+  if (bare) {
+    const year = Number(bare[1])
+    const month = Number(bare[2])
+    const day = Number(bare[3])
+    const probe = new Date(Date.UTC(year, month - 1, day))
+    if (probe.getUTCFullYear() !== year || probe.getUTCMonth() + 1 !== month || probe.getUTCDate() !== day) {
+      throw ApiError.badRequest(`${field} is not a date`)
+    }
+    return trimmed
+  }
+  if (!Number.isFinite(Date.parse(trimmed))) throw ApiError.badRequest(`${field} is not a date`)
+  return trimmed
 }
 
 function optionalDate(value: unknown, field: string): string | null | undefined {
@@ -132,6 +167,16 @@ function positiveInt(value: unknown, max: number): number | undefined {
   const numeric = Math.trunc(Number(value))
   if (!Number.isFinite(numeric) || numeric < 1) throw ApiError.badRequest('That number must be at least 1')
   return Math.min(max, numeric)
+}
+
+function optionalUrl(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  const url = text(value, 2048, 'Management URL')
+  if (!url) return ''
+  let parsed: URL
+  try { parsed = new URL(url) } catch { throw ApiError.badRequest('That management URL is not valid') }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw ApiError.badRequest('That management URL must use HTTP or HTTPS')
+  return parsed.toString()
 }
 
 function inputOf(raw: Record<string, unknown>): SubscriptionInput {
@@ -160,6 +205,11 @@ function inputOf(raw: Record<string, unknown>): SubscriptionInput {
     autoRenew: raw.autoRenew === undefined ? undefined : raw.autoRenew === true,
     notes: optionalText(raw.notes, NOTES_MAX, 'Notes'),
     trialEndsAt: optionalDate(raw.trialEndsAt, 'Trial end date'),
+    paymentMethod: optionalText(raw.paymentMethod, 80, 'Payment method'),
+    managementUrl: optionalUrl(raw.managementUrl),
+    pausedUntil: optionalDate(raw.pausedUntil, 'Pause until'),
+    fixedTerm: raw.fixedTerm === undefined ? undefined : raw.fixedTerm === true,
+    introPrice: amountOf(raw.introPrice),
     reminderRules: Array.isArray(raw.reminderRules) ? raw.reminderRules as SubscriptionInput['reminderRules'] : undefined,
   }
 }
@@ -329,6 +379,7 @@ subscriptionRoutes.post('/bulk', async (c) => {
  * and a bad row is reported rather than half-written.
  */
 subscriptionRoutes.post('/import', async (c) => {
+  await enforceWorkBudget(c, 'import')
   const raw = await readJson<{ rows?: unknown }>(c, 512 * 1024)
   if (!Array.isArray(raw.rows)) throw ApiError.badRequest('rows must be a list')
   if (raw.rows.length > IMPORT_LIMIT) throw ApiError.badRequest(`A single import is limited to ${IMPORT_LIMIT} rows`)
@@ -345,12 +396,22 @@ subscriptionRoutes.post('/import', async (c) => {
       await store.create(inputOf(entry as Record<string, unknown>), context)
       created++
     } catch (error) {
-      // One bad line should not cost the reader the other two hundred, but it must not be swallowed
-      // either: the reason comes back so the import result can say what was not written.
-      skipped.push({
-        row: index + 1,
-        reason: error instanceof Error ? error.message.slice(0, 200) : 'Rejected',
-      })
+      // One bad line should not cost the reader the other two hundred. Only the store's explicit
+      // validation codes become row copy; an unexpected database or upstream error stays in the
+      // sanitized server log rather than being reflected into the import result.
+      try {
+        fail(error)
+      } catch (rejection) {
+        if (rejection === error) {
+          console.error('[inkstone] Subscription import row failed:', index + 1, errorLogContext(error))
+          skipped.push({ row: index + 1, reason: 'The row could not be saved' })
+        } else {
+          skipped.push({
+            row: index + 1,
+            reason: rejection instanceof Error ? rejection.message.slice(0, 200) : 'The row could not be saved',
+          })
+        }
+      }
     }
   }
   return c.json({ created, skipped })
@@ -378,12 +439,17 @@ subscriptionRoutes.put('/settings', async (c) => {
  * the picture beside it, presses to see the numbers move now rather than at the next TTL.
  */
 subscriptionRoutes.post('/rates/refresh', async (c) => {
+  await enforceWorkBudget(c, 'rates')
   const rates = await refreshRates(c.env)
   return c.json({ source: rates.source, at: rates.at })
 })
 
 subscriptionRoutes.post('/inbound-token', async (c) => {
   return c.json(await rotateInboundToken(c.env.DB, c.get('userId')!))
+})
+
+subscriptionRoutes.post('/calendar-token', async (c) => {
+  return c.json(await rotateCalendarToken(c.env.DB, c.get('userId')!))
 })
 
 subscriptionRoutes.get('/channels', async (c) => {
@@ -411,6 +477,7 @@ subscriptionRoutes.delete('/channels/:kind', async (c) => {
 subscriptionRoutes.post('/channels/:kind/test', async (c) => {
   const kind = c.req.param('kind')
   if (!isChannelKind(kind)) throw ApiError.notFound('Unknown channel')
+  await enforceWorkBudget(c, 'notify')
   const settings = await loadSettings(c.env.DB, c.get('userId')!)
   // A kind with no fields has no bundle to read, so its own switch is the whole configuration.
   const stored = channelHasSecrets(kind)
@@ -503,6 +570,7 @@ subscriptionRoutes.post('/:id/renew', async (c) => {
 })
 
 subscriptionRoutes.post('/:id/test-notify', async (c) => {
+  await enforceWorkBudget(c, 'notify')
   const { store, context, settings } = await contextOf(c)
   const detail = await store.get(c.req.param('id'), context)
   if (!detail) throw ApiError.notFound('That subscription does not exist')
@@ -511,7 +579,7 @@ subscriptionRoutes.post('/:id/test-notify', async (c) => {
 
   const rule = detail.rules[0] ?? { type: 'on_expiry' as const, value: 0, unit: 'days' as const, repeatInterval: null }
   const body = buildNotificationBody([
-    subjectOf(detail.item, detail.item.daysRemaining, detail.item.hoursRemaining, {
+    subjectOf(detail.item, detail.item.daysRemaining, detail.item.hoursRemaining, rule.type === 'before_trial_end' ? detail.item.trialEndsAt! : detail.item.expiryDate, {
       type: rule.type,
       value: rule.value,
       unit: rule.unit,
@@ -534,6 +602,26 @@ subscriptionRoutes.get('/:id/payments', async (c) => {
   const detail = await store.get(c.req.param('id'), context)
   if (!detail) throw ApiError.notFound('That subscription does not exist')
   return c.json({ payments: detail.payments })
+})
+
+subscriptionRoutes.post('/:id/refunds', async (c) => {
+  const raw = await readJson<{ date?: unknown; amount?: unknown; currency?: unknown; note?: unknown }>(c, 8192)
+  if (raw.currency !== undefined && !isCurrencyCode(raw.currency)) throw ApiError.badRequest('That currency is not supported')
+  const amount = amountOf(raw.amount)
+  if (!amount || amount <= 0) throw ApiError.badRequest('A refund amount above zero is required')
+  const { store, context } = await contextOf(c)
+  try {
+    const detail = await store.addRefund(c.req.param('id'), {
+      date: requireDate(raw.date, 'Refund date'),
+      amount,
+      currency: raw.currency as string | undefined,
+      note: optionalText(raw.note, PAYMENT_NOTE_MAX, 'Note') ?? '',
+    }, context)
+    if (!detail) throw ApiError.notFound('That subscription does not exist')
+    return c.json(detail, 201)
+  } catch (error) {
+    fail(error)
+  }
 })
 
 subscriptionRoutes.put('/:id/payments/:paymentId', async (c) => {

@@ -69,6 +69,7 @@ export async function createProjectCard(
   input: ProjectCardCreateInput,
   now: number,
   relationTargets: ReadonlyMap<string, string> = new Map(),
+  recurrenceSourceId?: string,
 ): Promise<ProjectCard> {
   const count = await db
     .prepare('SELECT COUNT(*) AS n FROM project_cards WHERE board_id = ?1 AND delete_at = 0')
@@ -86,10 +87,11 @@ export async function createProjectCard(
   await db.batch([
     db.prepare(
       `INSERT INTO project_cards
-         (id, board_id, parent_id, title, icon, is_template, content_order, recurrence, created_by, modified_by,
-          create_at, update_at, delete_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?8, ?8, ?9, ?9, 0)`,
-    ).bind(id, board.id, input.parentId, input.title, input.icon, input.isTemplate ? 1 : 0, input.recurrence ? serializeProjectRecurrence(input.recurrence) : null, userId, now),
+         (id, board_id, parent_id, title, icon, is_template, content_order, recurrence, recurrence_source_id,
+          created_by, modified_by, create_at, update_at, delete_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?8, ?9, ?9, ?10, ?10, 0)`,
+    ).bind(id, board.id, input.parentId, input.title, input.icon, input.isTemplate ? 1 : 0,
+      input.recurrence ? serializeProjectRecurrence(input.recurrence) : null, recurrenceSourceId ?? null, userId, now),
     ...valueStatements(db, id, board.id, input.values, relationTargets, now),
   ])
   return {
@@ -128,7 +130,7 @@ export function cardPatchStatements(
   if (patch.title !== undefined) { sets.push('title = ?'); values.push(patch.title) }
   if (patch.icon !== undefined) { sets.push('icon = ?'); values.push(patch.icon) }
   if (patch.parentId !== undefined) { sets.push('parent_id = ?'); values.push(patch.parentId) }
-  if (patch.contentOrder !== undefined) { sets.push('content_order = ?'); values.push(JSON.stringify(patch.contentOrder)) }
+  if (patch.contentOrder !== undefined) { sets.push('content_order = ?', 'content_order_revision = content_order_revision + 1'); values.push(JSON.stringify(patch.contentOrder)) }
   if (patch.recurrence !== undefined) { sets.push('recurrence = ?'); values.push(patch.recurrence ? serializeProjectRecurrence(patch.recurrence) : null) }
   values.push(card.id)
   const statements: D1PreparedStatement[] = [
@@ -142,6 +144,17 @@ export function cardPatchStatements(
       }
     } else {
       statements.push(...valueStatements(db, card.id, card.boardId, { [propertyId]: value }, relationTargets, now))
+    }
+  }
+  if (patch.contentOrder !== undefined) {
+    let position = 0
+    for (const entry of patch.contentOrder) {
+      if (typeof entry !== 'string') continue
+      statements.push(
+        db.prepare('UPDATE project_card_contents SET position = ?1, modified_by = ?2, update_at = ?3 WHERE id = ?4 AND card_id = ?5')
+          .bind(position, userId, now, entry, card.id),
+      )
+      position += 1
     }
   }
   return statements
@@ -195,6 +208,11 @@ export async function patchProjectCard(
  * the rule travels with the new card so the chain continues. A board with no date property still
  * repeats — the instance simply carries no date.
  */
+async function getRecurringChild(db: D1Database, sourceCardId: string): Promise<ProjectCard | null> {
+  const row = await db.prepare('SELECT * FROM project_cards WHERE recurrence_source_id = ?1').bind(sourceCardId).first<CardRow>()
+  return row ? rowToCard(row, await readCardValues(db, row.id)) : null
+}
+
 export async function spawnRecurringCard(
   db: D1Database,
   board: ProjectBoard,
@@ -204,6 +222,8 @@ export async function spawnRecurringCard(
   now: number,
 ): Promise<ProjectCard | null> {
   if (!card.recurrence) return null
+  const existing = await getRecurringChild(db, card.id)
+  if (existing) return existing
   const values = { ...card.values }
   const dateProperty = properties.find((property) => property.type === 'date')
   const current = dateProperty ? parseProjectDateValue(values[dateProperty.id] ?? '') : null
@@ -217,14 +237,20 @@ export async function spawnRecurringCard(
   }
   const open = projectDonePatch(properties, false)
   if (open) Object.assign(values, open)
-  return createProjectCard(db, board, userId, {
-    parentId: '',
-    title: card.title,
-    icon: card.icon,
-    isTemplate: false,
-    values,
-    recurrence: { ...card.recurrence, anchor: anchorIndex },
-  }, now, projectRelationTargets(properties))
+  try {
+    return await createProjectCard(db, board, userId, {
+      parentId: '',
+      title: card.title,
+      icon: card.icon,
+      isTemplate: false,
+      values,
+      recurrence: { ...card.recurrence, anchor: anchorIndex },
+    }, now, projectRelationTargets(properties), card.id)
+  } catch (error) {
+    const raced = await getRecurringChild(db, card.id)
+    if (raced) return raced
+    throw error
+  }
 }
 
 export async function softDeleteProjectCard(db: D1Database, cardId: string, userId: string, now: number): Promise<void> {
@@ -232,7 +258,6 @@ export async function softDeleteProjectCard(db: D1Database, cardId: string, user
     .prepare('UPDATE project_cards SET delete_at = ?1, modified_by = ?2, update_at = ?1 WHERE id = ?3 AND delete_at = 0')
     .bind(now, userId, cardId)
     .run()
-  await db.prepare('DELETE FROM project_card_relations WHERE from_card_id = ?1 OR to_card_id = ?1').bind(cardId).run()
 }
 
 export async function undeleteProjectCard(db: D1Database, cardId: string, userId: string, now: number): Promise<void> {

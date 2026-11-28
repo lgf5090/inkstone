@@ -39,6 +39,11 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     notes TEXT NOT NULL DEFAULT '',
     last_payment_date INTEGER,
     trial_ends_at INTEGER,
+    payment_method TEXT NOT NULL DEFAULT '',
+    management_url TEXT NOT NULL DEFAULT '',
+    paused_until INTEGER,
+    fixed_term INTEGER NOT NULL DEFAULT 0,
+    intro_price REAL,
     deleted_at INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -60,6 +65,7 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     note TEXT NOT NULL DEFAULT '',
     period_start INTEGER,
     period_end INTEGER,
+    period_count INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
@@ -81,6 +87,7 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_sub_rule_sub ON sub_reminder_rule(user_id, subscription_id, value)`,
+  `CREATE INDEX IF NOT EXISTS idx_sub_rule_due ON sub_reminder_rule(user_id, subscription_id, enabled, kind, value, unit)`,
 
   /**
    * The two label registries — a type and a category are the same thing wearing different names.
@@ -133,6 +140,9 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT PRIMARY KEY,
     timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
     notification_hours TEXT NOT NULL DEFAULT '[]',
+    digest TEXT NOT NULL DEFAULT 'off',
+    digest_hour INTEGER NOT NULL DEFAULT 8,
+    next_digest_at INTEGER NOT NULL DEFAULT 0,
     show_lunar INTEGER NOT NULL DEFAULT 0,
     payment_history_limit INTEGER NOT NULL DEFAULT 100,
     locale TEXT NOT NULL DEFAULT 'zh-CN',
@@ -140,11 +150,15 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     budget_monthly REAL,
     inbound_token_hash TEXT NOT NULL DEFAULT '',
     inbound_token_hint TEXT NOT NULL DEFAULT '',
+    calendar_token_hash TEXT NOT NULL DEFAULT '',
+    calendar_token_hint TEXT NOT NULL DEFAULT '',
     updated_at INTEGER NOT NULL,
     rate_overrides TEXT NOT NULL DEFAULT '{}',
     budget_yearly REAL,
     budget_categories TEXT NOT NULL DEFAULT '{}'
   )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_sub_settings_digest_due ON sub_settings(digest, next_digest_at)`,
 
   `CREATE TABLE IF NOT EXISTS sub_notify_log (
     user_id TEXT NOT NULL,
@@ -193,6 +207,17 @@ export const SUBSCRIPTIONS_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id, subscription_id, rule_id, hour_key)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_sub_dedupe_created ON sub_notify_dedupe(user_id, created_at)`,
+
+  `CREATE TABLE IF NOT EXISTS sub_restore_stage (
+    user_id TEXT NOT NULL,
+    restore_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, restore_id, kind, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_sub_restore_stage_cleanup ON sub_restore_stage(created_at)`,
 ]
 
 export const SUBSCRIPTIONS_REQUIRED_TABLES: readonly string[] = [
@@ -205,7 +230,7 @@ export const SUBSCRIPTIONS_REQUIRED_TABLES: readonly string[] = [
   'sub_settings',
   'sub_notify_log',
   'sub_schedule_log',
-  'sub_notify_dedupe',
+  'sub_notify_dedupe', 'sub_restore_stage',
 ]
 
 export const SUBSCRIPTIONS_REQUIRED_INDEXES: readonly string[] = [
@@ -216,22 +241,24 @@ export const SUBSCRIPTIONS_REQUIRED_INDEXES: readonly string[] = [
   'idx_sub_payment_sub',
   'idx_sub_payment_recent',
   'idx_sub_rule_sub',
+  'idx_sub_rule_due',
   'idx_sub_channel_kind',
   'idx_sub_notify_log_recent',
   'idx_sub_notify_log_sub',
   'idx_sub_schedule_log_recent',
-  'idx_sub_dedupe_created',
+  'idx_sub_dedupe_created', 'idx_sub_restore_stage_cleanup', 'idx_sub_settings_digest_due',
 ]
 
 export const SUBSCRIPTIONS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   sub_item: [
     'user_id', 'id', 'name', 'custom_type', 'category', 'amount', 'currency', 'start_date',
     'expiry_date', 'period_value', 'period_unit', 'subscription_mode', 'use_lunar', 'is_active',
-    'auto_renew', 'notes', 'last_payment_date', 'trial_ends_at', 'deleted_at', 'created_at', 'updated_at',
+    'auto_renew', 'notes', 'last_payment_date', 'trial_ends_at', 'payment_method', 'management_url',
+    'paused_until', 'fixed_term', 'intro_price', 'deleted_at', 'created_at', 'updated_at',
   ],
   sub_payment: [
     'user_id', 'id', 'subscription_id', 'paid_at', 'amount', 'currency', 'kind', 'note',
-    'period_start', 'period_end', 'created_at',
+    'period_start', 'period_end', 'period_count', 'created_at',
   ],
   sub_reminder_rule: [
     'user_id', 'id', 'subscription_id', 'kind', 'value', 'unit', 'repeat_interval',
@@ -244,8 +271,9 @@ export const SUBSCRIPTIONS_REQUIRED_COLUMNS: Readonly<Record<string, readonly st
     'last_test_status', 'last_test_error', 'created_at', 'updated_at',
   ],
   sub_settings: [
-    'user_id', 'timezone', 'notification_hours', 'show_lunar', 'payment_history_limit',
-    'locale', 'base_currency', 'budget_monthly', 'inbound_token_hash', 'inbound_token_hint', 'updated_at',
+    'user_id', 'timezone', 'notification_hours', 'digest', 'digest_hour', 'next_digest_at', 'show_lunar', 'payment_history_limit',
+    'locale', 'base_currency', 'budget_monthly', 'inbound_token_hash', 'inbound_token_hint',
+    'calendar_token_hash', 'calendar_token_hint', 'updated_at',
     'rate_overrides', 'budget_yearly', 'budget_categories',
   ],
   sub_notify_log: [
@@ -258,4 +286,5 @@ export const SUBSCRIPTIONS_REQUIRED_COLUMNS: Readonly<Record<string, readonly st
     'reason', 'detail',
   ],
   sub_notify_dedupe: ['user_id', 'subscription_id', 'rule_id', 'hour_key', 'created_at'],
+  sub_restore_stage: ['user_id', 'restore_id', 'kind', 'id', 'payload', 'created_at'],
 }

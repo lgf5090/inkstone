@@ -49,10 +49,10 @@ import {
 import {
   clearSessionCookie,
   requireAuth,
-  rowToUser,
   sessionCookieNames,
   writeSessionCookie,
 } from '../middleware/auth'
+import { rowToUser } from '../lib/user-row'
 import {
   accountByLoginName,
   hasAnyAccount,

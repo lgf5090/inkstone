@@ -558,7 +558,7 @@ export function extractWikiLinks(content: string): WikiLink[] {
     const target = m[1]!.trim()
     if (!target) continue
     const noteTarget = wikiNoteTarget(target)
-    if (!noteTarget) continue
+    if (!noteTarget || noteTarget.startsWith('project/')) continue
     const key = normalizeLinkKey(noteTarget)
     if (seen.has(key)) continue
     seen.add(key)

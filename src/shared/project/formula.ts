@@ -1,12 +1,6 @@
-/**
- * The formula property: a small arithmetic language over the card's other properties.
- *
- * Deliberately not JavaScript. A board is shared, and an expression typed by one member runs in
- * everyone's browser and in the server's exports, so the grammar is a fixed set of operators and
- * functions with no property access, no assignment and no host objects. A reference is written
- * `{Property name}`, which is what the column header shows, and an unknown name is zero rather than an
- * error so a renamed property degrades instead of blanking the column.
- */
+import type { ProjectCard, ProjectProperty } from './model'
+import { projectMultiValueIds } from './model'
+import { parseProjectDateValue } from './date'
 
 type Token =
   | { kind: 'number', value: number }
@@ -18,6 +12,26 @@ type Token =
 type Value = number | string | boolean | null
 
 const OPERATORS = ['<=', '>=', '==', '!=', '&&', '||', '+', '-', '*', '/', '%', '(', ')', ',', '<', '>', '!'] as const
+
+export interface ProjectFormulaResult {
+  value: string
+  error?: string
+}
+
+export function projectFormulaReferenceValue(card: ProjectCard, property: ProjectProperty): string {
+  const raw = card.values[property.id] ?? ''
+  if (property.type === 'select') return property.options.find((option) => option.id === raw)?.value ?? raw
+  if (property.type === 'multiSelect') return projectMultiValueIds(raw).map((id) => property.options.find((option) => option.id === id)?.value ?? id).join(', ')
+  if (property.type === 'date') {
+    const from = parseProjectDateValue(raw)?.from
+    return from === undefined ? raw : String(from)
+  }
+  if (property.type === 'createdBy') return card.createdBy
+  if (property.type === 'updatedBy') return card.modifiedBy
+  if (property.type === 'createdTime') return String(card.createAt)
+  if (property.type === 'updatedTime') return String(card.updateAt)
+  return raw
+}
 
 function tokenize(source: string): Token[] {
   const tokens: Token[] = []
@@ -82,11 +96,11 @@ function asBoolean(value: Value): boolean {
   return value !== ''
 }
 
-export function evaluateProjectFormula(expression: string, values: ReadonlyMap<string, string>): string {
+export function evaluateProjectFormulaResult(expression: string, values: ReadonlyMap<string, string>): ProjectFormulaResult {
   const trimmed = expression.trim()
-  if (!trimmed) return ''
+  if (!trimmed) return { value: '' }
   let tokens: Token[]
-  try { tokens = tokenize(trimmed) } catch { return '' }
+  try { tokens = tokenize(trimmed) } catch (error) { return { value: '', error: error instanceof Error ? error.message : 'invalid formula' } }
   let cursor = 0
 
   const peek = (): Token | undefined => tokens[cursor]
@@ -114,7 +128,9 @@ export function evaluateProjectFormula(expression: string, values: ReadonlyMap<s
     if (token.kind === 'string') { cursor += 1; return token.value }
     if (token.kind === 'ref') {
       cursor += 1
-      const raw = values.get(token.value.toLowerCase()) ?? ''
+      const key = token.value.toLowerCase()
+      if (!values.has(key)) throw new Error(`unknown reference ${token.value}`)
+      const raw = values.get(key) ?? ''
       const numeric = raw.trim() === '' ? Number.NaN : Number(raw)
       return Number.isFinite(numeric) ? numeric : raw
     }
@@ -142,10 +158,12 @@ export function evaluateProjectFormula(expression: string, values: ReadonlyMap<s
       if (eat('op', '*')) left = asNumber(left) * asNumber(primary())
       else if (eat('op', '/')) {
         const right = asNumber(primary())
-        left = right === 0 ? null : asNumber(left) / right
+        if (right === 0) throw new Error('division by zero')
+        left = asNumber(left) / right
       } else if (eat('op', '%')) {
         const right = asNumber(primary())
-        left = right === 0 ? null : asNumber(left) % right
+        if (right === 0) throw new Error('division by zero')
+        left = asNumber(left) % right
       } else return left
     }
   }
@@ -222,12 +240,55 @@ export function evaluateProjectFormula(expression: string, values: ReadonlyMap<s
 
   try {
     const value = or()
-    if (cursor !== tokens.length) return ''
-    if (value === null) return ''
-    if (typeof value === 'number') return Number.isFinite(value) ? String(Math.round(value * 1e6) / 1e6) : ''
-    if (typeof value === 'boolean') return value ? '✓' : ''
-    return value
-  } catch {
-    return ''
+    if (cursor !== tokens.length) throw new Error('unexpected token')
+    if (value === null) return { value: '' }
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) return { value: '', error: 'non-finite result' }
+      return { value: String(Math.round(value * 1e6) / 1e6) }
+    }
+    if (typeof value === 'boolean') return { value: value ? '✓' : '' }
+    return { value }
+  } catch (error) {
+    return { value: '', error: error instanceof Error ? error.message : 'invalid formula' }
   }
+}
+
+export function evaluateProjectFormula(expression: string, values: ReadonlyMap<string, string>): string {
+  return evaluateProjectFormulaResult(expression, values).value
+}
+
+export function projectFormulaDependencyOrder(properties: readonly ProjectProperty[]): { order: string[], cycles: Set<string>, dependencies: Map<string, string[]> } {
+  const formulas = properties.filter((property) => property.type === 'formula' && property.config?.expression)
+  const byReference = new Map<string, ProjectProperty>()
+  for (const property of formulas) {
+    byReference.set(property.id.toLowerCase(), property)
+    byReference.set(property.name.trim().toLowerCase(), property)
+  }
+  const dependencies = new Map<string, string[]>()
+  for (const property of formulas) {
+    const refs = [...property.config!.expression!.matchAll(/\{([^}]+)\}/g)]
+      .map((match) => byReference.get(match[1]!.trim().toLowerCase())?.id)
+      .filter((id): id is string => Boolean(id))
+    dependencies.set(property.id, [...new Set(refs)])
+  }
+  const state = new Map<string, number>()
+  const cycles = new Set<string>()
+  const path: string[] = []
+  const order: string[] = []
+  const visit = (id: string): void => {
+    if (state.get(id) === 2) return
+    if (state.get(id) === 1) {
+      const start = path.indexOf(id)
+      for (const entry of path.slice(start < 0 ? 0 : start)) cycles.add(entry)
+      return
+    }
+    state.set(id, 1)
+    path.push(id)
+    for (const dependency of dependencies.get(id) ?? []) visit(dependency)
+    path.pop()
+    state.set(id, 2)
+    if (!cycles.has(id)) order.push(id)
+  }
+  for (const property of formulas) visit(property.id)
+  return { order, cycles, dependencies }
 }

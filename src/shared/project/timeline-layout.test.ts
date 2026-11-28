@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { ProjectCard } from './model'
+import type { ProjectCard, ProjectPeople, ProjectProperty } from './model'
 import { projectDayToStamp } from './date'
 import {
   PROJECT_TIMELINE_DAY_MS,
   projectCardDays,
   projectScheduleConflicts,
+  projectScheduleRows,
   projectTimelineFitScale,
   projectTimelineBar,
   projectTimelineColumn,
@@ -72,6 +73,23 @@ describe('the window and its columns', () => {
     const start = new Date(2026, 9, 30).getTime()
     const end = new Date(2026, 10, 2).getTime()
     expect((end - start) / PROJECT_TIMELINE_DAY_MS).toBe(3)
+  })
+})
+
+describe('schedule lanes', () => {
+  it('draws discovered person and author values instead of dropping their cards', () => {
+    const owner: ProjectProperty = { id: 'owner', name: 'Owner', type: 'person', options: [] }
+    const people: ProjectPeople = { u1: { id: 'u1', name: 'Alice', avatarUrl: '' }, u2: { id: 'u2', name: 'Bob', avatarUrl: '' } }
+    const rows = projectScheduleRows([card('a', { owner: 'u1' }), card('b', { owner: 'u2' }), card('c')], {
+      groupById: 'owner', properties: [owner], colorOf: () => '', people,
+    })
+    expect(rows.filter((row) => row.kind === 'lane').map((row) => row.label)).toEqual(['Alice', 'Bob', ''])
+    expect(rows.filter((row) => row.kind === 'card').map((row) => row.card!.id)).toEqual(['a', 'b', 'c'])
+
+    const author: ProjectProperty = { id: 'author', name: 'Author', type: 'createdBy', options: [] }
+    const byAuthor = { ...card('d'), createdBy: 'u2' }
+    const authorRows = projectScheduleRows([byAuthor], { groupById: 'author', properties: [author], colorOf: () => '', people })
+    expect(authorRows.map((row) => [row.kind, row.label])).toEqual([['lane', 'Bob'], ['card', 'd'], ['lane', '']])
   })
 })
 

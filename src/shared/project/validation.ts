@@ -21,6 +21,7 @@ import {
   PROJECT_ROLES,
   PROJECT_ROLLUP_AGGREGATIONS,
   PROJECT_SCHEDULE_SCALES,
+  PROJECT_STATUS_CATEGORIES,
   PROJECT_SUBSCRIPTION_BLOCKS,
   PROJECT_VIEW_TYPES,
 } from './model'
@@ -46,6 +47,7 @@ export const ProjectPropertyOptionSchema = z.object({
   id: projectId,
   value: z.string().max(1024),
   color: z.string().max(64),
+  category: z.enum(PROJECT_STATUS_CATEGORIES).optional(),
 })
 
 export const ProjectRollupConfigSchema = z.object({
@@ -137,6 +139,13 @@ export const ProjectViewFieldsSchema = z.object({
   chartCalculation: ProjectCalculationSchema.optional(),
 })
 
+export const ProjectPersonalViewFieldsSchema = ProjectViewFieldsSchema.omit({
+  minimumRole: true,
+  cardOrder: true,
+  defaultTemplateId: true,
+}).partial()
+export type ProjectPersonalViewFieldsInput = z.infer<typeof ProjectPersonalViewFieldsSchema>
+
 export const ProjectBoardFromTemplateSchema = z.object({
   templateId: z.string().min(1).max(64),
   locale: z.string().max(16).optional(),
@@ -165,6 +174,11 @@ export const ProjectBoardPatchSchema = z.object({
   minimumRole: ProjectMinimumRoleSchema.optional(),
   updatedCardProperties: z.array(ProjectPropertySchema).max(PROJECT_LIMITS.propertiesPerBoard).optional(),
   deletedCardProperties: z.array(projectId).max(PROJECT_LIMITS.propertiesPerBoard).optional(),
+  propertyRevision: z.number().int().min(0).optional(),
+}).refine((patch) => patch.propertyRevision !== undefined
+  || (patch.updatedCardProperties === undefined && patch.deletedCardProperties === undefined), {
+  message: 'propertyRevision is required when changing board properties',
+  path: ['propertyRevision'],
 })
 export type ProjectBoardPatchInput = z.infer<typeof ProjectBoardPatchSchema>
 
@@ -191,16 +205,25 @@ export const ProjectCardCreateSchema = z.object({
 })
 export type ProjectCardCreateInput = z.infer<typeof ProjectCardCreateSchema>
 
+const propertyPatchValues = z.record(projectId, z.union([propertyValue, z.null()]))
+  .refine((values) => Object.keys(values).length <= PROJECT_LIMITS.propertiesPerBoard, 'too many values')
+
 export const ProjectCardPatchSchema = z.object({
   title: title.optional(),
   icon: icon.optional(),
   parentId: z.union([projectId, z.literal('')]).optional(),
   contentOrder: z.array(z.union([projectId, z.array(projectId).max(64)]))
     .max(PROJECT_LIMITS.contentsPerCard).optional(),
-  values: z.record(projectId, z.union([propertyValue, z.null()])).optional(),
+  values: propertyPatchValues.optional(),
   recurrence: ProjectRecurrenceSchema.nullable().optional(),
 })
 export type ProjectCardPatchInput = z.infer<typeof ProjectCardPatchSchema>
+
+export const ProjectCardVersionRestoreSchema = z.object({
+  expectedUpdateAt: stamp,
+})
+
+export type ProjectCardVersionRestoreInput = z.infer<typeof ProjectCardVersionRestoreSchema>
 
 export const ProjectCardMoveSchema = z.object({ targetBoardId: projectId })
 
@@ -228,6 +251,35 @@ export type ProjectWebhookCreateInput = z.infer<typeof ProjectWebhookCreateSchem
 
 export const ProjectWebhookPatchSchema = ProjectWebhookCreateSchema.partial()
 export type ProjectWebhookPatchInput = z.infer<typeof ProjectWebhookPatchSchema>
+
+export const ProjectIntegrationCreateSchema = z.discriminatedUnion('provider', [
+  z.object({
+    provider: z.literal('slack'),
+    config: z.object({ webhookUrl: z.string().url().max(2048) }),
+  }),
+  z.object({
+    provider: z.literal('github'),
+    config: z.object({
+      token: z.string().min(1).max(512),
+      owner: z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/),
+      repo: z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/),
+    }),
+  }),
+  z.object({
+    provider: z.literal('jira'),
+    config: z.object({
+      baseUrl: z.string().url().max(2048),
+      email: z.string().email().max(256),
+      token: z.string().min(1).max(512),
+      projectKey: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,30}$/),
+    }),
+  }),
+])
+
+export const ProjectIntegrationPatchSchema = z.object({ enabled: z.boolean() })
+
+export type ProjectIntegrationCreateInput = z.infer<typeof ProjectIntegrationCreateSchema>
+export type ProjectIntegrationPatchInput = z.infer<typeof ProjectIntegrationPatchSchema>
 
 export const ProjectSprintCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -268,6 +320,8 @@ export const ProjectContentFieldsSchema = z.object({
   checked: z.boolean().optional(),
   attachmentId: projectId.optional(),
   language: z.string().max(64).optional(),
+  assigneeId: z.string().min(1).max(64).optional(),
+  dueAt: z.number().int().nonnegative().optional(),
 })
 
 export const ProjectContentCreateSchema = z.object({
@@ -290,6 +344,33 @@ export const ProjectContentMoveSchema = z.object({
   where: z.enum(['before', 'after']),
   targetId: projectId,
 })
+
+export const ProjectCardVersionSnapshotSchema = z.object({
+  card: z.object({
+    title,
+    icon,
+    parentId: z.union([projectId, z.literal('')]),
+    contentOrder: z.array(z.union([projectId, z.array(projectId).max(64)])).max(PROJECT_LIMITS.contentsPerCard),
+    values: z.record(projectId, propertyValue),
+    recurrence: ProjectRecurrenceSchema.nullable().optional(),
+  }),
+  contents: z.array(z.object({
+    id: projectId,
+    cardId: projectId,
+    boardId: projectId,
+    type: z.enum(PROJECT_CONTENT_TYPES),
+    title: z.string().max(PROJECT_LIMITS.fieldsRunes),
+    fields: ProjectContentFieldsSchema,
+    position,
+    createdBy: z.string().min(1).max(64),
+    modifiedBy: z.string().min(1).max(64),
+    createAt: stamp,
+    updateAt: stamp,
+    deleteAt: stamp,
+  })).max(PROJECT_LIMITS.contentsPerCard),
+})
+
+export type ProjectCardVersionSnapshotInput = z.infer<typeof ProjectCardVersionSnapshotSchema>
 
 export const ProjectCommentCreateSchema = z.object({
   id: projectId.optional(),
@@ -343,11 +424,77 @@ export const ProjectSubscriptionCreateSchema = z.object({
   blockId: projectId,
 })
 
+export const ProjectIntakeConfigSchema = z.object({
+  enabled: z.boolean(),
+  editable: z.boolean(),
+  title: z.string().max(80),
+  propertyIds: z.array(projectId).max(PROJECT_LIMITS.propertiesPerBoard),
+  requiredPropertyIds: z.array(projectId).max(PROJECT_LIMITS.propertiesPerBoard),
+}).refine((config) => config.requiredPropertyIds.every((id) => config.propertyIds.includes(id)), 'required intake fields must be included')
+
+export type ProjectIntakeConfigInput = z.infer<typeof ProjectIntakeConfigSchema>
+
 export const ProjectSharePutSchema = z.object({
   password: z.string().min(4).max(128).nullable().optional(),
   expiresAt: stamp.nullable().optional(),
   showComments: z.boolean().optional(),
+  intake: ProjectIntakeConfigSchema.optional(),
 })
+
+export const ProjectPublicIntakeSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  values: z.record(projectId, propertyValue).refine((values) => Object.keys(values).length <= PROJECT_LIMITS.propertiesPerBoard, 'too many values'),
+  password: z.string().max(128).optional(),
+})
+
+export type ProjectPublicIntakeInput = z.infer<typeof ProjectPublicIntakeSchema>
+
+export const ProjectGuestOpenSchema = z.object({
+  cardId: projectId,
+  token: z.string().min(32).max(128),
+  password: z.string().max(128).optional(),
+})
+
+export const ProjectGuestPatchSchema = z.object({
+  cardId: projectId,
+  token: z.string().min(32).max(128),
+  password: z.string().max(128).optional(),
+  expectedUpdateAt: stamp,
+  title: z.string().trim().min(1).max(200).optional(),
+  values: z.record(projectId, propertyValue).refine((values) => Object.keys(values).length <= PROJECT_LIMITS.propertiesPerBoard, 'too many values').optional(),
+}).refine((input) => input.title !== undefined || input.values !== undefined, 'a title or value is required')
+
+export type ProjectGuestOpenInput = z.infer<typeof ProjectGuestOpenSchema>
+export type ProjectGuestPatchInput = z.infer<typeof ProjectGuestPatchSchema>
+
+export const ProjectTimeEntryCreateSchema = z.object({
+  note: z.string().max(500).optional(),
+  startedAt: stamp,
+  endedAt: stamp,
+}).refine((input) => input.endedAt > input.startedAt, 'end time must be after start time')
+
+export const ProjectTimeEntryPatchSchema = z.object({
+  note: z.string().max(500).optional(),
+  startedAt: stamp.optional(),
+  endedAt: stamp.optional(),
+})
+
+export type ProjectTimeEntryCreateInput = z.infer<typeof ProjectTimeEntryCreateSchema>
+export type ProjectTimeEntryPatchInput = z.infer<typeof ProjectTimeEntryPatchSchema>
+
+export const ProjectCardNoteLinkSchema = z.object({
+  noteId: z.string().min(1).max(64),
+})
+
+export type ProjectCardNoteLinkInput = z.infer<typeof ProjectCardNoteLinkSchema>
+
+export const ProjectCalendarLinkSchema = z.object({
+  calendarId: z.string().min(1).max(64),
+  eventId: z.string().min(1).max(64),
+  propertyId: projectId,
+})
+
+export type ProjectCalendarLinkInput = z.infer<typeof ProjectCalendarLinkSchema>
 
 export const ProjectCardLinkSchema = z.object({
   toCardId: projectId,

@@ -43,6 +43,8 @@ import { isRemindOffset } from './todos/reminders'
 import { TASK_PRIORITIES } from './assistant'
 import { DEFAULT_LINTER_SETTINGS, normalizeLinterSettings } from './linter'
 import { DEFAULT_READING_SPEED_WPM } from './markdown-utils'
+import { ProjectPersonalViewFieldsSchema } from './project/validation'
+import type { ProjectViewFields } from './project/model'
 import { version as packageVersion } from '../../package.json'
 
 export const APP_VERSION = packageVersion
@@ -652,6 +654,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     pinnedBoards: [],
     starredBoards: [],
     notifications: {},
+    personalViews: {},
+    capacityMinutesPerWeek: 2400,
   },
 }
 
@@ -1144,6 +1148,8 @@ export function mergeSettings(partial: unknown): UserSettings {
   base.project.pinnedBoards = projectBoardIds(project.pinnedBoards)
   base.project.starredBoards = projectBoardIds(project.starredBoards)
   base.project.notifications = projectNotificationSettings(project.notifications)
+  base.project.personalViews = projectPersonalViews(project.personalViews)
+  base.project.capacityMinutesPerWeek = integerInRange(project.capacityMinutesPerWeek, 0, 10080, base.project.capacityMinutesPerWeek)
 
   base.appearance.theme = enumValue(appearance.theme, THEMES, base.appearance.theme)
   base.appearance.language = enumValue(
@@ -1939,6 +1945,29 @@ function projectNotificationSettings(value: unknown): Record<string, ProjectNoti
   return out
 }
 
+const PROJECT_PERSONAL_VIEWS_MAX = 50
+const PROJECT_PERSONAL_VIEWS_MAX_BYTES = 12 * 1024
+
+function projectPersonalViews(value: unknown): Record<string, Partial<ProjectViewFields>> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, Partial<ProjectViewFields>> = {}
+  const encoder = new TextEncoder()
+  let count = 0
+  let bytes = 0
+  for (const [key, fields] of Object.entries(value as Record<string, unknown>)) {
+    if (count >= PROJECT_PERSONAL_VIEWS_MAX) break
+    if (!key || key.length > 160 || !key.includes(':') || /[\u0000-\u001f]/.test(key)) continue
+    const parsed = ProjectPersonalViewFieldsSchema.safeParse(fields)
+    if (!parsed.success) continue
+    const entryBytes = encoder.encode(`${key}:${JSON.stringify(parsed.data)}`).byteLength
+    if (bytes + entryBytes > PROJECT_PERSONAL_VIEWS_MAX_BYTES) continue
+    out[key] = parsed.data
+    bytes += entryBytes
+    count += 1
+  }
+  return out
+}
+
 function halfStepInRange(value: unknown, range: readonly [number, number], fallback: number): number {
   const clamped = numberInRange(value, range[0], range[1], fallback)
   return Math.round(clamped * 2) / 2
@@ -2258,6 +2287,14 @@ export function mergeSettingsPatch(current: unknown, patch: unknown): UserSettin
       notifications: { ...asRecord(asRecord(previous.project).notifications), ...notificationPatch },
     }
   }
+  const personalViewsPatch = asRecord(asRecord(incoming.project).personalViews)
+  if (Object.keys(personalViewsPatch).length) {
+    combined.project = {
+      ...asRecord(previous.project),
+      ...asRecord(incoming.project),
+      personalViews: { ...asRecord(asRecord(previous.project).personalViews), ...personalViewsPatch },
+    }
+  }
   const next: Record<string, unknown> = { ...mergeSettings(combined) }
   for (const section of SETTINGS_SECTIONS) {
     const before = asRecord(previous[section])
@@ -2345,6 +2382,8 @@ function cloneDefaultSettings(): UserSettings {
       pinnedBoards: [...DEFAULT_SETTINGS.project.pinnedBoards],
       starredBoards: [...DEFAULT_SETTINGS.project.starredBoards],
       notifications: { ...DEFAULT_SETTINGS.project.notifications },
+      personalViews: { ...DEFAULT_SETTINGS.project.personalViews },
+      capacityMinutesPerWeek: DEFAULT_SETTINGS.project.capacityMinutesPerWeek,
     },
   }
 }

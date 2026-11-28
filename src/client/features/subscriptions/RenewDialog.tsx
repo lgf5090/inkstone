@@ -13,7 +13,7 @@ import { Modal } from '../../components/overlay'
 import { DatePicker } from '../../components/date-picker'
 import { formatAmount } from '@shared/subscriptions/format'
 import { addLunarPeriod, lunar2solar, solar2lunar } from '@shared/subscriptions/lunar'
-import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts } from '@shared/subscriptions/time'
+import { addCalendarPeriodInTimezone, formatDateInputInTimezone, getTimezoneDateParts, getTimestampForTimezoneParts, parseDateInputInTimezone } from '@shared/subscriptions/time'
 import { PERIOD_MULTIPLIER_MAX, type SubscriptionDetail } from '@shared/subscriptions/model'
 
 export function RenewDialog({
@@ -38,7 +38,7 @@ export function RenewDialog({
   const [note, setNote] = useState('')
 
   const preview = useMemo(() => {
-    const paidAt = Date.parse(`${date}T00:00:00Z`)
+    const paidAt = parseDateInputInTimezone(date, timezone).getTime()
     const base = Number.isFinite(paidAt) ? paidAt : Date.now()
     const current = Date.parse(detail.item.expiryDate)
     const mode = detail.item.subscriptionMode
@@ -58,10 +58,11 @@ export function RenewDialog({
   }, [date, multiplier, detail.item, timezone])
 
   const submit = async (): Promise<void> => {
+    const periodMultiplier = Math.max(1, Math.trunc(Number(multiplier) || 1))
     const ok = await onSubmit({
       paymentDate: date,
-      amount: amount === '' ? 0 : Number(amount),
-      periodMultiplier: Math.max(1, Math.trunc(Number(multiplier) || 1)),
+      amount: (amount === '' ? 0 : Number(amount)) * periodMultiplier,
+      periodMultiplier,
       note: note.trim(),
     })
     if (ok) onClose()
@@ -100,7 +101,7 @@ export function RenewDialog({
           <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('subscriptions.renew.preview')}</p>
           <p className="mt-0.5 text-[length:var(--text-13)] font-medium tabular-nums text-[var(--text-primary)]">{preview}</p>
           <p className="mt-0.5 text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">
-            {formatAmount(amount === '' ? 0 : Number(amount), detail.item.currency)}
+            {formatAmount((amount === '' ? 0 : Number(amount)) * Math.max(1, Math.trunc(Number(multiplier) || 1)), detail.item.currency)}
           </p>
         </div>
       </div>

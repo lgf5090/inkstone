@@ -6,14 +6,19 @@
 import type { AppBindings } from '../env'
 import { notifySyncHub } from '../realtime/sync-hub'
 import { recordProjectActivity } from './enhance'
+import { notifyProjectReminder } from './notify'
 
 const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000
 const SCAN_LIMIT = 500
+const MAX_REMINDER_SCAN = 5000
+const MAX_REMINDER_SUBSCRIBERS = 100
 
-interface DateValueRow {
+interface ReminderRow {
   card_id: string
-  value: string
+  property_id: string
+  due_at: number
   board_id: string
+  title: string
 }
 
 /** The activity log is a recent-history surface, not an audit archive; keep half a year. */
@@ -28,39 +33,69 @@ export async function pruneProjectActivity(env: AppBindings['Bindings'], now: nu
 }
 
 export async function sweepProjectReminders(env: AppBindings['Bindings'], now: number, waitUntil?: (task: Promise<unknown>) => void): Promise<number> {
-  const { results } = await env.DB
-    .prepare(
-      `SELECT v.card_id, v.value, c.board_id FROM project_card_values v
-       JOIN project_cards c ON c.id = v.card_id AND c.delete_at = 0
-       JOIN project_properties p ON p.id = v.property_id AND p.board_id = c.board_id AND p.type = 'date'
-       WHERE COALESCE(json_extract(v.value, '$.from'), CAST(v.value AS INTEGER)) BETWEEN ?1 AND ?2
-       ORDER BY COALESCE(json_extract(v.value, '$.from'), CAST(v.value AS INTEGER))
-       LIMIT ?3`,
-    )
-    .bind(now, now + REMINDER_WINDOW_MS, SCAN_LIMIT)
-    .all<DateValueRow>()
   let reminded = 0
-  for (const row of results) {
-    let from: number | undefined
-    try {
-      from = (JSON.parse(row.value) as { from?: number }).from
-    } catch {
-      const stamp = Number(row.value)
-      if (Number.isFinite(stamp)) from = stamp
+  let processedSubscribers = 0
+  let scanned = 0
+  let after: { dueAt: number, cardId: string, propertyId: string } | null = null
+  while (scanned < MAX_REMINDER_SCAN && processedSubscribers < MAX_REMINDER_SUBSCRIBERS) {
+    const afterClause: string = after
+      ? 'AND (r.due_at > ?3 OR (r.due_at = ?3 AND (r.card_id > ?4 OR (r.card_id = ?4 AND r.property_id > ?5))))'
+      : ''
+    const { results }: { results: ReminderRow[] } = await env.DB
+      .prepare(
+        `SELECT r.card_id, r.property_id, r.due_at, r.board_id, c.title FROM project_reminders r
+         JOIN project_cards c ON c.id = r.card_id AND c.delete_at = 0
+         JOIN project_boards b ON b.id = r.board_id AND b.delete_at = 0 AND b.archived = 0
+         WHERE r.notified_at = 0 AND r.due_at <= ?1
+           AND EXISTS (SELECT 1 FROM project_subscriptions s
+                       WHERE s.block_type = 'card' AND s.block_id = r.card_id AND s.delete_at = 0)
+           ${afterClause}
+         ORDER BY r.due_at, r.card_id, r.property_id
+         LIMIT ?2`,
+      )
+      .bind(
+        now + REMINDER_WINDOW_MS,
+        SCAN_LIMIT,
+        ...(after ? [after.dueAt, after.cardId, after.propertyId] : []),
+      )
+      .all<ReminderRow>()
+    if (!results.length) break
+    for (const row of results) {
+      scanned += 1
+      after = { dueAt: row.due_at, cardId: row.card_id, propertyId: row.property_id }
+      if (processedSubscribers >= MAX_REMINDER_SUBSCRIBERS) continue
+      const { results: subs } = await env.DB
+        .prepare('SELECT subscriber_id FROM project_subscriptions WHERE block_type = ?1 AND block_id = ?2 AND delete_at = 0')
+        .bind('card', row.card_id)
+        .all<{ subscriber_id: string }>()
+      if (processedSubscribers + subs.length > MAX_REMINDER_SUBSCRIBERS) continue
+      processedSubscribers += subs.length
+      const delivered = await notifyProjectReminder(env.DB, env, {
+        boardId: row.board_id,
+        cardId: row.card_id,
+        propertyId: row.property_id,
+        dueAt: row.due_at,
+        cardTitle: row.title,
+        subscriberIds: subs.map((sub) => sub.subscriber_id),
+      })
+      if (delivered.length === 0) {
+        await env.DB.prepare('UPDATE project_reminders SET notified_at = ?1 WHERE card_id = ?2 AND property_id = ?3 AND due_at = ?4')
+          .bind(now, row.card_id, row.property_id, row.due_at).run()
+        continue
+      }
+      reminded += 1
+      const tasks = delivered.map((subscriberId) => notifySyncHub(env.SYNC_HUB, subscriberId, now, null, env.DO_AUTH_KEY))
+      const all = Promise.all(tasks).then(() => undefined)
+      if (waitUntil) waitUntil(all)
+      else await all
+      await env.DB.batch([
+        env.DB.prepare('UPDATE project_reminders SET notified_at = ?1 WHERE card_id = ?2 AND property_id = ?3 AND due_at = ?4')
+          .bind(now, row.card_id, row.property_id, row.due_at),
+        env.DB.prepare('UPDATE project_subscriptions SET notified_at = ?1 WHERE block_type = ?2 AND block_id = ?3 AND delete_at = 0')
+          .bind(row.due_at, 'card', row.card_id),
+      ])
+      await recordProjectActivity(env.DB, row.board_id, 'system', 'reminder', row.card_id, 'card due soon', now)
     }
-    if (typeof from !== 'number' || from < now || from > now + REMINDER_WINDOW_MS) continue
-    const { results: subs } = await env.DB
-      .prepare('SELECT subscriber_id FROM project_subscriptions WHERE block_type = ?1 AND block_id = ?2 AND delete_at = 0 AND notified_at < ?3')
-      .bind('card', row.card_id, from)
-      .all<{ subscriber_id: string }>()
-    if (subs.length === 0) continue
-    reminded += 1
-    const tasks = subs.map((sub) => notifySyncHub(env.SYNC_HUB, sub.subscriber_id, now, null, env.DO_AUTH_KEY))
-    const all = Promise.all(tasks).then(() => undefined)
-    if (waitUntil) waitUntil(all)
-    else await all
-    await env.DB.prepare('UPDATE project_subscriptions SET notified_at = ?1 WHERE block_type = ?2 AND block_id = ?3 AND delete_at = 0').bind(from, 'card', row.card_id).run()
-    await recordProjectActivity(env.DB, row.board_id, 'system', 'reminder', row.card_id, 'card due soon', now)
   }
   return reminded
 }

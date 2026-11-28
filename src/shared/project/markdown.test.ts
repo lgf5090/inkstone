@@ -17,7 +17,7 @@ function fixture(): ProjectBoardBundle {
     cards: [{ id: 'c1', boardId: 'b1', parentId: '', title: 'Ship it', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o1', pp: 'u2', pm: '["u2","u3"]' }, ...stamps }],
     contents: [], comments: [], members: [],
     people: { u2: { id: 'u2', name: 'Uri', avatarUrl: '' }, u3: { id: 'u3', name: 'Ada', avatarUrl: '' } },
-    role: 'admin', cursor: 20,
+    role: 'admin', cursor: 20, propertyRevision: 20,
   }
 }
 

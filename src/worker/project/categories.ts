@@ -8,6 +8,7 @@ import type { ProjectCategory, ProjectCategoryBoard } from '@shared/project/mode
 import { newProjectId } from '@shared/project/limits'
 import type { ProjectCategoryCreateInput, ProjectCategoryPatchInput } from '@shared/project/validation'
 import { ApiError } from '../lib/errors'
+import { assertProjectBatchStatementLimit } from './d1'
 
 // The reorder endpoint caps its id list at 200; creation shares that ceiling so the two cannot disagree.
 const MAX_CATEGORIES = 200
@@ -168,10 +169,22 @@ export async function reorderCategoryBoards(
   now: number,
 ): Promise<void> {
   await getCategoryRow(db, userId, categoryId)
-  const statements = boardIds.map((boardId, index) => db
-    .prepare('UPDATE project_category_boards SET position = ?1, updated_at = ?2 WHERE user_id = ?3 AND category_id = ?4 AND board_id = ?5')
-    .bind(index, now, userId, categoryId, boardId))
-  if (statements.length) await db.batch(statements)
+  assertProjectBatchStatementLimit(1 + boardIds.length * 2)
+  const { results: existing } = await db.prepare(
+    'SELECT board_id, hidden FROM project_category_boards WHERE user_id = ?1',
+  ).bind(userId).all<{ board_id: string, hidden: number }>()
+  const hiddenByBoard = new Map(existing.map((row) => [row.board_id, row.hidden]))
+  const statements: D1PreparedStatement[] = [
+    db.prepare('DELETE FROM project_category_boards WHERE user_id = ?1 AND category_id = ?2').bind(userId, categoryId),
+  ]
+  boardIds.forEach((boardId, index) => {
+    statements.push(db.prepare('DELETE FROM project_category_boards WHERE user_id = ?1 AND board_id = ?2').bind(userId, boardId))
+    statements.push(db.prepare(
+      `INSERT INTO project_category_boards (user_id, category_id, board_id, hidden, position, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(userId, categoryId, boardId, hiddenByBoard.get(boardId) ?? 0, index, now))
+  })
+  await db.batch(statements)
 }
 
 export async function setCategoryBoardHidden(

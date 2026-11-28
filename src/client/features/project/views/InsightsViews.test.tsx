@@ -18,7 +18,7 @@ vi.mock('../api', async (importOriginal) => ({
 
 const stamps = { createdBy: 'u1', modifiedBy: 'u1', createAt: 1, deleteAt: 0 }
 const properties: ProjectProperty[] = [
-  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'open', value: 'Open', color: 'propColorBlue' }, { id: 'done', value: 'Done', color: 'propColorGreen' }] },
+  { id: 'ps', name: 'Status', type: 'select', options: [{ id: 'open', value: 'Open', color: 'propColorBlue', category: 'todo' }, { id: 'done', value: 'Done', color: 'propColorGreen', category: 'done' }] },
   { id: 'pp', name: 'Priority', type: 'select', options: [{ id: 'hi', value: 'High', color: 'propColorRed' }, { id: 'lo', value: 'Low', color: 'propColorGreen' }] },
   { id: 'pd', name: 'Due', type: 'date', options: [] },
   { id: 'pn', name: 'Hours', type: 'number', options: [] },
@@ -46,6 +46,26 @@ describe('the report panels the reference Stats view draws', () => {
     card('done2', { ps: 'done', pp: 'lo', pn: '4' }),
     card('soon', { ps: 'open', pp: 'hi', pn: '6', pd: JSON.stringify({ from: projectDayToStamp(soon) }) }),
   ]
+
+  it('counts every scheduled unfinished card as in progress, including overdue and due soon', async () => {
+    const overdue = new Date()
+    overdue.setDate(overdue.getDate() - 1)
+    const soon = new Date()
+    soon.setDate(soon.getDate() + 1)
+    const later = new Date()
+    later.setDate(later.getDate() + 20)
+    await mountDashboard([
+      card('done', { ps: 'done' }),
+      card('overdue', { ps: 'open', pd: JSON.stringify({ from: projectDayToStamp(overdue) }) }),
+      card('soon', { ps: 'open', pd: JSON.stringify({ from: projectDayToStamp(soon) }) }),
+      card('later', { ps: 'open', pd: JSON.stringify({ from: projectDayToStamp(later) }) }),
+      card('unscheduled', { ps: 'open' }),
+    ])
+    const inProgress = [...view.container.querySelectorAll('.pv-kpi')].find((tile) => tile.textContent?.includes(t('project.dashboard.in_progress')))
+    const unscheduled = [...view.container.querySelectorAll('.pv-kpi')].find((tile) => tile.textContent?.includes(t('project.dashboard.unscheduled')))
+    expect(inProgress?.querySelector('.pv-kpi-value')?.textContent).toBe('3')
+    expect(unscheduled?.querySelector('.pv-kpi-value')?.textContent).toBe('1')
+  })
 
   it('draws a completion ring with the done fraction', async () => {
     await mountDashboard(cards)
@@ -105,7 +125,7 @@ describe('the file preview pane', () => {
   it('opens beside the shelf with the file text and a way back to its card', async () => {
     vi.mocked(api.listBoardFiles).mockResolvedValue([file])
     const original = globalThis.fetch
-    globalThis.fetch = vi.fn().mockResolvedValue({ text: async () => 'hello preview' }) as unknown as typeof fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('hello preview')) as unknown as typeof fetch
     const onOpenCard = vi.fn()
     try {
       await act(async () => { view = renderElement(createElement(CollectionView, { boardId: 'b1', canEdit: true, onOpenCard })) })

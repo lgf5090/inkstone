@@ -47,6 +47,12 @@ describe('board input', () => {
     expect('updatedCardProperties' in parsed).toBe(false)
   })
 
+  it('requires a property revision for property replacements', () => {
+    const property = { id: newProjectId('property'), name: 'Status', type: 'select', options: [] }
+    expect(ProjectBoardPatchSchema.safeParse({ updatedCardProperties: [property] }).success).toBe(false)
+    expect(ProjectBoardPatchSchema.safeParse({ updatedCardProperties: [property], propertyRevision: 0 }).success).toBe(true)
+  })
+
   it('bounds the property list at the stated ceiling', () => {
     const property = { id: newProjectId('property'), name: 'Status', type: 'select', options: [] }
     const tooMany = Array.from({ length: PROJECT_LIMITS.propertiesPerBoard + 1 }, () => property)
@@ -125,6 +131,14 @@ describe('card patches, shares and batches', () => {
     const id = newProjectId('property')
     const parsed = ProjectCardPatchSchema.parse({ values: { [id]: null } })
     expect(parsed.values?.[id]).toBeNull()
+  })
+
+  it('bounds the number of property values in one patch', () => {
+    const values = Object.fromEntries(Array.from({ length: PROJECT_LIMITS.propertiesPerBoard + 1 }, () => [
+      newProjectId('property'), 'x',
+    ]))
+    expect(ProjectCardPatchSchema.safeParse({ values }).success).toBe(false)
+    expect(ProjectCardPatchSchema.safeParse({ values: Object.fromEntries(Object.entries(values).slice(0, 1)) }).success).toBe(true)
   })
 
   it('refuses a share password shorter than the minimum', () => {

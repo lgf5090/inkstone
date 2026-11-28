@@ -5,7 +5,7 @@
  * sideways. A cell is a button until it is clicked, then it is the editor for that property type —
  * one click to edit rather than a mode the reader has to discover.
  */
-import { Fragment, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactElement } from 'react'
+import { Fragment, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, CornerDownRight, GripVertical, Trash2 } from 'lucide-react'
 import type { ProjectBoardBundle, ProjectCalculation, ProjectCard, ProjectProperty, ProjectViewFields } from '@shared/project/model'
 import { isProjectCardDone } from '@shared/project/model'
@@ -19,6 +19,7 @@ import { CardBadges, OptionChip } from '../CardBadges'
 import { PropertyValueEditor } from '../PropertyValueEditor'
 import { QuickAdd } from './shell'
 import { useBandDrag } from './use-band-drag'
+import { usePointerSession } from '../../../lib/hooks'
 
 const PAGE = 200
 
@@ -28,6 +29,7 @@ export interface TableProps {
   columns: ProjectProperty[]
   fields: ProjectViewFields
   canEdit: boolean
+  canPersonalize?: boolean
   selected: string[]
   onSelected: (ids: string[]) => void
   subtasksByParent: Map<string, ProjectCard[]>
@@ -48,8 +50,10 @@ export function TableView(props: TableProps): ReactElement {
   const [editing, setEditing] = useState<{ cardId: string, propertyId: string } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [resizing, setResizing] = useState<{ id: string, width: number } | null>(null)
-  const grip = useRef<{ id: string, startX: number, startWidth: number } | null>(null)
+  const startPointerSession = usePointerSession()
   const headRef = useRef<HTMLTableRowElement>(null)
+  const columnWidthsRef = useRef(fields.columnWidths)
+  columnWidthsRef.current = fields.columnWidths
   const density = fields.cardSize ?? 'comfortable'
   const rowPad = density === 'compact' ? 'py-0.5' : density === 'spacious' ? 'py-3' : 'py-1.5'
 
@@ -66,25 +70,27 @@ export function TableView(props: TableProps): ReactElement {
   const commitWidth = (id: string, width: number): void => {
     props.onPatchFields({ columnWidths: { ...fields.columnWidths, [id]: Math.max(80, Math.round(width)) } })
   }
-  const onGripDown = (event: PointerEvent<HTMLButtonElement>, id: string): void => {
-    grip.current = { id, startX: event.clientX, startWidth: fields.columnWidths[id] ?? 160 }
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-  const onGripMove = (event: PointerEvent<HTMLButtonElement>): void => {
-    const active = grip.current
-    if (!active) return
-    setResizing({ id: active.id, width: Math.max(80, active.startWidth + (event.clientX - active.startX)) })
-  }
-  const onGripUp = (): void => {
-    const active = grip.current
-    if (active && resizing) commitWidth(active.id, resizing.width)
-    grip.current = null
-    setResizing(null)
+  const onGripDown = (event: React.PointerEvent<HTMLButtonElement>, id: string): void => {
+    const startX = event.clientX
+    const startWidth = fields.columnWidths[id] ?? 160
+    let latest = startWidth
+    startPointerSession(event, {
+      onMove: (moveEvent) => {
+        latest = Math.max(80, startWidth + moveEvent.clientX - startX)
+        setResizing({ id, width: latest })
+      },
+      onCommit: () => { commitWidth(id, latest); setResizing(null) },
+      onCancel: () => setResizing(null),
+    })
   }
   const onGripKey = (event: KeyboardEvent, id: string): void => {
-    const current = fields.columnWidths[id] ?? 160
-    if (event.key === 'ArrowLeft') { event.preventDefault(); commitWidth(id, current - 16) }
-    else if (event.key === 'ArrowRight') { event.preventDefault(); commitWidth(id, current + 16) }
+    const current = columnWidthsRef.current[id] ?? 160
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault()
+      const width = Math.max(80, current + (event.key === 'ArrowLeft' ? -16 : 16))
+      columnWidthsRef.current = { ...columnWidthsRef.current, [id]: width }
+      commitWidth(id, width)
+    }
   }
   const reorderColumn = (sourceId: string, targetId: string): void => {
     if (!canEdit || sourceId === targetId) return
@@ -250,9 +256,12 @@ export function TableView(props: TableProps): ReactElement {
                     className="pv-th-grip"
                     data-column-grip={property.name}
                     aria-label={t('project.view.drag_column', { title: property.name })}
+                    aria-pressed={columnDrag.keyboardDragId === property.id}
                     onPointerDown={(event) => columnDrag.start(event, property.id)}
+                    onKeyDown={(event) => columnDrag.onKeyDown(event, property.id)}
                   >
                     <GripVertical size={11} aria-hidden="true" />
+                    <span className="sr-only">{t('project.view.keyboard_drag_help')}</span>
                   </button>
                 )}
                 {property.name}
@@ -268,8 +277,6 @@ export function TableView(props: TableProps): ReactElement {
                     className="pv-table-grip"
                     onKeyDown={(event) => onGripKey(event, property.id)}
                     onPointerDown={(event) => onGripDown(event, property.id)}
-                    onPointerMove={onGripMove}
-                    onPointerUp={onGripUp}
                   />
                 )}
               </th>
@@ -336,7 +343,7 @@ export function TableView(props: TableProps): ReactElement {
                     size="sm"
                     value={calc}
                     label={property.name}
-                    disabled={!canEdit}
+                    disabled={!(props.canPersonalize ?? props.canEdit)}
                     onChange={(value) => props.onPatchFields({ columnCalculations: { ...fields.columnCalculations, [property.id]: value as ProjectCalculation } })}
                     options={calculationOptionsFor(property).map((option) => ({ value: option, label: t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0]) }))}
                   />

@@ -33,7 +33,7 @@ import type {
   SubscriptionSettings,
 } from '@shared/subscriptions/model'
 
-export type SubscriptionsView = 'overview' | 'list' | 'grid' | 'logs' | 'trash'
+export type SubscriptionsView = 'overview' | 'calendar' | 'list' | 'grid' | 'logs' | 'trash'
 
 export type StatusFilter = 'all' | 'soon' | 'expired' | 'disabled'
 
@@ -54,6 +54,10 @@ export interface SubscriptionLogs {
   error: string | null
 }
 
+let refreshGeneration = 0
+let selectGeneration = 0
+let logsGeneration = 0
+
 interface SubscriptionsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
@@ -72,6 +76,7 @@ interface SubscriptionsState {
   selectedId: string | null
   detail: SubscriptionDetail | null
   detailLoading: boolean
+  detailDrawerOpen: boolean
   logs: SubscriptionLogs
   saving: boolean
   /** A refresh of the exchange rates is in flight, so the button does not start a second one. */
@@ -79,6 +84,9 @@ interface SubscriptionsState {
 
   load: () => Promise<void>
   select: (id: string | null) => Promise<void>
+  openDetail: (id: string) => Promise<void>
+  closeDetail: () => Promise<void>
+  setDetailDrawerOpen: (open: boolean) => void
   setView: (view: SubscriptionsView) => void
   setFilter: (patch: Partial<ListFilter>) => void
 
@@ -106,6 +114,7 @@ interface SubscriptionsState {
   deleteRule: (id: string, ruleId: string) => Promise<boolean>
   acknowledgeRule: (id: string, ruleId: string) => Promise<boolean>
 
+  addRefund: (id: string, input: { date: string; amount: number; currency: SubscriptionItem['currency']; note: string }) => Promise<SubscriptionDetail | null>
   updatePayment: (id: string, paymentId: string, patch: PaymentPatch) => Promise<SubscriptionDetail | null>
   deletePayment: (id: string, paymentId: string) => Promise<SubscriptionDetail | null>
 
@@ -114,6 +123,7 @@ interface SubscriptionsState {
   clearChannel: (kind: ChannelKind) => Promise<boolean>
   testChannel: (kind: ChannelKind) => Promise<void>
   rotateInboundToken: () => Promise<{ token: string; hint: string } | null>
+  rotateCalendarToken: () => Promise<{ token: string; hint: string } | null>
 
   addLabel: (kind: LabelKind, name: string) => Promise<boolean>
   setLabelStyle: (kind: LabelKind, name: string, style: { icon?: string | null; color?: string | null }) => Promise<boolean>
@@ -154,29 +164,33 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
   selectedId: null,
   detail: null,
   detailLoading: false,
+  detailDrawerOpen: false,
   logs: { notify: [], schedule: [], loading: false, error: null },
   saving: false,
   refreshingRates: false,
 
   async load() {
     if (get().status === 'loading') return
+    const generation = ++refreshGeneration
     set({ status: 'loading', error: null })
     try {
       const bundle = await api.subscriptions.bundle()
-      applyBundle(set, bundle)
+      if (generation === refreshGeneration) applyBundle(set, bundle)
     } catch (error) {
-      set({ status: 'error', error: error instanceof Error ? error.message : t('subscriptions.error.load') })
+      if (generation === refreshGeneration) set({ status: 'error', error: error instanceof Error ? error.message : t('subscriptions.error.load') })
     }
   },
 
   async refresh() {
+    const generation = ++refreshGeneration
+    const selectedId = get().selectedId
     try {
       const bundle = await api.subscriptions.bundle()
+      if (generation !== refreshGeneration) return
       applyBundle(set, bundle)
-      const selectedId = get().selectedId
-      if (selectedId) await get().select(selectedId)
+      if (selectedId && get().selectedId === selectedId) await get().select(selectedId)
     } catch (error) {
-      report(error, 'subscriptions.error.load')
+      if (generation === refreshGeneration) report(error, 'subscriptions.error.load')
     }
   },
 
@@ -202,19 +216,35 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
   },
 
   async select(id) {
+    const generation = ++selectGeneration
     if (!id) {
-      set({ selectedId: null, detail: null })
+      set({ selectedId: null, detail: null, detailLoading: false })
       return
     }
     set({ selectedId: id, detailLoading: true })
     try {
       const detail = await api.subscriptions.detail(id)
-      // A slower answer for a row the reader has already left must not replace the one they are on.
-      if (get().selectedId === id) set({ detail, detailLoading: false })
+      if (generation === selectGeneration && get().selectedId === id) set({ detail, detailLoading: false })
     } catch (error) {
-      if (get().selectedId === id) set({ detail: null, detailLoading: false })
-      report(error, 'subscriptions.error.load')
+      if (generation === selectGeneration && get().selectedId === id) {
+        set({ detail: null, detailLoading: false })
+        report(error, 'subscriptions.error.load')
+      }
     }
+  },
+
+  openDetail(id) {
+    set({ detailDrawerOpen: true })
+    return get().select(id)
+  },
+
+  closeDetail() {
+    set({ detailDrawerOpen: false })
+    return get().select(null)
+  },
+
+  setDetailDrawerOpen(open) {
+    set({ detailDrawerOpen: open })
   },
 
   setView(view) {
@@ -328,6 +358,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
         items: replaceItem(get().items, detail.item),
         detail: get().detail?.item.id === id ? detail : get().detail,
       })
+      await get().refresh()
     } catch (error) {
       report(error, 'subscriptions.error.save')
     }
@@ -365,6 +396,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
     try {
       const { rules: saved } = await api.subscriptions.replaceRules(id, rules)
       set({ detail: mergeRules(get().detail, id, saved) })
+      await get().select(id)
       return saved
     } catch (error) {
       report(error, 'subscriptions.error.save')
@@ -376,6 +408,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
     try {
       const { rules } = await api.subscriptions.applyPresetRules(id)
       set({ detail: mergeRules(get().detail, id, rules) })
+      await get().select(id)
       return rules
     } catch (error) {
       report(error, 'subscriptions.error.save')
@@ -390,6 +423,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       if (detail && detail.item.id === id) {
         set({ detail: { ...detail, rules: [...detail.rules, saved] } })
       }
+      await get().select(id)
       return saved
     } catch (error) {
       report(error, 'subscriptions.error.save')
@@ -404,6 +438,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       if (detail && detail.item.id === id) {
         set({ detail: { ...detail, rules: detail.rules.map((entry) => (entry.id === ruleId ? rule : entry)) } })
       }
+      await get().select(id)
       return rule
     } catch (error) {
       report(error, 'subscriptions.error.save')
@@ -420,11 +455,10 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
           detail: {
             ...detail,
             rules: detail.rules.map((entry) => entry.id === ruleId ? rule : entry),
-            // The rule that just muted itself may have been the one the panel said was coming next.
-            nextReminder: detail.nextReminder && detail.nextReminder.ruleId === ruleId ? null : detail.nextReminder,
           },
         })
       }
+      await get().select(id)
       return true
     } catch (error) {
       report(error, 'subscriptions.error.save')
@@ -439,10 +473,23 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       if (detail && detail.item.id === id) {
         set({ detail: { ...detail, rules: detail.rules.filter((entry) => entry.id !== ruleId) } })
       }
+      await get().select(id)
       return true
     } catch (error) {
       report(error, 'subscriptions.error.save')
       return false
+    }
+  },
+
+  async addRefund(id, input) {
+    try {
+      const detail = await api.subscriptions.refund(id, input)
+      set({ detail })
+      await get().refresh()
+      return detail
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return null
     }
   },
 
@@ -527,6 +574,18 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       const rotated = await api.subscriptions.rotateInboundToken()
       const settings = get().settings
       if (settings) set({ settings: { ...settings, inboundTokenHint: rotated.hint } })
+      return rotated
+    } catch (error) {
+      report(error, 'subscriptions.error.save')
+      return null
+    }
+  },
+
+  async rotateCalendarToken() {
+    try {
+      const rotated = await api.subscriptions.rotateCalendarToken()
+      const settings = get().settings
+      if (settings) set({ settings: { ...settings, calendarTokenHint: rotated.hint } })
       return rotated
     } catch (error) {
       report(error, 'subscriptions.error.save')
@@ -621,7 +680,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
       return changed
     } catch (error) {
       report(error, 'subscriptions.error.save')
-      return 0
+      throw error
     }
   },
 
@@ -638,17 +697,20 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
   },
 
   async loadLogs(filter = {}) {
+    const generation = ++logsGeneration
     set({ logs: { ...get().logs, loading: true, error: null } })
     try {
       const [notify, schedule] = await Promise.all([
         api.subscriptions.notifyLogs(filter),
         api.subscriptions.scheduleLogs(20),
       ])
-      set({ logs: { notify: notify.logs, schedule: schedule.logs, loading: false, error: null } })
+      if (generation === logsGeneration) set({ logs: { notify: notify.logs, schedule: schedule.logs, loading: false, error: null } })
     } catch (error) {
-      set({
-        logs: { ...get().logs, loading: false, error: error instanceof Error ? error.message : t('subscriptions.error.load') },
-      })
+      if (generation === logsGeneration) {
+        set({
+          logs: { ...get().logs, loading: false, error: error instanceof Error ? error.message : t('subscriptions.error.load') },
+        })
+      }
     }
   },
 }))

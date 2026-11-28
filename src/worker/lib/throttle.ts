@@ -90,6 +90,21 @@ export async function assertNotLocked(db: D1Database, inputs: readonly ThrottleI
   if (retryAfterMs) throw new ThrottleError(retryAfterMs)
 }
 
+/** Spend independent account and caller-address budgets through the shared 429 mapping. */
+export async function consumeCallerBudget(
+  db: D1Database,
+  scope: string,
+  userId: string,
+  clientIp: string,
+  budget: Omit<AttemptBudgetTarget, 'key'>,
+  message: string,
+): Promise<void> {
+  await assertAttemptBudget(() => consumeAttemptBudget(db, [
+    { key: `${scope}:user:${userId}`, ...budget },
+    { key: `${scope}:ip:${clientIp}`, ...budget },
+  ]), message)
+}
+
 export async function consumeAttemptBudget(
   db: D1Database,
   inputs: readonly AttemptBudgetTarget[],

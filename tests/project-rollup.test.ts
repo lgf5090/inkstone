@@ -127,6 +127,58 @@ describe('the rollup property', () => {
     expect(read.cards.find((entry) => entry.id === card.id)!.values[selfRollup]).toBe('')
   })
 
+  it('does not reveal a hidden target property through a self-board rollup', async () => {
+    const hidden = pid(10)
+    const link = pid(11)
+    const totalHidden = pid(12)
+    const board = await createBoard('alice', {
+      title: 'Hidden rollup',
+      cardProperties: [
+        { id: hidden, name: 'Secret', type: 'number', options: [], config: { viewRoles: ['admin'] } },
+        { id: link, name: 'Related', type: 'relation', options: [] },
+        { id: totalHidden, name: 'Secret total', type: 'rollup', options: [], config: { rollup: { relationPropertyId: link, targetPropertyId: hidden, aggregation: 'sum' } } },
+      ],
+    })
+    sqlite.prepare('UPDATE project_property_configs SET config = ? WHERE board_id = ? AND property_id = ?')
+      .run(JSON.stringify({ targetBoardId: board.id, multiple: true }), board.id, link)
+    sqlite.prepare('INSERT INTO project_board_members (board_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+      .run(board.id, 'bob', 'editor')
+    const first = await createCard('alice', board.id, { [hidden]: '42' })
+    const second = await createCard('alice', board.id, { [link]: JSON.stringify([first.id]) })
+    const read = await bundle('bob', board.id)
+    const values = read.cards.find((entry) => entry.id === second.id)!.values
+    expect(values[hidden]).toBeUndefined()
+    expect(values[totalHidden]).toBe('')
+  })
+
+  it('computes a rollup target formula that lives outside the first card page', async () => {
+    const formula = pid(6)
+    const board = await createBoard('alice', {
+      title: 'Paged rollup',
+      cardProperties: [
+        { id: amount, name: 'Amount', type: 'number', options: [] },
+        { id: relation, name: 'Items', type: 'relation', options: [], config: { multiple: true } },
+        { id: formula, name: 'Doubled', type: 'formula', options: [], config: { expression: '{Amount} * 2' } },
+        { id: total, name: 'Total', type: 'rollup', options: [], config: { rollup: { relationPropertyId: relation, targetPropertyId: formula, aggregation: 'sum' } } },
+      ],
+    })
+    sqlite.prepare('UPDATE project_property_configs SET config = ? WHERE board_id = ? AND property_id = ?')
+      .run(JSON.stringify({ targetBoardId: board.id, multiple: true }), board.id, relation)
+    const cardId = (index: number): string => `c${String(index).padStart(26, '0')}`
+    const insert = sqlite.prepare(`INSERT INTO project_cards (id, board_id, title, created_by, modified_by, create_at, update_at)
+      VALUES (?, ?, 'Card', 'alice', 'alice', ?, 1)`)
+    for (let index = 1; index <= 201; index += 1) insert.run(cardId(index), board.id, index)
+    sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)')
+      .run(cardId(201), amount, '10')
+    sqlite.prepare('INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?, ?, ?, 1)')
+      .run(cardId(1), relation, JSON.stringify([cardId(201)]))
+    sqlite.prepare('INSERT INTO project_card_relations (board_id, from_card_id, to_card_id, property_id, created_at) VALUES (?, ?, ?, ?, 1)')
+      .run(board.id, cardId(1), cardId(201), relation)
+    const read = await bundle('alice', board.id)
+    expect(read.cards).toHaveLength(200)
+    expect(read.cards.find((entry) => entry.id === cardId(1))!.values[total]).toBe('20')
+  })
+
   it('blanks the rollup for a reader who cannot see the target board', async () => {
     const { boardA, card } = await setup()
     expect((await bundle('alice', boardA.id)).cards.find((entry) => entry.id === card.id)!.values[total]).toBe('30')

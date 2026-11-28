@@ -23,6 +23,7 @@ export interface ChartProps {
   properties: ProjectProperty[]
   fields: ProjectViewFields
   canEdit: boolean
+  canPersonalize?: boolean
   onPatchFields: (fields: Partial<ProjectViewFields>) => void
 }
 
@@ -52,7 +53,7 @@ export function ChartView(props: ChartProps): ReactElement {
   const { cards, properties, fields } = props
   const people = useProjectPeople()
   const locale = useLocale()
-  const groupable = properties.filter((property) => PROJECT_PROPERTY_CAPABILITIES[property.type].canGroup)
+  const groupable = useMemo(() => properties.filter((property) => PROJECT_PROPERTY_CAPABILITIES[property.type].canGroup), [properties])
   const groupProperty = properties.find((property) => property.id === fields.chartGroupById)
     ?? groupable[0]
   const type: ProjectChartType = fields.chartType ?? 'bar'
@@ -77,8 +78,8 @@ export function ChartView(props: ChartProps): ReactElement {
   }, [cards, properties, groupProperty, measureProperty, calculation, people, locale])
 
   const total = series.reduce((sum, entry) => sum + entry.value, 0)
-  const labels = series.map((entry) => entry.label)
-  const values = series.map((entry) => entry.value)
+  const labels = useMemo(() => series.map((entry) => entry.label), [series])
+  const values = useMemo(() => series.map((entry) => entry.value), [series])
 
   const build = useCallback((colors: ChartColors) => {
     const palette = series.map((entry, index) => canvasColor(entry.color ?? colors.palette[index % colors.palette.length]!, colors.palette[index % colors.palette.length]!))
@@ -117,7 +118,7 @@ export function ChartView(props: ChartProps): ReactElement {
         <Seg
           value={type}
           label={t('project.view.chart_type')}
-          disabled={!props.canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(next) => props.onPatchFields({ chartType: next })}
           options={[
             { value: 'bar', label: t('project.view.chart_bar') },
@@ -132,7 +133,7 @@ export function ChartView(props: ChartProps): ReactElement {
           size="sm"
           value={groupProperty?.id ?? ''}
           label={t('project.view.group_by')}
-          disabled={!props.canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(value) => props.onPatchFields({ chartGroupById: value })}
           options={groupable.map((property) => ({ value: property.id, label: property.name }))}
         />
@@ -141,7 +142,7 @@ export function ChartView(props: ChartProps): ReactElement {
           size="sm"
           value={calculation}
           label={t('project.view.chart_measure')}
-          disabled={!props.canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(value) => props.onPatchFields({ chartCalculation: value as ProjectCalculation })}
           options={calcOptions.map((option) => ({ value: option, label: t(`project.calc.${option.toLowerCase()}` as Parameters<typeof t>[0]) }))}
         />
@@ -152,7 +153,7 @@ export function ChartView(props: ChartProps): ReactElement {
           size="sm"
           value={measureProperty?.id ?? ''}
           label={t('project.view.chart_property')}
-          disabled={!props.canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(value) => props.onPatchFields({ chartPropertyId: value, chartCalculation: 'count' })}
           options={properties.map((property) => ({ value: property.id, label: property.name }))}
         />

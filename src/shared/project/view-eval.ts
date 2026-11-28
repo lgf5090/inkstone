@@ -6,6 +6,7 @@
  */
 import type {
   ProjectCard,
+  ProjectDateValue,
   ProjectFilterClause,
   ProjectFilterGroup,
   ProjectPeople,
@@ -16,6 +17,11 @@ import { isProjectFilterGroup, projectPersonLabel, PROJECT_TITLE_PROPERTY_ID } f
 import { parseProjectDateValue, projectStampToDay } from './date'
 
 const HALF_DAY_MS = 12 * 60 * 60 * 1000
+
+function dateDayNumber(value: ProjectDateValue, stamp: number, fallbackZone?: string): number {
+  const day = projectStampToDay(stamp, value.includeTime === true, value.timeZone ?? fallbackZone)
+  return Math.round(Date.UTC(day.getFullYear(), day.getMonth(), day.getDate()) / 86_400_000)
+}
 
 /** The value a clause compares against, with the server-stamped fallbacks the reference uses. */
 export function projectCardDisplayValue(
@@ -67,6 +73,8 @@ export function projectFilterPrefill(filter: ProjectFilterGroup | undefined): Re
 
 /** Human-readable cell text shared by the table cells and the compact list rows. */
 export function projectPropertyDisplayText(card: ProjectCard, property: ProjectProperty, people?: ProjectPeople, locale?: string): string {
+  const error = card.valueErrors?.[property.id]
+  if (error) return `#${error}`
   const raw = card.values[property.id] ?? ''
   switch (property.type) {
     case 'select': return raw ? projectOptionLabel(property, raw) : ''
@@ -116,9 +124,14 @@ function matchClause(card: ProjectCard, clause: ProjectFilterClause, properties:
         const target = parseProjectDateValue(needles[0]!)
         if (!target || target.from === undefined) return false
         const f = target.from
-        if (stampType) return date.from !== undefined && date.from > f - HALF_DAY_MS && date.from < f + HALF_DAY_MS
-        if (date.from !== undefined && date.to !== undefined) return date.from <= f && date.to >= f
-        return date.from === f
+        if (property?.type === 'date') {
+          const zone = date.timeZone ?? target.timeZone
+          const targetDay = dateDayNumber(date, f, zone)
+          const fromDay = date.from === undefined ? targetDay : dateDayNumber(date, date.from, zone)
+          const toDay = date.to === undefined ? fromDay : dateDayNumber(date, date.to, zone)
+          return fromDay <= targetDay && toDay >= targetDay
+        }
+        return date.from !== undefined && date.from > f - HALF_DAY_MS && date.from < f + HALF_DAY_MS
       }
       return needles[0] === value.toLowerCase()
     }
@@ -133,7 +146,10 @@ function matchClause(card: ProjectCard, clause: ProjectFilterClause, properties:
       const date = parseProjectDateValue(value)
       const target = parseProjectDateValue(needles[0]!)
       if (!date || date.from === undefined || !target || target.from === undefined) return false
-      return stampType ? date.from < target.from - HALF_DAY_MS : date.from < target.from
+      if (stampType) return date.from < target.from - HALF_DAY_MS
+      if (property?.type !== 'date') return date.from < target.from
+      const zone = date.timeZone ?? target.timeZone
+      return dateDayNumber(date, date.from, zone) < dateDayNumber(date, target.from, zone)
     }
     case 'isAfter': {
       if (empty) return true
@@ -142,7 +158,10 @@ function matchClause(card: ProjectCard, clause: ProjectFilterClause, properties:
       if (!date || !target || target.from === undefined) return false
       if (stampType) return date.from !== undefined && date.from > target.from + HALF_DAY_MS
       const edge = date.to ?? date.from
-      return edge !== undefined && edge > target.from
+      if (edge === undefined) return false
+      if (property?.type !== 'date') return edge > target.from
+      const zone = date.timeZone ?? target.timeZone
+      return dateDayNumber(date, edge, zone) > dateDayNumber(date, target.from, zone)
     }
     case 'greaterThan': {
       if (empty) return true

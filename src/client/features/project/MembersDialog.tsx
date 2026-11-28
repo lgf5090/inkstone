@@ -37,6 +37,8 @@ export function MembersDialog({ boardId, minimumRole, boardType, canManageVisibi
   onBoardPatched: (patch: { type?: 'O' | 'P', minimumRole?: ProjectMinimumRole }) => Promise<void>
 }): ReactElement {
   const [members, setMembers] = useState<ProjectBoardMember[] | null>(null)
+  const [error, setError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const [people, setPeople] = useState<ProjectPeople>({})
   const [username, setUsername] = useState('')
   const [role, setRole] = useState<ProjectRole>('editor')
@@ -45,6 +47,9 @@ export function MembersDialog({ boardId, minimumRole, boardType, canManageVisibi
   const notificationLevel = useSession((state) => state.settings.project.notifications[boardId] ?? 'all')
 
   const load = useCallback(async (signal?: AbortSignal) => {
+    setMembers(null)
+    setPeople({})
+    setError(false)
     const result = await fetchBoardMembers(boardId, signal)
     setMembers(result.members)
     setPeople(result.people)
@@ -52,20 +57,24 @@ export function MembersDialog({ boardId, minimumRole, boardType, canManageVisibi
 
   useEffect(() => {
     const controller = new AbortController()
+    setError(false)
     void load(controller.signal).catch((reason: unknown) => {
       if (controller.signal.aborted) return
       toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
-      setMembers([])
+      setError(true)
     })
     return () => controller.abort()
-  }, [load, toast])
+  }, [load, toast, attempt])
 
   const guard = async (action: () => Promise<void>) => {
     setBusy(true)
+    let reloading = false
     try {
       await action()
+      reloading = true
       await load()
     } catch (reason) {
+      if (reloading) setError(true)
       toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     } finally {
       setBusy(false)
@@ -116,9 +125,16 @@ export function MembersDialog({ boardId, minimumRole, boardType, canManageVisibi
         </section>}
         <section aria-label={t('project.members.title')} className="space-y-2">
           <h3 className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
-            {t('project.members.count', { count: members?.length ?? 0, max: PROJECT_LIMITS.boardMembers })}
+            {error ? t('project.common.load_failed') : t('project.members.count', { count: members?.length ?? 0, max: PROJECT_LIMITS.boardMembers })}
           </h3>
-          {members === null
+          {error
+            ? (
+                <div role="alert" className="flex flex-col items-center gap-3 py-6 text-center">
+                  <p className="text-[length:var(--text-13)] text-[var(--danger)]">{t('project.common.load_failed')}</p>
+                  <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+                </div>
+              )
+            : members === null
             ? <LoadingBlock />
             : (
               <ul className="space-y-1">
@@ -167,7 +183,7 @@ export function MembersDialog({ boardId, minimumRole, boardType, canManageVisibi
         >
           <Input className="min-w-0 flex-1" value={username} aria-label={t('project.members.username')} placeholder={t('project.members.username')} onChange={(event) => setUsername(event.target.value)} />
           <SelectMenu className="w-32" value={role} label={t('project.members.role')} onChange={(value) => setRole(value as ProjectRole)} options={roleOptions()} />
-          <Button type="submit" size="sm" variant="primary" icon={<UserPlus size={14} />} disabled={busy || !username.trim() || full}>
+          <Button type="submit" size="sm" variant="primary" icon={<UserPlus size={14} />} disabled={busy || members === null || error || !username.trim() || full}>
             {t('project.members.add')}
           </Button>
         </form>

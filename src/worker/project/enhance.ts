@@ -4,7 +4,8 @@
  * a board can never deadlock itself. Both reuse tables created with the core schema.
  */
 import type { ProjectActivityEntry, ProjectBoard, ProjectCard, ProjectCardLink, ProjectCardLinkKind, ProjectProperty } from '@shared/project/model'
-import { CARD_DONE_PATTERN, isProjectCardDone, projectMultiValueIds } from '@shared/project/model'
+import { isProjectCardDone, projectDonePatch, projectMultiValueIds, projectRoleAtLeast } from '@shared/project/model'
+import { projectPropertyEditableBy } from '@shared/project/property-config'
 import { newProjectId } from '@shared/project/limits'
 import { ApiError } from '../lib/errors'
 import type { AppBindings } from '../env'
@@ -14,6 +15,8 @@ import { notifyProjectAssignment } from './notify'
 import { projectRelationTargets } from './relations'
 import { readBoardProperties } from './boards'
 import { runProjectAutomations } from './automations'
+import { projectRoleForBoard } from './visibility'
+import { listProjectActivityChanges } from './audit'
 
 export type { ProjectActivityEntry, ProjectCardLink }
 
@@ -41,10 +44,12 @@ export async function recordProjectActivity(
   targetId: string,
   summary: string,
   now: number,
-): Promise<void> {
+): Promise<string> {
+  const id = newProjectId('activity')
   await db.prepare(
     'INSERT INTO project_activity (board_id, id, actor_id, type, target_id, summary, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)',
-  ).bind(boardId, newProjectId('activity'), actorId, type, targetId, summary, now).run()
+  ).bind(boardId, id, actorId, type, targetId, summary, now).run()
+  return id
 }
 
 export async function listProjectActivity(db: D1Database, boardId: string, limit: number): Promise<ProjectActivityEntry[]> {
@@ -52,7 +57,12 @@ export async function listProjectActivity(db: D1Database, boardId: string, limit
     .prepare('SELECT id, actor_id, type, target_id, summary, created_at FROM project_activity WHERE board_id = ?1 ORDER BY created_at DESC LIMIT ?2')
     .bind(boardId, limit)
     .all<{ id: string, actor_id: string, type: string, target_id: string, summary: string, created_at: number }>()
-  return results.map((row) => ({ id: row.id, actorId: row.actor_id, type: row.type, targetId: row.target_id, summary: row.summary, createdAt: row.created_at }))
+  const entries = results.map((row) => ({ id: row.id, actorId: row.actor_id, type: row.type, targetId: row.target_id, summary: row.summary, createdAt: row.created_at }))
+  const changes = await listProjectActivityChanges(db, entries.map((entry) => entry.id))
+  return entries.map((entry) => {
+    const entryChanges = changes.get(entry.id)
+    return entryChanges?.length ? { ...entry, changes: entryChanges } : entry
+  })
 }
 
 export async function listCardLinks(db: D1Database, cardId: string): Promise<ProjectCardLink[]> {
@@ -120,25 +130,11 @@ export async function getCardTodoLink(db: D1Database, cardId: string): Promise<s
   return row?.todo_id ?? null
 }
 
-/** A card reads as done when a checkbox property is ticked or its status option names completion. */
-export function cardIsDone(card: ProjectCard, properties: readonly { id: string, type: string, options: { id: string, value: string }[] }[]): boolean {
-  for (const property of properties) {
-    const raw = card.values[property.id]
-    if (!raw) continue
-    if (property.type === 'checkbox' && raw === 'true') return true
-    if (property.type === 'select') {
-      const option = property.options.find((o) => o.id === raw)
-      if (option && CARD_DONE_PATTERN.test(option.value)) return true
-    }
-  }
-  return false
-}
-
 /** X-5 card→todo: mirror the card's completion onto its linked task. */
-export async function syncCardCompletionToTodo(db: D1Database, card: ProjectCard, properties: readonly { id: string, type: string, options: { id: string, value: string }[] }[], now: number): Promise<void> {
+export async function syncCardCompletionToTodo(db: D1Database, card: ProjectCard, properties: readonly ProjectProperty[], now: number): Promise<void> {
   const row = await db.prepare('SELECT todo_id, user_id FROM project_todo_links WHERE card_id = ?1').bind(card.id).first<{ todo_id: string, user_id: string }>()
   if (!row) return
-  const done = cardIsDone(card, properties)
+  const done = isProjectCardDone(card, properties)
   await db.prepare('UPDATE todos_tasks SET status = ?1, completed_at = ?2 WHERE id = ?3 AND user_id = ?4')
     .bind(done ? 'done' : 'todo', done ? now : null, row.todo_id, row.user_id).run()
 }
@@ -174,7 +170,8 @@ export async function applyCardValueEffects(
   userId: string,
   now: number,
   seen: Set<string> = new Set(),
-): Promise<void> {
+  runAutomations = true,
+): Promise<ProjectCard> {
   const wasDone = isProjectCardDone(before, properties)
   const nowDone = isProjectCardDone(after, properties)
   if (nowDone !== wasDone) {
@@ -194,7 +191,10 @@ export async function applyCardValueEffects(
       console.warn('[inkstone] project assignment notice failed:', error instanceof Error ? error.message : error)
     }
   }
-  await runProjectAutomations(db, env, board, before, after, properties, now, seen)
+  if (!runAutomations) return after
+  return runProjectAutomations(db, env, board, before, after, properties, now, seen, async (automationBefore, automationAfter) => {
+    await applyCardValueEffects(db, env, board, automationBefore, automationAfter, properties, userId, now, seen, false)
+  })
 }
 
 /** X-5 todo→card: mirror a task's completion onto the linked card's checkbox/status property. */
@@ -202,33 +202,21 @@ export async function syncTodoCompletionToCard(db: D1Database, todoId: string, d
   const row = await db.prepare('SELECT card_id, user_id FROM project_todo_links WHERE todo_id = ?1').bind(todoId).first<{ card_id: string, user_id: string }>()
   if (!row) return
   const card = await getProjectCard(db, row.card_id)
-  if (!card) return
-  const access = await db.prepare(
-    `SELECT 1 FROM project_boards b
-     WHERE b.id = ?1 AND b.delete_at = 0
-       AND (b.owner_id = ?2 OR b.minimum_role IN ('viewer','commenter','editor','admin')
-            OR EXISTS (SELECT 1 FROM project_board_members m WHERE m.board_id = b.id AND m.user_id = ?2))`,
-  ).bind(card.boardId, row.user_id).first()
-  if (!access) return
-  const { results } = await db.prepare('SELECT id, type, options FROM project_properties WHERE board_id = ?1').bind(card.boardId).all<{ id: string, type: string, options: string }>()
-  const checkbox = results.find((p) => p.type === 'checkbox')
-  if (checkbox) {
-    await db.prepare(
-      'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-    ).bind(card.id, checkbox.id, done ? 'true' : 'false', now).run()
-    await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(done ? now : null, card.id).run()
-    return
-  }
-  const select = results.find((p) => p.type === 'select')
-  if (select) {
-    const options = JSON.parse(select.options) as { id: string, value: string }[]
-    const doneOption = options.find((o) => CARD_DONE_PATTERN.test(o.value))
-    const target = done ? doneOption : options.find((o) => !CARD_DONE_PATTERN.test(o.value))
-    if (target) {
+  if (!card || card.deleteAt !== 0) return
+  const role = await projectRoleForBoard(db, card.boardId, row.user_id)
+  if (!role || !projectRoleAtLeast(role, 'editor')) return
+  const properties = await readBoardProperties(db, card.boardId)
+  const editableStatuses = properties.filter((property) => property.type === 'select' && projectPropertyEditableBy(property, role))
+  const patch = projectDonePatch(editableStatuses, done)
+  if (!patch) return
+  for (const [propertyId, value] of Object.entries(patch)) {
+    if (value === null) {
+      await db.prepare('DELETE FROM project_card_values WHERE card_id = ?1 AND property_id = ?2').bind(card.id, propertyId).run()
+    } else {
       await db.prepare(
         'INSERT INTO project_card_values (card_id, property_id, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(card_id, property_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-      ).bind(card.id, select.id, target.id, now).run()
+      ).bind(card.id, propertyId, value, now).run()
     }
-    await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(done ? now : null, card.id).run()
   }
+  await db.prepare('UPDATE project_cards SET completed_at = ?1 WHERE id = ?2').bind(done ? now : null, card.id).run()
 }

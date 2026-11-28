@@ -1,5 +1,5 @@
 import { act, createElement } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectBoardBundle } from '@shared/project/model'
 import { emptyProjectViewFields } from '@shared/project/model'
 import { ApiError } from '../../lib/api'
@@ -24,13 +24,14 @@ function bundle(): ProjectBoardBundle {
     cards: [{ id: 'c1', boardId: 'b1', parentId: '', title: 'Alpha', icon: '', isTemplate: false, contentOrder: [], values: { ps: 'o1' }, ...stamps }],
     contents: [],
     comments: [{ id: 'm1', cardId: 'c1', boardId: 'b1', authorId: 'u1', body: 'A public remark', createAt: 1, updateAt: 1, deleteAt: 0 }],
-    members: [], people: {}, role: 'viewer', cursor: 1,
+    members: [], people: {}, role: 'viewer', cursor: 1, propertyRevision: 1,
   }
 }
 
 const read = vi.mocked(api.readPublicProjectBoard)
 let view: RenderedElement
 
+beforeAll(async () => { await import('./views/TableView') })
 beforeEach(async () => { localStorage.clear(); vi.clearAllMocks(); await initI18n() })
 afterEach(() => { view?.unmount() })
 
@@ -97,6 +98,32 @@ describe('the public board page', () => {
     await mount()
     expect(view.container.textContent).toContain(t('project.share.page_throttled'))
     expect(view.container.textContent).not.toContain(t('project.share.page_gone_title'))
+  })
+
+  it('ignores an older slug response after the share changes', async () => {
+    let resolveOld!: (value: ProjectBoardBundle) => void
+    const oldRead = new Promise<ProjectBoardBundle>((resolve) => { resolveOld = resolve })
+    read.mockReturnValueOnce(oldRead)
+    const second = bundle()
+    second.board.title = 'Second share'
+    read.mockResolvedValueOnce(second)
+    await mount()
+    await act(async () => { view.rerender(createElement(ProjectSharePage, { slug: 'slug2' })) })
+    expect(view.container.textContent).toContain('Second share')
+    await act(async () => { const first = bundle(); first.board.title = 'Old share'; resolveOld(first); await oldRead })
+    expect(view.container.textContent).toContain('Second share')
+    expect(view.container.textContent).not.toContain('Old share')
+  })
+
+  it('distinguishes a network failure from a missing share and retries it', async () => {
+    read.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(bundle())
+    await mount()
+    expect(view.container.textContent).toContain(t('project.common.load_failed'))
+    expect(view.container.textContent).not.toContain(t('project.share.page_gone_title'))
+    const retry = [...view.container.querySelectorAll('button')].find((button) => button.textContent === t('project.common.retry'))!
+    await act(async () => { retry.click() })
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(view.container.textContent).toContain('Public roadmap')
   })
 
   it('says the board is unavailable when the link is revoked', async () => {

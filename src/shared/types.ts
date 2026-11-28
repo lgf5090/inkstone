@@ -2,6 +2,7 @@
 
 
 import type { CoverPosition, CoverShape } from './property-decorations'
+import type { ProjectViewFields } from './project/model'
 import type { RemindOffset, TodoTask } from './todos/model'
 
 export type UserRole = 'owner' | 'member'
@@ -648,6 +649,8 @@ export interface ProjectSettings {
   pinnedBoards: string[]
   starredBoards: string[]
   notifications: Record<string, 'all' | 'mentions' | 'off'>
+  personalViews: Record<string, Partial<ProjectViewFields>>
+  capacityMinutesPerWeek: number
 }
 
 /**
@@ -1305,8 +1308,19 @@ export interface TodosSyncResponse {
   serverTime: number
 }
 
+export type ProjectRealtimeEntity = 'board' | 'card' | 'comment' | 'content' | 'view'
+
 export type RealtimeMessage =
   | { type: 'changed'; cursor: number; origin: string | null }
+  | {
+      type: 'project-changed'
+      cursor: number
+      origin: string | null
+      boardId: string
+      entity: ProjectRealtimeEntity
+      cardId?: string
+      commentId?: string
+    }
   | { type: 'ping' }
   | { type: 'pong'; serverTime: number }
 

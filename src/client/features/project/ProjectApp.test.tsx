@@ -1,7 +1,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectBoardSummary } from '@shared/project/model'
-import { initI18n, t } from '../../lib/i18n'
+import { getLocale, initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import * as api from './api'
 import { useProjectStore } from './store'
@@ -21,7 +21,10 @@ vi.mock('./api', () => ({
   projectBoardExportUrl: vi.fn((id: string, format: string) => `/export/${id}.${format}`),
   saveBoardAsTemplate: vi.fn(),
   createBoardFromTemplate: vi.fn(),
-  fetchProjectCategories: vi.fn().mockResolvedValue({ categories: [], categoryBoards: [] }),
+  fetchProjectCategories: vi.fn().mockResolvedValue({
+    categories: [{ id: 'cat1', userId: 'alice', name: 'Work', type: 'custom', collapsed: false, sortOrder: 0, createAt: 1, updateAt: 1, deleteAt: 0 }],
+    categoryBoards: [{ categoryId: 'cat1', boardId: 'b'.repeat(27), hidden: false, position: 0 }],
+  }),
 }))
 
 const board: ProjectBoardSummary = {
@@ -116,7 +119,7 @@ describe('the board list card view', () => {
   afterEach(() => { localStorage.clear() })
 
   async function mountList(): Promise<void> {
-    useProjectStore.setState({ boards: [{ ...board, description: 'what this board is for', cardCount: 7 }], boardsStatus: 'ready', boardsError: null })
+    useProjectStore.setState({ boards: [{ ...board, description: 'what this board is for', cardCount: 7, categoryName: 'Work' }], boardsStatus: 'ready', boardsError: null })
     await act(async () => { view = renderElement(createElement(ProjectApp)) })
   }
 
@@ -124,6 +127,12 @@ describe('the board list card view', () => {
     await mountList()
     expect(view.container.querySelector('[data-board-cards]')).toBeNull()
     expect(view.container.querySelector('li[data-project-board]')).not.toBeNull()
+    const row = view.container.querySelector('li[data-project-board]')!
+    const updated = new Date(board.updateAt).toLocaleDateString(getLocale())
+    expect(row.textContent).toContain(t('project.board.cards_count', { count: 7 }))
+    expect(row.textContent).toContain(updated)
+    expect(row.textContent).toContain('Work')
+    expect(row.querySelector(`[aria-label="${t('project.boards.updated', { date: updated })}"]`)).not.toBeNull()
     const cards = [...view.container.querySelectorAll<HTMLButtonElement>('.pv-seg-btn')].find((button) => button.textContent === t('project.boards.layout_cards'))!
     await act(async () => { cards.click() })
     const tile = view.container.querySelector('[data-board-cards] [data-project-board]')!
@@ -131,6 +140,7 @@ describe('the board list card view', () => {
     expect(tile.textContent).toContain('A board')
     expect(tile.textContent).toContain('what this board is for')
     expect(tile.textContent).toContain(t('project.board.cards_count', { count: 7 }))
+    expect(tile.textContent).toContain('Work')
     expect(view.container.querySelector('li[data-project-board]')).toBeNull()
   })
 

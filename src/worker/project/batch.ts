@@ -13,58 +13,67 @@ import { ApiError } from '../lib/errors'
 import type { AppBindings } from '../env'
 import { readBoardProperties } from './boards'
 import { rowToCard, rowToContent, rowToView, type CardRow, type ContentRow, type ValueRow, type ViewRow } from './bundle'
-import { assertProjectParent, cardPatchStatements, getProjectCard } from './cards'
-import { cardOrderStatement, contentPatchStatements, getProjectContent, readCardOrder } from './contents'
+import { assertProjectParent, cardPatchStatements, getProjectCard, getProjectCardRow } from './cards'
+import { assertProjectContentFields, cardOrderStatement, contentPatchStatements, getProjectContent } from './contents'
 import { applyCardValueEffects } from './enhance'
 import { assertProjectRelationValues, projectRelationTargets } from './relations'
 import { getProjectView, viewPatchStatements } from './views'
+import { assertProjectBatchStatementLimit, projectIdChunks, projectPlaceholders } from './d1'
+import { assertProjectValuesWritable } from './property-access'
+import { projectParentMapHasCycle } from '@shared/project/hierarchy'
 
 type ProjectBatchInput = z.infer<typeof ProjectBatchSchema>
 type ProjectBatchDeleteInput = z.infer<typeof ProjectBatchDeleteSchema>
 
-// D1's per-batch statement ceiling; a batch that would exceed it is rejected rather than split, since
-// splitting would surrender the atomicity this endpoint exists to provide.
-const BATCH_STATEMENT_LIMIT = 1000
-
-async function commit(db: D1Database, statements: D1PreparedStatement[]): Promise<void> {
-  if (statements.length > BATCH_STATEMENT_LIMIT) throw ApiError.tooLarge('batch has too many operations')
-  if (statements.length) await db.batch(statements)
-}
-
-function placeholders(ids: readonly string[]): string {
-  return ids.map((_, index) => `?${index + 1}`).join(', ')
+async function commit(db: D1Database, statements: D1PreparedStatement[]): Promise<D1Result[]> {
+  assertProjectBatchStatementLimit(statements.length)
+  if (statements.length) return db.batch(statements)
+  return []
 }
 
 async function readCardsByIds(db: D1Database, ids: readonly string[]): Promise<Map<string, ProjectCard>> {
   const map = new Map<string, ProjectCard>()
-  if (!ids.length) return map
-  const marks = placeholders(ids)
-  const { results: rows } = await db.prepare(`SELECT * FROM project_cards WHERE id IN (${marks})`).bind(...ids).all<CardRow>()
-  const { results: valueRows } = await db.prepare(`SELECT card_id, property_id, value FROM project_card_values WHERE card_id IN (${marks})`).bind(...ids).all<ValueRow>()
   const valuesByCard = new Map<string, Record<string, string>>()
-  for (const row of valueRows) {
-    let values = valuesByCard.get(row.card_id)
-    if (!values) { values = {}; valuesByCard.set(row.card_id, values) }
-    values[row.property_id] = row.value
+  for (const chunk of projectIdChunks(ids)) {
+    const marks = projectPlaceholders(chunk.length)
+    const [{ results: rows }, { results: valueRows }] = await Promise.all([
+      db.prepare(`SELECT * FROM project_cards WHERE id IN (${marks})`).bind(...chunk).all<CardRow>(),
+      db.prepare(`SELECT card_id, property_id, value FROM project_card_values WHERE card_id IN (${marks})`).bind(...chunk).all<ValueRow>(),
+    ])
+    for (const row of valueRows) {
+      let values = valuesByCard.get(row.card_id)
+      if (!values) { values = {}; valuesByCard.set(row.card_id, values) }
+      values[row.property_id] = row.value
+    }
+    for (const row of rows) map.set(row.id, rowToCard(row, valuesByCard.get(row.id) ?? {}))
   }
-  for (const row of rows) map.set(row.id, rowToCard(row, valuesByCard.get(row.id) ?? {}))
   return map
 }
 
 async function readContentsByIds(db: D1Database, ids: readonly string[]): Promise<Map<string, ProjectContent>> {
   const map = new Map<string, ProjectContent>()
-  if (!ids.length) return map
-  const { results } = await db.prepare(`SELECT * FROM project_card_contents WHERE id IN (${placeholders(ids)})`).bind(...ids).all<ContentRow>()
-  for (const row of results) map.set(row.id, rowToContent(row))
+  for (const chunk of projectIdChunks(ids)) {
+    const { results } = await db.prepare(`SELECT * FROM project_card_contents WHERE id IN (${projectPlaceholders(chunk.length)})`).bind(...chunk).all<ContentRow>()
+    for (const row of results) map.set(row.id, rowToContent(row))
+  }
   return map
 }
 
 async function readViewsByIds(db: D1Database, ids: readonly string[]): Promise<Map<string, ProjectView>> {
   const map = new Map<string, ProjectView>()
-  if (!ids.length) return map
-  const { results } = await db.prepare(`SELECT * FROM project_views WHERE id IN (${placeholders(ids)})`).bind(...ids).all<ViewRow>()
-  for (const row of results) map.set(row.id, rowToView(row))
+  for (const chunk of projectIdChunks(ids)) {
+    const { results } = await db.prepare(`SELECT * FROM project_views WHERE id IN (${projectPlaceholders(chunk.length)})`).bind(...chunk).all<ViewRow>()
+    for (const row of results) map.set(row.id, rowToView(row))
+  }
   return map
+}
+
+export function projectBatchStatementCount(input: ProjectBatchInput): number {
+  const cards = input.cards ?? []
+  const contents = input.contents ?? []
+  const views = input.views ?? []
+  return cards.reduce((total, { patch }) => total + 1 + Object.keys(patch.values ?? {}).length, 0)
+    + contents.length + views.length
 }
 
 export async function batchPatchProjectBoard(
@@ -79,29 +88,43 @@ export async function batchPatchProjectBoard(
   const cards = input.cards ?? []
   const contents = input.contents ?? []
   const views = input.views ?? []
-  const statementCount = cards.reduce((total, { patch }) => total + 1 + Object.keys(patch.values ?? {}).length, 0)
-    + contents.length + views.length
-  if (statementCount > BATCH_STATEMENT_LIMIT) throw ApiError.tooLarge('batch has too many operations')
+  assertProjectBatchStatementLimit(projectBatchStatementCount(input))
   const properties = await readBoardProperties(db, board.id)
   const relationTargets = projectRelationTargets(properties)
   for (const { patch } of cards) {
+    await assertProjectValuesWritable(db, board.id, role, patch.values)
     await assertProjectRelationValues(db, properties, patch.values, userId)
   }
   const cardsById = await readCardsByIds(db, cards.map((entry) => entry.id))
   const contentsById = await readContentsByIds(db, contents.map((entry) => entry.id))
   const viewsById = await readViewsByIds(db, views.map((entry) => entry.id))
+  const { results: parentRows } = await db.prepare(
+    'SELECT id, parent_id FROM project_cards WHERE board_id = ?1 AND delete_at = 0',
+  ).bind(board.id).all<{ id: string, parent_id: string }>()
+  const parents = new Map(parentRows.map((row) => [row.id, row.parent_id]))
+  for (const { id, patch } of cards) {
+    const card = cardsById.get(id)
+    if (!card || card.boardId !== board.id || card.deleteAt !== 0) throw ApiError.notFound('Card not found')
+    if (patch.parentId !== undefined) {
+      await assertProjectParent(db, card, patch.parentId)
+      parents.set(id, patch.parentId)
+    }
+  }
+  if (projectParentMapHasCycle([...parents].map(([id, parentId]) => ({ id, parentId })))) {
+    throw ApiError.badRequest('Cyclic parent relationship is not allowed')
+  }
   const statements: D1PreparedStatement[] = []
   const valueCards: ProjectCard[] = []
   for (const { id, patch } of cards) {
     const card = cardsById.get(id)
     if (!card || card.boardId !== board.id || card.deleteAt !== 0) throw ApiError.notFound('Card not found')
-    if (patch.parentId) await assertProjectParent(db, card, patch.parentId)
     if (patch.values !== undefined) valueCards.push(card)
     statements.push(...cardPatchStatements(db, card, patch, userId, now, relationTargets))
   }
   for (const { id, patch } of contents) {
     const content = contentsById.get(id)
     if (!content || content.boardId !== board.id || content.deleteAt !== 0) throw ApiError.notFound('Content not found')
+    await assertProjectContentFields(db, content, patch.fields)
     statements.push(...contentPatchStatements(db, content, patch, userId, now))
   }
   for (const { id, patch } of views) {
@@ -135,7 +158,6 @@ export async function batchDeleteProjectBoard(
     if (!card || card.boardId !== board.id || card.deleteAt !== 0) throw ApiError.notFound('Card not found')
     statements.push(db.prepare('UPDATE project_cards SET delete_at = ?1, modified_by = ?2, update_at = ?1 WHERE id = ?3')
       .bind(now, userId, cardId))
-    statements.push(db.prepare('DELETE FROM project_card_relations WHERE from_card_id = ?1 OR to_card_id = ?1').bind(cardId))
   }
   for (const viewId of input.viewIds) {
     const view = await getProjectView(db, viewId)
@@ -144,16 +166,30 @@ export async function batchDeleteProjectBoard(
     statements.push(db.prepare('UPDATE project_views SET delete_at = ?1, modified_by = ?2, update_at = ?1 WHERE id = ?3')
       .bind(now, userId, viewId))
   }
-  // Contents of one card share a reading order, so scrub them together rather than re-reading per block.
-  const orders = new Map<string, ProjectContentOrder>()
+  const contentIdsByCard = new Map<string, string[]>()
   for (const contentId of input.contentIds) {
     const content = await getProjectContent(db, contentId)
     if (!content || content.boardId !== board.id || content.deleteAt !== 0) throw ApiError.notFound('Content not found')
     statements.push(db.prepare('UPDATE project_card_contents SET delete_at = ?1, modified_by = ?2, update_at = ?1 WHERE id = ?3')
       .bind(now, userId, contentId))
-    const current = orders.get(content.cardId) ?? await readCardOrder(db, content.cardId)
-    orders.set(content.cardId, removeContentOrder(current, contentId))
+    const ids = contentIdsByCard.get(content.cardId) ?? []
+    ids.push(contentId)
+    contentIdsByCard.set(content.cardId, ids)
   }
-  for (const [cardId, order] of orders) statements.push(cardOrderStatement(db, cardId, order, userId, now))
-  await commit(db, statements)
+  const baseStatementCount = statements.length
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const orderResultIndexes: number[] = []
+    for (const [cardId, contentIds] of contentIdsByCard) {
+      const row = await getProjectCardRow(db, cardId)
+      if (!row) throw ApiError.notFound('Card not found')
+      let order = JSON.parse(row.content_order) as ProjectContentOrder
+      for (const contentId of contentIds) order = removeContentOrder(order, contentId)
+      orderResultIndexes.push(statements.length)
+      statements.push(cardOrderStatement(db, cardId, order, userId, now, row.content_order_revision))
+    }
+    const results = await commit(db, statements)
+    if (orderResultIndexes.every((index) => (results[index]?.meta.changes ?? 0) > 0)) return
+    statements.splice(baseStatementCount)
+  }
+  throw ApiError.conflict('Card content order changed concurrently; retry the edit')
 }

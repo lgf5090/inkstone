@@ -9,12 +9,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { CalendarRange, Maximize2, Plus, Settings2, Trash2, ZoomIn, ZoomOut } from 'lucide-react'
 import type { ProjectCard, ProjectCardLink, ProjectProperty, ProjectScheduleScale, ProjectViewFields } from '@shared/project/model'
-import { isProjectCardDone, projectViewPropertyId } from '@shared/project/model'
+import { isProjectCardDone, PROJECT_PROPERTY_CAPABILITIES, projectViewPropertyId } from '@shared/project/model'
 import { projectCardColorResolver, projectOptionCssColor } from '@shared/project/option-color'
-import { projectDateValue, projectTimeZoneName } from '@shared/project/date'
+import { parseProjectDateValue, projectDateValue, projectTimeZoneName } from '@shared/project/date'
 import {
   PROJECT_TIMELINE_COLUMN_PX,
-  PROJECT_TIMELINE_DAY_MS,
   projectCardDays,
   projectCardProgress,
   projectScheduleConflicts,
@@ -32,9 +31,12 @@ import { SelectMenu } from '../../../components/select-menu'
 import { prompt } from '../../../components/overlay'
 import { isImeComposing, isEnterKey } from '../../../lib/ime'
 import { createProjectCard } from '../api'
+import { useProjectPeople } from '../people-context'
+import { useToday } from '../use-today'
 import { Legend, Seg, ViewHead, ViewShell, ViewToolbar } from './shell'
 import { ScheduleFrame } from './schedule-frame'
 import { DependencyEdges, RowToggle, ScheduleBar, UnscheduledTray, type BarGeometry } from './schedule-parts'
+import { usePointerSession } from '../../../lib/hooks'
 
 const GANTT_ROW_H = 40
 const GANTT_BAR_H = 24
@@ -48,6 +50,7 @@ export interface GanttProps {
   fields: ProjectViewFields
   subtasksByParent: Map<string, ProjectCard[]>
   canEdit: boolean
+  canPersonalize?: boolean
   onOpenCard: (id: string) => void
   onPatchCard: (id: string, patch: Record<string, unknown>) => Promise<void>
   onPatchFields: (fields: Partial<ProjectViewFields>) => void
@@ -63,11 +66,15 @@ interface DragState {
 export function GanttView(props: GanttProps): ReactElement {
   const { cards, properties, links, fields, subtasksByParent, canEdit } = props
   const locale = useLocale()
+  const people = useProjectPeople()
   const propertyId = projectViewPropertyId(fields.dateDisplayPropertyId) ?? properties.find((property) => property.type === 'date')?.id
   const statusProperty = properties.find((property) => property.type === 'select')
   const scale = fields.scheduleScale ?? 'day'
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [drag, setDrag] = useState<DragState | null>(null)
+  const startPointerSession = usePointerSession()
+  const pendingKeyboardRanges = useRef(new Map<string, { from: number, to: number }>())
+  const keyboardWriteQueue = useRef<Promise<void>>(Promise.resolve())
   const [draft, setDraft] = useState<{ row: number, from: number, to: number } | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<{ id: string, value: string } | null>(null)
@@ -75,7 +82,7 @@ export function GanttView(props: GanttProps): ReactElement {
   const [showTray, setShowTray] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
   const viewport = useRef<HTMLDivElement | null>(null)
-  const today = useMemo(() => Date.now(), [])
+  const today = useToday()
   const colorOf = useMemo(() => projectCardColorResolver(properties), [properties])
   const isDone = useCallback((card: ProjectCard) => isProjectCardDone(card, properties), [properties])
   const planning = canEdit && Boolean(propertyId)
@@ -94,8 +101,10 @@ export function GanttView(props: GanttProps): ReactElement {
       properties,
       collapsed,
       colorOf,
+      people,
+      locale,
     }),
-    [dated, fields.scheduleGroupById, statusProperty?.id, properties, collapsed, colorOf],
+    [dated, fields.scheduleGroupById, statusProperty?.id, properties, collapsed, colorOf, people, locale],
   )
   const daysByCard = useMemo(() => new Map(dated.map((entry) => [entry.card.id, entry.days])), [dated])
   const conflicts = useMemo(() => projectScheduleConflicts(links, daysByCard), [links, daysByCard])
@@ -115,25 +124,56 @@ export function GanttView(props: GanttProps): ReactElement {
   const showWeekends = fields.scheduleShowWeekends !== false
   const showToday = fields.scheduleShowToday !== false
   const todayIndex = days.findIndex((day) => day.today)
-  const groupable = properties.filter((property) => property.type === 'select' || property.type === 'person')
+  const groupable = properties.filter((property) => PROJECT_PROPERTY_CAPABILITIES[property.type].canGroup)
   const effortProperty = properties.find((property) => property.type === 'number')
   const laneEffort = (laneKey: string): number => (effortProperty
     ? dated.filter((entry) => (entry.card.values[fields.scheduleGroupById ?? statusProperty?.id ?? ''] ?? '') === laneKey)
       .reduce((sum, entry) => sum + (Number(entry.card.values[effortProperty.id]) || 0), 0)
     : 0)
 
-  const writeRange = (cardId: string, from: number, to: number): void => {
-    if (!propertyId) return
-    const value = projectDateValue(new Date(from), { to: to === from ? undefined : new Date(to), timeZone: projectTimeZoneName() })
-    void props.onPatchCard(cardId, { values: { [propertyId]: JSON.stringify(value) } })
+  const writeRange = (cardId: string, from: number, to: number): Promise<void> => {
+    if (!propertyId) return Promise.resolve()
+    const card = props.cards.find((entry) => entry.id === cardId)
+    const current = card ? parseProjectDateValue(card.values[propertyId] ?? '') : null
+    const fromDate = new Date(from)
+    const toDate = to === from ? undefined : new Date(to)
+    if (current?.includeTime === true) {
+      if (current.from !== undefined) {
+        const previous = new Date(current.from)
+        fromDate.setHours(previous.getHours(), previous.getMinutes(), previous.getSeconds(), previous.getMilliseconds())
+      }
+      if (toDate && current.to !== undefined) {
+        const previous = new Date(current.to)
+        toDate.setHours(previous.getHours(), previous.getMinutes(), previous.getSeconds(), previous.getMilliseconds())
+      }
+    }
+    const value = projectDateValue(fromDate, {
+      to: toDate,
+      includeTime: current?.includeTime === true,
+      timeZone: current?.timeZone ?? projectTimeZoneName(),
+    })
+    return props.onPatchCard(cardId, { values: { [propertyId]: JSON.stringify(value) } })
+  }
+
+  const queueKeyboardRange = (cardId: string, from: number, to: number): void => {
+    pendingKeyboardRanges.current.set(cardId, { from, to })
+    const writeNext = async (): Promise<void> => {
+      const next = pendingKeyboardRanges.current.get(cardId)
+      if (!next) return
+      pendingKeyboardRanges.current.delete(cardId)
+      await writeRange(cardId, next.from, next.to)
+      await props.onRefresh()
+    }
+    keyboardWriteQueue.current = keyboardWriteQueue.current.then(writeNext, writeNext)
   }
 
   const shiftRange = (cardId: string, mode: 'start' | 'end', delta: number): void => {
     const range = daysByCard.get(cardId)
     if (!range) return
-    const shift = delta * PROJECT_TIMELINE_DAY_MS
-    const from = mode === 'start' ? Math.min(range.end, range.start + shift) : range.start
-    const to = mode === 'end' ? Math.max(from, range.end + shift) : range.end
+    const shiftedStart = projectTimelineDragRange({ from: range.start, to: range.start }, delta).from
+    const shiftedEnd = projectTimelineDragRange({ from: range.end, to: range.end }, delta).from
+    const from = mode === 'start' ? Math.min(range.end, shiftedStart) : range.start
+    const to = mode === 'end' ? Math.max(from, shiftedEnd) : range.end
     writeRange(cardId, from, to)
   }
 
@@ -147,27 +187,26 @@ export function GanttView(props: GanttProps): ReactElement {
     let columns = 0
     let moved = false
     setSelected(card.id)
-    const move = (moveEvent: PointerEvent): void => {
-      const delta = Math.round((moveEvent.clientX - startX) / columnPx)
-      if (delta === columns && moved) return
-      moved = true
-      columns = delta
-      setDrag({ id: card.id, mode, columns })
-    }
-    const up = (): void => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      setDrag(null)
-      if (!moved || columns === 0) return
-      if (mode === 'move') {
-        const next = projectTimelineDragRange({ from: range.start, to: range.end }, columns)
-        writeRange(card.id, next.from, next.to)
-        return
-      }
-      shiftRange(card.id, mode, columns)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+    startPointerSession(event, {
+      onMove: (moveEvent) => {
+        const delta = Math.round((moveEvent.clientX - startX) / columnPx)
+        if (delta === columns && moved) return
+        moved = true
+        columns = delta
+        setDrag({ id: card.id, mode, columns })
+      },
+      onCommit: () => {
+        setDrag(null)
+        if (!moved || columns === 0) return
+        if (mode === 'move') {
+          const next = projectTimelineDragRange({ from: range.start, to: range.end }, columns)
+          writeRange(card.id, next.from, next.to)
+          return
+        }
+        shiftRange(card.id, mode, columns)
+      },
+      onCancel: () => setDrag(null),
+    })
   }
 
   /** Dragging an empty stretch of a lane draws a ghost, then files a new card on those dates. */
@@ -183,20 +222,19 @@ export function GanttView(props: GanttProps): ReactElement {
     const from = columnAt(event.clientX)
     setDraft({ row: context.row, from, to: from })
     let latest = from
-    const move = (moveEvent: PointerEvent): void => {
-      latest = columnAt(moveEvent.clientX)
-      setDraft({ row: context.row, from, to: latest })
-    }
-    const up = (): void => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      setDraft(null)
-      const a = Math.min(from, latest)
-      const b = Math.max(from, latest)
-      void createOnSpan(row.laneKey, a, b)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+    startPointerSession(event, {
+      onMove: (moveEvent) => {
+        latest = columnAt(moveEvent.clientX)
+        setDraft({ row: context.row, from, to: latest })
+      },
+      onCommit: () => {
+        setDraft(null)
+        const a = Math.min(from, latest)
+        const b = Math.max(from, latest)
+        void createOnSpan(row.laneKey, a, b)
+      },
+      onCancel: () => setDraft(null),
+    })
   }
 
   const createOnSpan = async (laneKey: string, fromColumn: number, toColumn: number): Promise<void> => {
@@ -265,6 +303,7 @@ export function GanttView(props: GanttProps): ReactElement {
     const onKey = (event: KeyboardEvent): void => {
       const target = event.target as HTMLElement
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable) return
+      if (target instanceof HTMLElement && target.closest('[role="dialog"], dialog, [aria-modal="true"]')) return
       if (event.key === 'Escape') { setPalette(null); setSelected(null); setDraft(null); return }
       if ((event.key === 'Delete' || event.key === 'Backspace') && selected && planning) {
         event.preventDefault()
@@ -323,7 +362,7 @@ export function GanttView(props: GanttProps): ReactElement {
         <Seg
           value={scale}
           label={t('project.view.scale')}
-          disabled={!canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(next) => props.onPatchFields({ scheduleScale: next })}
           options={SCALES.map((entry) => ({ value: entry, label: t(`project.view.scale_${entry}` as Parameters<typeof t>[0]) }))}
         />
@@ -337,7 +376,7 @@ export function GanttView(props: GanttProps): ReactElement {
           size="sm"
           value={fields.scheduleGroupById ?? statusProperty?.id ?? ''}
           label={t('project.view.group_lanes')}
-          disabled={!canEdit}
+          disabled={!(props.canPersonalize ?? props.canEdit)}
           onChange={(value) => props.onPatchFields({ scheduleGroupById: value })}
           options={[{ value: '', label: t('project.view.no_value') }, ...groupable.map((property) => ({ value: property.id, label: property.name }))]}
         />
@@ -450,6 +489,21 @@ export function GanttView(props: GanttProps): ReactElement {
                 tip={`${card.title || t('project.board.untitled_card')}\n${shortDay(range.start)} → ${shortDay(range.end)}`}
                   onOpen={() => { if (!drag) props.onOpenCard(card.id) }}
                   onPointerDown={(event) => startBarDrag(event, card, 'move')}
+                  onKeyDown={(event) => {
+                    if (!planning || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+                    event.preventDefault()
+                    const delta = event.key === 'ArrowLeft' ? -1 : 1
+                    const base = pendingKeyboardRanges.current.get(card.id) ?? { from: range.start, to: range.end }
+                    if (event.shiftKey) {
+                      const shiftedStart = projectTimelineDragRange({ from: base.from, to: base.from }, delta).from
+                      const shiftedEnd = projectTimelineDragRange({ from: base.to, to: base.to }, delta).from
+                      const from = Math.min(base.to, shiftedStart)
+                      queueKeyboardRange(card.id, from, Math.max(from, shiftedEnd))
+                    } else {
+                      const next = projectTimelineDragRange({ from: base.from, to: base.to }, delta)
+                      queueKeyboardRange(card.id, next.from, next.to)
+                    }
+                  }}
                   onDoubleClick={() => { if (planning) setRenaming({ id: card.id, value: card.title }) }}
                   onContextMenu={(event) => {
                     if (!planning) return

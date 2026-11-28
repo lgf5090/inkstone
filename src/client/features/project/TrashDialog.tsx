@@ -24,32 +24,43 @@ export function TrashDialog({ boardId, onClose, onRestored }: {
   const locale = useLocale()
   const [boards, setBoards] = useState<ProjectBoardSummary[] | null>(null)
   const [cards, setCards] = useState<DeletedProjectCard[] | null>(null)
+  const [error, setError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const toast = useUi((state) => state.toast)
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    if (boardId) setCards(await fetchBoardTrash(boardId, signal))
-    else setBoards(await fetchProjectTrash(signal))
+    setError(false)
+    if (boardId) {
+      setCards(null)
+      setCards(await fetchBoardTrash(boardId, signal))
+    } else {
+      setBoards(null)
+      setBoards(await fetchProjectTrash(signal))
+    }
   }, [boardId])
 
   useEffect(() => {
     const controller = new AbortController()
+    setError(false)
     void load(controller.signal).catch((reason: unknown) => {
       if (controller.signal.aborted) return
       toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
-      if (boardId) setCards([])
-      else setBoards([])
+      setError(true)
     })
     return () => controller.abort()
-  }, [load, boardId, toast])
+  }, [load, boardId, toast, attempt])
 
   const restore = async (action: () => Promise<void>) => {
     setBusy(true)
+    let reloading = false
     try {
       await action()
+      reloading = true
       await load()
       onRestored()
     } catch (reason) {
+      if (reloading) setError(true)
       toast({ title: reason instanceof Error ? reason.message : String(reason), tone: 'danger' })
     } finally {
       setBusy(false)
@@ -62,7 +73,14 @@ export function TrashDialog({ boardId, onClose, onRestored }: {
   return (
     <Modal open onClose={onClose} title={t('project.trash.title')} width={480}>
       <div className="space-y-2" data-project-trash={boardId ?? 'boards'}>
-        {loading
+        {error
+          ? (
+              <div role="alert" className="flex flex-col items-center gap-3 py-6 text-center">
+                <p className="text-[length:var(--text-13)] text-[var(--danger)]">{t('project.common.load_failed')}</p>
+                <Button size="sm" onClick={() => setAttempt((current) => current + 1)}>{t('project.common.retry')}</Button>
+              </div>
+            )
+          : loading
           ? <LoadingBlock />
           : empty
             ? <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('project.trash.empty')}</p>
