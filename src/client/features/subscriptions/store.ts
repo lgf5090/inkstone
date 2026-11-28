@@ -719,7 +719,7 @@ export const useSubscriptions = create<SubscriptionsState>()((set, get) => ({
     try {
       const [notify, schedule] = await Promise.all([
         api.subscriptions.notifyLogs(filter),
-        api.subscriptions.scheduleLogs(20),
+        api.subscriptions.scheduleLogs(filter.limit ?? 100),
       ])
       if (generation === logsGeneration) set({ logs: { notify: notify.logs, schedule: schedule.logs, loading: false, error: null } })
     } catch (error) {

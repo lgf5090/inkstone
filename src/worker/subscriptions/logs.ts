@@ -84,14 +84,21 @@ export async function queryNotifyLogs(
     binds.push(filter.status)
   }
   if (filter.since) {
-    where.push(`l.created_at >= ?${binds.length + 1}`)
-    binds.push(Date.parse(filter.since))
+    const since = Date.parse(filter.since)
+    if (Number.isFinite(since)) {
+      where.push(`l.created_at >= ?${binds.length + 1}`)
+      binds.push(since)
+    }
   }
   if (filter.until) {
-    where.push(`l.created_at <= ?${binds.length + 1}`)
-    binds.push(Date.parse(filter.until))
+    const until = Date.parse(filter.until)
+    if (Number.isFinite(until)) {
+      where.push(`l.created_at <= ?${binds.length + 1}`)
+      binds.push(until)
+    }
   }
-  const limit = Math.min(200, Math.max(1, Math.trunc(filter.limit ?? 100)))
+  const requested = Number(filter.limit ?? 100)
+  const limit = Number.isFinite(requested) ? Math.min(500, Math.max(1, Math.trunc(requested))) : 100
   const { results } = await db.prepare(
     `SELECT l.id, l.subscription_id, l.rule_id, l.channel, l.status, l.title, l.body, l.error,
             l.detail, l.created_at, i.name AS name
@@ -195,7 +202,8 @@ export async function writeScheduleLog(db: D1Database, userId: string, input: Sc
 }
 
 export async function recentScheduleLogs(db: D1Database, userId: string, limit = 10): Promise<ScheduleLogEntry[]> {
-  const capped = Math.min(50, Math.max(1, Math.trunc(limit)))
+  const requested = Number(limit)
+  const capped = Number.isFinite(requested) ? Math.min(500, Math.max(1, Math.trunc(requested))) : 10
   const { results } = await db.prepare(
     `SELECT id, started_at, finished_at, timezone, hour, hours, in_window, checked_count,
             matched_count, deduped_count, sent_count, renewed_count, status, reason, detail

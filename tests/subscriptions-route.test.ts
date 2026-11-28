@@ -667,6 +667,35 @@ describe('logs', () => {
     const schedule = await json<any>(await send('GET', '/logs/schedule?limit=5'))
     expect(schedule.logs).toEqual([])
   })
+
+  it('returns up to 500 notification rows with their rule and title intact', async () => {
+    const detail = await create()
+    const insert = sqlite.prepare(`INSERT INTO sub_notify_log
+      (user_id, id, subscription_id, rule_id, channel, status, title, body, error, detail, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    const now = Date.now()
+    for (let index = 0; index < 250; index += 1) {
+      insert.run(ALICE, `log-${index}`, detail.item.id, `rule-${index}`, 'telegram', 'success', `Title ${index}`, 'Body', '', 'token=***', now - index * 1000)
+    }
+    const response = await json<any>(await send('GET', '/logs/notify?limit=500'))
+    expect(response.logs).toHaveLength(250)
+    expect(response.logs[0]).toMatchObject({ ruleId: 'rule-0', title: 'Title 0', detail: 'token=***' })
+  })
+
+  it('returns scheduler timezone, hour window, and detail for diagnosis', async () => {
+    const now = Date.now()
+    sqlite.prepare(`INSERT INTO sub_schedule_log
+      (user_id, id, started_at, finished_at, timezone, hour, hours, in_window, checked_count, matched_count,
+       deduped_count, sent_count, renewed_count, status, reason, detail)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      ALICE, 'schedule-1', now, now + 1000, 'Asia/Shanghai', '09', JSON.stringify(['08', '09']), 1,
+      8, 2, 1, 1, 0, 'ok', 'Sweep complete', 'Checked two rules',
+    )
+    const response = await json<any>(await send('GET', '/logs/schedule?limit=500'))
+    expect(response.logs[0]).toMatchObject({
+      timezone: 'Asia/Shanghai', hour: '09', hours: ['08', '09'], inWindow: true, detail: 'Checked two rules',
+    })
+  })
 })
 
 describe('the label registry', () => {

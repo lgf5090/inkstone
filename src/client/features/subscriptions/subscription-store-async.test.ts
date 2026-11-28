@@ -129,6 +129,14 @@ describe('subscription store request ordering', () => {
     expect(useSubscriptions.getState().overview).toBe(overview)
   })
 
+  it('applies the result limit to notification and schedule history together', async () => {
+    mocks.notifyLogs.mockResolvedValue({ logs: [] })
+    mocks.scheduleLogs.mockResolvedValue({ logs: [] })
+    await useSubscriptions.getState().loadLogs({ limit: 500 })
+    expect(mocks.notifyLogs).toHaveBeenCalledWith({ limit: 500 })
+    expect(mocks.scheduleLogs).toHaveBeenCalledWith(500)
+  })
+
   it('keeps the newest log filter when an older request finishes last', async () => {
     const first = deferred<{ logs: NotifyLogEntry[] }>()
     const second = deferred<{ logs: NotifyLogEntry[] }>()
