@@ -9,6 +9,8 @@
 import { useState } from 'react'
 import { BookOpen, MessageSquareQuote, PenLine } from 'lucide-react'
 import { IconButton } from '../../components/primitives'
+import { Checkbox } from '../../components/form'
+import { cn } from '../../lib/cn'
 import { Tooltip } from '../../components/overlay'
 import { t } from '../../lib/i18n'
 import { formatLastRead } from './format-time'
@@ -28,6 +30,9 @@ export interface ShelfCardProps {
   captionless?: boolean
   /** `contain` shows a scanned jacket whole, with the paper showing through the sides. */
   coverFit?: 'cover' | 'contain'
+  selectionMode?: boolean
+  selected?: boolean
+  onSelect?: () => void
   onOpen: () => void
   onOpenNote: () => void
   onMenu: (event: React.MouseEvent) => void
@@ -44,6 +49,9 @@ export function ShelfCard({
   groupNames = [],
   captionless = false,
   coverFit = 'cover',
+  selectionMode = false,
+  selected = false,
+  onSelect,
   onOpen,
   onOpenNote,
   onMenu,
@@ -55,13 +63,22 @@ export function ShelfCard({
   const [undecodable, setUndecodable] = useState<string | null>(null)
   const shown = coverUrl && undecodable !== coverUrl ? coverUrl : null
   return (
-    <div className="reader-shelf-card group relative flex flex-col">
+    <div className={cn('reader-shelf-card group relative flex flex-col', selectionMode && selected && 'rounded-[var(--r-md)] outline-2 outline-offset-2 outline-[var(--accent)]')}>
+      {selectionMode ? (
+        <Checkbox
+          checked={selected}
+          onChange={() => onSelect?.()}
+          ariaLabel={t('reading.select_book_value0', { value0: book.title })}
+          className="absolute start-1.5 top-1.5 z-[var(--z-pinned-menu)] min-h-0 size-7 rounded-[var(--r-sm)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-xs)]"
+        />
+      ) : null}
       <button
         type="button"
-        onClick={onOpen}
+        onClick={selectionMode ? onSelect : onOpen}
         onContextMenu={onMenu}
         className="relative block overflow-hidden rounded-[var(--r-md)] text-left focus-visible:outline-2 focus-visible:outline-offset-2"
-        aria-label={t('reading.open_book_value0', { value0: book.title })}
+        aria-label={selectionMode ? t('reading.select_book_value0', { value0: book.title }) : t('reading.open_book_value0', { value0: book.title })}
+        aria-pressed={selectionMode ? selected : undefined}
       >
         {shown ? (
           <img

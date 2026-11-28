@@ -8,9 +8,9 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { useMemo, useRef, useState, type DragEvent } from 'react'
-import { BookOpen, Download, FolderInput, Globe, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
+import { BookOpen, CheckSquare, Download, FolderInput, Globe, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload, X } from 'lucide-react'
 import { Button, IconButton } from '../../components/primitives'
-import { Segmented } from '../../components/form'
+import { Checkbox, Segmented } from '../../components/form'
 import { FilterInput } from '../../components/FilterInput'
 import { Menu, confirm, prompt, submenuFor, useContextMenu, type MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
@@ -85,6 +85,8 @@ export function LibraryView() {
   const [active, setActive] = useState<BookRecord | null>(null)
   const [metadataBook, setMetadataBook] = useState<BookRecord | null>(null)
   const [opdsOpen, setOpdsOpen] = useState(false)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const updateBookMetadata = useLibrary((state) => state.updateBookMetadata)
   const fileInput = useRef<HTMLInputElement>(null)
   const dataInput = useRef<HTMLInputElement>(null)
@@ -133,6 +135,56 @@ export function LibraryView() {
     return sorted
   }, [bookQuery, books, filter, groupFilter, groups, highlights, pinyinVersion, progress, sort])
 
+  const selectedBooks = useMemo(() => books.filter((book) => selectedIds.has(book.id)), [books, selectedIds])
+  const allVisibleSelected = visible.length > 0 && visible.every((book) => selectedIds.has(book.id))
+
+  function toggleSelection(id: string): void {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function selectVisible(checked: boolean): void {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      for (const book of visible) {
+        if (checked) next.add(book.id)
+        else next.delete(book.id)
+      }
+      return next
+    })
+  }
+
+  function closeSelection(): void {
+    setSelectionMode(false)
+    setSelectedIds(new Set())
+  }
+
+  function setBatchFinished(finished: boolean): void {
+    for (const book of selectedBooks) markFinished(book.id, finished)
+    toast({ title: t('reading.batch_updated_value0', { value0: selectedBooks.length }), tone: 'success' })
+  }
+
+  async function removeSelected(): Promise<void> {
+    if (!selectedBooks.length) return
+    const ok = await confirm({
+      title: t('reading.remove_books_confirm_value0', { value0: selectedBooks.length }),
+      description: t('reading.remove_books_confirm_hint'),
+      confirmLabel: t('reading.remove'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    for (const book of selectedBooks) {
+      dropBookHandle(book.id)
+      await removeBook(book.id)
+    }
+    closeSelection()
+    toast({ title: t('reading.batch_removed_value0', { value0: selectedBooks.length }), tone: 'success' })
+  }
+
   /** One book's facts, so the grid, the cover wall and the list cannot disagree about what they show. */
   function shelfProps(book: BookRecord) {
     return {
@@ -148,6 +200,9 @@ export function LibraryView() {
       coverFit: coverFits[book.id] ?? 'cover',
       onOpen: () => navigateToPath(`/reading/${encodeURIComponent(book.id)}`),
       onOpenNote: () => openBookNote(noteLinks.byBook[book.id]),
+      selectionMode,
+      selected: selectedIds.has(book.id),
+      onSelect: () => toggleSelection(book.id),
       onMenu: (event: React.MouseEvent) => {
         setActive(book)
         menu.onContextMenu(event)
@@ -412,11 +467,29 @@ export function LibraryView() {
           <Button size="sm" variant="secondary" aria-label={t('reading.import_opds')} icon={<Globe size={13} />} onClick={() => setOpdsOpen(true)}>
             <span className="hidden md:inline">{t('reading.import_opds')}</span>
           </Button>
+          <Button size="sm" variant="secondary" aria-label={t('reading.batch_select')} aria-pressed={selectionMode} icon={<CheckSquare size={13} />} onClick={() => selectionMode ? closeSelection() : setSelectionMode(true)}>
+            <span className="hidden md:inline">{t('reading.batch_select')}</span>
+          </Button>
           <Button size="sm" variant="primary" icon={<Plus size={13} />} loading={busy} onClick={() => fileInput.current?.click()}>
             {t('reading.add_books')}
           </Button>
         </div>
       </header>
+
+      {selectionMode ? (
+        <div role="toolbar" aria-label={t('reading.batch_select')} className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-hover)] px-3 py-2">
+          <Checkbox checked={allVisibleSelected} onChange={selectVisible} label={t('reading.select_all_visible')} />
+          <span className="text-[length:var(--text-12-5)] text-[var(--text-secondary)]" aria-live="polite">
+            {t('reading.batch_selected_value0', { value0: selectedBooks.length })}
+          </span>
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Button size="sm" variant="secondary" disabled={!selectedBooks.length} onClick={() => setBatchFinished(true)}>{t('reading.mark_finished')}</Button>
+            <Button size="sm" variant="secondary" disabled={!selectedBooks.length} onClick={() => setBatchFinished(false)}>{t('reading.mark_unfinished')}</Button>
+            <Button size="sm" variant="danger" disabled={!selectedBooks.length} icon={<Trash2 size={13} />} onClick={() => void removeSelected()}>{t('reading.remove')}</Button>
+            <IconButton label={t('common.close')} size="sm" onClick={closeSelection}><X size={14} /></IconButton>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
         <div className="min-w-[160px] flex-1 md:max-w-[280px]">
