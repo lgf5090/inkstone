@@ -13902,7 +13902,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/reading/reader/ReaderView.tsx", [
     "/**\n * One open book.\n *\n * The chrome is deliberately thin and paired: a bar above the page for the actions a reader takes\n * while reading, a bar below for where they are. Both float over the page rather than reserving a row,\n * because reserving one would re-paginate the book every time they appear — which reads as the text\n * jumping under the reader's finger.\n */",
-    "/**\n   * The HUD retracts when the reader stops moving, and never while something is open.\n   *\n   * Hiding it under a pointer that is about to click a control is the failure mode, so the timer is\n   * restarted by every pointer event rather than only by movement into the bars.\n   */",
     "// No dependency list on purpose: the handler reads the current panel, selection and book each",
     "// time, and a stale one would turn a page in a chapter the reader has already left.",
     "/**\n   * Mark the current selection.\n   *\n   * The quote and its neighbours are captured from the stage's own text index, so what is stored is the\n   * text the reader saw rather than whatever the markup happens to say.\n   */",
@@ -53842,7 +53841,6 @@ const allowed = new Map([
   ]],
   ["tests/webssh-schema.test.ts", [
     "// The project tables append 385–396 after this lane's own block; later migrations add assistant,",
-    "// email, query indexes, properties, webhooks, task reminders, attachment encryption, CloudDrive remediation, all-day to-dos and calendar reliability through 439.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",
