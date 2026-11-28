@@ -1,6 +1,13 @@
 import type { BookPosition } from './position'
+import { LIMITS } from '@shared/constants'
 
 export type BookFormat = 'epub' | 'pdf' | 'cbz'
+
+export interface BookMetadata {
+  series: string
+  rating: number
+  tags: string[]
+}
 
 /** What the shelf knows about a book without opening it again. */
 export interface BookRecord {
@@ -14,6 +21,8 @@ export interface BookRecord {
   filename: string
   size: number
   addedAt: number
+  /** Last local or remote change to this shelf row; older snapshots must not replace it. */
+  updatedAt?: number
   /** Number of spine items or pages; the denominator of every progress figure the shelf shows. */
   unitCount: number
   /** Package path of the cover inside the archive, when the format carries one. */
@@ -25,6 +34,10 @@ export interface BookRecord {
   coverUrl?: string | null
   /** The book's own contents, cached so the shelf, the note and the reader agree without a reparse. */
   toc: TocEntry[]
+  /** Older local imports may exceed the cloud limit; they remain readable but are never uploaded. */
+  localOnly?: boolean
+  contentHash?: string
+  metadata?: BookMetadata
 }
 
 export interface TocEntry {
@@ -75,6 +88,7 @@ export interface LocationMark {
   label: string
   position: BookPosition
   createdAt: number
+  updatedAt?: number
 }
 
 export interface BookStats {
@@ -82,12 +96,16 @@ export interface BookStats {
   seconds: number
   /** Day keys (`YYYY-MM-DD`) to seconds, which is what the daily goal is measured against. */
   days: Record<string, number>
+  updatedAt?: number
 }
 
 /** Which note a book's highlights are being written into, and where the vocabulary note lives. */
 export interface ReadingNoteLinks {
   byBook: Record<string, string>
+  /** Per-book link versions, so unlinking and relinking participate in the same merge as other rows. */
+  updatedAt: Record<string, number>
   vocabulary: string | null
+  vocabularyUpdatedAt: number | null
 }
 
 export interface ImportFailure {
@@ -95,4 +113,4 @@ export interface ImportFailure {
   reason: 'format' | 'size' | 'corrupt' | 'duplicate' | 'storage'
 }
 
-export const MAX_BOOK_BYTES = 200 * 1024 * 1024
+export const MAX_BOOK_BYTES = LIMITS.readerBookMaxBytes

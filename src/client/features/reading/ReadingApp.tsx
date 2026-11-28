@@ -18,7 +18,7 @@ import { useBreakpoint } from '../../lib/hooks'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { useLibrary } from './store/library'
-import { useReaderSettings } from './store/reader-settings'
+import { useReaderSettings, type ReaderSettings } from './store/reader-settings'
 import { useReadingPage } from './page-context'
 import { LibraryView } from './LibraryView'
 import { ReaderView } from './reader/ReaderView'
@@ -48,8 +48,12 @@ export function ReadingApp() {
   const pathname = usePathname()
   const bookId = bookIdInPath(pathname)
   const status = useLibrary((state) => state.status)
+  const syncPhase = useLibrary((state) => state.sync.phase)
   const bindUser = useLibrary((state) => state.bindUser)
   const loadFonts = useReaderSettings((state) => state.loadFonts)
+  const applyReaderSettings = useReaderSettings((state) => state.applyRemote)
+  const remoteSettings = useLibrary((state) => state.settings)
+  const remoteSettingsUpdatedAt = useLibrary((state) => state.settingsUpdatedAt)
   const [fontsLoaded, setFontsLoaded] = useState(false)
   const book = useLibrary((state) => (bookId ? state.books.find((one) => one.id === bookId) : undefined))
   const dockOpen = useUi((state) => state.assistantDockOpen)
@@ -72,14 +76,20 @@ export function ReadingApp() {
     void loadFonts()
   }, [fontsLoaded, loadFonts])
 
-  // A path may name a book this device does not have — a link opened on another machine, or a book
-  // deleted since. The shelf is the only honest answer, and the address goes back with it.
   useEffect(() => {
-    if (!bookId || status !== 'ready') return
-    if (book) return
+    if (status === 'ready' && (remoteSettingsUpdatedAt ?? 0) > 0) {
+      applyReaderSettings(remoteSettings as Partial<ReaderSettings>, remoteSettingsUpdatedAt!)
+    }
+  }, [applyReaderSettings, remoteSettings, remoteSettingsUpdatedAt, status])
+
+  // A path may name a book this device does not have — a link opened on another machine, or a book
+  // deleted since. The shelf is the only honest answer, but the first pull may still be bringing that
+  // book down, so wait for it before deciding the link is stale.
+  useEffect(() => {
+    if (!bookId || status !== 'ready' || book || syncPhase === 'pulling') return
     window.history.replaceState(null, '', '/reading')
     window.dispatchEvent(new PopStateEvent('popstate'))
-  }, [bookId, book, status])
+  }, [bookId, book, status, syncPhase])
 
   const pageContext = useMemo((): AssistantPageContext | null => {
     if (bookId && (openBook ?? book)) {
@@ -120,7 +130,8 @@ export function ReadingApp() {
   }, [book, bookCount, bookId, groups, openBook, shelfFilter, shelfGroupId, shelfQuery, shelfSort])
 
   const content = useMemo(() => {
-    if (status !== 'ready') {
+    const waitingForLinkedBook = Boolean(bookId && !book && status === 'ready' && syncPhase === 'pulling')
+    if (status !== 'ready' || waitingForLinkedBook) {
       return (
         <div className="flex h-full items-center justify-center text-[length:var(--text-12-5)] text-[var(--text-quaternary)]">
           {t('reading.loading_library')}
@@ -129,7 +140,7 @@ export function ReadingApp() {
     }
     if (bookId && book) return <ReaderView book={book} />
     return <LibraryView />
-  }, [book, bookId, status])
+  }, [book, bookId, status, syncPhase])
 
   return (
     <div className="flex h-full min-h-0 bg-[var(--bg-base)]">

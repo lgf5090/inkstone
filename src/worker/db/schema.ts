@@ -4,7 +4,7 @@ import { localDate } from '@shared/assistant-time'
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
 import { storedObject } from '../lib/json'
-import { READER_BOOK_INDEX, READER_BOOK_TABLE, READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS } from './reader-schema'
+import { READER_BOOK_INDEX, READER_BOOK_TABLE, READER_GROUP_INDEX, READER_GROUP_TABLE, READER_SCHEMA_STATEMENTS, READER_STORAGE_DELETION_TABLE, READER_SYNC_VERSION_TABLE, READER_UPLOAD_RESERVATION_TABLE } from './reader-schema'
 import {
   ASSISTANT_REQUIRED_COLUMNS,
   ASSISTANT_REQUIRED_INDEXES,
@@ -5273,6 +5273,27 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 479,
     skipIfColumnExists: { table: 'rss_article', column: 'content_released' },
     statements: [`ALTER TABLE rss_article ADD COLUMN content_released INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    // Reader sync merges by entity version and carries explicit deletion tombstones.
+    version: 480,
+    statements: [READER_SYNC_VERSION_TABLE],
+  },
+  {
+    // Upload reservations and deletion outboxes keep R2 bytes inside the account budget until the
+    // matching D1 transition has completed. Both tables are idempotent for fresh and existing databases.
+    version: 481,
+    statements: [READER_UPLOAD_RESERVATION_TABLE, READER_STORAGE_DELETION_TABLE],
+  },
+  {
+    version: 482,
+    skipIfColumnExists: { table: 'reader_books', column: 'content_hash' },
+    statements: [`ALTER TABLE reader_books ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 483,
+    skipIfColumnExists: { table: 'reader_books', column: 'metadata' },
+    statements: [`ALTER TABLE reader_books ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'`],
   },
 ]
 

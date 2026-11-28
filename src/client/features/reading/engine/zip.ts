@@ -25,8 +25,22 @@ const FLAG_ENCRYPTED = 0x0001
  * gigabytes, which would take the tab down rather than the book.
  */
 const MAX_INFLATED_BYTES = 96 * 1024 * 1024
+const MAX_TOTAL_INFLATED_BYTES = 512 * 1024 * 1024
+const MAX_ENTRIES = 20_000
 const METHOD_STORE = 0
 const METHOD_DEFLATE = 8
+
+export interface ZipLimits {
+  maxEntries: number
+  maxTotalInflatedBytes: number
+  maxMemberInflatedBytes: number
+}
+
+const DEFAULT_ZIP_LIMITS: ZipLimits = {
+  maxEntries: MAX_ENTRIES,
+  maxTotalInflatedBytes: MAX_TOTAL_INFLATED_BYTES,
+  maxMemberInflatedBytes: MAX_INFLATED_BYTES,
+}
 
 export class ZipFormatError extends Error {}
 
@@ -133,7 +147,7 @@ function parseCentralDirectory(view: DataView, start: number, count: number): Zi
   return entries
 }
 
-async function inflate(bytes: Uint8Array, expected: number): Promise<Uint8Array> {
+async function inflate(bytes: Uint8Array, expected: number, maxBytes: number): Promise<Uint8Array> {
   if (typeof DecompressionStream !== 'function') {
     throw new ZipFormatError('This browser cannot decompress the archive')
   }
@@ -154,7 +168,7 @@ async function inflate(bytes: Uint8Array, expected: number): Promise<Uint8Array>
     const { done, value } = await reader.read()
     if (done) break
     total += value.byteLength
-    if (total > MAX_INFLATED_BYTES) {
+    if (total > maxBytes) {
       // Discarding a stream the member is being walked away from: the `throw` below is the outcome the
       // caller reads, and a failed cancel of a reader nobody will touch again has nothing to add to it.
       reader.cancel().catch(() => {})
@@ -201,16 +215,19 @@ function candidateNames(wanted: string): string[] {
   return out
 }
 
-export async function openZip(source: ArrayBuffer | Uint8Array | Blob): Promise<ZipArchive> {
+export async function openZip(
+  source: ArrayBuffer | Uint8Array | Blob,
+  limits: Partial<ZipLimits> = {},
+): Promise<ZipArchive> {
+  const policy = { ...DEFAULT_ZIP_LIMITS, ...limits }
   // `ArrayBuffer.isView` rather than `instanceof Uint8Array`: a typed array that crossed a realm —
   // a worker's response, a test environment's encoder — fails the instanceof and would be treated as
   // a Blob.
-  const buffer = source instanceof ArrayBuffer
-    ? source
+  const view = source instanceof ArrayBuffer
+    ? new DataView(source)
     : ArrayBuffer.isView(source)
-      ? source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength)
-      : await source.arrayBuffer()
-  const view = new DataView(buffer)
+      ? new DataView(source.buffer, source.byteOffset, source.byteLength)
+      : new DataView(await source.arrayBuffer())
   const eocd = findEocd(view)
   if (eocd < 0) throw new ZipFormatError('This is not a ZIP archive')
 
@@ -226,8 +243,12 @@ export async function openZip(source: ArrayBuffer | Uint8Array | Blob): Promise<
     }
   }
   if (directoryOffset > view.byteLength) throw new ZipFormatError('The archive’s central directory is out of range')
+  if (entryCount > policy.maxEntries) throw new ZipFormatError('The archive has too many members')
 
   const entries = parseCentralDirectory(view, directoryOffset, entryCount)
+  if (entries.reduce((total, entry) => total + entry.uncompressedSize, 0) > policy.maxTotalInflatedBytes) {
+    throw new ZipFormatError('The archive expands past what the reader will hold')
+  }
   const byName = new Map<string, ZipEntry>()
   for (const entry of entries) {
     if (!byName.has(entry.name)) byName.set(entry.name, entry)
@@ -250,6 +271,7 @@ export async function openZip(source: ArrayBuffer | Uint8Array | Blob): Promise<
     return undefined
   }
 
+  let inflatedTotal = 0
   async function read(path: string): Promise<Uint8Array> {
     const entry = locate(path)
     if (!entry) throw new ZipFormatError(`The archive has no member named ${path}`)
@@ -261,9 +283,19 @@ export async function openZip(source: ArrayBuffer | Uint8Array | Blob): Promise<
     const dataAt = at + 30 + u16(view, at + 26) + u16(view, at + 28)
     const end = dataAt + entry.compressedSize
     if (end > view.byteLength) throw new ZipFormatError('A member of the archive runs past its end')
-    const bytes = new Uint8Array(buffer, dataAt, entry.compressedSize)
-    if (entry.method === METHOD_STORE) return bytes
-    if (entry.method === METHOD_DEFLATE) return inflate(bytes, entry.uncompressedSize)
+    const bytes = new Uint8Array(view.buffer, view.byteOffset + dataAt, entry.compressedSize)
+    if (entry.method === METHOD_STORE) {
+      if (entry.uncompressedSize > policy.maxMemberInflatedBytes) throw new ZipFormatError('A member of the archive is too large')
+      inflatedTotal += bytes.byteLength
+      if (inflatedTotal > policy.maxTotalInflatedBytes) throw new ZipFormatError('The archive expands past what the reader will hold')
+      return bytes
+    }
+    if (entry.method === METHOD_DEFLATE) {
+      const body = await inflate(bytes, entry.uncompressedSize, policy.maxMemberInflatedBytes)
+      inflatedTotal += body.byteLength
+      if (inflatedTotal > policy.maxTotalInflatedBytes) throw new ZipFormatError('The archive expands past what the reader will hold')
+      return body
+    }
     throw new ZipFormatError('This archive uses a compression method the reader does not support')
   }
 

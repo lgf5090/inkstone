@@ -8,9 +8,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLibrary } from '../store/library'
 import { dayKey } from '../format-time'
+import { ReadingClock } from '../reading-clock'
 
 const TICK_MS = 15_000
-const IDLE_MS = 90_000
 
 export interface ReadingTimer {
   sessionSeconds: number
@@ -20,14 +20,11 @@ export interface ReadingTimer {
 
 export function useReadingTimer(bookId: string, enabled: boolean, goalMinutes: number): ReadingTimer {
   const [sessionSeconds, setSessionSeconds] = useState(0)
-  const lastActivity = useRef(Date.now())
-  const recorded = useRef(0)
+  const clock = useRef(new ReadingClock())
 
   useEffect(() => {
     if (!enabled) return
-    const wake = () => {
-      lastActivity.current = Date.now()
-    }
+    const wake = () => clock.current.wake()
     for (const event of ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const) {
       window.addEventListener(event, wake, { passive: true })
     }
@@ -40,23 +37,15 @@ export function useReadingTimer(bookId: string, enabled: boolean, goalMinutes: n
 
   useEffect(() => {
     if (!enabled) return
+    clock.current = new ReadingClock()
     const flush = (seconds: number): void => {
       if (seconds <= 0) return
-      recorded.current += seconds
       setSessionSeconds((current) => current + seconds)
       useLibrary.getState().recordSeconds(bookId, seconds)
     }
-    const tick = () => {
-      if (document.visibilityState !== 'visible') return
-      if (Date.now() - lastActivity.current > IDLE_MS) return
-      flush(TICK_MS / 1000)
-    }
+    const tick = () => flush(clock.current.tick(Date.now(), document.visibilityState === 'visible'))
     const timer = window.setInterval(tick, TICK_MS)
-    // Capped, because a tab left open overnight would otherwise book the whole idle stretch as reading.
-    const onLeave = () => {
-      const since = Math.floor((Date.now() - lastActivity.current) / 1000)
-      flush(Math.min(since, IDLE_MS / 1000))
-    }
+    const onLeave = () => flush(clock.current.tick(Date.now(), document.visibilityState === 'visible'))
     window.addEventListener('pagehide', onLeave)
     return () => {
       window.clearInterval(timer)

@@ -10,19 +10,8 @@ import { Button } from '../../components/primitives'
 import { t } from '../../lib/i18n'
 import { formatPercent } from './position'
 import { useLibrary } from './store/library'
-import { formatLastRead } from './format-time'
-
-/** Bytes in the unit a reader compares against their own library, not the unit the API counts in. */
-function formatBytes(bytes: number): string {
-  const units = ['B', 'kB', 'MB', 'GB', 'TB']
-  let value = Math.max(0, bytes)
-  let at = 0
-  while (value >= 1024 && at < units.length - 1) {
-    value /= 1024
-    at += 1
-  }
-  return `${at === 0 ? value : value.toFixed(1)} ${units[at]}`
-}
+import { formatSyncTime } from './format-time'
+import { formatBytes } from '@shared/byte-format'
 
 export function SyncLine() {
   const sync = useLibrary((state) => state.sync)
@@ -44,7 +33,7 @@ export function SyncLine() {
           : sync.message
             ? `${t('reading.sync_failed')}: ${sync.message}`
             : sync.at
-              ? t('reading.sync_idle_value0', { value0: formatLastRead(sync.at) })
+              ? t('reading.sync_idle_value0', { value0: formatSyncTime(sync.at) })
               : t('reading.sync_never')
 
   return (

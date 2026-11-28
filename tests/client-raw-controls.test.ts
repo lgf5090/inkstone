@@ -819,9 +819,6 @@ const RAW_Z_INDEX_BASELINE = new Map<string, { value: string; reason: string }>(
   ['src/client/features/graph/graph-panel/overlays.tsx:49', { value: '1', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
   ['src/client/features/graph/graph-panel/overlays.tsx:173', { value: '3', reason: 'Local stacking lift inside the graph panel, not a shell layer.' }],
   ['src/client/features/graph/graph-panel/settings.tsx:53', { value: '235', reason: 'The panel’s own settings drawer: deliberately above the workspace tier it opens from and below every prompt, which no band in the scale names. A band would be invented for one site; arithmetic on two bands would be a tier nobody can look up.' }],
-  ['src/client/features/reading/reader/CommentCard.tsx:62', { value: '7', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
-  ['src/client/features/reading/reader/LookupCard.tsx:52', { value: '8', reason: 'Local stacking lift inside the reader card, not a shell layer.' }],
-  ['src/client/features/reading/reader/ReaderPanel.tsx:56', { value: '6', reason: 'Local stacking lift inside the reader panel, not a shell layer.' }],
   ['src/client/features/inkpad/ink-elements.tsx:42', { value: '1', reason: 'Local card-body layer inside the ink canvas; the shell z-index scale does not describe layers between a drawing and its cards.' }],
   ['src/client/features/inkpad/ink-elements.tsx:47', { value: '3', reason: 'Local card-control layer inside the ink canvas; it must sit above the drawing but has no shell tier of its own.' }],
   ['src/client/features/inkpad/ink-hud.tsx:73', { value: '4', reason: 'Local HUD layer inside the ink canvas; it sits above the drawing surface and below app menus.' }],
@@ -888,7 +885,6 @@ const RAW_Z_INDEX_CSS_BASELINE = new Map<string, number>([
   ['src/client/styles/app.css', 1],
   ['src/client/styles/editor.css', 3],
   ['src/client/styles/prose.css', 10],
-  ['src/client/styles/reading.css', 5],
   ['src/client/styles/inkpad.css', 1],
 ])
 
@@ -981,8 +977,7 @@ const WORKER_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/worker/middleware/auth.ts', { sites: 1, reason: 'Line 104 swallows an optional background write inside the auth middleware.' }],
   ['src/worker/routes/excalidraw-library.ts', { sites: 1, reason: 'Line 278 swallows a fire-and-forget queue write behind a library route response.' }],
   ['src/worker/routes/mcp-settings.ts', { sites: 2, reason: 'Lines 121 and 134 hand `waitUntil` a drain whose failure must not fail the already-sent response.' }],
-  ['src/worker/routes/reader-library.ts', { sites: 1, reason: 'Line 600 deletes a replaced cover object and ignores the failure; the new cover is already stored.' }],
-  ['src/worker/routes/tools-password.ts', { sites: 1, reason: 'Line 319 deletes a backup object from R2 after its record is already gone from D1; a failed delete leaves one unreachable blob, and the response has no surface left to report it on — the same disposition the reader library\'s replaced cover carries.' }],
+  ['src/worker/routes/tools-password.ts', { sites: 1, reason: 'Line 319 deletes a backup object from R2 after its record is already gone from D1; a failed delete leaves one unreachable blob, and the response has no surface left to report it on.' }],
   ['src/worker/routes/transfer.ts', { sites: 2, reason: 'Both roll ordinary and encrypted attachments back after a failed mapping write; the original import failure is returned, and a failed best-effort rollback has no second response surface.' }],
   ['src/worker/imgbed/dav.ts', { sites: 2, reason: 'Both discard a response body after a WebDAV method whose status has already decided the answer; a failed cancel cannot change it.' }],
   ['src/worker/imgbed/manage.ts', { sites: 1, reason: 'A malformed restored settings group is rejected by parseSettingsGroup and counted as failed; the catch only keeps the other groups restoring.' }],

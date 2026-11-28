@@ -7,6 +7,7 @@
  * name in a novel is asking a question the whole book has to answer, so there is no useful partial
  * index.
  */
+import { sify } from 'chinese-conv'
 import type { EpubHandle } from '../reader/useEpubHandle'
 
 export interface SearchHit {
@@ -57,7 +58,7 @@ export async function chapterText(handle: EpubHandle, slot: number): Promise<str
 }
 
 export function normalizeForSearch(value: string): string {
-  return value.toLowerCase()
+  return sify(value.normalize('NFKC')).toLowerCase()
 }
 
 /**

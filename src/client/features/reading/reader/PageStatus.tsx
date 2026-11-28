@@ -23,7 +23,7 @@ export interface PageStatusProps {
   onJump: (position: BookPosition, fragment?: string) => void
 }
 
-export function PageStatus({ book, page, fraction, minutesLeft, onJump }: PageStatusProps) {
+export function PageStatus({ book, page, fraction, chapterTitle, minutesLeft, onJump }: PageStatusProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const percent = Math.round(Math.min(1, Math.max(0, fraction)) * 100)
@@ -70,6 +70,9 @@ export function PageStatus({ book, page, fraction, minutesLeft, onJump }: PageSt
         className="reader-page-status reader-pill inline-flex items-center gap-1.5 px-2.5"
         onClick={() => setEditing(true)}
       >
+        {chapterTitle ? (
+          <span className="max-w-28 truncate text-[var(--text-tertiary)]">{chapterTitle}</span>
+        ) : null}
         <span>{page.page} / {page.pages}</span>
         <span aria-hidden="true">·</span>
         <span>{percent}%</span>

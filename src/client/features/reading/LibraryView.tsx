@@ -8,9 +8,9 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { useMemo, useRef, useState, type DragEvent } from 'react'
-import { BookOpen, Download, FolderInput, Globe, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
+import { BookOpen, CheckSquare, Download, FolderInput, Globe, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, MoreHorizontal, Pencil, Plus, Sparkles, Star, Trash2, Upload, X } from 'lucide-react'
 import { Button, IconButton } from '../../components/primitives'
-import { Segmented } from '../../components/form'
+import { Checkbox, Segmented } from '../../components/form'
 import { FilterInput } from '../../components/FilterInput'
 import { Menu, confirm, prompt, submenuFor, useContextMenu, type MenuItem } from '../../components/overlay'
 import { t } from '../../lib/i18n'
@@ -20,6 +20,7 @@ import { useUi } from '../../store/ui'
 import { useLibrary } from './store/library'
 import { useReadingPage } from './page-context'
 import { hasBookExtension } from './engine/book-import'
+import { parseRemoteBookUrl } from './engine/remote-import'
 import { downloadAsBlob } from '../../lib/transfer'
 import { api } from '../../lib/api'
 import { IDLE_SYNC } from './store/cloud'
@@ -36,6 +37,8 @@ import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { cn } from '../../lib/cn'
 import { SyncLine } from './SyncLine'
+import { BookMetadataModal } from './reader/BookMetadataModal'
+import { OpdsImportModal } from './reader/OpdsImportModal'
 import type { BookRecord, ImportFailure } from './types'
 
 const FAILURE_KEYS = {
@@ -46,7 +49,7 @@ const FAILURE_KEYS = {
   storage: 'reading.error_storage',
 } as const
 
-const ACCEPT = '.epub,.pdf,.cbz,application/epub+zip,application/pdf'
+const ACCEPT = '.epub,.pdf,.cbz,.txt,application/epub+zip,application/pdf,text/plain'
 
 /** The four shelf layouts, in the order the toolbar offers them. */
 const SHELF_VIEW_ICONS: Record<ShelfViewMode, React.ReactNode> = {
@@ -81,6 +84,12 @@ export function LibraryView() {
   const [busy, setBusy] = useState(false)
   const [fetching, setFetching] = useState(false)
   const [active, setActive] = useState<BookRecord | null>(null)
+  const [metadataBook, setMetadataBook] = useState<BookRecord | null>(null)
+  const [opdsOpen, setOpdsOpen] = useState(false)
+  const [shelfMenuAt, setShelfMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const updateBookMetadata = useLibrary((state) => state.updateBookMetadata)
   const fileInput = useRef<HTMLInputElement>(null)
   const dataInput = useRef<HTMLInputElement>(null)
   const menu = useContextMenu()
@@ -128,6 +137,56 @@ export function LibraryView() {
     return sorted
   }, [bookQuery, books, filter, groupFilter, groups, highlights, pinyinVersion, progress, sort])
 
+  const selectedBooks = useMemo(() => books.filter((book) => selectedIds.has(book.id)), [books, selectedIds])
+  const allVisibleSelected = visible.length > 0 && visible.every((book) => selectedIds.has(book.id))
+
+  function toggleSelection(id: string): void {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function selectVisible(checked: boolean): void {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      for (const book of visible) {
+        if (checked) next.add(book.id)
+        else next.delete(book.id)
+      }
+      return next
+    })
+  }
+
+  function closeSelection(): void {
+    setSelectionMode(false)
+    setSelectedIds(new Set())
+  }
+
+  function setBatchFinished(finished: boolean): void {
+    for (const book of selectedBooks) markFinished(book.id, finished)
+    toast({ title: t('reading.batch_updated_value0', { value0: selectedBooks.length }), tone: 'success' })
+  }
+
+  async function removeSelected(): Promise<void> {
+    if (!selectedBooks.length) return
+    const ok = await confirm({
+      title: t('reading.remove_books_confirm_value0', { value0: selectedBooks.length }),
+      description: t('reading.remove_books_confirm_hint'),
+      confirmLabel: t('reading.remove'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    for (const book of selectedBooks) {
+      dropBookHandle(book.id)
+      await removeBook(book.id)
+    }
+    closeSelection()
+    toast({ title: t('reading.batch_removed_value0', { value0: selectedBooks.length }), tone: 'success' })
+  }
+
   /** One book's facts, so the grid, the cover wall and the list cannot disagree about what they show. */
   function shelfProps(book: BookRecord) {
     return {
@@ -143,6 +202,9 @@ export function LibraryView() {
       coverFit: coverFits[book.id] ?? 'cover',
       onOpen: () => navigateToPath(`/reading/${encodeURIComponent(book.id)}`),
       onOpenNote: () => openBookNote(noteLinks.byBook[book.id]),
+      selectionMode,
+      selected: selectedIds.has(book.id),
+      onSelect: () => toggleSelection(book.id),
       onMenu: (event: React.MouseEvent) => {
         setActive(book)
         menu.onContextMenu(event)
@@ -213,6 +275,7 @@ export function LibraryView() {
         ? [{ id: 'note', label: t('reading.open_note'), icon: <MessageSquareQuote size={13} />, onSelect: () => openBookNote(noteLinks.byBook[book.id]) }]
         : []),
       { id: 'rename', label: t('reading.rename_book'), icon: <Pencil size={13} />, onSelect: () => void rename(book) },
+      { id: 'metadata', label: t('reading.edit_metadata'), icon: <Pencil size={13} />, onSelect: () => setMetadataBook(book) },
       {
         id: 'fit',
         label: coverFits[book.id] === 'contain' ? t('reading.cover_fill') : t('reading.cover_whole'),
@@ -271,6 +334,40 @@ export function LibraryView() {
       // has to drop that too, or its bytes stay reachable until the tab closes.
       dropBookHandle(book.id)
       await removeBook(book.id)
+    }
+  }
+
+  async function importFromWebDav(): Promise<void> {
+    const answer = await prompt({
+      title: t('reading.import_webdav'),
+      description: t('reading.import_webdav_hint'),
+      placeholder: 'https://webdav.example/books/book.epub',
+      confirmLabel: t('reading.import_webdav'),
+    })
+    if (answer === null) return
+    let remote: ReturnType<typeof parseRemoteBookUrl>
+    try {
+      remote = parseRemoteBookUrl(answer)
+    } catch (err) {
+      toast({
+        title: t('reading.import_webdav_failed'),
+        description: t(err instanceof Error && err.message === 'unsupported_format' ? 'reading.webdav_bad_format' : 'reading.webdav_bad_url'),
+        tone: 'danger',
+      })
+      return
+    }
+    setFetching(true)
+    try {
+      const blob = await downloadAsBlob(api.readerLibrary.remoteBookDownloadUrl(remote.url))
+      const file = new File([blob], remote.filename, { type: blob.type || 'application/octet-stream' })
+      const result = await addFiles([file])
+      toast(result.added.length
+        ? { title: t('reading.import_webdav_done_value0', { value0: remote.filename }), tone: 'success' }
+        : { title: t('reading.import_webdav_failed'), description: t(`reading.error_${result.failed[0]?.reason ?? 'corrupt'}`), tone: 'danger' })
+    } catch (err) {
+      toast({ title: t('reading.import_webdav_failed'), description: err instanceof Error ? err.message : String(err), tone: 'danger' })
+    } finally {
+      setFetching(false)
     }
   }
 
@@ -353,6 +450,15 @@ export function LibraryView() {
     }
   }
 
+  const shelfMenuItems: MenuItem[] = [
+    { id: 'export', label: t('reading.export_library'), icon: <Download size={13} />, disabled: !books.length, onSelect: () => void runExport() },
+    { id: 'import', label: t('reading.import_library'), icon: <Upload size={13} />, onSelect: () => dataInput.current?.click() },
+    { id: 'gutenberg', label: t('reading.import_gutenberg'), icon: <Globe size={13} />, onSelect: () => void importFromGutenberg() },
+    { id: 'opds', label: t('reading.import_opds'), icon: <Globe size={13} />, onSelect: () => setOpdsOpen(true) },
+    { id: 'webdav', label: t('reading.import_webdav'), icon: <FolderInput size={13} />, onSelect: () => void importFromWebDav() },
+    { id: 'batch', label: t('reading.batch_select'), icon: <CheckSquare size={13} />, checked: selectionMode, separatorBefore: true, onSelect: () => selectionMode ? closeSelection() : setSelectionMode(true) },
+  ]
+
   const totalMarked = useMemo(
     () => Object.values(highlights).reduce((sum, list) => sum + list.length, 0),
     [highlights],
@@ -387,27 +493,66 @@ export function LibraryView() {
           >
             <Sparkles size={13} />
           </IconButton>
-          <Button
-            size="sm"
-            variant="secondary"
-            aria-label={t('reading.export_library')}
-            icon={<Download size={13} />}
-            disabled={!books.length}
-            onClick={() => void runExport()}
-          >
-            <span className="hidden sm:inline">{t('reading.export_library')}</span>
-          </Button>
-          <Button size="sm" variant="secondary" aria-label={t('reading.import_library')} icon={<Upload size={13} />} onClick={() => dataInput.current?.click()}>
-            <span className="hidden sm:inline">{t('reading.import_library')}</span>
-          </Button>
-          <Button size="sm" variant="secondary" icon={<Globe size={13} />} loading={fetching} onClick={() => void importFromGutenberg()}>
-            {t('reading.import_gutenberg')}
-          </Button>
-          <Button size="sm" variant="primary" icon={<Plus size={13} />} loading={busy} onClick={() => fileInput.current?.click()}>
-            {t('reading.add_books')}
+          {narrow ? (
+            <IconButton
+              label={t('reading.more_actions')}
+              size="sm"
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect()
+                setShelfMenuAt({ x: rect.right, y: rect.bottom })
+              }}
+            >
+              <MoreHorizontal size={14} />
+            </IconButton>
+          ) : (
+            <>
+              <Button
+                size="sm"
+                variant="secondary"
+                aria-label={t('reading.export_library')}
+                icon={<Download size={13} />}
+                disabled={!books.length}
+                onClick={() => void runExport()}
+              >
+                <span className="hidden sm:inline">{t('reading.export_library')}</span>
+              </Button>
+              <Button size="sm" variant="secondary" aria-label={t('reading.import_library')} icon={<Upload size={13} />} onClick={() => dataInput.current?.click()}>
+                <span className="hidden sm:inline">{t('reading.import_library')}</span>
+              </Button>
+              <Button size="sm" variant="secondary" icon={<Globe size={13} />} loading={fetching} onClick={() => void importFromGutenberg()}>
+                {t('reading.import_gutenberg')}
+              </Button>
+              <Button size="sm" variant="secondary" aria-label={t('reading.import_opds')} icon={<Globe size={13} />} onClick={() => setOpdsOpen(true)}>
+                <span className="hidden md:inline">{t('reading.import_opds')}</span>
+              </Button>
+              <Button size="sm" variant="secondary" aria-label={t('reading.import_webdav')} icon={<FolderInput size={13} />} loading={fetching} onClick={() => void importFromWebDav()}>
+                <span className="hidden md:inline">{t('reading.import_webdav')}</span>
+              </Button>
+              <Button size="sm" variant="secondary" aria-label={t('reading.batch_select')} aria-pressed={selectionMode} icon={<CheckSquare size={13} />} onClick={() => selectionMode ? closeSelection() : setSelectionMode(true)}>
+                <span className="hidden md:inline">{t('reading.batch_select')}</span>
+              </Button>
+            </>
+          )}
+          <Button size="sm" variant="primary" aria-label={t('reading.add_books')} icon={<Plus size={13} />} loading={busy} onClick={() => fileInput.current?.click()}>
+            <span className="hidden sm:inline">{t('reading.add_books')}</span>
           </Button>
         </div>
       </header>
+
+      {selectionMode ? (
+        <div role="toolbar" aria-label={t('reading.batch_select')} className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-hover)] px-3 py-2">
+          <Checkbox checked={allVisibleSelected} onChange={selectVisible} label={t('reading.select_all_visible')} />
+          <span className="text-[length:var(--text-12-5)] text-[var(--text-secondary)]" aria-live="polite">
+            {t('reading.batch_selected_value0', { value0: selectedBooks.length })}
+          </span>
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Button size="sm" variant="secondary" disabled={!selectedBooks.length} onClick={() => setBatchFinished(true)}>{t('reading.mark_finished')}</Button>
+            <Button size="sm" variant="secondary" disabled={!selectedBooks.length} onClick={() => setBatchFinished(false)}>{t('reading.mark_unfinished')}</Button>
+            <Button size="sm" variant="danger" disabled={!selectedBooks.length} icon={<Trash2 size={13} />} onClick={() => void removeSelected()}>{t('reading.remove')}</Button>
+            <IconButton label={t('common.close')} size="sm" onClick={closeSelection}><X size={14} /></IconButton>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
         <div className="min-w-[160px] flex-1 md:max-w-[280px]">
@@ -530,6 +675,24 @@ export function LibraryView() {
         zIndex={Z_INDEX.prompt}
         items={active ? menuFor(active) : []}
       />
+
+      <Menu
+        anchor={shelfMenuAt ?? { x: 0, y: 0 }}
+        open={Boolean(shelfMenuAt)}
+        onClose={() => setShelfMenuAt(null)}
+        zIndex={Z_INDEX.prompt}
+        items={shelfMenuItems}
+      />
+
+      {opdsOpen ? <OpdsImportModal onClose={() => setOpdsOpen(false)} onImport={ingest} /> : null}
+
+      {metadataBook ? (
+        <BookMetadataModal
+          book={metadataBook}
+          onClose={() => setMetadataBook(null)}
+          onSave={async (author, metadata) => { updateBookMetadata(metadataBook.id, metadata, author) }}
+        />
+      ) : null}
 
       {dragging ? (
         <div className="app-viewport-fixed pointer-events-none fixed inset-0 z-[var(--z-pinned-menu)] flex items-center justify-center bg-[var(--scrim)]">

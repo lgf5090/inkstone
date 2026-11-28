@@ -146,6 +146,8 @@ export function paintHighlights(
       }
       const span = document.createElement('span')
       span.className = 'reader-mark'
+      span.tabIndex = 0
+      span.setAttribute('role', 'button')
       const top = covering[covering.length - 1]!
       span.style.setProperty('--reader-mark', paintOf(top.highlight))
       span.dataset.hl = covering.map((one) => one.highlight.id).join(' ')

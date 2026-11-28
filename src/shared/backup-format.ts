@@ -23,6 +23,8 @@ export const BACKUP_AUTOMATION_NAME = 'automation.json'
 export const BACKUP_SUBSCRIPTIONS_NAME = 'subscriptions.json'
 
 export const BACKUP_RSS_NAME = 'rss.json'
+/** The reader shelf's state and R2 object ledger; book bytes stay in the bucket backup. */
+export const BACKUP_READER_NAME = 'reader.json'
 
 /** The music library's metadata, never its audio objects. */
 export const BACKUP_MUSIC_NAME = 'music.json'
@@ -102,6 +104,12 @@ export interface MarkdownBackupRssEntry {
   sha256: string
 }
 
+export interface MarkdownBackupReaderEntry {
+  path: string
+  bytes: number
+  sha256: string
+}
+
 export interface MarkdownBackupMusicEntry {
   path: string
   bytes: number
@@ -146,6 +154,7 @@ export interface MarkdownBackupManifest {
   /** The to-do app's tasks, lists, tags, steps, alarms, worklog, habits and their history. */
   todos?: MarkdownBackupTodosEntry
   music?: MarkdownBackupMusicEntry
+  reader?: MarkdownBackupReaderEntry
   calendar?: MarkdownBackupCalendarEntry
   email?: MarkdownBackupEmailEntry
   /** The hand-written notebook, absent from a backup taken before it existed. */
@@ -232,6 +241,15 @@ export function backupMusicPath(
   if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_MUSIC_NAME}`
   if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
   return BACKUP_MUSIC_NAME
+}
+
+export function backupReaderPath(
+  stamp: string,
+  version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
+): string {
+  if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_READER_NAME}`
+  if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
+  return BACKUP_READER_NAME
 }
 
 export function backupInknotePath(
@@ -487,6 +505,19 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     music = { path: expectedPath, bytes: value.music.bytes, sha256: value.music.sha256 }
   }
 
+  let reader: MarkdownBackupReaderEntry | undefined
+  if (value.reader !== undefined) {
+    if (!isRecord(value.reader)) return null
+    const expectedPath = backupReaderPath(value.snapshot, value.version)
+    if (
+      value.reader.path !== expectedPath ||
+      !isSafeSize(value.reader.bytes) ||
+      value.reader.bytes > LIMITS.importUploadMaxBytes ||
+      typeof value.reader.sha256 !== 'string' ||
+      !HASH_RE.test(value.reader.sha256)
+    ) return null
+    reader = { path: expectedPath, bytes: value.reader.bytes, sha256: value.reader.sha256 }
+  }
   let calendar: MarkdownBackupCalendarEntry | undefined
   if (value.calendar !== undefined) {
     if (!isRecord(value.calendar)) return null
@@ -549,6 +580,7 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     rss,
     todos,
     music,
+    reader,
     calendar,
     email,
     inknote,

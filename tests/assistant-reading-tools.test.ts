@@ -15,7 +15,7 @@ import { initializeDatabase } from '../src/worker/db/schema'
 import { AssistantStore } from '../src/worker/assistant/store'
 import { ToolExecutor, ToolError, type ToolContext } from '../src/worker/assistant/tools'
 import { READING_TOOLS } from '../src/worker/assistant/reading-tools'
-import { ReaderLibraryStore, type ShelfReplaceInput } from '../src/worker/reader/store'
+import { ReaderLibraryStore, type ShelfMergeInput } from '../src/worker/reader/store'
 import type { Env } from '../src/worker/env'
 import { lookupSelection } from '../src/client/features/reading/lookup'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -86,7 +86,8 @@ const TOC = [
 ]
 
 /** One shelf, in the shape `PUT /library` validates into. */
-function shelf(over: Partial<ShelfReplaceInput>): ShelfReplaceInput {
+function shelf(over: Partial<ShelfMergeInput>): ShelfMergeInput {
+  const empty = { ids: [], updatedAt: 0 }
   return {
     books: [],
     progress: [],
@@ -96,6 +97,10 @@ function shelf(over: Partial<ShelfReplaceInput>): ShelfReplaceInput {
     notes: [],
     vocabulary: null,
     groups: [],
+    deleted: {
+      books: empty, progress: empty, highlights: empty, marks: empty,
+      stats: empty, notes: empty, groups: empty, vocabulary: null,
+    },
     ...over,
   }
 }
@@ -142,7 +147,7 @@ beforeEach(async () => {
   conversation = await assistant.createConversation('Reading bench')
   otherAssistant = new AssistantStore(env.DB, OTHER, env)
   const library = new ReaderLibraryStore(env.DB, USER)
-  await library.replace(shelf({
+  await library.merge(shelf({
     books: [BOOK_ONE, BOOK_TWO],
     progress: [
       { bookId: BOOK_ONE.id, positionJson: JSON.stringify({ kind: 'epub', chapter: 1, offset: 40 }), fraction: 0.42, updatedAt: 1_760_200_000_000, finishedAt: null },
@@ -152,12 +157,12 @@ beforeEach(async () => {
       { id: 'hl-1', bookId: BOOK_ONE.id, chapter: 1, startOffset: 10, endOffset: 30, quote: 'The way that can be told', prefix: '', suffix: '', color: 'yellow', comment: '路的开头', createdAt: 1_760_210_000_000, updatedAt: 1_760_210_000_000 },
       { id: 'hl-2', bookId: BOOK_ONE.id, chapter: 0, startOffset: 0, endOffset: 12, quote: 'Name that can be named', prefix: '', suffix: '', color: 'blue', comment: '', createdAt: 1_760_205_000_000, updatedAt: 1_760_205_000_000 },
     ],
-    stats: [{ bookId: BOOK_ONE.id, seconds: 3600, daysJson: JSON.stringify({ '2026-11-02': 3600 }) }],
-    notes: [{ bookId: BOOK_ONE.id, noteId: 'note-reading-1' }],
+    stats: [{ bookId: BOOK_ONE.id, seconds: 3600, daysJson: JSON.stringify({ '2026-11-02': 3600 }), updatedAt: 1_760_200_000_000 }],
+    notes: [{ bookId: BOOK_ONE.id, noteId: 'note-reading-1', updatedAt: 1_760_200_000_000 }],
     groups: [{ id: 'group-favourites', name: 'Favourites', bookIds: [BOOK_ONE.id], createdAt: 1_760_000_000_000, updatedAt: 1_760_000_000_000 }],
   }))
   const other = new ReaderLibraryStore(env.DB, OTHER)
-  await other.replace(shelf({
+  await other.merge(shelf({
     books: [{ ...BOOK_ONE, id: 'book-other', title: "Someone Else's Book", filename: 'other.epub', fallbackKey: `reader/${OTHER}/book-other.epub` }],
     progress: [{ bookId: 'book-other', positionJson: 'null', fraction: 0.1, updatedAt: 1_760_400_000_000, finishedAt: null }],
   }))

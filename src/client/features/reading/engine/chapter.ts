@@ -15,7 +15,6 @@ import DOMPurify from 'dompurify'
 import type { ZipArchive } from './zip'
 import type { EpubPackage } from './epub-package'
 import { scopeCss } from './css-scope'
-import { insertSanitizedHtml } from '../../../lib/sanitized-dom'
 
 export interface ResourcePool {
   /** A loadable URL for a package member, minted once per path. */
@@ -28,6 +27,8 @@ export interface ResourcePool {
 export interface PreparedChapter {
   /** Sanitized, reference-rewritten HTML for the chapter's body. */
   html: string
+  /** A cloned node tree for direct mounting without parsing the serialized HTML again. */
+  fragment: DocumentFragment
   /** The chapter's own styles, confined to the reader container and with its files resolved. */
   css: string
   /** The first heading, which is what the contents panel and the reading note both want. */
@@ -111,6 +112,7 @@ async function rewriteReferences(
   baseDir: string,
   pool: ResourcePool,
   available: (path: string) => boolean,
+  allowExternalImages: boolean,
 ): Promise<void> {
   const pending: Promise<void>[] = []
   for (const element of Array.from(root.querySelectorAll<Element>('*'))) {
@@ -135,6 +137,8 @@ async function rewriteReferences(
         if (tag === 'a' || tag === 'area') {
           element.setAttribute('target', '_blank')
           element.setAttribute('rel', 'noopener noreferrer')
+        } else if (!allowExternalImages && /^(https?):/i.test(value)) {
+          element.removeAttribute(name)
         }
         continue
       }
@@ -201,6 +205,7 @@ async function prepareSheet(
   pool: ResourcePool,
   scope: string,
   load: (path: string) => Promise<string>,
+  allowExternalImages: boolean,
   depth = 0,
 ): Promise<string> {
   const baseDir = parentDir(path)
@@ -213,17 +218,20 @@ async function prepareSheet(
       if (isExternalOrUnsafe(target)) return null
       const imported = await load(target).catch(() => '')
       if (!imported) return null
-      return prepareSheet(target, imported, pool, scope, load, depth + 1)
+      return prepareSheet(target, imported, pool, scope, load, allowExternalImages, depth + 1)
     },
   }, path)
-  return resolveSheetUrls(scoped, pool)
+  return resolveSheetUrls(scoped, pool, allowExternalImages)
 }
 
-async function resolveSheetUrls(css: string, pool: ResourcePool): Promise<string> {
+async function resolveSheetUrls(css: string, pool: ResourcePool, allowExternalImages: boolean): Promise<string> {
   const targets = [...new Set([...css.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/gi)]
     .map((match) => match[1] ?? '')
     .filter((url) => url && !isExternalOrUnsafe(url)))]
-  if (!targets.length) return css
+  const remoteTargets = allowExternalImages ? [] : [...css.matchAll(/url\(\s*["']?(https?:[^"')]+)["']?\s*\)/gi)]
+    .map((match) => match[1] ?? '')
+    .filter(Boolean)
+  if (!targets.length && !remoteTargets.length) return css
   const urls = await Promise.all(targets.map(async (target) => {
     try {
       return [target, await pool.urlFor(target)] as const
@@ -236,6 +244,11 @@ async function resolveSheetUrls(css: string, pool: ResourcePool): Promise<string
     out = out.split(`url("${target}")`).join(`url("${url}")`)
     out = out.split(`url(${target})`).join(`url("${url}")`)
     out = out.split(`url('${target}')`).join(`url("${url}")`)
+  }
+  for (const target of remoteTargets) {
+    out = out.split(`url("${target}")`).join('url("")')
+    out = out.split(`url(${target})`).join('url("")')
+    out = out.split(`url('${target}')`).join('url("")')
   }
   return out
 }
@@ -251,6 +264,7 @@ export async function prepareChapter(
   source: ChapterSource,
   slot: number,
   scope: string,
+  options: { allowExternalImages: boolean },
 ): Promise<PreparedChapter | null> {
   const { pkg, archive, pool } = source
   const item = pkg.spine[slot]
@@ -276,30 +290,36 @@ export async function prepareChapter(
     if (seen.has(sheetPath)) continue
     seen.add(sheetPath)
     const text = await load(sheetPath).catch(() => '')
-    sheets.push(await prepareSheet(sheetPath, text, pool, scope, load))
+    sheets.push(await prepareSheet(sheetPath, text, pool, scope, load, options.allowExternalImages))
   }
   for (const style of Array.from(parsed.head?.querySelectorAll('style') ?? [])) {
-    sheets.push(await prepareSheet(`${path}#style${sheets.length}`, style.textContent ?? '', pool, scope, load))
+    sheets.push(await prepareSheet(`${path}#style${sheets.length}`, style.textContent ?? '', pool, scope, load, options.allowExternalImages))
   }
 
-  const html = DOMPurify.sanitize(parsed.body?.innerHTML ?? '', {
+  const sanitized = DOMPurify.sanitize(parsed.body?.innerHTML ?? '', {
     USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
     ALLOW_DATA_ATTR: true,
     FORBID_TAGS: ['form', 'input', 'textarea', 'button', 'select', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'style', 'script'],
     FORBID_ATTR: ['onerror', 'onload', 'formaction', 'ping'],
-  })
+    RETURN_DOM_FRAGMENT: true,
+  }) as DocumentFragment
 
   const host = document.createElement('div')
-  insertSanitizedHtml(host, html)
-  await rewriteReferences(host, baseDir, pool, (target) => pkg.byPath.has(target) || archive.has(target))
+  host.append(sanitized)
+  await rewriteReferences(host, baseDir, pool, (target) => pkg.byPath.has(target) || archive.has(target), options.allowExternalImages)
 
   const heading = host.querySelector('h1, h2, h3, h4, h5, h6')?.textContent?.trim()
     || parsed.querySelector('title')?.textContent?.trim()
     || ''
+  const html = host.innerHTML
+  const textLength = host.textContent?.length ?? 0
+  const fragment = document.createDocumentFragment()
+  fragment.append(...Array.from(host.childNodes))
   return {
-    html: host.innerHTML,
+    html,
+    fragment,
     css: sheets.join('\n'),
     heading,
-    textLength: host.textContent?.length ?? 0,
+    textLength,
   }
 }

@@ -10,50 +10,73 @@
  * per account. The export/import pair in the settings is what carries the rest across.
  */
 import { create } from 'zustand'
-// The store's own `set`/`get` are the zustand pair, so the IndexedDB one is named for what it does.
-import { createStore, del as idbRemove, get as idbGet, set as idbSet } from 'idb-keyval'
-import { CLIENT_DATABASE_NAME } from '../../../lib/runtime'
+import { del as idbRemove, get as idbGet, set as idbSet } from 'idb-keyval'
 import { randomLocalId } from '../../../lib/random-id'
 import { coverMediaType, importBook, ImportRejected } from '../engine/book-import'
 import { LIMITS, READER_COVER_TYPES } from '@shared/constants'
 import { deleteBookOnServer, downloadBookBytes, IDLE_SYNC, pullLibrary, pushLibrary, uploadBookBytes, uploadCoverBytes, type SyncState } from './cloud'
-import { createGroup, deleteGroup, groupName, normaliseGroups, pruneGroups, renameGroup, toggleBook, type BookGroup, type GroupResult } from '../book-groups'
+import { createGroup, deleteGroup, pruneGroups, renameGroup, toggleBook, type GroupResult } from '../book-groups'
+import { dayKey } from '../format-time'
+import { parseLibraryExport } from '../library-import'
 import type { ReaderUsage } from '@shared/types'
+import {
+  clearTombstone,
+  mergeRemoteLibrary,
+  tombstonePayload,
+  type LibraryDeletionEntity,
+  type LibraryDeletions,
+  type LibraryTombstone,
+} from '../sync-merge'
 import type {
   BookRecord,
-  BookStats,
   Highlight,
   ImportFailure,
   LocationMark,
-  ReadingNoteLinks,
   ReadingProgress,
 } from '../types'
+import { EMPTY, isLocalOnly, keyFor, libraryStore as store, loadLibrary, numberOr, persistLibrary, type PersistedLibrary } from './library-persistence'
 
-const store = createStore(CLIENT_DATABASE_NAME, 'kv')
-
-interface PersistedLibrary {
-  books: BookRecord[]
-  progress: Record<string, ReadingProgress>
-  highlights: Record<string, Highlight[]>
-  marks: Record<string, LocationMark[]>
-  stats: Record<string, BookStats>
-  notes: ReadingNoteLinks
-  /** The reader's own groupings of the shelf. See `book-groups.ts`. */
-  groups: BookGroup[]
+/** A local write always wins the next merge, even when two writes land in the same millisecond. */
+function nextTimestamp(previous = 0): number {
+  return Math.max(Date.now(), previous + 1)
 }
 
-const EMPTY: PersistedLibrary = {
-  books: [],
-  groups: [],
-  progress: {},
-  highlights: {},
-  marks: {},
-  stats: {},
-  notes: { byBook: {}, vocabulary: null },
+function isCurrentAccount(epoch: number, userId: string | null): boolean {
+  return accountEpoch === epoch && useLibrary.getState().userId === userId
 }
 
-function keyFor(user: string | null, suffix: string): string {
-  return user ? `user:${user}:reading:${suffix}` : `reading:${suffix}`
+function withTombstone(
+  deletions: LibraryDeletions,
+  entity: LibraryDeletionEntity,
+  id: string,
+  bookId: string,
+  updatedAt: number,
+): LibraryDeletions {
+  const rows = deletions[entity]
+  const current = rows.find((one) => one.id === id)
+  const next: LibraryTombstone[] = !current
+    ? [...rows, { id, bookId, updatedAt }]
+    : current.updatedAt >= updatedAt
+      ? rows
+      : rows.map((one) => one.id === id ? { id, bookId, updatedAt } : one)
+  return { ...deletions, [entity]: next }
+}
+
+function withoutTombstone(
+  deletions: LibraryDeletions,
+  entity: LibraryDeletionEntity | 'vocabulary',
+  id?: string,
+): LibraryDeletions {
+  return clearTombstone(deletions, entity, id)
+}
+
+function revokeCovers(covers: Record<string, string>): void {
+  if (typeof URL.revokeObjectURL !== 'function') return
+  for (const url of Object.values(covers)) URL.revokeObjectURL(url)
+}
+
+function cloudBooks(books: BookRecord[]): BookRecord[] {
+  return books.filter((book) => !isLocalOnly(book))
 }
 
 export interface LibraryState extends PersistedLibrary {
@@ -66,6 +89,7 @@ export interface LibraryState extends PersistedLibrary {
   addFiles: (files: File[]) => Promise<{ added: BookRecord[]; failed: ImportFailure[] }>
   removeBook: (id: string) => Promise<void>
   renameBook: (id: string, title: string) => void
+  updateBookMetadata: (id: string, metadata: BookRecord['metadata'], author?: string) => void
   setProgress: (progress: ReadingProgress) => void
   markFinished: (bookId: string, finished: boolean) => void
   addHighlight: (highlight: Omit<Highlight, 'id' | 'createdAt' | 'updatedAt'>) => Highlight
@@ -92,6 +116,7 @@ export interface LibraryState extends PersistedLibrary {
   syncPush: () => Promise<void>
   /** Take the server's shelf. Only ever adopted when this device has nothing of its own. */
   syncPull: () => Promise<number>
+  saveReaderSettings: (settings: Record<string, unknown>) => void
   /** Everything but the files, as text a reader can carry to another device. */
   exportLibrary: () => Promise<string>
   importLibrary: (raw: string) => Promise<{ books: number; highlights: number; rejected: number }>
@@ -100,6 +125,10 @@ export interface LibraryState extends PersistedLibrary {
 let writeTimer = 0
 let pendingUser: string | null | undefined
 let writeNow: (() => void) | null = null
+let accountEpoch = 0
+let pushInFlight: { epoch: number; promise: Promise<void> } | null = null
+let pullInFlight: { epoch: number; promise: Promise<number> } | null = null
+let initialPull: { epoch: number; promise: Promise<void> } | null = null
 
 /**
  * The write is debounced because a comment edit is one keystroke at a time, but the debounce is also a
@@ -112,7 +141,8 @@ function schedulePersist(getState: () => LibraryState): void {
     const user = pendingUser
     if (user === undefined) return
     const state = getState()
-    void persist(user, {
+    const epoch = accountEpoch
+    void persistLibrary(user, {
       books: state.books,
       progress: state.progress,
       highlights: state.highlights,
@@ -120,7 +150,10 @@ function schedulePersist(getState: () => LibraryState): void {
       stats: state.stats,
       notes: state.notes,
       groups: state.groups,
-    })
+      settings: state.settings,
+      settingsUpdatedAt: state.settingsUpdatedAt,
+      deleted: state.deleted,
+    }, () => accountEpoch === epoch && pendingUser === user)
   }
   window.clearTimeout(writeTimer)
   writeTimer = window.setTimeout(() => {
@@ -165,30 +198,16 @@ function flushPendingWrites(): void {
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', flushPendingWrites)
 }
-
-async function persist(user: string | null, data: PersistedLibrary): Promise<void> {
-  try {
-    await idbSet(keyFor(user, 'library'), data, store)
-  } catch (err) {
-    // A full device is the realistic failure, and it is the reader's to act on, not something to
-    // swallow: the next write would silently start a fresh shelf otherwise.
-    console.warn('[reading] could not save the library', err)
-  }
-}
-
-async function loadLibrary(user: string | null): Promise<PersistedLibrary> {
-  const stored = await idbGet<PersistedLibrary>(keyFor(user, 'library'), store)
-  if (!stored || typeof stored !== 'object') return { ...EMPTY }
-  return {
-    books: Array.isArray(stored.books) ? stored.books : [],
-    progress: stored.progress ?? {},
-    highlights: stored.highlights ?? {},
-    marks: stored.marks ?? {},
-    stats: stored.stats ?? {},
-    notes: { byBook: stored.notes?.byBook ?? {}, vocabulary: stored.notes?.vocabulary ?? null },
-    // A shelf written before groups existed has no key to read, which is the same as an empty one.
-    groups: normaliseGroups(stored.groups),
-  }
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return
+    const state = useLibrary.getState()
+    if (!state.userId || state.status !== 'ready') return
+    void state.syncPull().catch((err) => {
+      // The store has already put the failure on the sync line; this only prevents an unhandled rejection.
+      console.warn('[reading] background pull failed', err)
+    })
+  })
 }
 
 /**
@@ -233,10 +252,18 @@ export const useLibrary = create<LibraryState>((set, get) => {
     usage: null,
 
     async bindUser(userId) {
-      if (get().userId === userId && get().status === 'ready') return
+      const current = get()
+      if (current.userId === userId && current.status === 'ready') return
+      if (current.userId === userId && current.status === 'loading') return
+
+      const epoch = ++accountEpoch
       pendingUser = userId
-      set({ status: 'loading', userId })
+      initialPull = null
+      revokeCovers(current.covers)
+      set({ status: 'loading', userId, covers: {}, sync: { ...IDLE_SYNC } })
       const data = await loadLibrary(userId)
+      if (!isCurrentAccount(epoch, userId)) return
+
       const covers: Record<string, string> = {}
       await Promise.all(data.books.map(async (book) => {
         const key = keyFor(userId, `cover:${book.id}`)
@@ -255,42 +282,70 @@ export const useLibrary = create<LibraryState>((set, get) => {
         }
         covers[book.id] = URL.createObjectURL(blob)
       }))
-      set({ ...data, covers, status: 'ready' })
-      // A second device or a cleared browser has nothing to lose by adopting the shelf, and everything
-      // to gain. A device that already has books keeps them: its next write pushes its own state up.
-      if (!data.books.length) {
-        try {
-          await get().syncPull()
-        } catch {
-          // The shelf's sync line carries the reason; a blank shelf is still usable offline.
-        }
+      if (!isCurrentAccount(epoch, userId)) {
+        revokeCovers(covers)
+        return
       }
+      set({ ...data, covers, status: 'ready' })
+
+      // Every device pulls once after its local shelf is painted, not only an empty one. The first push
+      // waits for this exchange so an offline empty shelf can never erase a populated cloud shelf.
+      const pull = get().syncPull()
+      const entry = {
+        epoch,
+        promise: pull.then(() => undefined, () => undefined).finally(() => {
+          if (initialPull?.epoch === epoch) initialPull = null
+        }),
+      }
+      initialPull = entry
     },
 
     async addFiles(files) {
       const added: BookRecord[] = []
       const failed: ImportFailure[] = []
       const userId = get().userId
+      const epoch = accountEpoch
       const known = new Set(get().books.map((book) => book.id))
       for (const file of files) {
         try {
           const imported = await importBook(file)
+          if (!isCurrentAccount(epoch, userId)) return { added, failed }
           const id = identityOf({ filename: imported.record.filename, size: imported.record.size })
           if (known.has(id)) {
             failed.push({ filename: file.name, reason: 'duplicate' })
             continue
           }
-          const record = { ...imported.record, id }
+          const contentHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(imported.bytes).buffer)))
+            .map((byte) => byte.toString(16).padStart(2, '0')).join('')
+          if (get().books.some((book) => book.contentHash === contentHash)) {
+            failed.push({ filename: file.name, reason: 'duplicate' })
+            continue
+          }
+          const tombstone = get().deleted.books.find((one) => one.id === id)
+          const record = { ...imported.record, id, contentHash, updatedAt: nextTimestamp(tombstone?.updatedAt), localOnly: false }
           known.add(id)
-          await idbSet(keyFor(userId, `book:${id}`), new Blob([imported.bytes as unknown as BlobPart]), store)
+          try {
+            await idbSet(keyFor(userId, `book:${id}`), new Blob([imported.bytes as unknown as BlobPart]), store)
+          } catch {
+            throw new ImportRejected('storage')
+          }
+          if (!isCurrentAccount(epoch, userId)) return { added, failed }
           const coverBlob = imported.cover
             ? new Blob([imported.cover as unknown as BlobPart], { type: imported.coverType })
             : null
           if (coverBlob) {
-            await idbSet(keyFor(userId, `cover:${id}`), coverBlob, store)
+            try {
+              await idbSet(keyFor(userId, `cover:${id}`), coverBlob, store)
+            } catch {
+              throw new ImportRejected('storage')
+            }
+            if (!isCurrentAccount(epoch, userId)) return { added, failed }
             set((state) => ({ covers: { ...state.covers, [id]: URL.createObjectURL(coverBlob) } }))
           }
-          set((state) => ({ books: [record, ...state.books] }))
+          set((state) => ({
+            books: [record, ...state.books],
+            deleted: withoutTombstone(state.deleted, 'books', id),
+          }))
           added.push(record)
           if (userId) {
             // The row has to exist server-side before its bytes can be put, so the state goes up first
@@ -298,19 +353,21 @@ export const useLibrary = create<LibraryState>((set, get) => {
             set({ sync: { ...IDLE_SYNC, phase: 'uploading', bookId: id, total: record.size } })
             try {
               const now = get()
-              await pushLibrary({
-                books: now.books, progress: now.progress, highlights: now.highlights,
+              const pushed = await pushLibrary({
+                books: cloudBooks(now.books), progress: now.progress, highlights: now.highlights,
                 marks: now.marks, stats: now.stats, notes: now.notes, groups: now.groups,
+                deleted: tombstonePayload(now.deleted),
               })
+              if (!isCurrentAccount(epoch, userId)) return { added, failed }
               await uploadBookBytes(record, new Blob([imported.bytes as unknown as BlobPart]), (sent, total) => {
-                set((state) => ({ sync: { ...state.sync, sent, total } }))
+                if (isCurrentAccount(epoch, userId)) set((state) => ({ sync: { ...state.sync, sent, total } }))
               })
               // The cover goes up too, so the shelf on another device is a shelf of covers and not of
               // placeholders — reading it out of the archive there would cost the whole book.
               if (coverBlob && isUploadableCover(coverBlob.type)) await uploadCoverBytes(id, coverBlob)
-              set({ sync: { ...IDLE_SYNC, at: Date.now() } })
+              set({ sync: { ...IDLE_SYNC, at: Date.now() }, usage: pushed.usage ?? get().usage })
             } catch (err) {
-              set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
+              if (isCurrentAccount(epoch, userId)) set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
             }
           }
         } catch (err) {
@@ -323,14 +380,27 @@ export const useLibrary = create<LibraryState>((set, get) => {
     },
 
     async removeBook(id) {
-      const userId = get().userId
-      const url = get().covers[id]
+      const before = get()
+      const userId = before.userId
+      const epoch = accountEpoch
+      const url = before.covers[id]
       if (url) URL.revokeObjectURL(url)
+      const versions = [
+        before.books.find((book) => book.id === id)?.updatedAt ?? 0,
+        before.progress[id]?.updatedAt ?? 0,
+        ...(before.highlights[id] ?? []).map((one) => one.updatedAt ?? one.createdAt),
+        ...(before.marks[id] ?? []).map((one) => one.updatedAt ?? one.createdAt),
+        before.stats[id]?.updatedAt ?? 0,
+        before.notes.updatedAt[id] ?? 0,
+      ]
+      const deletedAt = nextTimestamp(versions.reduce((latest, one) => Math.max(latest, numberOr(one)), 0))
       // Evicting this device's cached bytes. The shelf itself is dropped from state below and persisted
       // with it, so the book is gone from the reader's library whatever these two writes answer; a failed
       // eviction leaves bytes in the cache under a key nothing reads any more.
       await idbRemove(keyFor(userId, `book:${id}`), store).catch(() => {})
+      if (!isCurrentAccount(epoch, userId)) return
       await idbRemove(keyFor(userId, `cover:${id}`), store).catch(() => {})
+      if (!isCurrentAccount(epoch, userId)) return
       set((state) => {
         const covers = { ...state.covers }
         delete covers[id]
@@ -339,12 +409,24 @@ export const useLibrary = create<LibraryState>((set, get) => {
         const marks = { ...state.marks }
         const stats = { ...state.stats }
         const byBook = { ...state.notes.byBook }
+        const noteTimes = { ...state.notes.updatedAt }
         delete progress[id]
         delete highlights[id]
         delete marks[id]
         delete stats[id]
         delete byBook[id]
+        delete noteTimes[id]
         const surviving = new Set(state.books.filter((book) => book.id !== id).map((book) => book.id))
+        let deleted = withTombstone(state.deleted, 'books', id, '', deletedAt)
+        deleted = withTombstone(deleted, 'progress', id, id, deletedAt)
+        deleted = withTombstone(deleted, 'stats', id, id, deletedAt)
+        deleted = withTombstone(deleted, 'notes', id, id, deletedAt)
+        for (const highlight of state.highlights[id] ?? []) {
+          deleted = withTombstone(deleted, 'highlights', highlight.id, id, deletedAt)
+        }
+        for (const mark of state.marks[id] ?? []) {
+          deleted = withTombstone(deleted, 'marks', mark.id, id, deletedAt)
+        }
         return {
           books: state.books.filter((book) => book.id !== id),
           groups: pruneGroups(state.groups, surviving),
@@ -353,36 +435,61 @@ export const useLibrary = create<LibraryState>((set, get) => {
           highlights,
           marks,
           stats,
-          notes: { ...state.notes, byBook },
+          notes: { ...state.notes, byBook, updatedAt: noteTimes },
+          deleted,
         }
       })
-      // The server copy goes with it. A failure is reported by the next push, which re-sends the shelf
-      // without this book anyway. Checked rather than assumed: the shelf store's `replace()` clears the
-      // user's rows and re-inserts only what the payload holds, so the row this call did not remove is
-      // taken out by that push, and the book cannot arrive back on a pull.
-      void deleteBookOnServer(id).catch(() => {})
+      // The row and bytes still go away server-side when the request succeeds, but the tombstone above
+      // is the durable deletion signal: a failed or offline DELETE cannot let an older pull revive it.
+      void deleteBookOnServer(id).catch((err) => {
+        console.warn('[reading] could not delete the server copy', err)
+      })
       schedulePersist(get)
     },
 
     renameBook(id, title) {
-      set((state) => ({ books: state.books.map((book) => (book.id === id ? { ...book, title } : book)) }))
+      set((state) => ({
+        books: state.books.map((book) => book.id === id
+          ? { ...book, title, updatedAt: nextTimestamp(book.updatedAt) }
+          : book),
+        deleted: withoutTombstone(state.deleted, 'books', id),
+      }))
+      schedulePersist(get)
+    },
+
+    updateBookMetadata(id, metadata, author) {
+      set((state) => ({
+        books: state.books.map((book) => book.id === id ? { ...book, author: author ?? book.author, metadata, updatedAt: nextTimestamp(book.updatedAt) } : book),
+      }))
       schedulePersist(get)
     },
 
     setProgress(progress) {
-      set((state) => ({ progress: { ...state.progress, [progress.bookId]: progress } }))
+      set((state) => {
+        const previous = state.progress[progress.bookId]
+        const updatedAt = Math.max(numberOr(progress.updatedAt), nextTimestamp(previous?.updatedAt))
+        return {
+          progress: { ...state.progress, [progress.bookId]: {
+            ...progress,
+            updatedAt,
+            finishedAt: progress.fraction >= 1 ? previous?.finishedAt ?? updatedAt : previous?.finishedAt ?? null,
+          } },
+          deleted: withoutTombstone(state.deleted, 'progress', progress.bookId),
+        }
+      })
       schedulePersist(get)
     },
 
     markFinished(bookId, finished) {
       set((state) => {
         const current = state.progress[bookId]
-        if (!current) return {}
+        const updatedAt = nextTimestamp(current?.updatedAt)
+        const progress: ReadingProgress = current
+          ? { ...current, finishedAt: finished ? updatedAt : null, updatedAt }
+          : { bookId, position: null, fraction: finished ? 1 : 0, updatedAt, finishedAt: finished ? updatedAt : null }
         return {
-          progress: {
-            ...state.progress,
-            [bookId]: { ...current, finishedAt: finished ? Date.now() : null },
-          },
+          progress: { ...state.progress, [bookId]: progress },
+          deleted: withoutTombstone(state.deleted, 'progress', bookId),
         }
       })
       schedulePersist(get)
@@ -393,7 +500,10 @@ export const useLibrary = create<LibraryState>((set, get) => {
       const created: Highlight = { ...highlight, id: randomLocalId('hl'), createdAt: now, updatedAt: now }
       set((state) => {
         const existing = state.highlights[created.bookId] ?? []
-        return { highlights: { ...state.highlights, [created.bookId]: [...existing, created] } }
+        return {
+          highlights: { ...state.highlights, [created.bookId]: [...existing, created] },
+          deleted: withoutTombstone(state.deleted, 'highlights', created.id),
+        }
       })
       schedulePersist(get)
       return created
@@ -404,37 +514,50 @@ export const useLibrary = create<LibraryState>((set, get) => {
         highlights: {
           ...state.highlights,
           [bookId]: (state.highlights[bookId] ?? []).map((one) => (
-            one.id === id ? { ...one, ...patch, updatedAt: Date.now() } : one
+            one.id === id ? { ...one, ...patch, updatedAt: nextTimestamp(one.updatedAt) } : one
           )),
         },
+        deleted: withoutTombstone(state.deleted, 'highlights', id),
       }))
       schedulePersist(get)
     },
 
     removeHighlight(bookId, id) {
+      const previous = get().highlights[bookId]?.find((one) => one.id === id)
+      const deletedAt = nextTimestamp(previous?.updatedAt ?? previous?.createdAt)
       set((state) => ({
         highlights: { ...state.highlights, [bookId]: (state.highlights[bookId] ?? []).filter((one) => one.id !== id) },
+        deleted: withTombstone(state.deleted, 'highlights', id, bookId, deletedAt),
       }))
       schedulePersist(get)
     },
 
     addMark(mark) {
       const now = Date.now()
-      const created: LocationMark = { ...mark, id: randomLocalId('mark'), createdAt: now }
-      set((state) => ({ marks: { ...state.marks, [mark.bookId]: [...(state.marks[mark.bookId] ?? []), created] } }))
+      const created: LocationMark = { ...mark, id: randomLocalId('mark'), createdAt: now, updatedAt: now }
+      set((state) => ({
+        marks: { ...state.marks, [mark.bookId]: [...(state.marks[mark.bookId] ?? []), created] },
+        deleted: withoutTombstone(state.deleted, 'marks', created.id),
+      }))
       schedulePersist(get)
     },
 
     removeMark(bookId, id) {
-      set((state) => ({ marks: { ...state.marks, [bookId]: (state.marks[bookId] ?? []).filter((one) => one.id !== id) } }))
+      const previous = get().marks[bookId]?.find((one) => one.id === id)
+      const deletedAt = nextTimestamp(previous?.updatedAt ?? previous?.createdAt)
+      set((state) => ({
+        marks: { ...state.marks, [bookId]: (state.marks[bookId] ?? []).filter((one) => one.id !== id) },
+        deleted: withTombstone(state.deleted, 'marks', id, bookId, deletedAt),
+      }))
       schedulePersist(get)
     },
 
     recordSeconds(bookId, seconds) {
       if (seconds <= 0) return
-      const day = new Date().toISOString().slice(0, 10)
+      const day = dayKey()
       set((state) => {
-        const current = state.stats[bookId] ?? { bookId, seconds: 0, days: {} }
+        const current = state.stats[bookId] ?? { bookId, seconds: 0, days: {}, updatedAt: 0 }
+        const updatedAt = nextTimestamp(current.updatedAt)
         return {
           stats: {
             ...state.stats,
@@ -442,8 +565,10 @@ export const useLibrary = create<LibraryState>((set, get) => {
               bookId,
               seconds: current.seconds + seconds,
               days: { ...current.days, [day]: (current.days[day] ?? 0) + seconds },
+              updatedAt,
             },
           },
+          deleted: withoutTombstone(state.deleted, 'stats', bookId),
         }
       })
       schedulePersist(get)
@@ -452,15 +577,37 @@ export const useLibrary = create<LibraryState>((set, get) => {
     linkNote(bookId, noteId) {
       set((state) => {
         const byBook = { ...state.notes.byBook }
-        if (noteId) byBook[bookId] = noteId
-        else delete byBook[bookId]
-        return { notes: { ...state.notes, byBook } }
+        const updatedAt = { ...state.notes.updatedAt }
+        const changedAt = nextTimestamp(updatedAt[bookId])
+        let deleted = state.deleted
+        if (noteId) {
+          byBook[bookId] = noteId
+          updatedAt[bookId] = changedAt
+          deleted = withoutTombstone(deleted, 'notes', bookId)
+        } else {
+          delete byBook[bookId]
+          delete updatedAt[bookId]
+          deleted = withTombstone(deleted, 'notes', bookId, bookId, changedAt)
+        }
+        return { notes: { ...state.notes, byBook, updatedAt }, deleted }
       })
       schedulePersist(get)
     },
 
     linkVocabulary(noteId) {
-      set((state) => ({ notes: { ...state.notes, vocabulary: noteId } }))
+      set((state) => {
+        const updatedAt = nextTimestamp(state.notes.vocabularyUpdatedAt ?? 0)
+        return {
+          notes: {
+            ...state.notes,
+            vocabulary: noteId,
+            vocabularyUpdatedAt: noteId ? updatedAt : null,
+          },
+          deleted: noteId
+            ? withoutTombstone(state.deleted, 'vocabulary')
+            : { ...state.deleted, vocabulary: { deleted: true, updatedAt } },
+        }
+      })
       schedulePersist(get)
     },
 
@@ -470,7 +617,11 @@ export const useLibrary = create<LibraryState>((set, get) => {
     addGroup(name) {
       const answer = createGroup(get().groups, name)
       if (answer.ok) {
-        set({ groups: answer.groups })
+        const created = answer.groups[answer.groups.length - 1]!
+        set((state) => ({
+          groups: answer.groups,
+          deleted: withoutTombstone(state.deleted, 'groups', created.id),
+        }))
         schedulePersist(get)
       }
       return answer
@@ -479,75 +630,143 @@ export const useLibrary = create<LibraryState>((set, get) => {
     renameGroup(id, name) {
       const answer = renameGroup(get().groups, id, name)
       if (answer.ok) {
-        set({ groups: answer.groups })
+        set((state) => ({
+          groups: answer.groups.map((group) => group.id === id
+            ? { ...group, updatedAt: nextTimestamp(group.updatedAt) }
+            : group),
+          deleted: withoutTombstone(state.deleted, 'groups', id),
+        }))
         schedulePersist(get)
       }
       return answer
     },
 
     dropGroup(id) {
-      set({ groups: deleteGroup(get().groups, id) })
+      const previous = get().groups.find((group) => group.id === id)
+      const deletedAt = nextTimestamp(previous?.updatedAt)
+      set((state) => ({
+        groups: deleteGroup(state.groups, id),
+        deleted: withTombstone(state.deleted, 'groups', id, '', deletedAt),
+      }))
       schedulePersist(get)
     },
 
     moveBook(id, bookId) {
       const answer = toggleBook(get().groups, id, bookId)
       if (answer.ok) {
-        set({ groups: answer.groups })
+        set((state) => ({
+          groups: answer.groups.map((group) => group.id === id
+            ? { ...group, updatedAt: nextTimestamp(group.updatedAt) }
+            : group),
+          deleted: withoutTombstone(state.deleted, 'groups', id),
+        }))
         schedulePersist(get)
       }
       return answer
     },
 
-    async syncPush() {
-      const state = get()
-      if (!state.userId) return
-      set({ sync: { ...state.sync, phase: 'pushing', message: null } })
-      try {
-        const answer = await pushLibrary({
-          books: state.books,
-          progress: state.progress,
-          highlights: state.highlights,
-          marks: state.marks,
-          stats: state.stats,
-          notes: state.notes,
-          groups: state.groups,
-        })
-        // The server says which files it never received: a shelf that predates the sync, or a book whose
-        // upload failed while the reader was offline, catches up here rather than staying local forever.
-        await uploadMissingFiles(get, answer.missingBlobs, answer.missingCovers)
-        set({ sync: { ...IDLE_SYNC, at: answer.at }, usage: answer.usage ?? get().usage })
-      } catch (err) {
-        set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
-      }
+    syncPush() {
+      const epoch = accountEpoch
+      const userId = get().userId
+      if (!userId) return Promise.resolve()
+      const waitForInitialPull = initialPull
+      return (async () => {
+        if (waitForInitialPull?.epoch === epoch) await waitForInitialPull.promise
+        if (!isCurrentAccount(epoch, userId)) return
+        const existing = pushInFlight
+        if (existing?.epoch === epoch) return existing.promise
+
+        const task = (async () => {
+          set({ sync: { ...get().sync, phase: 'pushing', message: null } })
+          try {
+            const state = get()
+            const answer = await pushLibrary({
+              books: cloudBooks(state.books),
+              progress: state.progress,
+              highlights: state.highlights,
+              marks: state.marks,
+              stats: state.stats,
+              notes: state.notes,
+              groups: state.groups,
+              settings: state.settings,
+              settingsUpdatedAt: state.settingsUpdatedAt,
+              deleted: tombstonePayload(state.deleted),
+            })
+            if (!isCurrentAccount(epoch, userId)) return
+            // The server says which files it never received: a shelf that predates the sync, or a book whose
+            // upload failed while the reader was offline, catches up here rather than staying local forever.
+            await uploadMissingFiles(get, answer.missingBlobs, answer.missingCovers, epoch, userId)
+            if (!isCurrentAccount(epoch, userId)) return
+            set({ sync: { ...IDLE_SYNC, at: answer.at }, usage: answer.usage ?? get().usage })
+          } catch (err) {
+            if (isCurrentAccount(epoch, userId)) {
+              set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
+            }
+          }
+        })()
+        const entry = { epoch, promise: task }
+        pushInFlight = entry
+        const clear = () => {
+          if (pushInFlight === entry) pushInFlight = null
+        }
+        void task.then(clear, clear)
+        return task
+      })()
     },
 
-    async syncPull() {
-      const state = get()
-      if (!state.userId) return 0
-      set({ sync: { ...state.sync, phase: 'pulling', message: null } })
-      try {
-        const pulled = await pullLibrary()
-        const library = pulled.library
-        if (!library) throw new Error('The server sent no shelf')
-        set({ usage: pulled.usage })
-        const books = Array.isArray(library.books) ? library.books : []
-        set({
-          books,
-          progress: library.progress ?? {},
-          highlights: library.highlights ?? {},
-          marks: library.marks ?? {},
-          stats: library.stats ?? {},
-          notes: { byBook: library.notes?.byBook ?? {}, vocabulary: library.notes?.vocabulary ?? null },
-          groups: normaliseGroups(library.groups),
-          sync: { ...IDLE_SYNC, at: Date.now() },
-        })
-        schedulePersist(get)
-        return books.length
-      } catch (err) {
-        set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
-        throw err
+    syncPull() {
+      const epoch = accountEpoch
+      const userId = get().userId
+      if (!userId) return Promise.resolve(0)
+      const existing = pullInFlight
+      if (existing?.epoch === epoch) return existing.promise
+
+      const task = (async () => {
+        set({ sync: { ...get().sync, phase: 'pulling', message: null } })
+        try {
+          const pulled = await pullLibrary()
+          if (!isCurrentAccount(epoch, userId)) return 0
+          const library = pulled.library
+          if (!library) throw new Error('The server sent no shelf')
+          const current = get()
+          const merged = mergeRemoteLibrary({
+            books: current.books,
+            progress: current.progress,
+            highlights: current.highlights,
+            marks: current.marks,
+            stats: current.stats,
+            notes: current.notes,
+            groups: current.groups,
+            deleted: current.deleted,
+          }, library)
+          const surviving = new Set(merged.books.map((book) => book.id))
+          for (const book of current.books) {
+            if (surviving.has(book.id)) continue
+            const url = current.covers[book.id]
+            if (url) URL.revokeObjectURL(url)
+          }
+          const covers = Object.fromEntries(Object.entries(current.covers).filter(([id]) => surviving.has(id)))
+          set({ ...merged, covers, usage: pulled.usage, sync: { ...IDLE_SYNC, at: Date.now() } })
+          await persistLibrary(userId, merged, () => isCurrentAccount(epoch, userId))
+          return merged.books.length
+        } catch (err) {
+          if (!isCurrentAccount(epoch, userId)) return 0
+          set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
+          throw err
+        }
+      })()
+      const entry = { epoch, promise: task }
+      pullInFlight = entry
+      const clear = () => {
+        if (pullInFlight === entry) pullInFlight = null
       }
+      void task.then(clear, clear)
+      return task
+    },
+
+    saveReaderSettings(settings) {
+      set((state) => ({ settings, settingsUpdatedAt: nextTimestamp(state.settingsUpdatedAt) }))
+      schedulePersist(get)
     },
 
     async exportLibrary() {
@@ -562,67 +781,38 @@ export const useLibrary = create<LibraryState>((set, get) => {
         stats: state.stats,
         notes: state.notes,
         groups: state.groups,
+        settings: state.settings,
+        settingsUpdatedAt: state.settingsUpdatedAt,
+        deleted: state.deleted,
       }, null, 2)
     },
 
     async importLibrary(raw) {
-      const parsed = JSON.parse(raw) as Partial<PersistedLibrary>
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.books)) {
-        throw new Error('This file is not a reading-library export')
-      }
-      // The file is a stranger's JSON that later decides which engine reads a book and what the shelf
-      // paints, so every field the app trusts is checked rather than copied.
-      const wanted = parsed.books.filter((book) => isRecord(book)
-        && typeof book.id === 'string' && book.id.length > 0 && book.id.length <= 200
-        && typeof book.title === 'string'
-        && ['epub', 'pdf', 'cbz'].includes(book.format as string)
-        && typeof book.unitCount === 'number' && Number.isFinite(book.unitCount))
-        .map((book) => ({ ...book, toc: Array.isArray(book.toc) ? book.toc.filter(isRecord) : [] }))
-      const rejected = parsed.books.length - wanted.length
-      parsed.books = wanted
+      const { data: incoming, rejected } = parseLibraryExport(raw)
       const state = get()
-      const byId = new Map(state.books.map((book) => [book.id, book]))
-      for (const book of parsed.books) {
-        if (!byId.has(book.id)) byId.set(book.id, book)
-      }
-      const merged: PersistedLibrary = {
-        books: [...byId.values()].sort((a, b) => b.addedAt - a.addedAt),
-        groups: mergeGroups(state.groups, normaliseGroups(parsed.groups)),
-        progress: { ...parsed.progress, ...state.progress },
-        highlights: { ...state.highlights },
-        marks: { ...state.marks },
-        stats: { ...state.stats },
-        notes: { byBook: { ...parsed.notes?.byBook, ...state.notes.byBook }, vocabulary: state.notes.vocabulary ?? parsed.notes?.vocabulary ?? null },
-      }
-      for (const [bookId, list] of Object.entries(parsed.highlights ?? {})) {
-        const seen = new Map((merged.highlights[bookId] ?? []).map((one) => [one.id, one]))
-        for (const highlight of list) if (!seen.has(highlight.id)) seen.set(highlight.id, highlight)
-        merged.highlights[bookId] = [...seen.values()]
-      }
-      for (const [bookId, list] of Object.entries(parsed.marks ?? {})) {
-        const seen = new Map((merged.marks[bookId] ?? []).map((one) => [one.id, one]))
-        for (const mark of list) if (!seen.has(mark.id)) seen.set(mark.id, mark)
-        merged.marks[bookId] = [...seen.values()]
-      }
-      for (const [bookId, value] of Object.entries(parsed.stats ?? {})) {
-        const current = merged.stats[bookId]
-        merged.stats[bookId] = !current || current.seconds < value.seconds ? value : current
-      }
+      // Import is the same id-versioned merge as a pull, including explicit deletion tombstones.
+      const merged = mergeRemoteLibrary({
+        books: state.books,
+        progress: state.progress,
+        highlights: state.highlights,
+        marks: state.marks,
+        stats: state.stats,
+        notes: state.notes,
+        groups: state.groups,
+        settings: state.settings,
+        settingsUpdatedAt: state.settingsUpdatedAt,
+        deleted: state.deleted,
+      }, incoming)
       set(merged)
       schedulePersist(get)
       return {
-        books: parsed.books.length,
+        books: incoming.books.length,
         highlights: Object.values(merged.highlights).reduce((total, list) => total + list.length, 0),
         rejected,
       }
     },
   }
 })
-
-/** A JSON value that can be indexed as an object rather than an array or a primitive. */
-function isRecord(value: unknown): value is Record<string, never> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 /**
  * The bytes of a book's file: this device's copy if it has one, the server's otherwise.
@@ -631,23 +821,26 @@ function isRecord(value: unknown): value is Record<string, never> {
  * not fetched here sees a bar move rather than a spinner that never explains itself.
  */
 export async function readBookBlob(userId: string | null, bookId: string): Promise<Blob | null> {
+  const epoch = accountEpoch
   const local = await idbGet<Blob>(keyFor(userId, `book:${bookId}`), store)
   if (local) return local
-  if (!userId) return null
+  if (!userId || !isCurrentAccount(epoch, userId)) return null
   const before = useLibrary.getState().sync
   setSync({ ...IDLE_SYNC, phase: 'downloading', bookId, at: before.at })
   try {
     const blob = await downloadBookBytes(bookId, (sent, total) => {
-      setSync({ ...IDLE_SYNC, phase: 'downloading', bookId, sent, total, at: before.at })
+      if (isCurrentAccount(epoch, userId)) setSync({ ...IDLE_SYNC, phase: 'downloading', bookId, sent, total, at: before.at })
     })
+    if (!isCurrentAccount(epoch, userId)) return blob
     // Caching what the caller already has in hand. The blob is returned from this function either way, so
     // the read the reader asked for is complete; what a failed write costs is the offline copy, and the
     // next open of this book asks the server again.
     await idbSet(keyFor(userId, `book:${bookId}`), blob, store).catch(() => {})
+    if (!isCurrentAccount(epoch, userId)) return blob
     setSync({ ...IDLE_SYNC, at: Date.now() })
     return blob
   } catch (err) {
-    setSync({ ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) })
+    if (isCurrentAccount(epoch, userId)) setSync({ ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) })
     throw err
   }
 }
@@ -655,30 +848,6 @@ export async function readBookBlob(userId: string | null, bookId: string): Promi
 /** A tiny seam so the free function above can report through the store without a circular import. */
 function setSync(sync: SyncState): void {
   useLibrary.setState({ sync })
-}
-
-/**
- * Both sides' groups, by name.
- *
- * An import file and this device can each hold a group of the same name with different members, and the
- * reader who sent the file means the union of them — a group is a list of books, none lost by joining.
- */
-function mergeGroups(local: BookGroup[], incoming: BookGroup[]): BookGroup[] {
-  const byName = new Map(local.map((one) => [groupName(one.name).toLowerCase(), one]))
-  for (const one of incoming) {
-    const key = groupName(one.name).toLowerCase()
-    const mine = byName.get(key)
-    if (!mine) {
-      byName.set(key, one)
-      continue
-    }
-    byName.set(key, {
-      ...mine,
-      bookIds: [...new Set([...mine.bookIds, ...one.bookIds])],
-      updatedAt: Math.max(mine.updatedAt, one.updatedAt),
-    })
-  }
-  return [...byName.values()]
 }
 
 /** A GIF or AVIF comic frame stays on the device: the cloud keeps only the types the route accepts. */
@@ -692,23 +861,31 @@ function isUploadableCover(type: string): boolean {
  * A shelf of ten books should not fill the reader's uplink and stall the page, and a device that does not
  * hold the file either is not a failure — another one will bring it, and the row already exists.
  */
-async function uploadMissingFiles(getState: () => LibraryState, bookIds: string[], coverIds: string[]): Promise<void> {
+async function uploadMissingFiles(
+  getState: () => LibraryState,
+  bookIds: string[],
+  coverIds: string[],
+  epoch: number,
+  userId: string,
+): Promise<void> {
   for (const id of bookIds) {
+    if (!isCurrentAccount(epoch, userId)) return
     const state = getState()
     const book = state.books.find((one) => one.id === id)
-    if (!book || !state.userId) continue
-    const blob = await idbGet<Blob>(keyFor(state.userId, `book:${id}`), store)
-    if (!blob) continue
+    if (!book || state.userId !== userId || isLocalOnly(book)) continue
+    const blob = await idbGet<Blob>(keyFor(userId, `book:${id}`), store)
+    if (!blob || !isCurrentAccount(epoch, userId)) continue
     setSync({ ...IDLE_SYNC, phase: 'uploading', bookId: id, total: book.size || blob.size })
     await uploadBookBytes(book, blob, (sent, total) => {
-      setSync({ ...IDLE_SYNC, phase: 'uploading', bookId: id, sent, total })
+      if (isCurrentAccount(epoch, userId)) {
+        setSync({ ...IDLE_SYNC, phase: 'uploading', bookId: id, sent, total })
+      }
     })
   }
   for (const id of coverIds) {
-    const state = getState()
-    if (!state.userId) continue
-    const cover = await idbGet<Blob>(keyFor(state.userId, `cover:${id}`), store)
-    if (!cover || !isUploadableCover(cover.type)) continue
+    if (!isCurrentAccount(epoch, userId)) return
+    const cover = await idbGet<Blob>(keyFor(userId, `cover:${id}`), store)
+    if (!cover || !isUploadableCover(cover.type) || !isCurrentAccount(epoch, userId)) continue
     setSync({ ...IDLE_SYNC, phase: 'uploading', bookId: id, total: cover.size })
     await uploadCoverBytes(id, cover)
   }

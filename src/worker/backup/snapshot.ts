@@ -7,6 +7,7 @@ import {
   backupManifestPath,
   backupCalendarPath,
   backupMusicPath,
+  backupReaderPath,
   backupInknotePath,
   backupSubscriptionsPath,
   backupRssPath,
@@ -38,6 +39,7 @@ import { readBackupQuickAdd } from './quickadd'
 import { readBackupSubscriptions } from '../subscriptions/backup'
 import { readBackupTodos } from '../todos/backup'
 import { readBackupMusic } from '../music/backup'
+import { readBackupReader } from '../reader/backup'
 import { readBackupInknote } from '../inknote/backup'
 import { readBackupCalendar } from '../calendar/backup'
 import { readBackupEmail } from '../email/backup'
@@ -50,7 +52,7 @@ import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { safeAttachmentMime } from '../lib/image'
 
-export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'rss' | 'todos' | 'music' | 'calendar' | 'email' | 'email-attachment' | 'email-raw-mime' | 'inknote'
+export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'rss' | 'todos' | 'music' | 'reader' | 'calendar' | 'email' | 'email-attachment' | 'email-raw-mime' | 'inknote'
 
 export interface BackupFile {
   path: string
@@ -386,6 +388,15 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
       'application/json; charset=utf-8',
       'inknote',
     )
+  const readerText = includeAuxiliary ? await readBackupReader(env.DB, userId) : null
+  const readerFile = readerText === null
+    ? null
+    : await staticFile(
+      backupReaderPath(stamp),
+      readerText,
+      'application/json; charset=utf-8',
+      'reader',
+    )
   const calendarText = includeAuxiliary ? await readBackupCalendar(env.DB, userId) : null
   const calendarFile = calendarText === null
     ? null
@@ -434,6 +445,9 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
     music: musicFile
       ? { path: musicFile.path, bytes: musicFile.byteLength, sha256: musicFile.sha256 }
       : undefined,
+    reader: readerFile
+      ? { path: readerFile.path, bytes: readerFile.byteLength, sha256: readerFile.sha256 }
+      : undefined,
     calendar: calendarFile
       ? { path: calendarFile.path, bytes: calendarFile.byteLength, sha256: calendarFile.sha256 }
       : undefined,
@@ -477,6 +491,7 @@ export async function buildSnapshot(env: Env, userId: string, options: SnapshotO
     ...(rssFile ? [rssFile] : []),
     ...(todosFile ? [todosFile] : []),
     ...(musicFile ? [musicFile] : []),
+    ...(readerFile ? [readerFile] : []),
     ...(calendarFile ? [calendarFile] : []),
     ...(inknoteFile ? [inknoteFile] : []),
     ...(emailFile ? [emailFile] : []),

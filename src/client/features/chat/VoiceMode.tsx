@@ -27,7 +27,7 @@ import { useAssistant } from './assistant-store'
 import { modelOptionLabel } from './assistant-settings-shared'
 import { sendForAnswerDetailed } from './editor-ai'
 import { saveReplyAsNote } from './save-to-note'
-import { speak, stopSpeaking } from './speech'
+import { speak, stopSpeaking } from '../../lib/speech'
 import { speechRecognitionCtor, voiceBlocker, voiceBlockerReason } from './voice-engine'
 import { VoiceTurnController } from './voice-turn'
 import {

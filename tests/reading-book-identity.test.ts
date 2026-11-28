@@ -49,7 +49,7 @@ beforeEach(() => {
   kv.data.clear()
   URL.createObjectURL = vi.fn(() => 'blob:reading/cover')
   URL.revokeObjectURL = vi.fn()
-  useLibrary.setState({ userId: '', books: [], progress: {}, highlights: {}, marks: {}, stats: {}, notes: { byBook: {}, vocabulary: null }, groups: [] })
+  useLibrary.setState({ userId: '', books: [], progress: {}, highlights: {}, marks: {}, stats: {}, notes: { byBook: {}, updatedAt: {}, vocabulary: null, vocabularyUpdatedAt: null }, groups: [], deleted: { books: [], progress: [], highlights: [], marks: [], stats: [], notes: [], groups: [], vocabulary: null } })
 })
 
 describe('the id a dropped file gets', () => {

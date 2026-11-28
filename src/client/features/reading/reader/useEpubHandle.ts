@@ -15,14 +15,18 @@ import { createResourcePool, type PreparedChapter, type ResourcePool, prepareCha
 import { readBookBlob } from '../store/library'
 import { useSession } from '../../../store/session'
 import type { BookRecord } from '../types'
+import { useReaderSettings } from '../store/reader-settings'
 
 export interface EpubHandle {
   kind: 'epub'
+  bookId: string
   archive: ZipArchive
   pkg: EpubPackage
   pool: ResourcePool
   prepare: (slot: number) => Promise<PreparedChapter | null>
 }
+
+const PREPARED_CHAPTER_CACHE = 3
 
 const cache = new Map<string, Promise<{ archive: ZipArchive; pkg: EpubPackage }>>()
 
@@ -39,6 +43,7 @@ async function openEpub(bytes: Uint8Array): Promise<{ archive: ZipArchive; pkg: 
  */
 export function useEpubHandle(book: BookRecord | null): { handle: EpubHandle | null; error: string | null } {
   const userId = useSession((state) => state.user?.id ?? null)
+  const allowExternalImages = useReaderSettings((state) => state.loadExternalImages)
   const [handle, setHandle] = useState<EpubHandle | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -65,12 +70,24 @@ export function useEpubHandle(book: BookRecord | null): { handle: EpubHandle | n
         if (cancelled) return
         const created = createResourcePool(archive, pkg)
         pool = created
+        const prepared = new Map<number, Promise<PreparedChapter | null>>()
         setHandle({
           kind: 'epub',
+          bookId: book.id,
           archive,
           pkg,
           pool: created,
-          prepare: (slot) => prepareChapter({ pkg, archive, pool: created }, slot, READER_SCOPE),
+          prepare: (slot) => {
+            const known = prepared.get(slot)
+            if (known) return known
+            if (prepared.size >= PREPARED_CHAPTER_CACHE) {
+              const oldest = prepared.keys().next().value
+              if (oldest !== undefined) prepared.delete(oldest)
+            }
+            const pending = prepareChapter({ pkg, archive, pool: created }, slot, READER_SCOPE, { allowExternalImages })
+            prepared.set(slot, pending)
+            return pending
+          },
         })
       } catch (err) {
         if (!cached) cache.delete(book.id)
@@ -83,7 +100,7 @@ export function useEpubHandle(book: BookRecord | null): { handle: EpubHandle | n
       // every picture of every book this tab has opened alive until the tab closes.
       pool?.revokeAll()
     }
-  }, [book, userId])
+  }, [book, userId, allowExternalImages])
 
   return { handle, error }
 }

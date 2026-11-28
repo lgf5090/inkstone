@@ -91,8 +91,13 @@ describe('the position codec', () => {
 
 describe('the reading note', () => {
   it('links a book at one place and at another', () => {
-    expect(bookLink('b/1')).toBe('/reading/b%2F1')
-    expect(bookLink('b1', { kind: 'epub', chapter: 2, offset: 30 })).toBe('/reading/b1?p=e%3A2%3A30')
+    expect(bookLink(book)).toBe('/reading/book-1')
+    expect(bookLink({ ...book, id: 'b/1' })).toBe('/reading/b%2F1')
+    expect(bookLink(book, { chapter: 2, start: 30 })).toBe('/reading/book-1?p=e%3A2%3A30')
+  })
+
+  it.each(['pdf', 'cbz'] as const)('links a %s highlight to its one-based page', (format) => {
+    expect(bookLink({ ...book, format }, { chapter: 2, start: 30 })).toBe('/reading/book-1?p=f%3A3')
   })
 
   it('writes the marks grouped by chapter, with a way back', async () => {
@@ -104,6 +109,13 @@ describe('the reading note', () => {
     expect(section.indexOf('开篇')).toBeLessThan(section.indexOf('次章'))
     expect(section).toContain('> 第一章的一句 [↩](/reading/book-1?p=e%3A0%3A4)')
     expect(section).toContain('第二章的一句')
+  })
+
+  it.each(['pdf', 'cbz'] as const)('writes a %s backlink to the page rather than an EPUB offset', async (format) => {
+    await initI18n()
+    const section = renderReadingSection({ ...book, format }, [mark({ chapter: 4, start: 12 })], 0.4, { backlinks: true, colors: false })
+    expect(section).toContain('> 一句被划线的话 [↩](/reading/book-1?p=f%3A5)')
+    expect(section).not.toContain('e%3A')
   })
 
   it('leaves the backlink off when the reader turned it off', async () => {

@@ -7,9 +7,9 @@
  * a second device and a cleared browser find the same shelf.
  *
  * Two rules hold it together. A client names a book by id only: the R2 key is derived here from the
- * authenticated user and the row, so no request can read or overwrite another account's file. And the
- * state arrives whole — the local store is the author of record and a push replaces what the server had,
- * which is the only merge that cannot lose a highlight to a clock skew.
+ * authenticated user and the row, so no request can read or overwrite another account's file. And each
+ * synced record carries its own `updatedAt`, so a stale snapshot cannot erase a newer change from another
+ * device. Deletion is explicit and versioned; omission never means deletion.
  */
 import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
@@ -19,7 +19,10 @@ import { readJson } from '../lib/request'
 import { readerBookKey, readerCoverKey } from '../db/reader-schema'
 import {
   ReaderLibraryStore,
+  type ReaderSyncEntity,
   type ShelfBookInput,
+  type ShelfDeletedIds,
+  type ShelfDeletedInput,
   type ShelfGroupInput,
   type ShelfHighlightInput,
   type ShelfMarkInput,
@@ -27,7 +30,7 @@ import {
   type ShelfProgressInput,
   type ShelfStatInput,
 } from '../reader/store'
-import { assertReaderRoom, readerUsage } from '../db/quota'
+import { readerUsage, releaseReaderUpload, reserveReaderUpload } from '../db/quota'
 import { LIMITS, READER_COVER_TYPES } from '@shared/constants'
 
 type BookFormat = 'epub' | 'pdf' | 'cbz'
@@ -43,6 +46,16 @@ const COVER_EXTENSIONS = READER_COVER_TYPES
 const COVER_MIME_BY_EXTENSION: Record<string, string> = Object.fromEntries(
   Object.entries(READER_COVER_TYPES).map(([type, extension]) => [extension, type]),
 )
+function bookMetadataOf(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '{}'
+  const row = value as Record<string, unknown>
+  return JSON.stringify({
+    series: typeof row.series === 'string' ? row.series.slice(0, 200) : '',
+    rating: typeof row.rating === 'number' && Number.isFinite(row.rating) ? Math.max(0, Math.min(5, row.rating)) : 0,
+    tags: Array.isArray(row.tags) ? row.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 20).map((tag) => tag.slice(0, 40)) : [],
+  })
+}
+
 /** A group's name, trimmed the way the device trims it, or nothing if it is not usable. */
 function groupNameOf(row: Record<string, unknown>): string {
   return typeof row.name === 'string' ? row.name.trim().replace(/\s+/g, ' ').slice(0, GROUP_NAME_MAX) : ''
@@ -54,6 +67,9 @@ const GROUPS_MAX = 60
 const GROUP_NAME_MAX = 40
 const GROUP_BOOKS_MAX = 500
 const MAX_ROWS = 5000
+const HIGHLIGHT_COLORS = new Set(['yellow', 'green', 'blue', 'pink', 'red', 'purple'])
+const DELETED_ENTITIES = ['books', 'progress', 'highlights', 'marks', 'stats', 'notes', 'groups'] as const
+type DeletedEntity = (typeof DELETED_ENTITIES)[number]
 
 const EXTENSIONS: Record<BookFormat, string> = { epub: 'epub', pdf: 'pdf', cbz: 'cbz' }
 const CONTENT_TYPES: Record<BookFormat, string> = {
@@ -123,6 +139,86 @@ function numberOf(row: Record<string, unknown>, key: string, fallback = 0): numb
   return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : fallback
 }
 
+/** Missing timestamps are accepted only as the legacy snapshot fallback; supplied ones must be exact. */
+function updatedAtOf(row: Record<string, unknown>, fallback: number): number {
+  const value = row.updatedAt
+  if (value === undefined) return fallback
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw ApiError.badRequest('updatedAt must be a non-negative integer')
+  }
+  return value
+}
+
+function requiredUpdatedAt(row: Record<string, unknown>): number {
+  if (row.updatedAt === undefined) throw ApiError.badRequest('updatedAt is required for deletions')
+  return updatedAtOf(row, 0)
+}
+
+function isPosition(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const row = value as Record<string, unknown>
+  if (row.kind === 'epub') {
+    return Number.isSafeInteger(row.chapter) && (row.chapter as number) >= 0
+      && Number.isSafeInteger(row.offset) && (row.offset as number) >= 0
+  }
+  if (row.kind === 'fixed') return Number.isSafeInteger(row.page) && (row.page as number) >= 1
+  return false
+}
+
+function positionJsonOf(value: unknown, what: string, allowNull: boolean): string {
+  if (value === null && allowNull) return 'null'
+  if (!isPosition(value)) throw ApiError.badRequest(`${what} is not a valid position`)
+  return JSON.stringify(value)
+}
+
+function requireBookReference(id: string, known: ReadonlySet<string>, what: string): void {
+  if (!known.has(id)) throw ApiError.badRequest(`${what} references an unknown book`)
+}
+
+function parseDeleted(
+  value: unknown,
+  knownBooks: ReadonlySet<string>,
+  liveIds: Readonly<Record<DeletedEntity, ReadonlySet<string>>>,
+): ShelfDeletedInput {
+  const row = asRecord(value, 'library.deleted')
+  for (const key of Object.keys(row)) {
+    if (key !== 'vocabulary' && !DELETED_ENTITIES.includes(key as DeletedEntity)) {
+      throw ApiError.badRequest(`Unknown deleted entity: ${key}`)
+    }
+  }
+
+  const deleted = {} as Pick<ShelfDeletedInput, DeletedEntity>
+  for (const entity of DELETED_ENTITIES) {
+    const raw = row[entity]
+    if (raw === undefined) {
+      deleted[entity] = { ids: [], updatedAt: 0 }
+      continue
+    }
+    const item = asRecord(raw, `library.deleted.${entity}`)
+    if (!Array.isArray(item.ids)) throw ApiError.badRequest(`library.deleted.${entity}.ids must be an array`)
+    const ids = item.ids.slice(0, MAX_ROWS)
+    const seen = new Set<string>()
+    for (const value of ids) {
+      const id = requireId(typeof value === 'string' ? value : undefined, `Deleted ${entity} id`)
+      if (seen.has(id)) throw ApiError.badRequest(`Duplicate deleted ${entity} id: ${id}`)
+      if (liveIds[entity].has(id)) throw ApiError.badRequest(`Duplicate live and deleted ${entity} id: ${id}`)
+      if ((entity === 'progress' || entity === 'stats' || entity === 'notes') && !knownBooks.has(id)) {
+        throw ApiError.badRequest(`Deleted ${entity} references an unknown book`)
+      }
+      seen.add(id)
+    }
+    deleted[entity] = { ids, updatedAt: requiredUpdatedAt(item) } satisfies ShelfDeletedIds
+  }
+
+  let vocabulary: ShelfDeletedInput['vocabulary'] = null
+  if (row.vocabulary !== undefined) {
+    const item = asRecord(row.vocabulary, 'library.deleted.vocabulary')
+    if (typeof item.deleted !== 'boolean') throw ApiError.badRequest('library.deleted.vocabulary.deleted must be boolean')
+    vocabulary = { deleted: item.deleted, updatedAt: requiredUpdatedAt(item) }
+  }
+  return { ...deleted, vocabulary }
+}
+
 /**
  * The name a download arrives with, spelled the way a header has to be.
  *
@@ -150,17 +246,74 @@ function downloadFilename(stored: string, id: string, extension: string): string
 
 function contentDisposition(full: string): string {
   const ascii = full.replace(/[^\x20-\x7e]|["\\]/g, '_')
-  return `inline; filename="${ascii}"; filename*=UTF-8''${rfc5987(full)}`
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${rfc5987(full)}`
 }
 
 function store(c: Context<AppBindings>, userId: string): ReaderLibraryStore {
   return new ReaderLibraryStore(c.env.DB, userId)
 }
 
+async function drainStorageDeletions(c: Context<AppBindings>, userId: string): Promise<void> {
+  const library = store(c, userId)
+  for (const row of await library.storageDeletions()) {
+    try {
+      await c.env.FILES?.delete(row.object_key)
+      await library.finishStorageDeletion(row.object_key)
+    } catch (error) {
+      console.warn('[reading] could not delete a stored book object', row.object_key, error)
+      break
+    }
+  }
+}
+
+function hasBookMagic(format: BookFormat, bytes: Uint8Array): boolean {
+  if (format === 'pdf') return bytes.length >= 5 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2d
+  return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04
+}
+
+interface LibraryTombstone {
+  id: string
+  bookId: string
+  updatedAt: number
+}
+
+type LibraryDeletions = Record<Exclude<ReaderSyncEntity, 'vocabulary'>, LibraryTombstone[]> & {
+  vocabulary: { deleted: true; updatedAt: number } | null
+}
+
 /** One account's whole shelf, in the shape the local store holds it. */
 async function loadLibrary(c: Context<AppBindings>, userId: string) {
   const rows = await store(c, userId).shelf()
   const vocabulary = rows.meta.find((row) => row.key === 'vocabulary')?.value ?? null
+  const settingsRaw = rows.meta.find((row) => row.key === 'settings')?.value ?? null
+  let settings: Record<string, unknown> = {}
+  if (settingsRaw) {
+    try {
+      const parsed = JSON.parse(settingsRaw) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) settings = parsed as Record<string, unknown>
+    } catch (error) {
+      console.warn('[reading] stored reader settings are invalid', error)
+    }
+  }
+  const settingsUpdatedAt = rows.meta.find((row) => row.key === 'settings')?.updated_at ?? 0
+  const vocabularyUpdatedAt = rows.meta.find((row) => row.key === 'vocabulary')?.updated_at
+    ?? rows.syncVersions.find((row) => row.entity === 'vocabulary')?.updated_at
+    ?? null
+  const deleted: LibraryDeletions = {
+    books: [], progress: [], highlights: [], marks: [], stats: [], notes: [], groups: [], vocabulary: null,
+  }
+  for (const version of rows.syncVersions) {
+    if (version.deleted !== 1) continue
+    if (version.entity === 'vocabulary') {
+      deleted.vocabulary = { deleted: true, updatedAt: version.updated_at }
+    } else {
+      deleted[version.entity].push({
+        id: version.entity_id,
+        bookId: version.book_id,
+        updatedAt: version.updated_at,
+      })
+    }
+  }
   return {
     books: rows.books.map((row) => ({
       id: row.id,
@@ -172,12 +325,15 @@ async function loadLibrary(c: Context<AppBindings>, userId: string) {
       filename: row.filename,
       size: row.size,
       addedAt: row.added_at,
+      updatedAt: row.updated_at,
       unitCount: row.unit_count,
       hasCover: row.has_cover === 1,
       hasBlob: row.has_blob === 1,
       // A path, not a secret: the route resolves it against the authenticated account.
       coverUrl: row.cover_key ? `/api/reader/books/${encodeURIComponent(row.id)}/cover` : null,
       toc: JSON.parse(row.toc || '[]') as unknown[],
+      contentHash: row.content_hash,
+      metadata: JSON.parse(row.metadata || '{}') as Record<string, unknown>,
     })),
     progress: Object.fromEntries(rows.progress.map((row) => [row.book_id, {
       bookId: row.book_id,
@@ -193,14 +349,17 @@ async function loadLibrary(c: Context<AppBindings>, userId: string) {
     }))),
     marks: Object.fromEntries(group(rows.marks, (row) => row.book_id, (row) => ({
       id: row.id, bookId: row.book_id, label: row.label, position: JSON.parse(row.position) as unknown,
-      createdAt: row.created_at,
+      createdAt: row.created_at, updatedAt: row.updated_at,
     }))),
     stats: Object.fromEntries(rows.stats.map((row) => [row.book_id, {
       bookId: row.book_id, seconds: row.seconds, days: JSON.parse(row.days || '{}') as Record<string, number>,
+      updatedAt: row.updated_at,
     }])),
     notes: {
       byBook: Object.fromEntries(rows.notes.map((row) => [row.book_id, row.note_id])),
+      updatedAt: Object.fromEntries(rows.notes.map((row) => [row.book_id, row.updated_at])),
       vocabulary: typeof vocabulary === 'string' ? vocabulary : null,
+      vocabularyUpdatedAt: typeof vocabulary === 'string' ? vocabularyUpdatedAt : null,
     },
     groups: rows.groups.map((row) => ({
       id: row.id,
@@ -209,6 +368,9 @@ async function loadLibrary(c: Context<AppBindings>, userId: string) {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     })),
+    settings,
+    settingsUpdatedAt,
+    deleted,
   }
 }
 
@@ -230,6 +392,7 @@ function group<TRow, TShape>(
 
 readerLibraryRoutes.get('/library', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
+  await drainStorageDeletions(c, userId)
   return c.json({
     ok: true as const,
     library: await loadLibrary(c, userId),
@@ -238,16 +401,23 @@ readerLibraryRoutes.get('/library', async (c) => {
 })
 
 /**
- * Replace the account's reading state with what the device holds.
+ * Merge the account's reading state with what the device holds.
  *
- * Everything here is the trust boundary: an id, a format or a length the client got wrong is refused
- * before the store is asked for anything. The store keeps the server's own facts and lands the whole
- * shelf in one batch; see `reader/store.ts`.
+ * Everything here is the trust boundary: an id, a format, a position or a length the client got wrong is
+ * refused before the store is asked for anything. The store keeps the server's own facts and lands the
+ * whole merge in one batch; see `reader/store.ts`.
  */
 readerLibraryRoutes.put('/library', async (c) => {
   const userId = requireId(c.get('userId'), 'User id')
   const body = asRecord(await readJson<Record<string, unknown>>(c, MAX_LIBRARY_BYTES), 'Body')
   const library = asRecord(body.library, 'library')
+  const fallbackUpdatedAt = Date.now()
+  const current = await store(c, userId).shelf()
+  const existingLiveBooks = new Set(current.books.map((row) => row.id))
+  const knownBooks = new Set([
+    ...existingLiveBooks,
+    ...current.syncVersions.filter((row) => row.entity === 'books').map((row) => row.entity_id),
+  ])
 
   const books = Array.isArray(library.books) ? library.books.slice(0, MAX_ROWS) : []
   if (books.length > LIMITS.readerBooksMaxPerUser) {
@@ -258,12 +428,21 @@ readerLibraryRoutes.put('/library', async (c) => {
   for (const raw of books) {
     const row = asRecord(raw, 'book')
     const id = idOf(row, 'id', 'Book id')
+    if (bookIds.has(id)) throw ApiError.badRequest(`Duplicate book id: ${id}`)
     bookIds.add(id)
+    knownBooks.add(id)
     // The shelf says a book has a cover by naming the file inside it; `hasCover` is the same fact after
     // a round trip. Either shape counts, so a cover is never left behind because of a field name.
     const wantsCover = row.hasCover === true || (typeof row.coverPath === 'string' && row.coverPath.length > 0)
     const format = textOf(row, 'format', 8) as BookFormat
     if (!(format in EXTENSIONS)) throw ApiError.badRequest(`Unsupported book format: ${format}`)
+    const toc = Array.isArray(row.toc) ? row.toc.slice(0, 800) : []
+    for (const rawEntry of toc) {
+      const entry = asRecord(rawEntry, 'toc entry')
+      if (entry.position !== null && entry.position !== undefined && !isPosition(entry.position)) {
+        throw ApiError.badRequest('toc entry position is invalid')
+      }
+    }
     bookRows.push({
       id,
       title: textOf(row, 'title', 300, 'Untitled'),
@@ -275,23 +454,37 @@ readerLibraryRoutes.put('/library', async (c) => {
       size: Math.max(0, numberOf(row, 'size')),
       unitCount: Math.max(0, numberOf(row, 'unitCount')),
       wantsCover,
-      tocJson: JSON.stringify(Array.isArray(row.toc) ? row.toc.slice(0, 800) : []),
-      addedAt: numberOf(row, 'addedAt', Date.now()),
-      updatedAt: Date.now(),
+      tocJson: JSON.stringify(toc),
+      addedAt: numberOf(row, 'addedAt', fallbackUpdatedAt),
+      updatedAt: updatedAtOf(row, numberOf(row, 'addedAt')),
       fallbackKey: readerBookKey(userId, id, EXTENSIONS[format]),
+      contentHash: typeof row.contentHash === 'string' && /^[0-9a-f]{64}$/.test(row.contentHash) ? row.contentHash : '',
+      metadataJson: bookMetadataOf(row.metadata),
     })
+  }
+
+  const liveIds: Record<DeletedEntity, Set<string>> = {
+    books: bookIds,
+    progress: new Set(),
+    highlights: new Set(),
+    marks: new Set(),
+    stats: new Set(),
+    notes: new Set(),
+    groups: new Set(),
   }
 
   const progressSource = asRecord(library.progress, 'progress')
   const progress: ShelfProgressInput[] = []
   for (const [bookId, raw] of Object.entries(progressSource).slice(0, MAX_ROWS)) {
-    const row = asRecord(raw, 'progress')
     const id = requireId(bookId, 'Book id')
+    requireBookReference(id, knownBooks, 'Progress')
+    liveIds.progress.add(id)
+    const row = asRecord(raw, 'progress')
     progress.push({
       bookId: id,
-      positionJson: JSON.stringify(row.position ?? null),
+      positionJson: positionJsonOf(row.position ?? null, 'Progress position', true),
       fraction: Math.min(1, Math.max(0, numberOf(row, 'fraction') || Number(row.fraction) || 0)),
-      updatedAt: numberOf(row, 'updatedAt', Date.now()),
+      updatedAt: updatedAtOf(row, fallbackUpdatedAt),
       finishedAt: typeof row.finishedAt === 'number' ? row.finishedAt : null,
     })
   }
@@ -300,22 +493,31 @@ readerLibraryRoutes.put('/library', async (c) => {
   const highlightsSource = asRecord(library.highlights, 'reader_highlights')
   for (const [bookId, raw] of Object.entries(highlightsSource).slice(0, MAX_ROWS)) {
     const id = requireId(bookId, 'Book id')
-    if (!Array.isArray(raw)) continue
+    requireBookReference(id, knownBooks, 'Highlight')
+    if (!Array.isArray(raw)) throw ApiError.badRequest('Highlights for a book must be an array')
     for (const item of raw.slice(0, MAX_ROWS)) {
       const row = asRecord(item, 'row')
+      const rowId = idOf(row, 'id', 'Row id')
+      if (liveIds.highlights.has(rowId)) throw ApiError.badRequest(`Duplicate highlight id: ${rowId}`)
+      liveIds.highlights.add(rowId)
+      const color = row.color === undefined ? 'yellow' : textOf(row, 'color', 12)
+      if (!HIGHLIGHT_COLORS.has(color)) throw ApiError.badRequest(`Unsupported highlight color: ${color}`)
+      const start = numberOf(row, 'start')
+      const end = numberOf(row, 'end')
+      if (start < 0 || end < start) throw ApiError.badRequest('Highlight offsets are invalid')
       highlights.push({
-        id: idOf(row, 'id', 'Row id'),
+        id: rowId,
         bookId: id,
-        chapter: numberOf(row, 'chapter'),
-        startOffset: numberOf(row, 'start'),
-        endOffset: numberOf(row, 'end'),
+        chapter: Math.max(0, numberOf(row, 'chapter')),
+        startOffset: start,
+        endOffset: end,
         quote: textOf(row, 'quote', 20000),
         prefix: textOf(row, 'prefix', 200),
         suffix: textOf(row, 'suffix', 200),
-        color: textOf(row, 'color', 12, 'yellow'),
+        color,
         comment: textOf(row, 'comment', 4000),
-        createdAt: numberOf(row, 'createdAt', Date.now()),
-        updatedAt: numberOf(row, 'updatedAt', Date.now()),
+        createdAt: numberOf(row, 'createdAt', fallbackUpdatedAt),
+        updatedAt: updatedAtOf(row, fallbackUpdatedAt),
       })
     }
   }
@@ -324,15 +526,20 @@ readerLibraryRoutes.put('/library', async (c) => {
   const marksSource = asRecord(library.marks, 'reader_marks')
   for (const [bookId, raw] of Object.entries(marksSource).slice(0, MAX_ROWS)) {
     const id = requireId(bookId, 'Book id')
-    if (!Array.isArray(raw)) continue
+    requireBookReference(id, knownBooks, 'Mark')
+    if (!Array.isArray(raw)) throw ApiError.badRequest('Marks for a book must be an array')
     for (const item of raw.slice(0, MAX_ROWS)) {
       const row = asRecord(item, 'row')
+      const rowId = idOf(row, 'id', 'Row id')
+      if (liveIds.marks.has(rowId)) throw ApiError.badRequest(`Duplicate mark id: ${rowId}`)
+      liveIds.marks.add(rowId)
       marks.push({
-        id: idOf(row, 'id', 'Row id'),
+        id: rowId,
         bookId: id,
         label: textOf(row, 'label', 200, 'Mark'),
-        positionJson: JSON.stringify(row.position ?? null),
-        createdAt: numberOf(row, 'createdAt', Date.now()),
+        positionJson: positionJsonOf(row.position, 'Mark position', false),
+        createdAt: numberOf(row, 'createdAt', fallbackUpdatedAt),
+        updatedAt: updatedAtOf(row, fallbackUpdatedAt),
       })
     }
   }
@@ -341,51 +548,82 @@ readerLibraryRoutes.put('/library', async (c) => {
   const stats: ShelfStatInput[] = []
   for (const [bookId, raw] of Object.entries(statsSource).slice(0, MAX_ROWS)) {
     const id = requireId(bookId, 'Book id')
+    requireBookReference(id, knownBooks, 'Stats')
+    liveIds.stats.add(id)
     const row = asRecord(raw, 'stat')
     const days = asRecord(row.days, 'days')
     const clean: Record<string, number> = {}
     for (const [day, seconds] of Object.entries(days).slice(0, 4000)) {
       if (/^\d{4}-\d{2}-\d{2}$/.test(day) && typeof seconds === 'number' && seconds > 0) clean[day] = Math.trunc(seconds)
     }
-    stats.push({ bookId: id, seconds: Math.max(0, numberOf(row, 'seconds')), daysJson: JSON.stringify(clean) })
+    stats.push({
+      bookId: id,
+      seconds: Math.max(0, numberOf(row, 'seconds')),
+      daysJson: JSON.stringify(clean),
+      updatedAt: updatedAtOf(row, fallbackUpdatedAt),
+    })
   }
 
   const notesSource = asRecord(library.notes ?? {}, 'notes')
   const byBook = asRecord(notesSource.byBook ?? {}, 'notes.byBook')
+  const noteTimes = asRecord(notesSource.updatedAt ?? {}, 'notes.updatedAt')
   const notes: ShelfNoteInput[] = []
   for (const [bookId, noteId] of Object.entries(byBook).slice(0, MAX_ROWS)) {
     const id = requireId(bookId, 'Book id')
-    if (typeof noteId !== 'string') continue
-    notes.push({ bookId: id, noteId: noteId.slice(0, 64) })
+    requireBookReference(id, knownBooks, 'Note')
+    if (typeof noteId !== 'string') throw ApiError.badRequest('A note id must be a string')
+    liveIds.notes.add(id)
+    notes.push({
+      bookId: id,
+      noteId: noteId.slice(0, 64),
+      updatedAt: updatedAtOf({ updatedAt: noteTimes[id] }, fallbackUpdatedAt),
+    })
   }
+  const vocabulary = typeof notesSource.vocabulary === 'string' ? notesSource.vocabulary.slice(0, 64) : null
+  const vocabularyUpdatedAt = vocabulary === null ? null : updatedAtOf({ updatedAt: notesSource.vocabularyUpdatedAt }, fallbackUpdatedAt)
+  const settings = library.settings === undefined ? undefined : asRecord(library.settings, 'library.settings')
+  if (settings && JSON.stringify(settings).length > 32 * 1024) throw ApiError.badRequest('Reader settings are too large')
+  const settingsUpdatedAt = settings === undefined ? undefined : requiredUpdatedAt({ updatedAt: library.settingsUpdatedAt })
 
-  // A group is only worth keeping if the shelf it points at still exists, and two groups with the
-  // same name would be one group the reader cannot tell apart.
+  // A group is only worth keeping if the shelf it points at still exists. Members may name an incoming
+  // book or a book already live on the server, but never a tombstone.
+  const groupBooks = new Set([...existingLiveBooks, ...bookIds])
   const seenGroups = new Set<string>()
   const groups: ShelfGroupInput[] = []
   for (const raw of (Array.isArray(library.groups) ? library.groups : []).slice(0, GROUPS_MAX)) {
     const row = asRecord(raw, 'group')
     const id = idOf(row, 'id', 'Group id')
+    if (liveIds.groups.has(id)) throw ApiError.badRequest(`Duplicate group id: ${id}`)
+    liveIds.groups.add(id)
     const name = groupNameOf(row)
-    if (!name || seenGroups.has(id) || seenGroups.has(name.toLowerCase())) continue
-    seenGroups.add(id)
+    if (!name || seenGroups.has(name.toLowerCase())) continue
     seenGroups.add(name.toLowerCase())
     const members = Array.isArray(row.bookIds)
-      ? [...new Set(row.bookIds.filter((one: unknown): one is string => typeof one === 'string' && bookIds.has(one)))].slice(0, GROUP_BOOKS_MAX)
+      ? [...new Set(row.bookIds.filter((one: unknown): one is string => typeof one === 'string' && groupBooks.has(one)))].slice(0, GROUP_BOOKS_MAX)
       : []
     groups.push({
       id,
       name,
       bookIds: members,
-      createdAt: numberOf(row, 'createdAt', Date.now()),
-      updatedAt: numberOf(row, 'updatedAt', Date.now()),
+      createdAt: numberOf(row, 'createdAt', fallbackUpdatedAt),
+      updatedAt: updatedAtOf(row, fallbackUpdatedAt),
     })
   }
 
-  const { missingBlobs, missingCovers } = await store(c, userId).replace({
+  const deleted: ShelfDeletedInput = library.deleted === undefined
+    ? {
+        books: { ids: [], updatedAt: 0 }, progress: { ids: [], updatedAt: 0 },
+        highlights: { ids: [], updatedAt: 0 }, marks: { ids: [], updatedAt: 0 },
+        stats: { ids: [], updatedAt: 0 }, notes: { ids: [], updatedAt: 0 },
+        groups: { ids: [], updatedAt: 0 }, vocabulary: null,
+      }
+    : parseDeleted(library.deleted, knownBooks, liveIds)
+
+  const { missingBlobs, missingCovers } = await store(c, userId).merge({
     books: bookRows, progress, highlights, marks, stats, notes, groups,
-    vocabulary: typeof notesSource.vocabulary === 'string' ? notesSource.vocabulary.slice(0, 64) : null,
+    vocabulary, vocabularyUpdatedAt, settings, settingsUpdatedAt, deleted,
   })
+  await drainStorageDeletions(c, userId)
   return c.json({
     ok: true as const,
     updatedAt: Date.now(),
@@ -394,6 +632,29 @@ readerLibraryRoutes.put('/library', async (c) => {
     usage: await readerUsage(c.env.DB, userId),
   })
 })
+
+function bookUploadStream(body: ReadableStream<Uint8Array>, format: BookFormat, declared: number) {
+  let size = 0
+  const prefix: number[] = []
+  const stream = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      size += chunk.byteLength
+      if (size > declared || size > MAX_BOOK_BYTES) {
+        controller.error(new ApiError(413, 'reader_book_too_large', 'The upload exceeded its declared size'))
+        return
+      }
+      for (const byte of chunk.subarray(0, Math.max(0, 5 - prefix.length))) prefix.push(byte)
+      controller.enqueue(chunk)
+    },
+    flush(controller) {
+      if (!size) throw ApiError.badRequest('The upload was empty')
+      if (size !== declared) throw ApiError.badRequest('The upload does not match its declared size')
+      if (!hasBookMagic(format, Uint8Array.from(prefix))) throw ApiError.badRequest('The upload does not match the book format')
+      controller.terminate()
+    },
+  })
+  return { stream: body.pipeThrough(stream).pipeThrough(new FixedLengthStream(declared)), size: () => size }
+}
 
 /**
  * The book's bytes. The row decides the extension, so the only thing a client can name is an id.
@@ -407,21 +668,54 @@ readerLibraryRoutes.put('/books/:id/blob', async (c) => {
   const format = row.format as BookFormat
   const declared = Number(c.req.header('content-length') ?? 0)
   if (declared > MAX_BOOK_BYTES) throw ApiError.badRequest('That file is too large for the shelf')
-  const bytes = await c.req.arrayBuffer()
-  if (!bytes.byteLength) throw ApiError.badRequest('The upload was empty')
-  if (bytes.byteLength > MAX_BOOK_BYTES) {
-    throw new ApiError(413, 'reader_book_too_large', `A book may be at most ${MAX_BOOK_BYTES} bytes`)
-  }
-  // The account's budget, charged for the difference the new file makes rather than its whole size.
-  await assertReaderRoom(c.env.DB, userId, bytes.byteLength, 0, row.size ?? 0)
 
   const r2 = c.env.FILES
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
+  const reservation = `blob:${id}`
   const key = readerBookKey(userId, id, EXTENSIONS[format])
-  await r2.put(key, bytes, { httpMetadata: { contentType: CONTENT_TYPES[format] } })
-  await library.markBlobStored(id, key, bytes.byteLength)
-  return c.json({ ok: true as const, size: bytes.byteLength, key })
+  const streaming = declared > 0 && c.req.raw.body ? bookUploadStream(c.req.raw.body, format, declared) : null
+  if (!streaming) {
+    const bytes = await c.req.arrayBuffer()
+    if (!bytes.byteLength) throw ApiError.badRequest('The upload was empty')
+    if (bytes.byteLength > MAX_BOOK_BYTES) throw new ApiError(413, 'reader_book_too_large', `A book may be at most ${MAX_BOOK_BYTES} bytes`)
+    if (!hasBookMagic(format, new Uint8Array(bytes))) throw ApiError.badRequest('The upload does not match the book format')
+    await reserveReaderUpload(c.env.DB, userId, reservation, bytes.byteLength, row.size ?? 0)
+    let stored = false
+    try {
+      await r2.put(key, bytes, { httpMetadata: { contentType: CONTENT_TYPES[format] } })
+      stored = true
+      await library.markBlobStored(id, key, bytes.byteLength)
+      await releaseReaderUpload(c.env.DB, userId, reservation)
+      return c.json({ ok: true as const, size: bytes.byteLength, key })
+    } catch (error) {
+      if (!stored) await releaseReaderUpload(c.env.DB, userId, reservation)
+      throw error
+    }
+  }
+  await reserveReaderUpload(c.env.DB, userId, reservation, declared, row.size ?? 0)
+  let stored = false
+  try {
+    await r2.put(key, streaming.stream, { httpMetadata: { contentType: CONTENT_TYPES[format] } })
+    stored = true
+    const size = streaming.size()
+    await library.markBlobStored(id, key, size)
+    await releaseReaderUpload(c.env.DB, userId, reservation)
+    return c.json({ ok: true as const, size, key })
+  } catch (error) {
+    if (!stored) await releaseReaderUpload(c.env.DB, userId, reservation)
+    throw error
+  }
 })
+
+function parseByteRange(value: string | null, size: number): { offset: number; length: number } | null {
+  if (!value) return null
+  const match = /^bytes=(\d+)-(\d*)$/.exec(value.trim())
+  if (!match) return undefined as unknown as null
+  const offset = Number(match[1])
+  const end = match[2] ? Number(match[2]) : size - 1
+  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(end) || offset < 0 || end < offset || offset >= size) return undefined as unknown as null
+  return { offset, length: end - offset + 1 }
+}
 
 /** The bytes back, with a length a download can measure itself against. */
 readerLibraryRoutes.get('/books/:id/blob', async (c) => {
@@ -433,13 +727,27 @@ readerLibraryRoutes.get('/books/:id/blob', async (c) => {
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
   const object = await r2.get(row.r2_key)
   if (!object) throw ApiError.notFound('The file is not in storage')
+  const etag = object.etag
+  if (etag && c.req.header('if-none-match') === etag) return new Response(null, { status: 304, headers: { ETag: etag } })
+  const range = parseByteRange(c.req.header('range') ?? null, object.size)
+  if (range === undefined as unknown as null) {
+    return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${object.size}` } })
+  }
+  const body = range ? await r2.get(row.r2_key, { range }) : object
+  if (!body) throw ApiError.notFound('The file is not in storage')
   const format = row.format as BookFormat
-  return new Response(object.body, {
+  return new Response(body.body, {
+    status: range ? 206 : 200,
     headers: {
       'Content-Type': CONTENT_TYPES[format] ?? 'application/octet-stream',
-      'Content-Length': String(object.size),
+      'Content-Length': String(body.size),
+      ...(range ? { 'Content-Range': `bytes ${range.offset}-${range.offset + range.length - 1}/${object.size}` } : {}),
+      'Accept-Ranges': 'bytes',
+      ...(etag ? { ETag: etag } : {}),
       'Content-Disposition': contentDisposition(downloadFilename(row.filename ?? '', id, EXTENSIONS[format])),
-      'Cache-Control': 'private, max-age=3600',
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
     },
   })
 })
@@ -487,15 +795,24 @@ readerLibraryRoutes.put('/books/:id/cover', async (c) => {
   if (!buffer.byteLength) throw ApiError.badRequest('The cover was empty')
   if (!isDeclaredImage(type, bytes)) throw ApiError.badRequest('The cover is not the image its type claims')
   if (buffer.byteLength > MAX_COVER_BYTES) throw ApiError.badRequest('That cover is too large')
-  await assertReaderRoom(c.env.DB, userId, buffer.byteLength, 0, row.cover_size ?? 0)
-
   const r2 = c.env.FILES
   if (!r2) throw ApiError.notFound('R2 storage is not configured')
+  const reservation = `cover:${id}`
+  await reserveReaderUpload(c.env.DB, userId, reservation, buffer.byteLength, row.cover_size ?? 0)
   const key = readerCoverKey(userId, id, extension)
-  if (row.cover_key && row.cover_key !== key) await r2.delete(row.cover_key).catch(() => {})
-  await r2.put(key, buffer, { httpMetadata: { contentType: type } })
-  await library.setCover(id, key, buffer.byteLength)
-  return c.json({ ok: true as const, size: buffer.byteLength, key })
+  let stored = false
+  try {
+    await r2.put(key, buffer, { httpMetadata: { contentType: type } })
+    stored = true
+    await library.setCover(id, key, buffer.byteLength)
+    if (row.cover_key && row.cover_key !== key) await library.queueStorageDeletion(row.cover_key, row.cover_size)
+    await releaseReaderUpload(c.env.DB, userId, reservation)
+    await drainStorageDeletions(c, userId)
+    return c.json({ ok: true as const, size: buffer.byteLength, key })
+  } catch (error) {
+    if (!stored) await releaseReaderUpload(c.env.DB, userId, reservation)
+    throw error
+  }
 })
 
 readerLibraryRoutes.get('/books/:id/cover', async (c) => {
@@ -511,7 +828,8 @@ readerLibraryRoutes.get('/books/:id/cover', async (c) => {
       // predates that, and it beats claiming every unknown cover is a PNG.
       'Content-Type': object.httpMetadata?.contentType ?? COVER_MIME_BY_EXTENSION[row.cover_key.slice(row.cover_key.lastIndexOf('.') + 1)] ?? 'application/octet-stream',
       'Content-Length': String(object.size),
-      'Cache-Control': 'private, max-age=604800',
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 })
@@ -522,10 +840,7 @@ readerLibraryRoutes.delete('/books/:id', async (c) => {
   const library = store(c, userId)
   const row = await library.bookObjects(id)
   if (!row) return c.json({ ok: true as const, removed: false })
-  await Promise.all([
-    c.env.FILES?.delete(row.r2_key),
-    row.cover_key ? c.env.FILES?.delete(row.cover_key) : Promise.resolve(),
-  ])
   await library.deleteBook(id)
+  await drainStorageDeletions(c, userId)
   return c.json({ ok: true as const, removed: true })
 })

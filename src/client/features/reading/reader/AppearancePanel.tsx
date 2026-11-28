@@ -117,6 +117,19 @@ export function AppearancePanel() {
           ]}
         />
       </div>
+      <div className="mt-2">
+        <Segmented
+          value={settings.writingMode}
+          onChange={(value) => set('writingMode', value)}
+          options={[
+            { value: 'horizontal', label: t('reading.writing_horizontal') },
+            { value: 'vertical', label: t('reading.writing_vertical') },
+          ]}
+        />
+      </div>
+      <Row label={t('reading.punctuation_spacing')}>
+        <Switch checked={settings.punctuationSpacing} onChange={(value) => set('punctuationSpacing', value)} label={t('reading.punctuation_spacing')} />
+      </Row>
       <Row label={t('reading.text_align')}>
         <Segmented
           size="sm"
@@ -137,6 +150,12 @@ export function AppearancePanel() {
       <Row label={t('reading.show_figures')}>
         <Switch checked={settings.showFigures} onChange={(value) => set('showFigures', value)} label={t('reading.show_figures')} />
       </Row>
+      <Row label={t('reading.load_external_images')}>
+        <Switch checked={settings.loadExternalImages} onChange={(value) => set('loadExternalImages', value)} label={t('reading.load_external_images')} />
+      </Row>
+      <p className="mb-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
+        {t('reading.load_external_images_hint')}
+      </p>
       <Row label={t('reading.focus_paragraph')}>
         <Switch checked={settings.focusParagraph} onChange={(value) => set('focusParagraph', value)} label={t('reading.focus_paragraph')} />
       </Row>
@@ -284,9 +303,9 @@ function ThemeSwatch({ name, label, current, onPick }: {
         borderColor: current === name ? 'var(--accent)' : 'color-mix(in oklab, currentColor 18%, transparent)',
       }}
     >
-      <span className="absolute inset-x-1.5 top-2 block h-px" style={{ background: name === 'auto' ? page.foreground : page.foreground, opacity: 0.5 }} />
-      <span className="absolute inset-x-1.5 top-[15px] block h-px" style={{ background: page.foreground, opacity: 0.35 }} />
-      <span className="absolute inset-x-1.5 top-[22px] block h-px" style={{ background: page.foreground, opacity: 0.22 }} />
+      <span className="reader-theme-line reader-theme-line-strong absolute inset-x-1.5 top-2 block h-px" style={{ background: page.foreground }} />
+      <span className="reader-theme-line reader-theme-line-medium absolute inset-x-1.5 top-[15px] block h-px" style={{ background: page.foreground }} />
+      <span className="reader-theme-line reader-theme-line-weak absolute inset-x-1.5 top-[22px] block h-px" style={{ background: page.foreground }} />
     </button>
     </Tooltip>
   )

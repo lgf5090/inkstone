@@ -5,7 +5,7 @@
  * reader wrote rather than into the mark's metadata. Clicking a passage that carries two overlapping
  * marks shows both, since the reader may have meant either.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
 import { Textarea } from '../../../components/form'
@@ -14,6 +14,7 @@ import { t } from '../../../lib/i18n'
 import { useLibrary } from '../store/library'
 import { DEFAULT_HIGHLIGHT_PAINT } from '../themes'
 import type { ReaderTheme } from '../themes'
+import { useDialogFocus } from './use-dialog-focus'
 
 export interface CommentCardProps {
   ids: string[]
@@ -28,13 +29,11 @@ export interface CommentCardProps {
 export function CommentCard({ ids, rect, bookId, onClose, onEdit, onRemove }: CommentCardProps) {
   const highlights = useLibrary((state) => state.highlights[bookId]) ?? []
   const cards = ids.flatMap((id) => highlights.find((one) => one.id === id) ?? [])
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useDialogFocus<HTMLDivElement>()
   const [drafts, setDrafts] = useState<Record<string, string>>({})
 
   useEffect(() => {
     setDrafts(Object.fromEntries(cards.map((one) => [one.id, one.comment])))
-    ref.current?.focus({ preventScroll: true })
-
   }, [ids.join(' ')])
 
   useEffect(() => {
@@ -59,7 +58,7 @@ export function CommentCard({ ids, rect, bookId, onClose, onEdit, onRemove }: Co
       role="dialog"
       aria-label={t('reading.highlight')}
       tabIndex={-1}
-      className="app-viewport-fixed fixed z-[7] flex flex-col gap-2 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2.5 shadow-[var(--shadow-pop)] outline-none"
+      className="app-viewport-fixed fixed z-[var(--z-popover)] flex flex-col gap-2 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-2.5 shadow-[var(--shadow-pop)] outline-none"
       style={{ left, top, width }}
     >
       {cards.map((card) => (

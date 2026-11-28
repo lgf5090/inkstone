@@ -31,6 +31,18 @@ export function formatLastRead(at: number | undefined, now = Date.now()): string
   return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short' }).format(at)
 }
 
+export function formatSyncTime(at: number, now = Date.now()): string {
+  if (!at) return ''
+  const date = new Date(at)
+  const today = new Date(now)
+  const sameDay = date.getFullYear() === today.getFullYear()
+    && date.getMonth() === today.getMonth()
+    && date.getDate() === today.getDate()
+  return new Intl.DateTimeFormat(undefined, sameDay
+    ? { hour: '2-digit', minute: '2-digit' }
+    : { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
 /** Day key a reading log is filed under, in the reader's own calendar rather than UTC. */
 export function dayKey(at: number = Date.now()): string {
   const date = new Date(at)

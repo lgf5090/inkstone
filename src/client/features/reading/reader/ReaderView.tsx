@@ -8,7 +8,7 @@
  */
 import { Z_INDEX } from '../../../lib/z-index'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Bookmark, Clock, Database, FileText, List, Maximize2, MoreHorizontal, PenLine, Search, Settings2, Sparkles } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bookmark, Clock, Database, FileText, List, Maximize2, MoreHorizontal, PenLine, Search, Settings2, Sparkles, Volume2 } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
 import { Menu, Tooltip, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
@@ -21,13 +21,15 @@ import { useReaderSettings } from '../store/reader-settings'
 import { resolveReaderTheme, type ReaderThemeName } from '../themes'
 import type { BookPosition } from '../position'
 import { formatReadingSeconds } from '../format-time'
-import { decodePosition, formatPercent } from '../position'
+import { formatPercent } from '../position'
 import type { BookRecord, Highlight } from '../types'
 import { useEpubHandle } from './useEpubHandle'
 import { FixedStage, type FixedStageHandle } from './FixedStage'
 import { searchBook } from '../engine/book-search'
 import type { PanelHit } from './SearchPanel'
-import { EpubStage, type EpubStageHandle, type FootnotePreview, type StageSelection } from './EpubStage'
+import { EpubStage, type EpubStageHandle } from './EpubStage'
+import type { FootnotePreview } from './use-epub-footnotes'
+import type { StageSelection } from './epub-selection'
 import { FootnotePopover } from './FootnotePopover'
 import { PageStatus } from './PageStatus'
 import { SelectionToolbar } from './SelectionToolbar'
@@ -40,14 +42,19 @@ import { SearchPanel } from './SearchPanel'
 import { CommentCard } from './CommentCard'
 import { LookupCard } from './LookupCard'
 import { useReadingTimer } from './useReadingTimer'
+import { useAutoReadingNote } from './use-auto-reading-note'
 import { shortcutAllowedWhilePanelOpen, shortcutFor } from './shortcuts'
 import { ShortcutsPanel } from './ShortcutsPanel'
+import { SpeechPanel } from './SpeechPanel'
+import { useReadAloud } from './use-read-aloud'
+import { useDeepLinkPosition } from './use-deep-link-position'
+import { useHudAutoHide } from './use-hud-auto-hide'
 import { StatsPanel } from './StatsPanel'
 import { lookupSelection, vocabularyEntry, hasLegacyLocalAiKey, type LookupOutcome } from '../lookup'
 import { ensureVocabularyNote } from '../vocabulary'
 import { useReadingPage } from '../page-context'
 
-type PanelName = 'toc' | 'search' | 'marks' | 'highlights' | 'appearance' | 'shortcuts' | 'stats' | null
+type PanelName = 'toc' | 'search' | 'marks' | 'highlights' | 'appearance' | 'shortcuts' | 'stats' | 'speech' | null
 
 /** Once per session: the migration is news, not a modal that follows the reader around. */
 let legacyAiKeyNoticeShown = false
@@ -55,7 +62,6 @@ let legacyAiKeyNoticeShown = false
 export function ReaderView({ book }: { book: BookRecord }) {
   const settings = useReaderSettings()
   const appTheme = useUi((state) => state.theme)
-  const accentless = useUi((state) => state.background)
   const toast = useUi((state) => state.toast)
   const assistantOpen = useUi((state) => state.assistantDockOpen)
   const toggleAssistant = useUi((state) => state.toggleAssistantDock)
@@ -63,9 +69,29 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const stage = useRef<EpubStageHandle>(null)
   const fixedStage = useRef<FixedStageHandle>(null)
   const fixedSearch = useRef<((query: string) => Promise<PanelHit[]>) | null>(null)
+  const indexAbort = useRef<AbortController | null>(null)
+  const [indexProgress, setIndexProgress] = useState<{ done: number; total: number } | null>(null)
+  const [speechRate, setSpeechRate] = useState(1)
+  const [speechSleepMinutes, setSpeechSleepMinutes] = useState(0)
+  const readAloud = useReadAloud({
+    stage,
+    bookId: book.id,
+    language: book.language,
+    rate: speechRate,
+    sleepMinutes: speechSleepMinutes,
+    onError: (message) => toast({ title: t('reading.speech_failed'), description: message, tone: 'danger' }),
+  })
   const [zoom, setZoom] = useState(1)
   const [moreAt, setMoreAt] = useState<{ x: number; y: number } | null>(null)
   const isFixed = book.format !== 'epub'
+  const activeStage = isFixed ? fixedStage : stage
+  const goToPosition = useCallback((position: BookPosition, fragment?: string) => {
+    if (isFixed) {
+      if (position.kind === 'fixed') fixedStage.current?.goTo(position)
+      return
+    }
+    if (position.kind === 'epub') stage.current?.goTo(position, fragment)
+  }, [isFixed])
   // Below the desktop breakpoint the bar keeps only where the reader is and one menu, because seven
   // icons leave no room for the title they are supposed to be beside.
   const narrow = useMedia('(max-width: 767px)')
@@ -78,7 +104,6 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const downloading = sync.phase === 'downloading' && sync.bookId === book.id
   const syncPercent = downloading && sync.total > 0 ? Math.min(1, sync.sent / sync.total) : 0
   const [chapter, setChapter] = useState(0)
-  const [hudHidden, setHudHidden] = useState(false)
   const [hudPinned, setHudPinned] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -92,15 +117,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
    * a place. It is read once and then removed: a reload of the address should resume the book rather
    * than teleport back to a link the reader has already acted on.
    */
-  const linkedPosition = useRef<BookPosition | null>(null)
-  const [deepLinkHandled, setDeepLinkHandled] = useState(false)
-  if (!deepLinkHandled) {
-    setDeepLinkHandled(true)
-    linkedPosition.current = decodePosition(new URLSearchParams(window.location.search).get('p'))
-    if (linkedPosition.current) {
-      window.history.replaceState(null, '', window.location.pathname)
-    }
-  }
+  const linkedPosition = useDeepLinkPosition()
   const highlights = useLibrary((state) => state.highlights[book.id])
   const addHighlight = useLibrary((state) => state.addHighlight)
   const updateHighlight = useLibrary((state) => state.updateHighlight)
@@ -108,6 +125,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const noteId = useLibrary((state) => state.notes.byBook[book.id])
   const linkNote = useLibrary((state) => state.linkNote)
   const list = highlights ?? []
+  const refreshAutoNote = useAutoReadingNote(book, settings.autoBookNote)
   const setOpenBook = useReadingPage((state) => state.setOpenBook)
 
   /**
@@ -143,39 +161,11 @@ export function ReaderView({ book }: { book: BookRecord }) {
     return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
   }, [appTheme])
   const theme = resolveReaderTheme(settings.theme as ReaderThemeName, appDark)
-  void accentless
 
   const busy = Boolean(panel || selection || comment) || hudPinned
+  const hudHidden = useHudAutoHide(settings.immersive, busy, hudPinned)
 
-  /**
-   * The HUD retracts when the reader stops moving, and never while something is open.
-   *
-   * Hiding it under a pointer that is about to click a control is the failure mode, so the timer is
-   * restarted by every pointer event rather than only by movement into the bars.
-   */
-  useEffect(() => {
-    if (!settings.immersive || busy) {
-      setHudHidden(false)
-      return
-    }
-    let timer = 0
-    const wake = () => {
-      if (hudPinned) return
-      setHudHidden(false)
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => setHudHidden(true), 3200)
-    }
-    wake()
-    for (const event of ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const) {
-      window.addEventListener(event, wake, { passive: true })
-    }
-    return () => {
-      window.clearTimeout(timer)
-      for (const event of ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const) {
-        window.removeEventListener(event, wake)
-      }
-    }
-  }, [busy, settings.immersive])
+  useEffect(() => () => indexAbort.current?.abort(), [])
 
   const onPosition = useCallback((position: BookPosition, chapterFraction: number) => {
     const total = handle?.pkg.spine.length ?? 1
@@ -292,7 +282,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
       toast({ title: t('reading.no_highlights'), tone: 'warning' })
       return
     }
-    const here = stage.current?.current() ?? fixedStage.current?.current()
+    const here = activeStage.current?.current()
     const unit = here?.kind === 'epub' ? here.chapter : here?.kind === 'fixed' ? here.page - 1 : 0
     const offset = here?.kind === 'epub' ? here.offset : 0
     const standing = cursorRef.current
@@ -307,17 +297,16 @@ export function ReaderView({ book }: { book: BookRecord }) {
       if (one.chapter < from.chapter || (one.chapter === from.chapter && one.start < from.start)) { before = i; break }
     }
     const next = direction > 0 ? ordered[after < 0 ? 0 : after] : ordered[before < 0 ? ordered.length - 1 : before]
-    if (isFixed) fixedStage.current?.goTo({ kind: 'fixed', page: next.chapter + 1 })
-    else stage.current?.goTo({ kind: 'epub', chapter: next.chapter, offset: next.start })
+    goToPosition(isFixed ? { kind: 'fixed', page: next.chapter + 1 } : { kind: 'epub', chapter: next.chapter, offset: next.start })
     pendingStepRef.current = isFixed ? null : { chapter: next.chapter, start: next.start }
-  }, [isFixed, list, progress?.position, toast])
+  }, [activeStage, goToPosition, isFixed, list, progress?.position, toast])
 
   const reportChapter = useCallback((index: number) => {
     setChapter(index)
     setPage((current) => ({ ...current, page: 1 }))
   }, [])
 
-  const currentChapterTitle = handle?.pkg.spine[chapter]?.item.href.split('/').pop() ?? ''
+  const currentChapterTitle = chapterLabel ?? ''
 
   function turn(direction: 1 | -1): void {
     if (isFixed) {
@@ -393,40 +382,23 @@ export function ReaderView({ book }: { book: BookRecord }) {
       end: selection.end,
       color,
       quote: selection.text,
-      prefix: '',
-      suffix: '',
+      prefix: selection.prefix ?? '',
+      suffix: selection.suffix ?? '',
       comment: '',
     })
     setSelection(null)
     window.getSelection()?.removeAllRanges()
     toast({ title: t('reading.highlight_saved'), tone: 'success' })
-    ensureNoteAfterMark()
-  }
-
-  /**
-   * The reader's own setting decides whether a mark files itself straight away.
-   *
-   * It reads the store after the write rather than this render's copy of the list, because the note has
-   * to hold the mark that was just made — and it stays silent, because being taken to a note while a
-   * book is open is the interruption the setting exists to allow turning off.
-   */
-  function ensureNoteAfterMark(): void {
-    if (!settings.autoBookNote || noteId) return
-    void (async () => {
-      const { ensureReadingNote } = await import('../reading-note')
-      const fresh = useLibrary.getState().highlights[book.id] ?? []
-      const id = await ensureReadingNote(book, fresh, undefined)
-      if (id) linkNote(book.id, id)
-    })()
+    refreshAutoNote()
   }
 
   async function addMark(): Promise<void> {
-    const position = stage.current?.current()
+    const position = activeStage.current?.current()
     if (!position) return
     const { prompt } = await import('../../../components/overlay')
     const label = await prompt({
       title: t('reading.new_location_mark'),
-      defaultValue: t('reading.mark_default_label_value0', { value0: chapter + 1 }),
+      defaultValue: t('reading.mark_default_label_value0', { value0: position.kind === 'fixed' ? position.page : position.chapter + 1 }),
       confirmLabel: t('common.save'),
     })
     if (!label?.trim()) return
@@ -453,13 +425,13 @@ export function ReaderView({ book }: { book: BookRecord }) {
       end: selection.end,
       color: settings.defaultHighlightColor,
       quote: selection.text,
-      prefix: '',
-      suffix: '',
+      prefix: selection.prefix ?? '',
+      suffix: selection.suffix ?? '',
       comment: '',
     })
     setSelection(null)
     setComment({ ids: [created.id], rect: selection.rect })
-    ensureNoteAfterMark()
+    refreshAutoNote()
   }
 
   const translateSelection = useCallback(async () => {
@@ -544,8 +516,8 @@ export function ReaderView({ book }: { book: BookRecord }) {
     setPage((current) => (current.page === next && current.pages === total ? current : { page: next, pages: total }))
   }, [])
 
-  const onFixedSelection = useCallback((next: { page: number; start: number; end: number; text: string; rect: DOMRect } | null) => {
-    setSelection(next ? { start: next.start, end: next.end, text: next.text, rect: next.rect, chapter: next.page - 1 } : null)
+  const onFixedSelection = useCallback((next: { page: number; start: number; end: number; text: string; rect: DOMRect; prefix: string; suffix: string } | null) => {
+    setSelection(next ? { start: next.start, end: next.end, text: next.text, rect: next.rect, chapter: next.page - 1, prefix: next.prefix, suffix: next.suffix } : null)
   }, [])
 
   function moreItems(): MenuItem[] {
@@ -606,7 +578,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           settings={settings}
           theme={theme}
           highlights={list}
-          start={linkedPosition.current ?? progress?.position ?? null}
+          start={linkedPosition ?? progress?.position ?? null}
           zoom={zoom}
           onPosition={onFixedPosition}
           onSelection={onFixedSelection}
@@ -629,7 +601,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           settings={settings}
           theme={theme}
           highlights={highlightsHere}
-          start={linkedPosition.current ?? progress?.position ?? null}
+          start={linkedPosition ?? progress?.position ?? null}
           onPosition={onPosition}
           onPageChange={(next, total) => {
             // A card pinned to a word that has just moved off the page is a card about nothing.
@@ -659,6 +631,9 @@ export function ReaderView({ book }: { book: BookRecord }) {
         />
       ) : null}
 
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {t('reading.reader_position_value0_value1', { value0: page.page, value1: page.pages })}
+      </div>
       <div className="reader-hud" data-edge="top" data-hidden={hudHidden ? 'true' : 'false'}>
         <IconButton label={t('reading.back_to_shelf')} size="sm" onClick={() => navigateToPath('/reading')}>
           <ArrowLeft size={15} />
@@ -675,6 +650,9 @@ export function ReaderView({ book }: { book: BookRecord }) {
               </span>
             </Tooltip>
           ) : null}
+          <IconButton label={t('reading.speech_title')} size="sm" active={panel === 'speech' || readAloud.playing} onClick={() => setPanel((current) => current === 'speech' ? null : 'speech')}>
+            <Volume2 size={15} />
+          </IconButton>
           <IconButton label={t('assistant.dock.toggle')} size="sm" active={assistantOpen} onClick={() => toggleAssistant()}>
             <Sparkles size={15} />
           </IconButton>
@@ -684,27 +662,39 @@ export function ReaderView({ book }: { book: BookRecord }) {
           <IconButton label={t('reading.open_note')} size="sm" onClick={() => void openNote()} className={narrow ? 'hidden' : undefined}>
             <FileText size={15} />
           </IconButton>
-          {isFixed ? (
-            <IconButton
-              label={t('reading.index_book')}
-              size="sm"
-              onClick={() => {
-                void fixedStage.current?.indexBook().then((result) => {
-                  useUi.getState().toast({ title: t('reading.index_book_done', { pages: result.pages, chunks: result.chunks }), tone: 'success' })
-                }).catch((error: unknown) => {
-                  // The route's own sentence says which half of the indexing is missing (no embedding
-                  // model, a page it could not read); the transport headline alone is a dead end.
-                  useUi.getState().toast({
-                    title: t('reading.index_book_failed'),
-                    description: error instanceof ApiError ? error.serverMessage : error instanceof Error ? error.message : undefined,
-                    tone: 'danger',
-                  })
+          <IconButton
+            label={indexProgress ? t('reading.indexing_value0_value1', { value0: indexProgress.done, value1: indexProgress.total }) : t('reading.index_book')}
+            size="sm"
+            onClick={() => {
+              if (indexProgress) {
+                indexAbort.current?.abort()
+                return
+              }
+              const controller = new AbortController()
+              indexAbort.current = controller
+              setIndexProgress({ done: 0, total: book.unitCount })
+              void activeStage.current?.indexBook(controller.signal, (done, total) => setIndexProgress({ done, total })).then((result) => {
+                useUi.getState().toast({ title: t('reading.index_book_done', { pages: result.pages, chunks: result.chunks }), tone: 'success' })
+              }).catch((error: unknown) => {
+                if (error instanceof DOMException && error.name === 'AbortError') {
+                  useUi.getState().toast({ title: t('reading.index_cancelled'), tone: 'warning' })
+                  return
+                }
+                useUi.getState().toast({
+                  title: t('reading.index_book_failed'),
+                  description: error instanceof ApiError ? error.serverMessage : error instanceof Error ? error.message : undefined,
+                  tone: 'danger',
                 })
-              }}
-            >
-              <Database size={15} />
-            </IconButton>
-          ) : null}
+              }).finally(() => {
+                if (indexAbort.current === controller) {
+                  indexAbort.current = null
+                  setIndexProgress(null)
+                }
+              })
+            }}
+          >
+            <Database size={15} />
+          </IconButton>
           <span className={narrow ? 'hidden' : 'contents'}>
             <IconButton label={t('reading.search_book')} size="sm" active={panel === 'search'} onClick={() => setPanel(panel === 'search' ? null : 'search')}>
               <Search size={15} />
@@ -756,7 +746,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
           fraction={progress?.fraction ?? 0}
           chapterTitle={currentChapterTitle}
           minutesLeft={minutesLeft}
-          onJump={(position, fragment) => (isFixed ? fixedStage.current?.goTo(position) : stage.current?.goTo(position, fragment))}
+          onJump={goToPosition}
         />
         <IconButton label={t('reading.next_page')} size="sm" onClick={() => turn(1)}>
           <ArrowRight size={15} />
@@ -817,19 +807,34 @@ export function ReaderView({ book }: { book: BookRecord }) {
             />
           ) : null}
           {panel === 'appearance' ? <AppearancePanel /> : null}
-          {panel === 'highlights' ? <HighlightsPanel book={book} list={list} onJump={(position) => stage.current?.goTo(position)} onRemove={(id) => removeHighlight(book.id, id)} onComment={(id, comment) => updateHighlight(book.id, id, { comment })} /> : null}
-          {panel === 'marks' ? <MarksPanel bookId={book.id} onJump={(position) => stage.current?.goTo(position)} onRemove={(id) => useLibrary.getState().removeMark(book.id, id)} /> : null}
+          {panel === 'highlights' ? <HighlightsPanel book={book} list={list} onJump={goToPosition} positionFor={(chapter, start) => isFixed ? { kind: 'fixed', page: chapter + 1 } : { kind: 'epub', chapter, offset: start }} onRemove={(id) => { removeHighlight(book.id, id); refreshAutoNote() }} onComment={(id, comment) => { updateHighlight(book.id, id, { comment }); refreshAutoNote() }} /> : null}
+          {panel === 'marks' ? <MarksPanel bookId={book.id} onJump={goToPosition} onRemove={(id) => useLibrary.getState().removeMark(book.id, id)} /> : null}
           {panel === 'shortcuts' ? <ShortcutsPanel /> : null}
           {panel === 'stats' ? <StatsPanel bookId={book.id} goalMinutes={settings.dailyGoalMinutes} /> : null}
+      {panel === 'speech' ? (
+        <SpeechPanel
+          playing={readAloud.playing}
+          paused={readAloud.paused}
+          sentence={readAloud.sentences[readAloud.index]?.text ?? ''}
+          index={readAloud.index}
+          total={readAloud.sentences.length}
+          rate={speechRate}
+          sleepMinutes={speechSleepMinutes}
+          onRate={setSpeechRate}
+          onSleep={setSpeechSleepMinutes}
+          onPlayPause={readAloud.playing && !readAloud.paused ? readAloud.pause : readAloud.play}
+          onStop={readAloud.stop}
+        />
+      ) : null}
           {panel === 'search' ? (
             <SearchPanel
               search={search}
-              start={linkedPosition.current ?? progress?.position ?? null}
+              start={linkedPosition ?? progress?.position ?? null}
               fixedMode={isFixed}
               unitLabel={(unit) => (isFixed
                 ? t('reading.page_value0', { value0: unit })
                 : t('reading.chapter_value0', { value0: unit + 1 }))}
-              onJump={(position) => (isFixed ? fixedStage.current?.goTo(position) : stage.current?.goTo(position))}
+              onJump={goToPosition}
             />
           ) : null}
         </ReaderPanel>
@@ -873,9 +878,10 @@ export function ReaderView({ book }: { book: BookRecord }) {
           bookId={book.id}
           theme={theme}
           onClose={() => setComment(null)}
-          onEdit={(id, patch) => updateHighlight(book.id, id, patch)}
+          onEdit={(id, patch) => { updateHighlight(book.id, id, patch); refreshAutoNote() }}
           onRemove={(id) => {
             removeHighlight(book.id, id)
+            refreshAutoNote()
             setComment(null)
           }}
         />
@@ -911,6 +917,7 @@ function panelTitle(panel: PanelName): string {
   if (panel === 'marks') return t('reading.location_marks')
   if (panel === 'shortcuts') return t('reading.shortcuts')
   if (panel === 'stats') return t('reading.stats_title')
+  if (panel === 'speech') return t('reading.speech_title')
   return t('reading.reading_settings')
 }
 

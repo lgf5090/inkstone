@@ -8,7 +8,7 @@ import type { MessageKey } from '../../../lib/i18n'
 
 export type ReaderAction =
   | 'next' | 'prev' | 'first' | 'last'
-  | 'toc' | 'search' | 'highlights' | 'marks' | 'appearance' | 'shortcuts' | 'stats'
+  | 'toc' | 'search' | 'highlights' | 'marks' | 'appearance' | 'shortcuts' | 'stats' | 'speech'
   | 'mark' | 'prevHighlight' | 'nextHighlight'
   | 'fullscreen' | 'close'
 
@@ -20,7 +20,7 @@ export interface ShortcutEntry {
   labelKey: MessageKey
   action: ReaderAction
   /** Panel toggles need to know which panel they are reopening. */
-  panel?: 'toc' | 'search' | 'highlights' | 'marks' | 'appearance' | 'shortcuts' | 'stats'
+  panel?: 'toc' | 'search' | 'highlights' | 'marks' | 'appearance' | 'shortcuts' | 'stats' | 'speech'
 }
 
 export const READING_SHORTCUTS: ShortcutEntry[] = [

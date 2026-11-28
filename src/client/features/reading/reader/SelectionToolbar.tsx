@@ -12,7 +12,7 @@ import { t, type MessageKey } from '../../../lib/i18n'
 import { DEFAULT_HIGHLIGHT_PAINT } from '../themes'
 import { HIGHLIGHT_COLORS, type HighlightColor } from '../types'
 import type { ReaderSettings } from '../store/reader-settings'
-import type { StageSelection } from './EpubStage'
+import type { StageSelection } from './epub-selection'
 
 export interface SelectionToolbarProps {
   selection: StageSelection
@@ -39,6 +39,7 @@ export function SelectionToolbar({ selection, settings, onHighlight, onComment, 
     const top = above > 8 ? above : Math.min(viewportHeight - height - 8, rect.bottom + GAP)
     const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2))
     setPlace({ left, top })
+    ref.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }, [selection])
 
   const colors = HIGHLIGHT_COLORS.slice(0, 4)
