@@ -37,6 +37,7 @@ import { usePinyinVersion } from '../../lib/pinyin'
 import { cn } from '../../lib/cn'
 import { SyncLine } from './SyncLine'
 import { BookMetadataModal } from './reader/BookMetadataModal'
+import { OpdsImportModal } from './reader/OpdsImportModal'
 import type { BookRecord, ImportFailure } from './types'
 
 const FAILURE_KEYS = {
@@ -83,6 +84,7 @@ export function LibraryView() {
   const [fetching, setFetching] = useState(false)
   const [active, setActive] = useState<BookRecord | null>(null)
   const [metadataBook, setMetadataBook] = useState<BookRecord | null>(null)
+  const [opdsOpen, setOpdsOpen] = useState(false)
   const updateBookMetadata = useLibrary((state) => state.updateBookMetadata)
   const fileInput = useRef<HTMLInputElement>(null)
   const dataInput = useRef<HTMLInputElement>(null)
@@ -407,6 +409,9 @@ export function LibraryView() {
           <Button size="sm" variant="secondary" icon={<Globe size={13} />} loading={fetching} onClick={() => void importFromGutenberg()}>
             {t('reading.import_gutenberg')}
           </Button>
+          <Button size="sm" variant="secondary" aria-label={t('reading.import_opds')} icon={<Globe size={13} />} onClick={() => setOpdsOpen(true)}>
+            <span className="hidden md:inline">{t('reading.import_opds')}</span>
+          </Button>
           <Button size="sm" variant="primary" icon={<Plus size={13} />} loading={busy} onClick={() => fileInput.current?.click()}>
             {t('reading.add_books')}
           </Button>
@@ -534,6 +539,8 @@ export function LibraryView() {
         zIndex={Z_INDEX.prompt}
         items={active ? menuFor(active) : []}
       />
+
+      {opdsOpen ? <OpdsImportModal onClose={() => setOpdsOpen(false)} onImport={ingest} /> : null}
 
       {metadataBook ? (
         <BookMetadataModal

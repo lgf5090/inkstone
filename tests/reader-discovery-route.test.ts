@@ -32,8 +32,10 @@ async function get(path: string) {
   return app.request(`/api/reader/discovery${path}`, {}, { DB: {} as never, FILES: {} as never } as unknown as AppBindings['Bindings'])
 }
 
+let readerNumber = 0
+
 beforeEach(() => {
-  mocks.userId = 'user-alice'
+  mocks.userId = `reader-${++readerNumber}`
   fetched.length = 0
   vi.unstubAllGlobals()
 })
@@ -91,5 +93,59 @@ describe('bringing a book in from Project Gutenberg', () => {
     mocks.userId = ''
     answer({ body: 'x' })
     expect((await get('/book/27819')).status).toBe(401)
+  })
+})
+
+describe('importing from an OPDS catalog', () => {
+  it('returns a catalog through the authenticated deployment origin', async () => {
+    const xml = '<feed><title>Books</title></feed>'
+    answer({ body: xml, headers: { 'Content-Type': 'application/atom+xml' } })
+    const res = await get(`/opds?url=${encodeURIComponent('https://catalog.example/feed')}`)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ xml })
+    expect(fetched).toEqual(['https://catalog.example/feed'])
+  })
+
+  it('downloads an acquisition as a private attachment', async () => {
+    answer({ body: 'book-bytes', headers: { 'Content-Type': 'application/epub+zip' } })
+    const res = await get(`/opds?download=1&url=${encodeURIComponent('https://catalog.example/book.epub')}`)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('book-bytes')
+    expect(res.headers.get('content-disposition')).toContain('attachment')
+    expect(res.headers.get('cache-control')).toBe('private, no-store')
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+  })
+
+  it('refuses non-web and internal targets before fetching', async () => {
+    answer({ body: 'x' })
+    for (const url of ['file:///etc/passwd', 'http://127.0.0.1/admin', 'http://[::1]/', 'http://169.254.169.254/latest', 'http://user:pass@catalog.example/feed']) {
+      const res = await get(`/opds?url=${encodeURIComponent(url)}`)
+      expect(res.status, url).toBe(400)
+    }
+    expect(fetched).toEqual([])
+  })
+
+  it('refuses redirects and upstream failures', async () => {
+    answer({ status: 302, headers: { Location: 'http://127.0.0.1/' } })
+    expect((await get(`/opds?url=${encodeURIComponent('https://catalog.example/feed')}`)).status).toBe(400)
+    answer({ status: 503 })
+    const res = await get(`/opds?url=${encodeURIComponent('https://catalog.example/feed')}`)
+    expect(res.status).toBe(502)
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('reader_fetch_failed')
+  })
+
+  it('enforces the feed size cap even when Content-Length is absent', async () => {
+    answer({ body: 'x'.repeat(2 * 1024 * 1024 + 1) })
+    const res = await get(`/opds?url=${encodeURIComponent('https://catalog.example/feed')}`)
+    expect(res.status).toBe(413)
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('reader_book_too_large')
+  })
+
+  it('rejects an oversized acquisition and an empty feed', async () => {
+    answer({ body: new Uint8Array(LIMITS.readerBookMaxBytes + 1) })
+    const download = await get(`/opds?download=1&url=${encodeURIComponent('https://catalog.example/book.epub')}`)
+    expect(download.status).toBe(413)
+    answer({ body: '' })
+    expect((await get(`/opds?url=${encodeURIComponent('https://catalog.example/feed')}`)).status).toBe(400)
   })
 })

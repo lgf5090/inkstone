@@ -18,16 +18,95 @@ import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { createMinuteBudget } from '../lib/rate-limit'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
+import { isBlockedTarget } from '@shared/ai-proxy-guard'
 
 const BOOK_HOST = 'gutenberg.pglaf.org'
 const BOOK_NUMBER = /^\d{1,8}$/
 /** Per isolate: a brake on a runaway client, not a quota. The size cap is the real limit. */
 const FETCHES_PER_MINUTE = 12
+const OPDS_FEED_MAX_BYTES = 2 * 1024 * 1024
 
 export const readerDiscoveryRoutes = new Hono<AppBindings>()
 readerDiscoveryRoutes.use('*', requireAuth)
 
 const takeBudget = createMinuteBudget(FETCHES_PER_MINUTE, 'That is as many books as this account fetches in a minute.')
+
+function publicHttpUrl(value: string): URL {
+  let url: URL
+  try { url = new URL(value) } catch { throw ApiError.badRequest('That OPDS address is not a URL') }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || isBlockedTarget(url.hostname)) {
+    throw ApiError.badRequest('That OPDS address is not allowed')
+  }
+  return url
+}
+
+async function fetchOpds(url: URL, maxBytes: number): Promise<Response> {
+  let upstream: Response
+  try {
+    upstream = await fetch(url.toString(), {
+      redirect: NO_REDIRECT,
+      headers: { Accept: 'application/atom+xml, application/xml, text/xml, */*', 'User-Agent': 'Inkstone reader import' },
+      signal: AbortSignal.timeout(15_000),
+    })
+  } catch {
+    throw new ApiError(502, 'reader_fetch_failed', 'The OPDS server did not answer')
+  }
+  if (isRedirectResponse(upstream)) throw ApiError.badRequest('That OPDS link moved somewhere else')
+  if (!upstream.ok) throw new ApiError(502, 'reader_fetch_failed', `The OPDS server answered ${upstream.status}`)
+  if (Number(upstream.headers.get('content-length') ?? 0) > maxBytes) throw new ApiError(413, 'reader_book_too_large', 'That OPDS response is too large')
+  return upstream
+}
+
+async function readBounded(response: Response, maxBytes: number, message: string): Promise<ArrayBuffer> {
+  const reader = response.body?.getReader()
+  if (!reader) return new ArrayBuffer(0)
+  const chunks: Uint8Array[] = []
+  let size = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > maxBytes) {
+      await reader.cancel()
+      throw new ApiError(413, 'reader_book_too_large', message)
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes.buffer
+}
+
+readerDiscoveryRoutes.get('/opds', async (c) => {
+  const userId = c.get('userId')
+  if (!userId) throw ApiError.unauthenticated()
+  const url = publicHttpUrl(c.req.query('url') ?? '')
+  takeBudget(userId)
+  if (c.req.query('download') === '1') {
+    const upstream = await fetchOpds(url, LIMITS.readerBookMaxBytes)
+    const bytes = await readBounded(upstream, LIMITS.readerBookMaxBytes, 'That OPDS book is empty or too large')
+    if (!bytes.byteLength) throw ApiError.badRequest('That OPDS book is empty')
+    return new Response(bytes, {
+      headers: {
+        'Content-Type': upstream.headers.get('content-type') ?? 'application/octet-stream',
+        'Content-Length': String(bytes.byteLength),
+        'Content-Disposition': 'attachment; filename="opds-book"',
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; sandbox",
+      },
+    })
+  }
+  const upstream = await fetchOpds(url, OPDS_FEED_MAX_BYTES)
+  const bytes = await readBounded(upstream, OPDS_FEED_MAX_BYTES, 'That OPDS response is too large')
+  const xml = new TextDecoder().decode(bytes)
+  if (!xml.trim()) throw ApiError.badRequest('That OPDS feed is empty')
+  return c.json({ xml })
+})
 
 readerDiscoveryRoutes.get('/book/:number', async (c) => {
   const userId = c.get('userId')
@@ -50,11 +129,8 @@ readerDiscoveryRoutes.get('/book/:number', async (c) => {
   if (declared > LIMITS.readerBookMaxBytes) {
     throw new ApiError(413, 'reader_book_too_large', 'That book is too large for the shelf')
   }
-  const bytes = await upstream.arrayBuffer()
+  const bytes = await readBounded(upstream, LIMITS.readerBookMaxBytes, 'That book is too large for the shelf')
   if (!bytes.byteLength) throw ApiError.badRequest('That book arrived empty')
-  if (bytes.byteLength > LIMITS.readerBookMaxBytes) {
-    throw new ApiError(413, 'reader_book_too_large', 'That book is too large for the shelf')
-  }
   // The reader's own import path decides what the file is; this only carries the bytes.
   return new Response(bytes, {
     headers: {
