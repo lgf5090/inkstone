@@ -647,12 +647,13 @@ function bookUploadStream(body: ReadableStream<Uint8Array>, format: BookFormat, 
       controller.enqueue(chunk)
     },
     flush(controller) {
-      if (!size) throw new ApiError(400, 'bad_request', 'The upload was empty')
-      if (!hasBookMagic(format, Uint8Array.from(prefix))) throw new ApiError(400, 'bad_request', 'The upload does not match the book format')
+      if (!size) throw ApiError.badRequest('The upload was empty')
+      if (size !== declared) throw ApiError.badRequest('The upload does not match its declared size')
+      if (!hasBookMagic(format, Uint8Array.from(prefix))) throw ApiError.badRequest('The upload does not match the book format')
       controller.terminate()
     },
   })
-  return { stream: body.pipeThrough(stream), size: () => size }
+  return { stream: body.pipeThrough(stream).pipeThrough(new FixedLengthStream(declared)), size: () => size }
 }
 
 /**

@@ -472,7 +472,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
             set({ sync: { ...IDLE_SYNC, phase: 'uploading', bookId: id, total: record.size } })
             try {
               const now = get()
-              await pushLibrary({
+              const pushed = await pushLibrary({
                 books: cloudBooks(now.books), progress: now.progress, highlights: now.highlights,
                 marks: now.marks, stats: now.stats, notes: now.notes, groups: now.groups,
                 deleted: tombstonePayload(now.deleted),
@@ -484,7 +484,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
               // The cover goes up too, so the shelf on another device is a shelf of covers and not of
               // placeholders — reading it out of the archive there would cost the whole book.
               if (coverBlob && isUploadableCover(coverBlob.type)) await uploadCoverBytes(id, coverBlob)
-              set({ sync: { ...IDLE_SYNC, at: Date.now() } })
+              set({ sync: { ...IDLE_SYNC, at: Date.now() }, usage: pushed.usage ?? get().usage })
             } catch (err) {
               if (isCurrentAccount(epoch, userId)) set({ sync: { ...IDLE_SYNC, message: err instanceof Error ? err.message : String(err) } })
             }

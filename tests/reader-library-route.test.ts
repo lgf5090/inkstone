@@ -16,6 +16,13 @@ const BOOK_BYTES = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3])
 
 const mocks = vi.hoisted(() => ({ userId: '' }))
 
+class FixedLengthStreamDouble extends TransformStream<Uint8Array, Uint8Array> {
+  constructor(_expected: number) {
+    super()
+  }
+}
+vi.stubGlobal('FixedLengthStream', FixedLengthStreamDouble)
+
 vi.mock('../src/worker/middleware/auth', () => ({
   requireAuth: async (c: { set: (key: string, value: string) => void }, next: () => Promise<void>) => {
     c.set('userId', mocks.userId)
@@ -389,6 +396,17 @@ describe('the book bytes', () => {
     const stored = await r2.get('reader/user-alice/book-1.epub')
     expect(stored).not.toBeNull()
     expect(new Uint8Array(await new Response(stored!.body).arrayBuffer())).toEqual(BOOK_BYTES)
+  })
+
+  it('rejects a streamed upload whose bytes do not match its declared size', async () => {
+    await send('PUT', '/library', { library: library() })
+    const response = await app.request('/api/reader/books/book-1/blob', {
+      method: 'PUT',
+      headers: { 'Content-Length': String(BOOK_BYTES.length + 1) },
+      body: BOOK_BYTES,
+    }, env())
+    expect(response.status).toBe(400)
+    expect(buckets.size).toBe(0)
   })
 
   it('rejects a streamed upload whose bytes do not match its format', async () => {
