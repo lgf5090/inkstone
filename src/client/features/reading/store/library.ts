@@ -898,6 +898,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
         stats: state.stats,
         notes: state.notes,
         groups: state.groups,
+        settings: state.settings,
+        settingsUpdatedAt: state.settingsUpdatedAt,
         deleted: state.deleted,
       }, null, 2)
     },

@@ -231,7 +231,12 @@ export function parseLibraryExport(raw: string): { data: LibraryData; rejected: 
   }) : [])
 
   return {
-    data: { books, progress, highlights, marks, stats, notes, groups, deleted: parseDeletions(parsed.deleted) },
+    data: {
+      books, progress, highlights, marks, stats, notes, groups,
+      settings: record(parsed.settings) ? parsed.settings : {},
+      settingsUpdatedAt: nonNegative(parsed.settingsUpdatedAt),
+      deleted: parseDeletions(parsed.deleted),
+    },
     rejected,
   }
 }
