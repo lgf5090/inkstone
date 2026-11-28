@@ -32974,6 +32974,7 @@ const allowed = new Map([
     "/** The hand-written notebook, absent from a backup taken before it existed. */",
     "/** Missing on backups written before locked notes existed; treated as false. */",
     "/** Present together only for a note-lock-v1 envelope; ordinary attachments leave all four absent. */",
+    "/** The reader shelf's state and R2 object ledger; book bytes stay in the bucket backup. */",
   ]],
   ["src/shared/blog/model.ts", [
     "/** Blog records, public projections and the render snapshot contract shared by every surface. */",
@@ -53841,6 +53842,7 @@ const allowed = new Map([
   ]],
   ["tests/webssh-schema.test.ts", [
     "// The project tables append 385–396 after this lane's own block; later migrations add assistant,",
+    "// email, query indexes, properties, webhooks, task reminders, attachment encryption, CloudDrive remediation, all-day to-dos, calendar reliability and reader sync/storage through 441.",
   ]],
   ["tests/webssh-session-routes.test.ts", [
     "// W2 REST surface against a real SQLite database: create, ticket, status, owner isolation and the",
