@@ -52,6 +52,7 @@ These three are marked `external-product-decision`, not silently skipped.
 | SUB-022 | completed | Final full verification and report | all changed files | shard 1: 8461 passed; shard 2: 9491 passed / 12 skipped; shard 3: 9371 passed; baseline calendar under intended date: 49 passed; typecheck/lint/i18n/comments/a11y/build; headed Chrome golden paths | `8bc30d1bf` |
 | PARITY-001 | completed | Restore enhanced subscription fields and report restore counts | backup, transfer, import result, DataSettings | 36 tests; typecheck/lint/i18n/comments/a11y | `ecf7d91af` |
 | PARITY-002 | completed | Complete notification channel configuration UX | channel definitions, settings, routes, UI, tests | 118 tests; typecheck/lint/static gates/build; Chrome showed Configure badge, hidden token, visible Chat ID, and per-field clear | `9c179878d` |
+| PARITY-003 | completed | Add account timezone, direct month/year selection, manual input, and mobile targets to DatePicker | shared date picker, subscription date call sites, locales, tests | 37 related tests; typecheck/lint/i18n/comments/a11y/build; Chrome at 390px showed a contained panel, 36px days, invalid-date feedback, and committed 2027-02-28 | `88e549291` |
 
 ## Verification protocol
 
@@ -111,3 +112,4 @@ For each task:
 
 - PARITY-001 completed in `ecf7d91af`: backup restore now writes `payment_method`, `management_url`, `paused_until`, `fixed_term`, and `intro_price`; the transfer route aggregates subscription/payment/rule/label counts and the import toast reports them. The round-trip test now compares complete subscription rows. 36 tests plus typecheck/lint/static guards passed.
 - PARITY-002 completed in `9c179878d`: channel rows now have an explicit Configure badge and chevron, saved non-sensitive fields are returned for editing, sensitive fields are masked and carry per-field clear intent, optional blanks are removed instead of rejected by the vault, PushPlus uses a channel enum, help links and last-test time are shown. 118 tests, all static gates/build, and headed Chrome configuration inspection passed.
+- PARITY-003 completed in `88e549291`: the shared picker derives today and its empty calendar from the account timezone, parses stored date-only values without a device-zone shift, offers direct month/year controls and validated manual entry, and enlarges mobile targets. Subscription create/edit, renewal, and payment fields pass their account timezone. Browser evidence: `tmp/date-picker-mobile.png`.
