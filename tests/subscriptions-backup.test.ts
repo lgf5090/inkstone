@@ -163,6 +163,8 @@ describe('restore', () => {
     const summary = await applyBackupSubscriptions(env.DB, USER, text)
     expect(summary.items).toBe(2)
     expect(rows('sub_item')).toHaveLength(2)
+    expect(rows('sub_item').sort((left, right) => String(left.id).localeCompare(String(right.id))))
+      .toEqual(before.items.sort((left, right) => String(left.id).localeCompare(String(right.id))))
     expect(rows('sub_payment')).toHaveLength(before.payments.length)
     expect(rows('sub_reminder_rule')).toHaveLength(6)
     expect(rows('sub_type')).toEqual(before.types)

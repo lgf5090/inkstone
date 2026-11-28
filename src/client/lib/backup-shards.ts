@@ -236,6 +236,10 @@ function mergeResult(target: ImportResult, next: ImportResult): void {
   target.emailSkippedMessages = (target.emailSkippedMessages ?? 0) + (next.emailSkippedMessages ?? 0)
   target.emailAttachments = (target.emailAttachments ?? 0) + (next.emailAttachments ?? 0)
   target.emailMissingAttachments = (target.emailMissingAttachments ?? 0) + (next.emailMissingAttachments ?? 0)
+  target.subscriptionItems = (target.subscriptionItems ?? 0) + (next.subscriptionItems ?? 0)
+  target.subscriptionPayments = (target.subscriptionPayments ?? 0) + (next.subscriptionPayments ?? 0)
+  target.subscriptionRules = (target.subscriptionRules ?? 0) + (next.subscriptionRules ?? 0)
+  target.subscriptionLabels = (target.subscriptionLabels ?? 0) + (next.subscriptionLabels ?? 0)
   for (const warning of next.warnings) {
     if (target.warnings.length >= 100) break
     target.warnings.push(warning)

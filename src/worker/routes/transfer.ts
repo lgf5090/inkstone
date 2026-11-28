@@ -708,7 +708,11 @@ async function importBackupFileBatch(
     const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
       new Uint8Array(await subscriptionsItem.file.arrayBuffer()),
     )
-    await applyBackupSubscriptions(c.env.DB, userId, text)
+    const summary = await applyBackupSubscriptions(c.env.DB, userId, text)
+    ctx.result.subscriptionItems = (ctx.result.subscriptionItems ?? 0) + summary.items
+    ctx.result.subscriptionPayments = (ctx.result.subscriptionPayments ?? 0) + summary.payments
+    ctx.result.subscriptionRules = (ctx.result.subscriptionRules ?? 0) + summary.rules
+    ctx.result.subscriptionLabels = (ctx.result.subscriptionLabels ?? 0) + summary.labels
   }
   const todosItem = planned.find((item) => item.todos)
   if (todosItem) {

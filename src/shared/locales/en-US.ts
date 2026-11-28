@@ -2759,6 +2759,7 @@ const CORE_MESSAGES = {
     "settings.create_access_key_page": "Create Access Key page",
     "settings.create_bucket_page": "Create bucket page",
     "settings.created_value0_updated_value1_skipped_value2_restored_value3_attachments": "Created {value0}, updated {value1}, skipped {value2}, restored {value3} attachments, and skipped {value4} attachments",
+    "settings.subscriptions_restore_summary": "Restored {items} subscriptions, {payments} payments, {rules} reminder rules, and {labels} labels",
     "settings.current_password": "Current password",
     "settings.daily": "Daily",
     "settings.weekly": "Weekly",

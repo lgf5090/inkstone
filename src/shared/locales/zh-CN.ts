@@ -2752,6 +2752,7 @@ const ZH_CORE_MESSAGES = {
     "settings.create_access_key_page": "Create Access Key 页面",
     "settings.create_bucket_page": "创建存储桶页面",
     "settings.created_value0_updated_value1_skipped_value2_restored_value3_attachments": "新建 {value0} 篇，更新 {value1} 篇，跳过 {value2} 篇，恢复 {value3} 个附件，跳过 {value4} 个附件",
+    "settings.subscriptions_restore_summary": "恢复 {items} 个订阅、{payments} 笔支付、{rules} 条提醒规则和 {labels} 个标签",
     "settings.current_password": "当前密码",
     "settings.daily": "每天",
     "settings.weekly": "每周",
