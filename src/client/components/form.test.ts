@@ -1,7 +1,7 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Checkbox, Segmented, Slider, Switch, commitOnEnter } from './form'
+import { Checkbox, CommitNumberInput, Segmented, Slider, Switch, commitOnEnter } from './form'
 
 const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)))
 
@@ -45,6 +45,36 @@ async function release(input: HTMLInputElement) {
     input.dispatchEvent(new Event('pointerup', { bubbles: true }))
   })
 }
+
+describe('CommitNumberInput', () => {
+  it('commits on blur instead of on every keystroke', async () => {
+    const onCommit = vi.fn()
+    act(() => root.render(createElement(CommitNumberInput, { value: 10, onCommit, min: 0 })))
+    const input = host.querySelector<HTMLInputElement>('input')!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      setter.call(input, '14')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(onCommit).not.toHaveBeenCalled()
+    await act(async () => { input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    expect(onCommit).toHaveBeenCalledWith(14)
+  })
+
+  it('does not turn an emptied required number into zero', async () => {
+    const onCommit = vi.fn()
+    act(() => root.render(createElement(CommitNumberInput, { value: 10, onCommit, min: 1 })))
+    const input = host.querySelector<HTMLInputElement>('input')!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      setter.call(input, '')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => { input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    expect(onCommit).not.toHaveBeenCalled()
+    expect(input.value).toBe('10')
+  })
+})
 
 describe('Slider', () => {
   it('coalesces a burst of steps into one write per frame', async () => {

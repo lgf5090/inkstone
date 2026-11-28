@@ -32,6 +32,8 @@ async function show(options: {
   currencies?: string[]
   categories?: string[]
   onSaveSettings?: (patch: Record<string, unknown>) => Promise<boolean>
+  onRotateToken?: () => Promise<{ token: string; hint: string } | null>
+  onRotateCalendarToken?: () => Promise<{ token: string; hint: string } | null>
 } = {}): Promise<void> {
   const value = { ...DEFAULT_SETTINGS, ...options.settings }
   await act(async () => {
@@ -45,7 +47,8 @@ async function show(options: {
       onSaveChannel: async () => true,
       onClearChannel: async () => true,
       onTestChannel: async () => {},
-      onRotateToken: async () => null,
+      onRotateToken: options.onRotateToken ?? (async () => null),
+      onRotateCalendarToken: options.onRotateCalendarToken ?? (async () => null),
       onDiagnostics: () => {},
     }))
   })
@@ -90,6 +93,46 @@ afterEach(() => {
   act(() => root.unmount())
   host.remove()
   document.body.innerHTML = ''
+})
+
+describe('the access links', () => {
+  it('rotates and displays webhook and calendar tokens separately', async () => {
+    await show({
+      settings: { inboundTokenHint: 'aaaa', calendarTokenHint: 'bbbb' },
+      onRotateToken: async () => ({ token: 'webhook-token-1234', hint: '1234' }),
+      onRotateCalendarToken: async () => ({ token: 'calendar-token-5678', hint: '5678' }),
+    })
+    const inbound = [...document.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.includes(t('subscriptions.settings.inbound_rotate')))
+    const calendar = [...document.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.includes(t('subscriptions.settings.calendar_rotate')))
+    expect(inbound).toBeTruthy()
+    expect(calendar).toBeTruthy()
+    await act(async () => { inbound!.click() })
+    await act(async () => { calendar!.click() })
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('/hooks/subscriptions/webhook-token-1234')
+    expect(text).toContain('/hooks/subscriptions/calendar/calendar-token-5678')
+  })
+})
+
+describe('number drafts', () => {
+  it('saves a budget on blur instead of on every keystroke', async () => {
+    const onSaveSettings = vi.fn(async () => true)
+    await show({ settings: { budgetMonthly: 100 }, onSaveSettings })
+    const label = [...document.querySelectorAll<HTMLLabelElement>('label')]
+      .find((node) => node.textContent?.includes(t('subscriptions.settings.budget')))
+    const input = label?.htmlFor ? document.getElementById(label.htmlFor) as HTMLInputElement | null : null
+    expect(input).toBeTruthy()
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      setter.call(input, '200')
+      input!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(onSaveSettings).not.toHaveBeenCalled()
+    await act(async () => { input!.dispatchEvent(new FocusEvent('focusout', { bubbles: true })) })
+    expect(onSaveSettings).toHaveBeenCalledWith({ budgetMonthly: 200 })
+  })
 })
 
 describe('the rate boxes', () => {

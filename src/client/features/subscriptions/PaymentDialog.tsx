@@ -20,17 +20,19 @@ export function PaymentDialog({
   saving,
   onClose,
   onSubmit,
+  refund = false,
 }: {
-  payment: PaymentRecord
+  payment: PaymentRecord | null
   timezone: string
   saving: boolean
   onClose: () => void
   onSubmit: (patch: { date: string; amount: number; currency: CurrencyCode; note: string }) => Promise<boolean>
+  refund?: boolean
 }): ReactElement {
-  const [date, setDate] = useState(formatDateInputInTimezone(payment.paidAt, timezone))
-  const [amount, setAmount] = useState(String(payment.amount))
-  const [currency, setCurrency] = useState<CurrencyCode>(payment.currency)
-  const [note, setNote] = useState(payment.note)
+  const [date, setDate] = useState(formatDateInputInTimezone(payment?.paidAt ?? Date.now(), timezone))
+  const [amount, setAmount] = useState(payment ? String(Math.abs(payment.amount)) : '')
+  const [currency, setCurrency] = useState<CurrencyCode>(payment?.currency ?? 'CNY')
+  const [note, setNote] = useState(payment?.note ?? '')
 
   const submit = async (): Promise<void> => {
     const ok = await onSubmit({
@@ -46,7 +48,7 @@ export function PaymentDialog({
     <Modal
       open
       onClose={onClose}
-      title={t('subscriptions.payments.edit')}
+      title={refund ? t('subscriptions.payments.refund') : t('subscriptions.payments.edit')}
       width={420}
       bodyClassName="px-4 py-3"
       footer={(
@@ -61,7 +63,7 @@ export function PaymentDialog({
           <Field label={t('subscriptions.renew.date')}>
             <DatePicker label={t('subscriptions.renew.date')} value={date} onChange={setDate} />
           </Field>
-          <Field label={t('subscriptions.renew.amount')}>
+          <Field label={t('subscriptions.payments.amount')}>
             <Input type="number" min={0} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
           </Field>
         </div>

@@ -4956,10 +4956,88 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   },
   {
     version: 440,
-    statements: [...PROJECT_REMINDER_SCHEMA_STATEMENTS, PROJECT_REMINDER_BACKFILL_STATEMENT],
+    skipIfColumnExists: { table: 'sub_payment', column: 'period_count' },
+    statements: [`ALTER TABLE sub_payment ADD COLUMN period_count INTEGER NOT NULL DEFAULT 1`],
   },
   {
     version: 441,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS sub_restore_stage (
+        user_id TEXT NOT NULL,
+        restore_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, restore_id, kind, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_sub_restore_stage_cleanup ON sub_restore_stage(created_at)`,
+    ],
+  },
+  {
+    version: 442,
+    skipIfColumnExists: { table: 'sub_settings', column: 'calendar_token_hash' },
+    statements: [`ALTER TABLE sub_settings ADD COLUMN calendar_token_hash TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 443,
+    skipIfColumnExists: { table: 'sub_settings', column: 'calendar_token_hint' },
+    statements: [`ALTER TABLE sub_settings ADD COLUMN calendar_token_hint TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 444,
+    statements: [`CREATE INDEX IF NOT EXISTS idx_sub_rule_due ON sub_reminder_rule(user_id, subscription_id, enabled, kind, value, unit)`],
+  },
+  {
+    version: 445,
+    skipIfColumnExists: { table: 'sub_item', column: 'payment_method' },
+    statements: [`ALTER TABLE sub_item ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 446,
+    skipIfColumnExists: { table: 'sub_item', column: 'management_url' },
+    statements: [`ALTER TABLE sub_item ADD COLUMN management_url TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 447,
+    skipIfColumnExists: { table: 'sub_item', column: 'paused_until' },
+    statements: [`ALTER TABLE sub_item ADD COLUMN paused_until INTEGER`],
+  },
+  {
+    version: 448,
+    skipIfColumnExists: { table: 'sub_item', column: 'fixed_term' },
+    statements: [`ALTER TABLE sub_item ADD COLUMN fixed_term INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 449,
+    skipIfColumnExists: { table: 'sub_item', column: 'intro_price' },
+    statements: [`ALTER TABLE sub_item ADD COLUMN intro_price REAL`],
+  },
+  {
+    version: 450,
+    skipIfColumnExists: { table: 'sub_settings', column: 'digest' },
+    statements: [`ALTER TABLE sub_settings ADD COLUMN digest TEXT NOT NULL DEFAULT 'off'`],
+  },
+  {
+    version: 451,
+    skipIfColumnExists: { table: 'sub_settings', column: 'digest_hour' },
+    statements: [`ALTER TABLE sub_settings ADD COLUMN digest_hour INTEGER NOT NULL DEFAULT 8`],
+  },
+  {
+    version: 452,
+    skipIfColumnExists: { table: 'sub_settings', column: 'next_digest_at' },
+    statements: [`ALTER TABLE sub_settings ADD COLUMN next_digest_at INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 453,
+    statements: [`CREATE INDEX IF NOT EXISTS idx_sub_settings_digest_due ON sub_settings(digest, next_digest_at)`],
+  },
+  {
+    version: 454,
+    statements: [...PROJECT_REMINDER_SCHEMA_STATEMENTS, PROJECT_REMINDER_BACKFILL_STATEMENT],
+  },
+  {
+    version: 455,
     skipIfColumnExists: { table: 'project_cards', column: 'recurrence_source_id' },
     statements: [
       'ALTER TABLE project_cards ADD COLUMN recurrence_source_id TEXT',
@@ -4968,7 +5046,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    version: 442,
+    version: 456,
     statements: [
       `UPDATE project_time_entries SET ended_at = started_at
        WHERE ended_at IS NULL AND id NOT IN (
@@ -4982,64 +5060,64 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    version: 443,
+    version: 457,
     skipIfColumnExists: { table: 'project_cards', column: 'content_order_revision' },
     statements: ['ALTER TABLE project_cards ADD COLUMN content_order_revision INTEGER NOT NULL DEFAULT 0'],
   },
   {
-    version: 444,
+    version: 458,
     skipIfColumnExists: { table: 'project_webhook_deliveries', column: 'message_id' },
     statements: ['ALTER TABLE project_webhook_deliveries ADD COLUMN message_id TEXT NOT NULL DEFAULT \'\''],
   },
   {
-    version: 445,
+    version: 459,
     skipIfColumnExists: { table: 'project_webhook_deliveries', column: 'claim_token' },
     statements: ['ALTER TABLE project_webhook_deliveries ADD COLUMN claim_token TEXT NOT NULL DEFAULT \'\''],
   },
   {
-    version: 446,
+    version: 460,
     skipIfColumnExists: { table: 'project_webhook_deliveries', column: 'lease_until' },
     statements: ['ALTER TABLE project_webhook_deliveries ADD COLUMN lease_until INTEGER NOT NULL DEFAULT 0'],
   },
   {
-    version: 447,
+    version: 461,
     statements: [PROJECT_REMINDER_PENDING_INDEX_STATEMENT],
   },
   {
-    version: 448,
+    version: 462,
     statements: [...PROJECT_SEARCH_SCHEMA_STATEMENTS, ...PROJECT_SEARCH_BACKFILL_STATEMENTS],
   },
   {
-    version: 449,
+    version: 463,
     statements: [...PROJECT_PRESENCE_SCHEMA_STATEMENTS],
   },
   {
-    version: 450,
+    version: 464,
     statements: [...PROJECT_AUDIT_SCHEMA_STATEMENTS],
   },
   {
-    version: 451,
+    version: 465,
     statements: [...PROJECT_VERSION_SCHEMA_STATEMENTS],
   },
   {
-    version: 452,
+    version: 466,
     skipIfColumnExists: { table: 'project_shares', column: 'intake_config' },
     statements: [`ALTER TABLE project_shares ADD COLUMN intake_config TEXT NOT NULL DEFAULT '{"enabled":false,"title":"","propertyIds":[],"requiredPropertyIds":[]}'`],
   },
   {
-    version: 453,
+    version: 467,
     statements: [...PROJECT_GUEST_SCHEMA_STATEMENTS],
   },
   {
-    version: 454,
+    version: 468,
     statements: [...PROJECT_NOTE_LINK_SCHEMA_STATEMENTS],
   },
   {
-    version: 455,
+    version: 469,
     statements: [...PROJECT_CALENDAR_LINK_SCHEMA_STATEMENTS],
   },
   {
-    version: 456,
+    version: 470,
     statements: [...PROJECT_NATIVE_INTEGRATION_SCHEMA_STATEMENTS],
   },
 ]

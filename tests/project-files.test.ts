@@ -159,7 +159,7 @@ async function createDueCard(board: ProjectBoard, title: string, due: number): P
 }
 
 describe('project due reminders (F-10)', () => {
-  it('backfills existing subscribed dates when migration 440 installs the queue', () => {
+  it('backfills existing subscribed dates when migration 454 installs the queue', () => {
     const legacy = new DatabaseSync(':memory:')
     for (const statement of [...PROJECT_CORE_SCHEMA_STATEMENTS, ...PROJECT_AUX_SCHEMA_STATEMENTS]) legacy.exec(statement)
     const due = Date.now() + 60 * 60 * 1000
@@ -173,7 +173,7 @@ describe('project due reminders (F-10)', () => {
       VALUES ('c-legacy-reminder', 'p-legacy-reminder', ?, 1)`).run(JSON.stringify({ from: due }))
     legacy.prepare(`INSERT INTO project_subscriptions (block_type, block_id, subscriber_id, notified_at, create_at)
       VALUES ('card', 'c-legacy-reminder', 'alice', ?, 1)`).run(due)
-    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 440)
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 454)
     expect(migration).toBeDefined()
     for (const statement of migration!.statements) legacy.exec(statement)
     expect(legacy.prepare('SELECT card_id, property_id, due_at, board_id, notified_at FROM project_reminders').all())

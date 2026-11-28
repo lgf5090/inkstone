@@ -60,7 +60,9 @@ export function formatAmount(amount: number | null | undefined, currency: string
   const value = Number(amount)
   if (!Number.isFinite(value)) return ''
   const symbol = currencySymbol(currency)
-  return options.decimals === false ? `${symbol}${Math.round(value)}` : `${symbol}${value.toFixed(2)}`
+  const sign = value < 0 ? '-' : ''
+  const absolute = Math.abs(value)
+  return options.decimals === false ? `${sign}${symbol}${Math.round(absolute)}` : `${sign}${symbol}${absolute.toFixed(2)}`
 }
 
 /**
@@ -98,6 +100,7 @@ export function daysStateKey(state: DaysState): MessageKey {
 /** The catalog key for a period unit's name. */
 export function periodUnitKey(unit: PeriodUnit): MessageKey {
   if (unit === 'day') return 'subscriptions.unit_day'
+  if (unit === 'week') return 'subscriptions.unit_week'
   if (unit === 'year') return 'subscriptions.unit_year'
   return 'subscriptions.unit_month'
 }

@@ -8,7 +8,7 @@
  * and a component agree about a subscription without any of them owning the rules.
  */
 
-export const PERIOD_UNITS = ['day', 'month', 'year'] as const
+export const PERIOD_UNITS = ['day', 'week', 'month', 'year'] as const
 export type PeriodUnit = (typeof PERIOD_UNITS)[number]
 
 export const SUBSCRIPTION_MODES = ['cycle', 'reset'] as const
@@ -40,7 +40,7 @@ export type CurrencyCode = (typeof CURRENCY_CODES)[number]
  */
 export type RateOverrides = { [K in Exclude<CurrencyCode, 'CNY'>]?: number }
 
-export const REMINDER_KINDS = ['before_expiry', 'on_expiry', 'after_expiry'] as const
+export const REMINDER_KINDS = ['before_expiry', 'before_trial_end', 'on_expiry', 'after_expiry'] as const
 export type ReminderKind = (typeof REMINDER_KINDS)[number]
 
 export const REMINDER_UNITS = ['days', 'hours'] as const
@@ -63,7 +63,7 @@ export const CHANNEL_KINDS = [
 ] as const
 export type ChannelKind = (typeof CHANNEL_KINDS)[number]
 
-export const PAYMENT_KINDS = ['initial', 'manual', 'auto'] as const
+export const PAYMENT_KINDS = ['initial', 'manual', 'auto', 'refund'] as const
 export type PaymentKind = (typeof PAYMENT_KINDS)[number]
 
 /**
@@ -179,6 +179,10 @@ export const DEDUPE_RETENTION_MS = 48 * 60 * 60 * 1000
 export const NOTIFY_LOCALES = ['zh-CN', 'en-US'] as const
 export type NotifyLocale = (typeof NOTIFY_LOCALES)[number]
 
+export const DIGEST_FREQUENCIES = ['off', 'daily', 'weekly'] as const
+export type DigestFrequency = (typeof DIGEST_FREQUENCIES)[number]
+export const DIGEST_HOUR_DEFAULT = 8
+
 export interface SubscriptionExpiry {
   id: string
   name: string
@@ -219,6 +223,11 @@ export interface SubscriptionItem {
   lastPaymentDate: string | null
   /** When a free trial stops being free, or null when this is not a trial. */
   trialEndsAt: string | null
+  paymentMethod: string
+  managementUrl: string
+  pausedUntil: string | null
+  fixedTerm: boolean
+  introPrice: number | null
   /** When this went to the trash, or null while it is live. A trashed row is never in the list. */
   deletedAt: string | null
   createdAt: string
@@ -239,6 +248,7 @@ export interface SubscriptionItem {
    * convert through the rate table and say which one it used.
    */
   paidByCurrency: PaidAmount[]
+  reminderRules?: ReminderRule[]
 }
 
 /** Money actually paid, in the currency it was paid in. */
@@ -264,6 +274,11 @@ export interface SubscriptionInput {
   autoRenew?: boolean
   notes?: string
   trialEndsAt?: string | null
+  paymentMethod?: string
+  managementUrl?: string
+  pausedUntil?: string | null
+  fixedTerm?: boolean
+  introPrice?: number | null
   reminderRules?: ReminderRuleInput[]
 }
 
@@ -277,6 +292,7 @@ export interface PaymentRecord {
   note: string
   periodStart: string | null
   periodEnd: string | null
+  periodCount?: number
 }
 
 export interface ReminderRule {
@@ -307,6 +323,8 @@ export interface ReminderRuleInput {
 export interface SubscriptionSettings {
   timezone: string
   notificationHours: string[]
+  digest: DigestFrequency
+  digestHour: number
   showLunar: boolean
   paymentHistoryLimit: number
   locale: NotifyLocale
@@ -340,6 +358,7 @@ export interface SubscriptionSettings {
   rateOverrides: RateOverrides
   /** The last four characters of the inbound token, or empty when none was ever made. */
   inboundTokenHint: string
+  calendarTokenHint?: string
 }
 
 /** How many decimals a pinned rate keeps: a won is worth fractions of a fen. */
@@ -768,6 +787,8 @@ export function roundMoney(value: number): number {
 export const DEFAULT_SETTINGS: SubscriptionSettings = {
   timezone: 'Asia/Shanghai',
   notificationHours: [],
+  digest: 'off',
+  digestHour: DIGEST_HOUR_DEFAULT,
   showLunar: false,
   paymentHistoryLimit: PAYMENT_LIMIT_DEFAULT,
   locale: 'zh-CN',
@@ -777,15 +798,30 @@ export const DEFAULT_SETTINGS: SubscriptionSettings = {
   budgetCategories: {},
   rateOverrides: {},
   inboundTokenHint: '',
+  calendarTokenHint: '',
 }
 
 /**
  * The hours a reminder may be sent in, as the scheduler compares them.
  *
  * Three spellings mean "any hour" and all three normalise to `['*']`: an empty list, a literal `*`,
- * and the word `ALL`. A number is clamped and padded, because `8` and `08` are the same hour and a
- * comparison against `'08'` would miss the former.
+ * and the word `ALL`. A number from 0 through 23 is padded, because `8` and `08` are the same hour and a
+ * comparison against `'08'` would miss the former. Invalid stored values are ignored; new input is
+ * rejected by `areValidNotificationHours` before it reaches this normaliser.
  */
+export function areValidNotificationHours(input: unknown): boolean {
+  const raw = Array.isArray(input)
+    ? input
+    : typeof input === 'string' ? input.split(',') : []
+  return raw.every((entry) => {
+    const value = String(entry).trim()
+    if (!value) return true
+    const upper = value.toUpperCase()
+    if (upper === '*' || upper === 'ALL') return true
+    return /^\d{1,2}$/.test(value) && Number(value) >= 0 && Number(value) <= 23
+  })
+}
+
 export function normalizeNotificationHours(input: unknown): string[] {
   const raw = Array.isArray(input)
     ? input
@@ -799,15 +835,28 @@ export function normalizeNotificationHours(input: unknown): string[] {
       if (!out.includes('*')) out.push('*')
       continue
     }
-    if (/^\d+$/.test(value)) {
-      const hour = Math.min(23, Math.max(0, Math.floor(Number(value))))
+    if (/^\d{1,2}$/.test(value)) {
+      const hour = Number(value)
+      if (hour < 0 || hour > 23) continue
       const padded = String(hour).padStart(2, '0')
       if (!out.includes(padded)) out.push(padded)
       continue
     }
-    if (!out.includes(upper)) out.push(upper)
   }
   return out
+}
+
+export function isDigestFrequency(value: unknown): value is DigestFrequency {
+  return DIGEST_FREQUENCIES.includes(value as DigestFrequency)
+}
+
+export function isValidDigestHour(value: unknown): boolean {
+  return !Array.isArray(value) && areValidNotificationHours([value]) && normalizeNotificationHours([value]).length === 1
+    && normalizeNotificationHours([value])[0] !== '*'
+}
+
+export function normalizeDigestHour(value: unknown): number {
+  return isValidDigestHour(value) ? Number(normalizeNotificationHours([value])[0]) : DIGEST_HOUR_DEFAULT
 }
 
 /** Whether a reminder may be sent at this hour, given the account's window. */

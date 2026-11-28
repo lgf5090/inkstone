@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import type { Env } from '../src/worker/env'
 import { sweepSubscriptions } from '../src/worker/subscriptions/scheduler'
-import { saveChannel, saveSettings } from '../src/worker/subscriptions/settings'
+import { saveChannel, saveSettings, nextDigestAt } from '../src/worker/subscriptions/settings'
 import { SubscriptionsStore, storeContext } from '../src/worker/subscriptions/store'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -48,6 +48,8 @@ async function seed(userId: string, options: { name?: string; days: number; hour
   const settings = {
     timezone: 'Asia/Shanghai',
     notificationHours: options.hours ?? [],
+    digest: 'off' as const,
+    digestHour: 8,
     showLunar: false,
     paymentHistoryLimit: 100,
     locale: 'zh-CN' as const,
@@ -96,14 +98,24 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('digest scheduling', () => {
+  it('schedules the next weekly digest for Monday, including from Sunday', () => {
+    const sunday = Date.parse('2026-11-29T12:00:00Z')
+    expect(new Date(nextDigestAt('weekly', 8, 'Asia/Shanghai', sunday)).toISOString()).toBe('2026-11-30T00:00:00.000Z')
+    const monday = Date.parse('2026-11-30T12:00:00Z')
+    expect(new Date(nextDigestAt('weekly', 8, 'Asia/Shanghai', monday)).toISOString()).toBe('2026-12-07T00:00:00.000Z')
+  })
+})
+
 describe('the sweep', () => {
   it('does nothing when no subscription is due', async () => {
     await seed('u1', { name: 'Later', days: 20 })
     await enableGotify('u1')
     const result = await sweepSubscriptions(env(), NOW)
     expect(result.sent).toBe(0)
+    expect(result.accounts).toBe(0)
     expect(deliveries).toEqual([])
-    expect(schedules('u1')[0]!.status).toBe('skipped')
+    expect(schedules('u1')).toEqual([])
   })
 
   it('sends one aggregated message when a rule comes due', async () => {
@@ -129,7 +141,17 @@ describe('the sweep', () => {
     const second = await sweepSubscriptions(env(), NOW + 15 * 60_000)
     expect(deliveries).toHaveLength(1)
     expect(second.deduped).toBeGreaterThan(0)
-    expect(schedules('u1')[0]!.status).toBe('skipped')
+    expect(schedules('u1')).toHaveLength(1)
+    expect(schedules('u1')[0]!.status).toBe('ok')
+  })
+
+  it('sends a before-expiry rule once across different local hours', async () => {
+    await seed('u1', { days: 7 })
+    await enableGotify('u1')
+    await sweepSubscriptions(env(), NOW)
+    const second = await sweepSubscriptions(env(), NOW + 60 * 60_000)
+    expect(deliveries).toHaveLength(1)
+    expect(second.deduped).toBeGreaterThan(0)
   })
 
   it('stays quiet outside the notification window but still renews', async () => {
@@ -188,6 +210,46 @@ describe('the sweep', () => {
     expect(deliveries).toHaveLength(2)
   })
 
+  it('reminds before a trial ends and does not report it as expiry', async () => {
+    await saveSettings(db, 'u1', { timezone: 'Asia/Shanghai', notificationHours: [], locale: 'zh-CN' })
+    const store = new SubscriptionsStore(db, 'u1')
+    const created = await store.create({
+      name: 'Trial', amount: 60, expiryDate: '2026-12-21', trialEndsAt: new Date(NOW + 3 * DAY).toISOString(),
+      periodValue: 1, periodUnit: 'month', reminderRules: [{ type: 'before_trial_end', value: 3, unit: 'days' }],
+    }, storeContext({ timezone: 'Asia/Shanghai', notificationHours: [], digest: 'off', digestHour: 8, showLunar: false, paymentHistoryLimit: 100, locale: 'zh-CN', baseCurrency: 'CNY', budgetMonthly: null, budgetYearly: null, budgetCategories: {}, rateOverrides: {}, inboundTokenHint: '' }, NOW))
+    await enableGotify('u1')
+    const result = await sweepSubscriptions(env(), NOW)
+    expect(result.matched).toBe(1)
+    expect(deliveries).toHaveLength(1)
+    const log = sqlite.prepare(`SELECT body FROM sub_notify_log WHERE user_id = 'u1'`).get() as { body: string }
+    expect(log.body).toContain('试用截止')
+    expect(log.body).toContain(created.item.name)
+  })
+
+  it('sends a due daily digest once and excludes paused plans', async () => {
+    await seed('u1', { name: 'Digest plan', days: 3 })
+    sqlite.prepare(`DELETE FROM sub_reminder_rule WHERE subscription_id IN (SELECT id FROM sub_item WHERE user_id = 'u1')`).run()
+    await saveSettings(db, 'u1', { timezone: 'Asia/Shanghai', digest: 'daily', digestHour: 12 })
+    sqlite.prepare(`UPDATE sub_settings SET next_digest_at = ? WHERE user_id = 'u1'`).run(NOW)
+    await enableGotify('u1')
+    const first = await sweepSubscriptions(env(), NOW)
+    expect(first.digested).toBe(1)
+    expect(deliveries).toHaveLength(1)
+    const second = await sweepSubscriptions(env(), NOW + 60_000)
+    expect(second.digested).toBe(0)
+    expect(deliveries).toHaveLength(1)
+  })
+
+  it('records an empty digest instead of sending a blank notification', async () => {
+    await saveSettings(db, 'u1', { timezone: 'Asia/Shanghai', digest: 'daily', digestHour: 12 })
+    sqlite.prepare(`UPDATE sub_settings SET next_digest_at = ? WHERE user_id = 'u1'`).run(NOW)
+    await enableGotify('u1')
+    const result = await sweepSubscriptions(env(), NOW)
+    expect(result.digested).toBe(1)
+    const log = sqlite.prepare(`SELECT body FROM sub_notify_log WHERE user_id = 'u1'`).get() as { body: string }
+    expect(log.body).toContain('没有已过期订阅')
+  })
+
   it('records the sweep even when it throws', async () => {
     await seed('u1', { days: 7 })
     sqlite.prepare(`UPDATE sub_reminder_rule SET value = 7, enabled = 1`).run()
@@ -209,6 +271,28 @@ describe('the trash', () => {
    * silently spend money on the reader's behalf while they were deciding whether to restore it, and one
    * that kept notifying would make the trash the noisiest place in the app.
    */
+  it('stops selecting an account after its trial has converted', async () => {
+    await saveSettings(db, 'u1', { timezone: 'Asia/Shanghai', notificationHours: [], locale: 'zh-CN' })
+    const store = new SubscriptionsStore(db, 'u1')
+    const settings = { timezone: 'Asia/Shanghai', notificationHours: [], digest: 'off' as const, digestHour: 8, showLunar: false, paymentHistoryLimit: 100, locale: 'zh-CN' as const, baseCurrency: 'CNY' as const, budgetMonthly: null, budgetYearly: null, budgetCategories: {}, rateOverrides: {}, inboundTokenHint: '' }
+    const created = await store.create({
+      name: 'Converted trial', amount: 60, expiryDate: '2026-12-21', trialEndsAt: '2026-11-30',
+      periodValue: 1, periodUnit: 'month', reminderRules: [{ type: 'before_trial_end', value: 3, unit: 'days' }],
+    }, storeContext(settings, NOW))
+    const later = Date.parse('2026-12-01T00:00:00Z')
+    expect(await store.autoRenew(created.item.id, { ...storeContext(settings, NOW), now: later })).not.toBeNull()
+    const result = await sweepSubscriptions(env(), later)
+    expect(result.accounts).toBe(0)
+  })
+
+  it('does not scan an account whose only subscription is in the trash', async () => {
+    const created = await seed('u1', { name: 'Gone', days: 7 })
+    await new SubscriptionsStore(db, 'u1').trash(created.item.id, { timezone: 'Asia/Shanghai', paymentLimit: 100, now: NOW })
+    const result = await sweepSubscriptions(env(), NOW)
+    expect(result.accounts).toBe(0)
+    expect(schedules('u1')).toEqual([])
+  })
+
   it('leaves a trashed subscription alone', async () => {
     await saveSettings(db, 'u1', { timezone: 'Asia/Shanghai', notificationHours: [], locale: 'zh-CN' })
     const store = new SubscriptionsStore(db, 'u1')

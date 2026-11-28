@@ -108,6 +108,7 @@ import {
   type SubscriptionMode,
   type SubscriptionSettings,
 } from '@shared/subscriptions/model'
+import { formatLocalDate } from '@shared/subscriptions/time'
 import { ApiError } from '../lib/errors'
 import { ArtifactVersionConflictError, MAX_DEPS_PER_TASK, TaskRefusal, type AssistantStore, type MemoryScope } from './store'
 import {
@@ -2934,7 +2935,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         // told the difference will summarise fifteen subscriptions as if they were the account.
         returned: page.length,
         more: matched.length > page.length,
-        subscriptions: page.map(presentSubscription),
+        subscriptions: page.map((item) => presentSubscription(item, settings.timezone)),
       }
     },
   }),
@@ -2945,9 +2946,9 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
     description: 'Read one subscription in full: its reminder rules, when the next one fires, its payment history with what each receipt bought, and what that history adds up to per calendar year and per currency.',
     fields: { ref: { type: 'string', minLength: 1, maxLength: 120, description: 'The id, or the name the reader used.' } },
     async run(args, ctx) {
-      const { detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      const { context, detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
       return {
-        subscription: presentSubscription(detail.item),
+        subscription: presentSubscription(detail.item, context.timezone),
         notes: detail.item.notes.slice(0, 1000),
         reminders: detail.rules.map((rule) => ({
           id: rule.id,
@@ -3075,18 +3076,18 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         amount: args.amount === undefined ? null : Number(args.amount),
         currency: (args.currency as CurrencyCode) ?? 'CNY',
         startDate: typeof args.startDate === 'string' && args.startDate ? args.startDate : null,
-        expiryDate: `${String(args.expiryDate)}T00:00:00Z`,
+        expiryDate: String(args.expiryDate),
         periodValue: args.periodValue === undefined ? 1 : Number(args.periodValue),
         periodUnit: (args.periodUnit as PeriodUnit) ?? 'month',
         subscriptionMode: (args.mode as SubscriptionMode) ?? 'cycle',
         useLunar: args.useLunar === true,
         isActive: args.isActive === undefined ? true : args.isActive === true,
         autoRenew: args.autoRenew === undefined ? true : args.autoRenew === true,
-        trialEndsAt: typeof args.trialEndsAt === 'string' && args.trialEndsAt ? `${args.trialEndsAt}T00:00:00Z` : null,
+        trialEndsAt: typeof args.trialEndsAt === 'string' && args.trialEndsAt ? args.trialEndsAt : null,
         notes: typeof args.notes === 'string' ? args.notes : '',
         reminderRules: typeof args.reminders === 'string' ? parseReminderSpec(args.reminders) : undefined,
       }, context)
-      return { created: presentSubscription(created.item), reminders: created.rules.length }
+      return { created: presentSubscription(created.item, context.timezone), reminders: created.rules.length }
     },
   }),
   tool({
@@ -3120,7 +3121,9 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         amount: args.amount === undefined ? current.amount : Number(args.amount),
         currency: (args.currency as CurrencyCode) ?? current.currency,
         startDate: typeof args.startDate === 'string' && args.startDate ? args.startDate : current.startDate,
-        expiryDate: `${(typeof args.expiryDate === 'string' && args.expiryDate ? args.expiryDate : current.expiryDate.slice(0, 10))}T00:00:00Z`,
+        expiryDate: typeof args.expiryDate === 'string' && args.expiryDate
+          ? args.expiryDate
+          : formatLocalDate(current.expiryDate, context.timezone, 'date'),
         periodValue: args.periodValue === undefined ? current.periodValue : Number(args.periodValue),
         periodUnit: (args.periodUnit as PeriodUnit) ?? current.periodUnit,
         subscriptionMode: (args.mode as SubscriptionMode) ?? current.subscriptionMode,
@@ -3130,7 +3133,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         notes: typeof args.notes === 'string' ? args.notes : current.notes,
       }, context)
       if (!updated) throw new ToolError('That subscription is gone.')
-      return { updated: presentSubscription(updated.item) }
+      return { updated: presentSubscription(updated.item, context.timezone) }
     },
   }),
   tool({
@@ -3151,13 +3154,13 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         throw new ToolError('That subscription has no cycle set, so there is nothing to extend it by. Give it a period first.')
       }
       const renewed = await store.renew(detail.item.id, {
-        paymentDate: typeof args.paymentDate === 'string' && args.paymentDate ? `${args.paymentDate}T00:00:00Z` : undefined,
+        paymentDate: typeof args.paymentDate === 'string' && args.paymentDate ? args.paymentDate : undefined,
         amount: args.amount === undefined ? undefined : Number(args.amount),
         periodMultiplier: args.periods === undefined ? 1 : Number(args.periods),
         note: typeof args.note === 'string' ? args.note : undefined,
       }, context)
       if (!renewed) throw new ToolError('That subscription is gone.')
-      return { renewed: presentSubscription(renewed.item), payments: renewed.payments.length }
+      return { renewed: presentSubscription(renewed.item, context.timezone), payments: renewed.payments.length }
     },
   }),
   tool({
@@ -3402,7 +3405,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       }
       await store.bulk([detail.item.id], active ? 'activate' : 'deactivate')
       const after = await store.get(detail.item.id, context)
-      return { updated: after ? presentSubscription(after.item) : null }
+      return { updated: after ? presentSubscription(after.item, context.timezone) : null }
     },
   }),
   tool({
@@ -3477,7 +3480,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
         throw new ToolError(`No receipt ${held.length ? 'of this subscription matches' : 'exists to edit'} "${wanted.slice(0, 40)}".${held.length ? ` It holds: ${held.join(', ')}.` : ''} Read the subscription first to get the id.`)
       }
       const patch: { date?: string; amount?: number; currency?: string; note?: string } = {}
-      if (typeof args.date === 'string' && args.date) patch.date = `${args.date.slice(0, 10)}T00:00:00Z`
+      if (typeof args.date === 'string' && args.date) patch.date = args.date.slice(0, 10)
       if (args.amount !== undefined) patch.amount = Number(args.amount)
       if (typeof args.currency === 'string') patch.currency = args.currency
       if (typeof args.note === 'string') patch.note = args.note
@@ -3485,10 +3488,10 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       const updated = await store.updatePayment(detail.item.id, payment.id, patch, context)
       if (!updated) throw new ToolError('That receipt is gone.')
       return {
-        updated: presentSubscription(updated.item),
+        updated: presentSubscription(updated.item, context.timezone),
         payment: {
           id: payment.id,
-          date: (patch.date ?? payment.paidAt).slice(0, 10),
+          date: formatLocalDate(patch.date ?? payment.paidAt, context.timezone, 'date'),
           amount: patch.amount ?? payment.amount,
           currency: patch.currency ?? payment.currency,
           note: patch.note ?? payment.note,
@@ -3507,13 +3510,13 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       payment: { type: 'string', minLength: 1, maxLength: 40 },
     },
     async prepare(args, ctx) {
-      const { detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
+      const { context, detail } = await resolveSubscriptionOrThrow(args.ref, ctx)
       const wanted = String(args.payment).trim()
       const payment = detail.payments.find((entry) => entry.id === wanted)
       if (!payment) throw new ToolError(`No receipt of "${detail.item.name}" matches "${wanted.slice(0, 40)}". Read the subscription to get its ids.`)
       return {
         targetId: `${detail.item.id}:${payment.id}`,
-        targetLabel: `${detail.item.name} — ${formatAmount(payment.amount, payment.currency)} on ${payment.paidAt.slice(0, 10)}`,
+        targetLabel: `${detail.item.name} — ${formatAmount(payment.amount, payment.currency)} on ${formatLocalDate(payment.paidAt, context.timezone, 'date')}`,
       }
     },
     async commit(targetId, ctx, args) {
@@ -3526,7 +3529,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       if (!updated) throw new ToolError('That receipt is gone.')
       return {
         deleted: true,
-        subscription: presentSubscription(updated.item),
+        subscription: presentSubscription(updated.item, context.timezone),
         payments: updated.payments.length,
         note: 'The receipt is erased; the subscription and its remaining history are untouched.',
       }
@@ -3662,7 +3665,7 @@ export const SUBSCRIPTION_TOOLS: ToolDefinition[] = [
       }
       const restored = await store.restore(match.id, context)
       if (!restored) throw new ToolError('That subscription could not be restored.')
-      return { restored: presentSubscription(restored.item) }
+      return { restored: presentSubscription(restored.item, context.timezone) }
     },
   }),
   tool({
@@ -3819,7 +3822,7 @@ function presentSettings(settings: SubscriptionSettings): Record<string, unknown
 }
 
 /** What a subscription looks like to the model: the fields a question about money or dates actually needs. */
-function presentSubscription(item: SubscriptionItem): Record<string, unknown> {
+function presentSubscription(item: SubscriptionItem, timezone: string): Record<string, unknown> {
   return {
     id: item.id,
     name: item.name,
@@ -3828,9 +3831,9 @@ function presentSubscription(item: SubscriptionItem): Record<string, unknown> {
     amount: item.amount,
     currency: item.currency,
     period: `${item.periodValue} ${item.periodUnit}`,
-    expiryDate: item.expiryDate.slice(0, 10),
-    startDate: item.startDate ? item.startDate.slice(0, 10) : null,
-    trialEndsAt: item.trialEndsAt ? item.trialEndsAt.slice(0, 10) : null,
+    expiryDate: formatLocalDate(item.expiryDate, timezone, 'date'),
+    startDate: item.startDate ? formatLocalDate(item.startDate, timezone, 'date') : null,
+    trialEndsAt: item.trialEndsAt ? formatLocalDate(item.trialEndsAt, timezone, 'date') : null,
     useLunar: item.useLunar,
     daysRemaining: item.daysRemaining,
     isActive: item.isActive,

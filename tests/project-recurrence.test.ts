@@ -69,7 +69,7 @@ describe('completing a recurring card', () => {
   it('installs a unique source constraint on existing card tables', () => {
     const legacy = new DatabaseSync(':memory:')
     legacy.exec('CREATE TABLE project_cards (id TEXT PRIMARY KEY)')
-    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 441)
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 455)
     expect(migration).toBeDefined()
     for (const statement of migration!.statements) legacy.exec(statement)
     legacy.prepare('INSERT INTO project_cards (id, recurrence_source_id) VALUES (?, ?)').run('c1', 'source')

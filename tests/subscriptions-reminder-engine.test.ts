@@ -95,6 +95,13 @@ describe('next fire time', () => {
     expect(getNextFireTime(rule({ unit: 'hours', value: 6 }), EXPIRY, NOW)).toBe('2026-05-31T18:00:00.000Z')
   })
 
+  it('moves a daily reminder to the first open hour in the account timezone', () => {
+    expect(getNextFireTime(rule(), EXPIRY, NOW, {
+      timezone: 'Asia/Shanghai',
+      notificationHours: ['09'],
+    })).toBe('2026-05-25T01:00:00.000Z')
+  })
+
   it('returns nothing once the moment has passed', () => {
     expect(getNextFireTime(rule(), EXPIRY, '2026-06-02T00:00:00.000Z')).toBeNull()
     expect(getNextFireTime(rule({ type: 'on_expiry', value: 0 }), EXPIRY, '2026-06-02T00:00:00.000Z')).toBeNull()

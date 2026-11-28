@@ -60,6 +60,21 @@ const OLD_SUB_ITEM = `CREATE TABLE sub_item (
   PRIMARY KEY (user_id, id)
 )`
 
+const OLD_SUB_PAYMENT = `CREATE TABLE sub_payment (
+  user_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  subscription_id TEXT NOT NULL,
+  paid_at INTEGER NOT NULL,
+  amount REAL NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'CNY',
+  kind TEXT NOT NULL DEFAULT 'manual',
+  note TEXT NOT NULL DEFAULT '',
+  period_start INTEGER,
+  period_end INTEGER,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, id)
+)`
+
 function columnsOf(sqlite: DatabaseSync, table: string): string[] {
   return sqlite.prepare(`SELECT name FROM pragma_table_info(?)`).all(table)
     .map((row) => (row as { name: string }).name)
@@ -94,6 +109,24 @@ async function boot(): Promise<void> {
 }
 
 describe('an existing subscriptions database', () => {
+  it('gains digest settings with safe defaults without disturbing an existing account', async () => {
+    await boot()
+    for (const column of ['digest', 'digest_hour', 'next_digest_at']) expect(columnsOf(sqlite, 'sub_settings')).toContain(column)
+    const row = sqlite.prepare(`SELECT digest, digest_hour, next_digest_at FROM sub_settings WHERE user_id = 'u1'`).get()
+    expect(row).toEqual({ digest: 'off', digest_hour: 8, next_digest_at: 0 })
+    const index = sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sub_settings_digest_due'`).get()
+    expect(index).toEqual({ name: 'idx_sub_settings_digest_due' })
+  })
+
+  it('gains plan metadata columns without disturbing an existing subscription', async () => {
+    await boot()
+    for (const column of ['payment_method', 'management_url', 'paused_until', 'fixed_term', 'intro_price']) {
+      expect(columnsOf(sqlite, 'sub_item')).toContain(column)
+    }
+    const row = sqlite.prepare(`SELECT name, payment_method, management_url, paused_until, fixed_term, intro_price FROM sub_item WHERE id = 's1'`).get()
+    expect(row).toEqual({ name: 'Netflix', payment_method: '', management_url: '', paused_until: null, fixed_term: 0, intro_price: null })
+  })
+
   it('gains the identity columns and keeps the name that was already registered', async () => {
     expect(columnsOf(sqlite, 'sub_category')).not.toContain('icon')
     await boot()
@@ -109,6 +142,8 @@ describe('an existing subscriptions database', () => {
   it('gains the base currency without disturbing the timezone or the window already saved', async () => {
     await boot()
     expect(columnsOf(sqlite, 'sub_settings')).toContain('base_currency')
+    expect(columnsOf(sqlite, 'sub_settings')).toContain('calendar_token_hash')
+    expect(columnsOf(sqlite, 'sub_settings')).toContain('calendar_token_hint')
     const row = sqlite.prepare(`SELECT timezone, notification_hours, payment_history_limit, inbound_token_hint, base_currency
       FROM sub_settings WHERE user_id = 'u1'`).get() as Record<string, string | number>
     expect(row).toEqual({
@@ -135,6 +170,35 @@ describe('an existing subscriptions database', () => {
     expect(before.n).toBe(0)
     await boot()
     expect(columnsOf(sqlite, 'sub_type')).toEqual(['user_id', 'name', 'icon', 'color', 'created_at'])
+  })
+
+  it('adds period_count to existing receipts without changing their amount', async () => {
+    sqlite.exec('DROP TABLE sub_payment')
+    sqlite.exec(OLD_SUB_PAYMENT)
+    sqlite.exec(`INSERT INTO sub_payment (user_id, id, subscription_id, paid_at, amount, currency, kind, note, created_at)
+      VALUES ('u1', 'p1', 's1', 1, 60, 'CNY', 'initial', '', 1)`)
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 440')
+    sqlite.exec(`DELETE FROM app_meta WHERE key = 'database-state-v1'`)
+    await boot()
+    const row = sqlite.prepare("SELECT amount, period_count FROM sub_payment WHERE id = 'p1'").get()
+    expect(row).toEqual({ amount: 60, period_count: 1 })
+  })
+
+  it('creates the restore staging table on an existing database', async () => {
+    sqlite.exec('DROP TABLE sub_restore_stage')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 441')
+    sqlite.exec(`DELETE FROM app_meta WHERE key = 'database-state-v1'`)
+    await boot()
+    expect(columnsOf(sqlite, 'sub_restore_stage')).toEqual(['user_id', 'restore_id', 'kind', 'id', 'payload', 'created_at'])
+  })
+
+  it('creates the scheduler due index on an existing database', async () => {
+    sqlite.exec('DROP INDEX idx_sub_rule_due')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version = 444')
+    sqlite.exec(`DELETE FROM app_meta WHERE key = 'database-state-v1'`)
+    await boot()
+    const index = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_sub_rule_due'").get()
+    expect(index).toEqual({ name: 'idx_sub_rule_due' })
   })
 
   it('settles into the same shape twice, so a second boot changes nothing', async () => {

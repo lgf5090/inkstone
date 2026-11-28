@@ -16,10 +16,12 @@ import { t } from '../../lib/i18n'
 import { Button, IconButton } from '../../components/primitives'
 import { Empty } from '../../components/feedback'
 import { formatAmount } from '@shared/subscriptions/format'
+import { formatLocalDate } from '@shared/subscriptions/time'
 import type { SubscriptionItem } from '@shared/subscriptions/model'
 
-export function TrashView({ items, onRestore, onPurge, onEmpty }: {
+export function TrashView({ items, timezone = 'UTC', onRestore, onPurge, onEmpty }: {
   items: readonly SubscriptionItem[]
+  timezone?: string
   onRestore: (item: SubscriptionItem) => void
   onPurge: (item: SubscriptionItem) => void
   onEmpty: () => void
@@ -55,7 +57,7 @@ export function TrashView({ items, onRestore, onPurge, onEmpty }: {
               <span className="mt-0.5 block truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
                 {[
                   item.customType,
-                  t('subscriptions.trash.deleted_on', { date: item.deletedAt?.slice(0, 10) ?? '—' }),
+                  t('subscriptions.trash.deleted_on', { date: item.deletedAt ? formatLocalDate(item.deletedAt, timezone, 'date') : '—' }),
                 ].filter(Boolean).join(' · ')}
               </span>
             </span>

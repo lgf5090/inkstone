@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
-import { errorResponse } from '../src/worker/lib/errors'
+import { errorResponse, errorLogContext } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { subscriptionRoutes } from '../src/worker/routes/subscriptions'
 import { enabledChannels } from '../src/worker/subscriptions/settings'
@@ -57,10 +57,10 @@ function env() {
   return { DB: db, CREDENTIAL_VAULT: vault } as unknown as AppBindings['Bindings']
 }
 
-async function send(method: string, path: string, body?: unknown) {
-  const init: RequestInit = { method }
+async function send(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
+  const init: RequestInit = { method, headers }
   if (body !== undefined) {
-    init.headers = { 'Content-Type': 'application/json' }
+    init.headers = { ...init.headers, 'Content-Type': 'application/json' }
     init.body = JSON.stringify(body)
   }
   return app.request(`/api/subscriptions${path === '/' ? '' : path}`, init, env())
@@ -112,6 +112,24 @@ describe('creating a subscription', () => {
     expect(detail.item.paymentCount).toBe(1)
     expect(detail.item.paidByCurrency).toEqual([{ currency: 'CNY', amount: 60 }])
     expect(detail.item.daysRemaining).toBeGreaterThanOrEqual(19)
+  })
+
+  it('stores plan metadata and uses the intro price for the opening receipt', async () => {
+    const detail = await create({ paymentMethod: 'Card', managementUrl: 'https://example.com/manage', pausedUntil: inDays(5), fixedTerm: true, introPrice: 9 })
+    expect(detail.item).toMatchObject({ paymentMethod: 'Card', managementUrl: 'https://example.com/manage', fixedTerm: true, introPrice: 9 })
+    expect(detail.item.pausedUntil).not.toBeNull()
+    expect(detail.payments[0].amount).toBe(9)
+  })
+
+  it('refuses non-web management URLs', async () => {
+    const response = await send('POST', '/', { name: 'Bad link', expiryDate: inDays(3), managementUrl: 'javascript:alert(1)' })
+    expect(response.status).toBe(400)
+  })
+
+  it('reads a bare expiry date in the account timezone', async () => {
+    await send('PUT', '/settings', { timezone: 'Asia/Shanghai' })
+    const detail = await create({ expiryDate: '2027-12-21' })
+    expect(detail.item.expiryDate).toBe('2027-12-20T16:00:00.000Z')
   })
 
   it('rolls a past expiry forward instead of storing it', async () => {
@@ -196,7 +214,7 @@ describe('the bundle', () => {
 })
 
 describe('updating', () => {
-  it('keeps the opening receipt in step with a corrected price', async () => {
+  it('does not rewrite the opening receipt when the plan price changes', async () => {
     const created = await create()
     const detail = await json<any>(await send('PUT', `/${created.item.id}`, {
       name: 'Netflix',
@@ -205,7 +223,20 @@ describe('updating', () => {
     }))
     expect(detail.item.amount).toBe(88)
     expect(detail.payments).toHaveLength(1)
-    expect(detail.payments[0].amount).toBe(88)
+    expect(detail.payments[0].amount).toBe(60)
+  })
+
+  it('keeps an expired subscription expired when only its metadata is edited', async () => {
+    const created = await create()
+    const past = inDays(-5)
+    sqlite.prepare('UPDATE sub_item SET expiry_date = ? WHERE id = ?').run(Date.parse(past), created.item.id)
+    const detail = await json<any>(await send('PUT', `/${created.item.id}`, {
+      name: 'Netflix renamed',
+      amount: 60,
+      expiryDate: past,
+    }))
+    expect(detail.item.expiryDate).toBe(new Date(past).toISOString())
+    expect(detail.payments).toHaveLength(1)
   })
 
   it('toggles the subscription off without touching its dates', async () => {
@@ -243,6 +274,8 @@ describe('renewing', () => {
     expect(after).toBeGreaterThan(before)
     expect(detail.payments).toHaveLength(2)
     expect(detail.payments[0].kind).toBe('manual')
+    expect(detail.payments[0].amount).toBe(120)
+    expect(detail.payments[0].periodCount).toBe(2)
   })
 
   it('starts a fresh term from the payment date in reset mode', async () => {
@@ -313,6 +346,22 @@ describe('settings', () => {
     }))
     expect(answer.settings.timezone).toBe('Europe/London')
     expect(answer.settings.notificationHours).toEqual(['08', '20'])
+  })
+
+  it('saves and reads the digest schedule without changing ordinary reminder hours', async () => {
+    const saved = await json<any>(await send('PUT', '/settings', { digest: 'weekly', digestHour: '9', notificationHours: ['08', '20'] }))
+    expect(saved.settings).toMatchObject({ digest: 'weekly', digestHour: 9, notificationHours: ['08', '20'] })
+    expect((await json<any>(await send('GET', '/settings'))).settings).toMatchObject({ digest: 'weekly', digestHour: 9 })
+  })
+
+  it('refuses a digest frequency or hour the scheduler cannot honour', async () => {
+    expect((await send('PUT', '/settings', { digest: 'monthly' })).status).toBe(400)
+    expect((await send('PUT', '/settings', { digestHour: 24 })).status).toBe(400)
+  })
+
+  it('refuses notification hours that cannot match the scheduler', async () => {
+    const response = await send('PUT', '/settings', { notificationHours: ['08:00'] })
+    expect(response.status).toBe(400)
   })
 
   it('refuses a time zone that does not exist', async () => {
@@ -461,6 +510,18 @@ describe('bulk actions', () => {
   })
 })
 
+describe('safe subscription errors', () => {
+  it('removes upstream URLs, credentials, SQL, and stack detail from log context', () => {
+    const context = errorLogContext(new Error('https://api.example.com/path?token=secret authorization=Bearer abc SELECT * FROM users\n at handler'))
+    expect(context.message).toContain('[url]')
+    expect(context.message).toContain('[redacted]')
+    expect(context.message).toContain('[sql]')
+    expect(context.message).not.toContain('secret')
+    expect(context.message).not.toContain('users')
+    expect(context.message).not.toContain('handler')
+  })
+})
+
 describe('the rate table behind the dashboard', () => {
   /**
    * Which of the two ways the numbers came in is asserted as a set rather than a value because the suite
@@ -473,6 +534,38 @@ describe('the rate table behind the dashboard', () => {
     expect(bundle.overview.rates.base).toBe('CNY')
     expect(bundle.overview.rates.basePriced).toBe(true)
     expect(bundle.overview.rates.unpriced).toEqual([])
+  })
+
+  it('shares one upstream refresh across overlapping requests', async () => {
+    const originalFetch = globalThis.fetch
+    let calls = 0
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    vi.stubGlobal('fetch', async () => {
+      calls++
+      await gate
+      return Response.json({ rates: { USD: 7 } })
+    })
+    try {
+      const first = send('POST', '/rates/refresh')
+      const second = send('POST', '/rates/refresh')
+      release()
+      expect((await first).status).toBe(200)
+      expect((await second).status).toBe(200)
+      expect(calls).toBe(1)
+    } finally {
+      vi.unstubAllGlobals()
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('limits repeated import work per account and caller', async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      expect((await send('POST', '/import', { rows: [] }, { 'CF-Connecting-IP': '203.0.113.8' })).status).toBe(200)
+    }
+    const limited = await send('POST', '/import', { rows: [] }, { 'CF-Connecting-IP': '203.0.113.8' })
+    expect(limited.status).toBe(429)
+    expect((await json<any>(limited)).error.code).toBe('too_many_attempts')
   })
 
   it('forgets the cached day when asked and answers with what it holds now', async () => {
@@ -488,6 +581,23 @@ describe('what has been paid on one plan', () => {
    * The case a single total got wrong: a reader who pays one bill in dollars and the next in yuan has
    * paid two things, and `¥120` or `$120` would each be a number the account never spent.
    */
+  it('records a refund as negative income without moving the expiry', async () => {
+    const created = await create({ amount: 60 })
+    const expiry = created.item.expiryDate
+    const response = await send('POST', `/${created.item.id}/refunds`, { date: '2026-11-26', amount: 20, note: 'partial refund' })
+    expect(response.status).toBe(201)
+    const detail = await json<any>(response)
+    expect(detail.payments.find((payment: { kind: string }) => payment.kind === 'refund')).toMatchObject({ kind: 'refund', amount: -20, currency: 'CNY' })
+    expect(detail.item.expiryDate).toBe(expiry)
+    expect(detail.item.paidByCurrency).toEqual([{ currency: 'CNY', amount: 40 }])
+    expect(detail.yearlySpend[0].amount).toBe(40)
+  })
+
+  it('refuses a refund without a positive amount', async () => {
+    const created = await create()
+    expect((await send('POST', `/${created.item.id}/refunds`, { date: '2026-11-26', amount: 0 })).status).toBe(400)
+  })
+
   it('keeps receipts in different currencies apart rather than adding them', async () => {
     const created = await create({ amount: 60, currency: 'CNY' })
     await send('PUT', `/${created.item.id}/payments/${created.payments[0].id}`, { currency: 'USD' })

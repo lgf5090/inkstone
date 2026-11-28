@@ -11,11 +11,13 @@
  * comma, at which point the import splits one column into two and the reader loses a category.
  */
 import type { SubscriptionItem } from '@shared/subscriptions/model'
+import { formatLocalDate } from '@shared/subscriptions/time'
 
 export const CSV_COLUMNS = [
   'name', 'customType', 'category', 'amount', 'currency',
   'startDate', 'expiryDate', 'periodValue', 'periodUnit', 'subscriptionMode',
-  'useLunar', 'autoRenew', 'notes',
+  'useLunar', 'autoRenew', 'isActive', 'trialEndsAt', 'paymentMethod', 'managementUrl',
+  'pausedUntil', 'fixedTerm', 'introPrice', 'reminderRules', 'notes',
 ] as const
 
 export type CsvColumn = (typeof CSV_COLUMNS)[number]
@@ -35,13 +37,13 @@ function escape(value: string): string {
  */
 export const CSV_BOM = '\uFEFF'
 
-export function toCsv(items: readonly SubscriptionItem[]): string {
+export function toCsv(items: readonly SubscriptionItem[], timezone = 'UTC'): string {
   const header = CSV_COLUMNS.join(',')
-  const rows = items.map((item) => CSV_COLUMNS.map((column) => escape(csvValue(item, column))).join(','))
+  const rows = items.map((item) => CSV_COLUMNS.map((column) => escape(csvValue(item, column, timezone))).join(','))
   return [header, ...rows].join('\r\n')
 }
 
-function csvValue(item: SubscriptionItem, column: CsvColumn): string {
+function csvValue(item: SubscriptionItem, column: CsvColumn, timezone: string): string {
   switch (column) {
     case 'name': return item.name
     case 'customType': return item.customType
@@ -49,13 +51,21 @@ function csvValue(item: SubscriptionItem, column: CsvColumn): string {
     // The plain number, not the formatted one: `¥1,234.00` would come back as three fields.
     case 'amount': return item.amount === null ? '' : String(item.amount)
     case 'currency': return item.currency
-    case 'startDate': return item.startDate?.slice(0, 10) ?? ''
-    case 'expiryDate': return item.expiryDate.slice(0, 10)
+    case 'startDate': return item.startDate ? formatLocalDate(item.startDate, timezone, 'date') : ''
+    case 'expiryDate': return formatLocalDate(item.expiryDate, timezone, 'date')
     case 'periodValue': return String(item.periodValue)
     case 'periodUnit': return item.periodUnit
     case 'subscriptionMode': return item.subscriptionMode
     case 'useLunar': return item.useLunar ? 'true' : 'false'
     case 'autoRenew': return item.autoRenew ? 'true' : 'false'
+    case 'isActive': return item.isActive ? 'true' : 'false'
+    case 'trialEndsAt': return item.trialEndsAt ? formatLocalDate(item.trialEndsAt, timezone, 'date') : ''
+    case 'paymentMethod': return item.paymentMethod
+    case 'managementUrl': return item.managementUrl
+    case 'pausedUntil': return item.pausedUntil ? formatLocalDate(item.pausedUntil, timezone, 'date') : ''
+    case 'fixedTerm': return item.fixedTerm ? 'true' : 'false'
+    case 'introPrice': return item.introPrice === null ? '' : String(item.introPrice)
+    case 'reminderRules': return JSON.stringify(item.reminderRules ?? [])
     case 'notes': return item.notes
   }
 }
@@ -133,6 +143,13 @@ export function parseCsv(text: string): CsvRow[] {
  * Booleans are the reader's problem to spell: anything that is not an obvious yes is a no, because a
  * column of blanks should not switch a hundred subscriptions onto auto-renew.
  */
+function parseReminderRules(value: string | undefined): unknown {
+  if (!value) return undefined
+  const parsed: unknown = JSON.parse(value)
+  if (!Array.isArray(parsed)) throw new Error('reminderRules must be a JSON array')
+  return parsed
+}
+
 export function rowToInput(row: CsvRow): Record<string, unknown> {
   return {
     name: row.name ?? '',
@@ -147,6 +164,14 @@ export function rowToInput(row: CsvRow): Record<string, unknown> {
     subscriptionMode: row.subscriptionMode || 'cycle',
     useLunar: isYes(row.useLunar),
     autoRenew: isYes(row.autoRenew),
+    isActive: isYes(row.isActive),
+    trialEndsAt: row.trialEndsAt || null,
+    paymentMethod: row.paymentMethod ?? '',
+    managementUrl: row.managementUrl ?? '',
+    pausedUntil: row.pausedUntil || null,
+    fixedTerm: isYes(row.fixedTerm),
+    introPrice: row.introPrice ? Number(row.introPrice) : null,
+    reminderRules: parseReminderRules(row.reminderRules),
     notes: row.notes ?? '',
   }
 }

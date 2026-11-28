@@ -103,6 +103,7 @@ export function SubscriptionList({
   )
 
   function rows(list: readonly SubscriptionItem[]): ReactElement {
+    const selected = new Set(selection)
     return (
       <div role="list">
         {list.map((item) => (
@@ -113,7 +114,7 @@ export function SubscriptionList({
             onSelect={onSelect}
             actions={actions}
             selectMode={selectMode}
-            checked={selection.includes(item.id)}
+            checked={selected.has(item.id)}
             onCheck={onCheck}
           />
         ))}

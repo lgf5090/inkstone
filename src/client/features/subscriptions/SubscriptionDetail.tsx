@@ -6,7 +6,7 @@
  * left" means something different on a monthly plan than on a three-year one. It is derived from the
  * subscription's own start and expiry, so a plan with no start date simply does not draw one.
  */
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import { Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -15,6 +15,7 @@ import { Tooltip } from '../../components/overlay'
 import { LoadingBlock } from '../../components/feedback'
 import { daysState, daysStateKey, formatAmount, formatPaid, periodProgress, periodUnitKey } from '@shared/subscriptions/format'
 import { priceHistory, renewalsPerYear } from '@shared/subscriptions/currency'
+import { formatLocalDate } from '@shared/subscriptions/time'
 import { labelNamesOf, roundMoney, subscriptionStatus, type PaymentRecord, type ReminderRule, type SubscriptionDetail } from '@shared/subscriptions/model'
 import { StatusPill } from './StatusPill'
 import { ReminderRuleRow } from './ReminderRuleRow'
@@ -35,16 +36,19 @@ export interface DetailCallbacks {
   onAcknowledgeRule: (rule: ReminderRule) => void
   onEditPayment: (payment: PaymentRecord) => void
   onDeletePayment: (payment: PaymentRecord) => void
+  onRefund: () => void
 }
 
 export function SubscriptionDetail({
   detail,
   loading,
+  timezone = 'UTC',
   onClose,
   callbacks,
 }: {
   detail: SubscriptionDetail | null
   loading: boolean
+  timezone?: string
   onClose: () => void
   callbacks: DetailCallbacks
 }): ReactElement {
@@ -85,7 +89,7 @@ export function SubscriptionDetail({
           </div>
         </div>
         <Tooltip label={t('subscriptions.detail.close')} side="left">
-          <IconButton label={t('subscriptions.detail.close')} size="sm" onClick={onClose} className="lg:hidden">
+          <IconButton label={t('subscriptions.detail.close')} size="sm" onClick={onClose}>
             <X size={15} />
           </IconButton>
         </Tooltip>
@@ -108,7 +112,7 @@ export function SubscriptionDetail({
         <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
           <Fact label={t('subscriptions.detail.amount')} value={amount || '—'} strong />
           <Fact label={t('subscriptions.detail.cycle')} value={`${item.periodValue} ${t(periodUnitKey(item.periodUnit))}`} />
-          <Fact label={t('subscriptions.detail.expiry')} value={item.expiryDate.slice(0, 10)} />
+          <Fact label={t('subscriptions.detail.expiry')} value={formatLocalDate(item.expiryDate, timezone, 'date')} />
           <Fact
             label={t('subscriptions.detail.remaining')}
             value={t(daysStateKey(countdown), { count: countdown.count })}
@@ -119,11 +123,20 @@ export function SubscriptionDetail({
           <Fact label={t('subscriptions.detail.auto_renew')} value={item.autoRenew ? t('subscriptions.detail.yes') : t('subscriptions.detail.no')} />
           <Fact label={t('subscriptions.detail.paid_total')} value={formatPaid(item.paidByCurrency) || '—'} />
           {committedYear && <Fact label={t('subscriptions.detail.cost_per_year')} value={committedYear} />}
+          {item.paymentMethod && <Fact label={t('subscriptions.detail.payment_method')} value={item.paymentMethod} />}
+          {item.managementUrl && (
+            <Fact label={t('subscriptions.detail.management_url')} value={<a className="text-[var(--accent)] underline underline-offset-2" href={item.managementUrl} target="_blank" rel="noreferrer noopener">{t('subscriptions.detail.management_url')}</a>} />
+          )}
+          {item.pausedUntil && <Fact label={t('subscriptions.detail.paused_until')} value={formatLocalDate(item.pausedUntil, timezone, 'date')} />}
+          {item.fixedTerm && <Fact label={t('subscriptions.detail.fixed_term')} value={t('subscriptions.detail.yes')} />}
+          {item.introPrice !== null && <Fact label={t('subscriptions.detail.intro_price')} value={formatAmount(item.introPrice, item.currency)} />}
           {item.trialEndsAt && (
             <Fact
               label={t('subscriptions.detail.trial_ends')}
-              value={`${item.trialEndsAt.slice(0, 10)} · ${t('subscriptions.status.days_left', { count: item.trialDaysRemaining ?? 0 })}`}
-              tone={(item.trialDaysRemaining ?? 0) < 8 ? 'warning' : undefined}
+              value={`${formatLocalDate(item.trialEndsAt, timezone, 'date')} · ${(item.trialDaysRemaining ?? 0) < 0
+                ? t('subscriptions.status.trial_ended')
+                : t('subscriptions.status.days_left', { count: item.trialDaysRemaining ?? 0 })}`}
+              tone={(item.trialDaysRemaining ?? -1) < 0 ? undefined : (item.trialDaysRemaining ?? 0) < 8 ? 'warning' : undefined}
             />
           )}
         </div>
@@ -153,7 +166,7 @@ export function SubscriptionDetail({
 
         <p className="mt-3 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
           {detail.nextReminder
-            ? t('subscriptions.detail.next_reminder_value', { date: detail.nextReminder.nextFireTime.slice(0, 16).replace('T', ' ') })
+            ? t('subscriptions.detail.next_reminder_value', { date: formatLocalDate(detail.nextReminder.nextFireTime, timezone, 'datetime') })
             : t('subscriptions.detail.no_reminder')}
         </p>
 
@@ -192,7 +205,10 @@ export function SubscriptionDetail({
       <section className="border-t border-[var(--border-subtle)] px-3 py-3">
         <div className="flex items-center justify-between">
           <SectionLabel>{t('subscriptions.payments.title')}</SectionLabel>
-          <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{item.paymentCount}</span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{item.paymentCount}</span>
+            <Button size="sm" variant="ghost" onClick={callbacks.onRefund}>{t('subscriptions.payments.refund')}</Button>
+          </span>
         </div>
         {detail.yearlySpend.length > 0 && (
           <ul className="mt-2 flex flex-wrap gap-x-1.5 gap-y-1" data-yearly-spend="">
@@ -208,7 +224,7 @@ export function SubscriptionDetail({
             ))}
           </ul>
         )}
-        <PriceCurve item={item} payments={detail.payments} />
+        <PriceCurve item={item} payments={detail.payments} timezone={timezone} />
         {detail.payments.length === 0
           ? <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('subscriptions.payments.empty')}</p>
           : (
@@ -221,18 +237,20 @@ export function SubscriptionDetail({
                         'absolute -left-[17px] top-1.5 size-1.5 rounded-full border',
                         payment.kind === 'initial'
                           ? 'border-[var(--text-tertiary)] bg-[var(--bg-surface)]'
-                          : 'border-[var(--accent)] bg-[var(--accent)]',
+                          : payment.kind === 'refund'
+                            ? 'border-[var(--success)] bg-[var(--success)]'
+                            : 'border-[var(--accent)] bg-[var(--accent)]',
                       )}
                     />
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-[length:var(--text-12)] tabular-nums text-[var(--text-primary)]">
-                        {formatAmount(payment.amount, payment.currency)}
+                      <span className={cn('text-[length:var(--text-12)] tabular-nums', payment.kind === 'refund' ? 'text-[var(--success)]' : 'text-[var(--text-primary)]')}>
+                        {formatAmount(payment.amount, payment.currency)}{(payment.periodCount ?? 1) > 1 ? ` ×${payment.periodCount}` : ''}
                       </span>
                       <span className="flex items-center gap-1">
                         <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                           {t(PAYMENT_KIND[payment.kind])}
                         </span>
-                        <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">{payment.paidAt.slice(0, 10)}</span>
+                        <span className="text-[length:var(--text-11)] tabular-nums text-[var(--text-tertiary)]">{formatLocalDate(payment.paidAt, timezone, 'date')}</span>
                       </span>
                     </div>
                     <div className="mt-0.5 flex items-center gap-1">
@@ -259,6 +277,7 @@ const PAYMENT_KIND: Record<PaymentRecord['kind'], Parameters<typeof t>[0]> = {
   initial: 'subscriptions.payments.kind_initial',
   manual: 'subscriptions.payments.kind_manual',
   auto: 'subscriptions.payments.kind_auto',
+  refund: 'subscriptions.payments.kind_refund',
 }
 
 /**
@@ -272,7 +291,7 @@ const PAYMENT_KIND: Record<PaymentRecord['kind'], Parameters<typeof t>[0]> = {
  * content, and a percentage against a content-sized parent resolves to nothing — which is how the
  * dashboard's chart once drew six labels and no bars.
  */
-function PriceCurve({ item, payments }: { item: SubscriptionDetail['item'], payments: readonly PaymentRecord[] }): ReactElement | null {
+function PriceCurve({ item, payments, timezone }: { item: SubscriptionDetail['item'], payments: readonly PaymentRecord[], timezone: string }): ReactElement | null {
   const points = priceHistory(payments, item.currency)
   if (points.length < 2) return null
   const skipped = payments.filter((payment) => payment.currency !== item.currency && payment.amount > 0).length
@@ -294,7 +313,7 @@ function PriceCurve({ item, payments }: { item: SubscriptionDetail['item'], paym
               index === points.length - 1 ? 'bg-[var(--accent)]' : 'bg-[color-mix(in_oklab,var(--accent)_42%,transparent)]',
             )}
             style={{ height: `${Math.max(2, Math.round((point.amount / peak) * CURVE_HEIGHT))}px` }}
-            title={`${point.at.slice(0, 10)} ${formatAmount(point.amount, item.currency)}`}
+            title={`${formatLocalDate(point.at, timezone, 'date')} ${formatAmount(point.amount, item.currency)}`}
           />
         ))}
       </div>
@@ -314,7 +333,7 @@ function Fact({
   tone,
 }: {
   label: string
-  value: string
+  value: ReactNode
   strong?: boolean
   tone?: 'danger' | 'warning'
 }): ReactElement {

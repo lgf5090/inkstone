@@ -11,11 +11,15 @@ import { channelHint, channelDefinition } from '@shared/subscriptions/channels'
 import {
   DEFAULT_SETTINGS,
   LABEL_MAX,
+  areValidNotificationHours,
   clampPaymentLimit,
   isCurrencyCode,
   isRateValue,
   normalizeBudgetCategories,
   normalizeNotificationHours,
+  normalizeDigestHour,
+  isDigestFrequency,
+  isValidDigestHour,
   normalizeRateOverrides,
   type ChannelKind,
   type ChannelState,
@@ -25,7 +29,7 @@ import {
   type RateOverrides,
   type SubscriptionSettings,
 } from '@shared/subscriptions/model'
-import { isValidTimezone } from '@shared/subscriptions/time'
+import { getTimestampForTimezoneParts, getTimezoneDateParts, isValidTimezone } from '@shared/subscriptions/time'
 import { decryptChannelConfig, encryptChannelConfig } from '../lib/crypto'
 import { sha256Hex, timingSafeEqual } from '../lib/encoding'
 import { newId, newSlug } from '../lib/id'
@@ -35,6 +39,9 @@ interface SettingsRow {
   user_id: string
   timezone: string
   notification_hours: string
+  digest: string
+  digest_hour: number
+  next_digest_at: number
   show_lunar: number
   payment_history_limit: number
   locale: string
@@ -42,6 +49,8 @@ interface SettingsRow {
   budget_monthly: number | null
   inbound_token_hash: string
   inbound_token_hint: string
+  calendar_token_hash: string
+  calendar_token_hint: string
   updated_at: number
   rate_overrides: string
   budget_yearly: number | null
@@ -62,8 +71,8 @@ interface ChannelRow {
   updated_at: number
 }
 
-const SETTINGS_COLUMNS = `user_id, timezone, notification_hours, show_lunar, payment_history_limit,
-  locale, base_currency, budget_monthly, inbound_token_hash, inbound_token_hint, updated_at, rate_overrides,
+const SETTINGS_COLUMNS = `user_id, timezone, notification_hours, digest, digest_hour, next_digest_at, show_lunar, payment_history_limit,
+  locale, base_currency, budget_monthly, inbound_token_hash, inbound_token_hint, calendar_token_hash, calendar_token_hint, updated_at, rate_overrides,
   budget_yearly, budget_categories`
 
 const CHANNEL_COLUMNS = `user_id, id, kind, enabled, config_ciphertext, config_hint, last_test_at,
@@ -74,8 +83,7 @@ function parseHours(raw: string): string[] {
     const value = JSON.parse(raw) as unknown
     return normalizeNotificationHours(value)
   } catch {
-    // Text that is not a list is a window nobody set, which is the same answer as an empty one: every hour
-    // stays open rather than the reader's reminders falling silent over one corrupt cell.
+    console.warn('[inkstone] Subscription notification window could not be read; using all hours.')
     return []
   }
 }
@@ -102,6 +110,8 @@ function toSettings(row: SettingsRow): SubscriptionSettings {
   return {
     timezone: isValidTimezone(row.timezone) ? row.timezone : DEFAULT_SETTINGS.timezone,
     notificationHours: parseHours(row.notification_hours),
+    digest: isDigestFrequency(row.digest) ? row.digest : 'off',
+    digestHour: normalizeDigestHour(row.digest_hour),
     showLunar: row.show_lunar === 1,
     paymentHistoryLimit: clampPaymentLimit(row.payment_history_limit),
     locale: row.locale === 'en-US' ? 'en-US' : 'zh-CN',
@@ -111,7 +121,33 @@ function toSettings(row: SettingsRow): SubscriptionSettings {
     budgetCategories: parseCategoryBudgets(row.budget_categories),
     rateOverrides: parseRates(row.rate_overrides),
     inboundTokenHint: row.inbound_token_hint,
+    calendarTokenHint: row.calendar_token_hint,
   }
+}
+
+export function nextDigestAt(frequency: SubscriptionSettings['digest'], hour: number, timezone: string, now = Date.now()): number {
+  if (frequency === 'off') return 0
+  const parts = getTimezoneDateParts(now, timezone)
+  const weekday = new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay()
+  const addDays = frequency === 'weekly' ? (8 - weekday) % 7 : 0
+  const at = (offset: number): number => {
+    const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + offset))
+    return getTimestampForTimezoneParts({ year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate(), hour }, timezone)
+  }
+  let target = at(addDays)
+  if (target < now) target = at(addDays + (frequency === 'weekly' ? 7 : 1))
+  return target
+}
+
+export async function markDigestSent(db: D1Database, userId: string, settings: SubscriptionSettings, now = Date.now()): Promise<void> {
+  await db.prepare(`UPDATE sub_settings SET next_digest_at = ?2 WHERE user_id = ?1`)
+    .bind(userId, nextDigestAt(settings.digest, settings.digestHour, settings.timezone, now + 60_000)).run()
+}
+
+export async function dueDigestAccounts(db: D1Database, now: number): Promise<string[]> {
+  const { results } = await db.prepare(`SELECT user_id FROM sub_settings WHERE digest != 'off' AND next_digest_at <= ?1`)
+    .bind(now).all<{ user_id: string }>()
+  return results.map((row) => row.user_id)
 }
 
 export async function loadSettings(db: D1Database, userId: string): Promise<SubscriptionSettings> {
@@ -121,16 +157,11 @@ export async function loadSettings(db: D1Database, userId: string): Promise<Subs
   return row ? toSettings(row) : { ...DEFAULT_SETTINGS }
 }
 
-/** Every account's settings, for the scheduler's single pass. */
-export async function loadAllSettings(db: D1Database): Promise<Array<{ userId: string; settings: SubscriptionSettings }>> {
-  const { results } = await db.prepare(`SELECT ${SETTINGS_COLUMNS} FROM sub_settings`)
-    .all<SettingsRow>()
-  return results.map((row) => ({ userId: row.user_id, settings: toSettings(row) }))
-}
-
 export interface SettingsPatch {
   timezone?: unknown
   notificationHours?: unknown
+  digest?: unknown
+  digestHour?: unknown
   showLunar?: unknown
   paymentHistoryLimit?: unknown
   locale?: unknown
@@ -165,6 +196,13 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
   const notificationHours = patch.notificationHours === undefined
     ? current.notificationHours
     : normalizeNotificationHours(patch.notificationHours)
+  if (patch.notificationHours !== undefined && !areValidNotificationHours(patch.notificationHours)) {
+    throw new Error('invalid_notification_hours')
+  }
+  if (patch.digest !== undefined && !isDigestFrequency(patch.digest)) throw new Error('invalid_digest')
+  if (patch.digestHour !== undefined && !isValidDigestHour(patch.digestHour)) throw new Error('invalid_digest_hour')
+  const digest = patch.digest === undefined ? current.digest : patch.digest as SubscriptionSettings['digest']
+  const digestHour = patch.digestHour === undefined ? current.digestHour : normalizeDigestHour(patch.digestHour)
   const showLunar = patch.showLunar === undefined ? current.showLunar : patch.showLunar === true
   const limit = patch.paymentHistoryLimit === undefined
     ? current.paymentHistoryLimit
@@ -211,10 +249,13 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
   }
 
   await db.prepare(
-    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', ?9, ?10, ?11, ?12)
+    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, '', '', '', '', ?12, ?13, ?14, ?15)
      ON CONFLICT(user_id) DO UPDATE SET
        timezone = excluded.timezone,
        notification_hours = excluded.notification_hours,
+       digest = excluded.digest,
+       digest_hour = excluded.digest_hour,
+       next_digest_at = excluded.next_digest_at,
        show_lunar = excluded.show_lunar,
        payment_history_limit = excluded.payment_history_limit,
        locale = excluded.locale,
@@ -228,6 +269,9 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
     userId,
     timezone,
     JSON.stringify(notificationHours),
+    digest,
+    digestHour,
+    nextDigestAt(digest, digestHour, timezone),
     showLunar ? 1 : 0,
     limit,
     locale,
@@ -242,6 +286,8 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
   return {
     timezone,
     notificationHours,
+    digest,
+    digestHour,
     showLunar,
     paymentHistoryLimit: limit,
     locale,
@@ -251,6 +297,7 @@ export async function saveSettings(db: D1Database, userId: string, patch: Settin
     budgetCategories,
     rateOverrides,
     inboundTokenHint: current.inboundTokenHint,
+    calendarTokenHint: current.calendarTokenHint,
   }
 }
 
@@ -486,7 +533,11 @@ export async function rotateInboundToken(db: D1Database, userId: string): Promis
   const hash = await sha256Hex(token)
   const hint = token.slice(-4)
   await db.prepare(
-    `INSERT INTO sub_settings (${SETTINGS_COLUMNS}) VALUES (?1, ?2, '[]', 0, 100, 'zh-CN', 'CNY', NULL, ?3, ?4, ?5, '{}', NULL, '{}')
+    `INSERT INTO sub_settings (user_id, timezone, notification_hours, digest, digest_hour, next_digest_at,
+       show_lunar, payment_history_limit, locale, base_currency, budget_monthly, inbound_token_hash,
+       inbound_token_hint, calendar_token_hash, calendar_token_hint, updated_at, rate_overrides,
+       budget_yearly, budget_categories)
+     VALUES (?1, ?2, '[]', 'off', 8, 0, 0, 100, 'zh-CN', 'CNY', NULL, ?3, ?4, '', '', ?5, '{}', NULL, '{}')
      ON CONFLICT(user_id) DO UPDATE SET
        inbound_token_hash = excluded.inbound_token_hash,
        inbound_token_hint = excluded.inbound_token_hint,
@@ -510,6 +561,34 @@ export async function userIdForInboundToken(db: D1Database, token: string): Prom
     .first<{ user_id: string; inbound_token_hash: string }>()
   if (!row) return null
   return timingSafeEqual(row.inbound_token_hash, hash) ? row.user_id : null
+}
+
+export async function rotateCalendarToken(db: D1Database, userId: string): Promise<{ token: string; hint: string }> {
+  const token = newSlug()
+  const hash = await sha256Hex(token)
+  const hint = token.slice(-4)
+  await db.prepare(
+    `INSERT INTO sub_settings (user_id, timezone, notification_hours, digest, digest_hour, next_digest_at,
+       show_lunar, payment_history_limit, locale, base_currency, budget_monthly, inbound_token_hash,
+       inbound_token_hint, calendar_token_hash, calendar_token_hint, updated_at, rate_overrides,
+       budget_yearly, budget_categories)
+     VALUES (?1, ?2, '[]', 'off', 8, 0, 0, 100, 'zh-CN', 'CNY', NULL, '', '', ?3, ?4, ?5, '{}', NULL, '{}')
+     ON CONFLICT(user_id) DO UPDATE SET
+       calendar_token_hash = excluded.calendar_token_hash,
+       calendar_token_hint = excluded.calendar_token_hint,
+       updated_at = excluded.updated_at`,
+  ).bind(userId, DEFAULT_SETTINGS.timezone, hash, hint, Date.now()).run()
+  return { token, hint }
+}
+
+export async function userIdForCalendarToken(db: D1Database, token: string): Promise<string | null> {
+  if (!token || token.length < 8 || token.length > 64) return null
+  const hash = await sha256Hex(token)
+  const row = await db.prepare(`SELECT user_id, calendar_token_hash FROM sub_settings WHERE calendar_token_hash = ?1`)
+    .bind(hash)
+    .first<{ user_id: string; calendar_token_hash: string }>()
+  if (!row) return null
+  return timingSafeEqual(row.calendar_token_hash, hash) ? row.user_id : null
 }
 
 export { CHANNEL_KIND_ORDER }

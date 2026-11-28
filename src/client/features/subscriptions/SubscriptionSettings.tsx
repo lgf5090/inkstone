@@ -12,8 +12,7 @@ import { Copy, Send, Trash2 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
-import { Field, Input, Segmented, Select, Switch, Textarea } from '../../components/form'
-import { Modal } from '../../components/overlay'
+import { Field, Input, Segmented, Select, Switch, Textarea, CommitNumberInput } from '../../components/form'
 import { CHANNEL_DEFINITIONS, channelLabelKey, INBOUND_HOOK_PATH, type ChannelField } from '@shared/subscriptions/channels'
 import { copyText } from '../../lib/clipboard'
 import { useUi } from '../../store/ui'
@@ -52,6 +51,7 @@ export function SubscriptionSettings({
   onClearChannel,
   onTestChannel,
   onRotateToken,
+  onRotateCalendarToken,
   onDiagnostics,
 }: {
   settings: SubscriptionSettings
@@ -64,6 +64,7 @@ export function SubscriptionSettings({
   onClearChannel: (kind: ChannelKind) => Promise<boolean>
   onTestChannel: (kind: ChannelKind) => Promise<void>
   onRotateToken: () => Promise<{ token: string; hint: string } | null>
+  onRotateCalendarToken: () => Promise<{ token: string; hint: string } | null>
   onDiagnostics: () => void
 }): ReactElement {
   const [tab, setTab] = useState<'general' | 'channels'>('general')
@@ -75,12 +76,11 @@ export function SubscriptionSettings({
   const [budgets, setBudgets] = useState<Record<string, string>>(() =>
     Object.fromEntries(Object.entries(settings.budgetCategories).map(([name, value]) => [name, String(value)])))
   const [token, setToken] = useState<string | null>(null)
+  const [calendarToken, setCalendarToken] = useState<string | null>(null)
   // Built once: the address the copy button puts on the clipboard and the line that shows it to the reader
   // must not be two strings that can drift.
   const inboundAddress = token ? `${location.origin}${INBOUND_HOOK_PATH}/${token}` : ''
-  // The calendar link carries the same token: a calendar client polls a URL and sends no header anybody
-  // could ask it to keep the secret out of the address bar of its own logs.
-  const calendarAddress = token ? `${location.origin}${INBOUND_HOOK_PATH}/calendar/${token}` : ''
+  const calendarAddress = calendarToken ? `${location.origin}${INBOUND_HOOK_PATH}/calendar/${calendarToken}` : ''
 
   /**
    * Send the pins as one map, because the boxes above are the whole map.
@@ -149,13 +149,29 @@ export function SubscriptionSettings({
                 onBlur={() => void saveGeneral({ notificationHours: hours })}
               />
             </Field>
+            <Field label={t('subscriptions.settings.digest')} hint={t('subscriptions.settings.digest_hint')}>
+              <Select value={settings.digest} onChange={(event) => void saveGeneral({ digest: event.target.value })}>
+                <option value="off">{t('subscriptions.settings.digest_off')}</option>
+                <option value="daily">{t('subscriptions.settings.digest_daily')}</option>
+                <option value="weekly">{t('subscriptions.settings.digest_weekly')}</option>
+              </Select>
+            </Field>
+            <Field label={t('subscriptions.settings.digest_hour')}>
+              <CommitNumberInput
+                min={0}
+                max={23}
+                inputMode="numeric"
+                value={settings.digestHour}
+                onCommit={(value) => { if (value !== null) void saveGeneral({ digestHour: value }) }}
+              />
+            </Field>
             <Field label={t('subscriptions.settings.history_limit')}>
-              <Input
-                type="number"
+              <CommitNumberInput
                 min={PAYMENT_LIMIT_MIN}
                 max={PAYMENT_LIMIT_MAX}
+                inputMode="numeric"
                 value={settings.paymentHistoryLimit}
-                onChange={(event) => void saveGeneral({ paymentHistoryLimit: Number(event.target.value) })}
+                onCommit={(value) => { if (value !== null) void saveGeneral({ paymentHistoryLimit: value }) }}
               />
             </Field>
             <Field label={t('subscriptions.settings.language')}>
@@ -170,28 +186,26 @@ export function SubscriptionSettings({
             {/* A ceiling the reader sets, not one the app infers: the dashboard already says what was
                 spent, and the number only means anything against a limit they chose themselves. */}
             <Field label={t('subscriptions.settings.budget')} hint={t('subscriptions.settings.budget_hint')}>
-              <Input
-                type="number"
+              <CommitNumberInput
                 min={0}
-                step="1"
-                inputMode="decimal"
-                value={settings.budgetMonthly ?? ''}
+                step={1}
+                allowEmpty
+                value={settings.budgetMonthly}
                 placeholder={t('subscriptions.settings.budget_placeholder')}
-                onChange={(event) => void saveGeneral({ budgetMonthly: event.target.value === '' ? null : Number(event.target.value) })}
+                onCommit={(value) => { void saveGeneral({ budgetMonthly: value }) }}
               />
             </Field>
             {/* The year is its own ceiling because an annual plan spends twelve months of cost in one
                 month, and a reader who set only the monthly number is told they overspent on the day they
                 bought the thing that makes their other months cheap. */}
             <Field label={t('subscriptions.settings.budget_yearly')} hint={t('subscriptions.settings.budget_yearly_hint')}>
-              <Input
-                type="number"
+              <CommitNumberInput
                 min={0}
-                step="1"
-                inputMode="decimal"
-                value={settings.budgetYearly ?? ''}
+                step={1}
+                allowEmpty
+                value={settings.budgetYearly}
                 placeholder={t('subscriptions.settings.budget_placeholder')}
-                onChange={(event) => void saveGeneral({ budgetYearly: event.target.value === '' ? null : Number(event.target.value) })}
+                onCommit={(value) => { void saveGeneral({ budgetYearly: value }) }}
               />
             </Field>
           </div>
@@ -357,13 +371,25 @@ export function SubscriptionSettings({
                 {t('subscriptions.settings.inbound_once', { token: inboundAddress })}
               </p>
             )}
-            {token && (
-              <div className="mt-2 border-t border-[var(--border-subtle)] pt-2">
-                <p className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('subscriptions.settings.calendar')}</p>
-                <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
-                  {t('subscriptions.settings.calendar_hint')}
-                </p>
-                <div className="mt-1.5 flex items-center gap-1.5">
+            <div className="mt-2 border-t border-[var(--border-subtle)] pt-2">
+              <p className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('subscriptions.settings.calendar')}</p>
+              <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+                {t('subscriptions.settings.calendar_hint')}
+              </p>
+              {settings.calendarTokenHint && (
+                <p className="mt-1 font-mono text-[length:var(--text-11)] text-[var(--text-tertiary)]">••••{settings.calendarTokenHint}</p>
+              )}
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    void onRotateCalendarToken().then((rotated) => { if (rotated) setCalendarToken(rotated.token) })
+                  }}
+                >
+                  {t('subscriptions.settings.calendar_rotate')}
+                </Button>
+                {calendarToken && (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -374,12 +400,14 @@ export function SubscriptionSettings({
                   >
                     {t('subscriptions.settings.calendar_copy')}
                   </Button>
-                </div>
-                <p className="mt-1 break-all rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[length:var(--text-10-5)] text-[var(--warning)]">
-                  {calendarAddress}
-                </p>
+                )}
               </div>
-            )}
+              {calendarToken && (
+                <p className="mt-1 break-all rounded-[var(--r-xs)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[length:var(--text-10-5)] text-[var(--warning)]">
+                  {t('subscriptions.settings.calendar_once', { token: calendarAddress })}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-between">
@@ -430,6 +458,7 @@ function ChannelPanel({
   const [config, setConfig] = useState<Record<string, unknown>>({})
   const [enabled, setEnabled] = useState(state?.enabled ?? false)
   const [busy, setBusy] = useState(false)
+  const [toggling, setToggling] = useState(false)
 
   const configured = state?.configured ?? false
   // A channel with fields cannot send until they are filled in; one with none is ready as soon as it is
@@ -451,6 +480,23 @@ function ChannelPanel({
     }
   }
 
+  const toggle = async (next: boolean): Promise<void> => {
+    setToggling(true)
+    setEnabled(next)
+    const ok = await onSave(kind, { enabled: next, config: {} })
+    if (!ok) setEnabled(!next)
+    setToggling(false)
+  }
+
+  const clear = async (): Promise<void> => {
+    const previous = enabled
+    setToggling(true)
+    setEnabled(false)
+    const ok = await onClear(kind)
+    if (!ok) setEnabled(previous)
+    setToggling(false)
+  }
+
   return (
     <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)]">
       <div className="flex items-center gap-2 px-2.5 py-2">
@@ -467,8 +513,8 @@ function ChannelPanel({
         </button>
         <Switch
           checked={enabled}
-          disabled={needsConfiguration}
-          onChange={(next) => { setEnabled(next); void onSave(kind, { enabled: next, config: {} }) }}
+          disabled={needsConfiguration || toggling}
+          onChange={(next) => { void toggle(next) }}
           label={t('subscriptions.channel.enable')}
         />
       </div>
@@ -494,8 +540,8 @@ function ChannelPanel({
                 label={t('subscriptions.channel.clear')}
                 size="sm"
                 className="ml-auto text-[var(--danger)]"
-                disabled={!configured}
-                onClick={() => { void onClear(kind); setEnabled(false) }}
+                disabled={!configured || toggling}
+                onClick={() => { void clear() }}
               >
                 <Trash2 size={14} />
               </IconButton>
@@ -556,14 +602,5 @@ function ChannelFieldInput({
         onChange={(event) => onChange(event.target.value)}
       />
     </Field>
-  )
-}
-
-/** A dialog wrapper, so the app does not repeat the modal's own props at its call site. */
-export function SettingsDialog({ children, onClose }: { children: ReactElement; onClose: () => void }): ReactElement {
-  return (
-    <Modal open onClose={onClose} title={t('subscriptions.settings.title')} width={720} bodyClassName="px-4 py-3">
-      {children}
-    </Modal>
   )
 }

@@ -51,12 +51,12 @@ async function boardWithCard(): Promise<{ board: ProjectBoard, card: ProjectCard
 }
 
 describe('time tracking', () => {
-  it('migration 442 closes duplicate running timers before adding the unique index', () => {
+  it('migration 456 closes duplicate running timers before adding the unique index', () => {
     const legacy = new DatabaseSync(':memory:')
     legacy.exec('CREATE TABLE project_time_entries (id TEXT PRIMARY KEY, card_id TEXT, user_id TEXT, started_at INTEGER, ended_at INTEGER)')
     legacy.prepare('INSERT INTO project_time_entries VALUES (?, ?, ?, ?, NULL)').run('old', 'card', 'alice', 1)
     legacy.prepare('INSERT INTO project_time_entries VALUES (?, ?, ?, ?, NULL)').run('new', 'card', 'alice', 2)
-    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 442)
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 456)
     expect(migration).toBeDefined()
     for (const statement of migration!.statements) legacy.exec(statement)
     expect(legacy.prepare('SELECT id, ended_at FROM project_time_entries ORDER BY id').all()).toEqual([

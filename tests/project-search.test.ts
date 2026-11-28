@@ -48,7 +48,7 @@ async function search(account: Account, q: string): Promise<ProjectSearchResult>
 }
 
 describe('cross-board search respects visibility', () => {
-  it('backfills existing project text when migration 448 installs FTS', () => {
+  it('backfills existing project text when migration 462 installs FTS', () => {
     const legacy = new DatabaseSync(':memory:')
     legacy.exec([...PROJECT_CORE_SCHEMA_STATEMENTS, ...PROJECT_CONTENT_SCHEMA_STATEMENTS].join(';'))
     legacy.prepare(`INSERT INTO project_boards (id, owner_id, title, created_by, modified_by, create_at, update_at)
@@ -61,7 +61,7 @@ describe('cross-board search respects visibility', () => {
       VALUES ('m1', 'c1', 'b1', 'alice', 'Legacy comment', 1, 1)`).run()
     legacy.prepare(`INSERT INTO project_card_values (card_id, property_id, value, updated_at)
       VALUES ('c1', 'p1', 'Legacy value', 1)`).run()
-    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 448)
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 462)
     expect(migration).toBeDefined()
     for (const statement of migration!.statements) legacy.exec(statement)
     expect(legacy.prepare("SELECT COUNT(*) AS count FROM project_search_docs").get()).toMatchObject({ count: 4 })

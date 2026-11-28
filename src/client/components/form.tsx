@@ -9,6 +9,7 @@ import {
   type InputHTMLAttributes,
   type ButtonHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactElement,
   type ReactNode,
   type Ref,
   type SelectHTMLAttributes,
@@ -34,6 +35,7 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   leading?: ReactNode
   trailing?: ReactNode
   invalid?: boolean
+  wrapperClassName?: string
 }
 
 /**
@@ -60,6 +62,7 @@ export function Input({
   leading,
   trailing,
   invalid,
+  wrapperClassName,
   'aria-invalid': ariaInvalid,
   type,
   ...rest
@@ -67,7 +70,7 @@ export function Input({
   const accessibleInvalid = invalid ? true : ariaInvalid
   if (leading || trailing || type === 'search') {
     return (
-      <div className="relative flex w-full min-w-0 items-center">
+      <div className={cn('relative flex w-full min-w-0 items-center', wrapperClassName)}>
         {leading && (
           <span className="pointer-events-none absolute left-2.5 text-[var(--text-quaternary)]">
             {leading}
@@ -101,6 +104,67 @@ export function Input({
   )
 }
 
+export function CommitNumberInput({
+  value,
+  onCommit,
+  allowEmpty = false,
+  min,
+  max,
+  step,
+  inputMode = 'decimal',
+  className,
+  ...rest
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'onBlur' | 'onKeyDown' | 'type' | 'inputMode'> & {
+  value: number | null
+  onCommit: (value: number | null) => void
+  allowEmpty?: boolean
+  min?: number
+  max?: number
+  step?: number | string
+  inputMode?: 'decimal' | 'numeric'
+}): ReactElement {
+  const [text, setText] = useState(value === null ? '' : String(value))
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!focused.current) setText(value === null ? '' : String(value))
+  }, [value])
+  const reset = (): void => setText(value === null ? '' : String(value))
+  const commit = (): void => {
+    const trimmed = text.trim()
+    const parsed = trimmed === '' ? null : Number(trimmed)
+    if (parsed === null) {
+      if (allowEmpty) onCommit(null)
+      else reset()
+      return
+    }
+    if (!Number.isFinite(parsed) || (min !== undefined && parsed < min) || (max !== undefined && parsed > max)) {
+      reset()
+      return
+    }
+    onCommit(parsed)
+  }
+  return (
+    <Input
+      {...rest}
+      type="number"
+      inputMode={inputMode}
+      min={min}
+      max={max}
+      step={step}
+      value={text}
+      onFocus={() => { focused.current = true }}
+      onChange={(event) => setText(event.target.value)}
+      onBlur={() => { focused.current = false; commit() }}
+      onKeyDown={(event) => {
+        if (isImeComposing(event)) return
+        if (event.key === 'Escape') reset()
+        else commitOnEnter(event, commit)
+      }}
+      className={className}
+    />
+  )
+}
+
 export function Textarea({
   className,
   ...rest
@@ -110,11 +174,12 @@ export function Textarea({
 
 export function Select({
   className,
+  wrapperClassName,
   children,
   ...rest
-}: SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSelectElement> }) {
+}: SelectHTMLAttributes<HTMLSelectElement> & { ref?: Ref<HTMLSelectElement>; wrapperClassName?: string }) {
   return (
-    <div className="relative min-w-0">
+    <div className={cn('relative min-w-0', wrapperClassName)}>
       <select
         {...rest}
         className={cn(FIELD_BASE, 'h-11 cursor-pointer appearance-none pr-7 md:h-[34px]', className)}
