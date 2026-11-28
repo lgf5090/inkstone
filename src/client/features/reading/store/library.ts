@@ -825,9 +825,10 @@ export const useLibrary = create<LibraryState>((set, get) => {
         })()
         const entry = { epoch, promise: task }
         pushInFlight = entry
-        void task.finally(() => {
+        const clear = () => {
           if (pushInFlight === entry) pushInFlight = null
-        })
+        }
+        void task.then(clear, clear)
         return task
       })()
     },
@@ -875,9 +876,10 @@ export const useLibrary = create<LibraryState>((set, get) => {
       })()
       const entry = { epoch, promise: task }
       pullInFlight = entry
-      void task.finally(() => {
+      const clear = () => {
         if (pullInFlight === entry) pullInFlight = null
-      })
+      }
+      void task.then(clear, clear)
       return task
     },
 
