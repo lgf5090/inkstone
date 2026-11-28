@@ -86,12 +86,12 @@
 
 | ID | Status | Task | Acceptance | Commit |
 |---|---|---|---|---|
-| V-01 | done | Focused project tests and typecheck | all related tests and tsc pass | 3bb09c32c |
-| V-02 | done | i18n/comments/hooks/a11y gates | all static gates pass | 3bb09c32c |
-| V-03 | done | Full build | build:types + vite + runtime pass | 3bb09c32c |
-| V-04 | done | External browser golden paths | create board/card, edit, views, drag, share, permissions, offline, dates verified with screenshots/logs | 3bb09c32c |
-| V-05 | done | Failure/concurrency drills | lost response, revoked member, D1 limits, mid-batch failure, webhook race verified | 3bb09c32c |
-| V-06 | done | Final plan reconciliation | every row done or explicitly blocked with reason; no hidden pending work | 3bb09c32c |
+| V-01 | done | Focused project tests and typecheck | all related tests and tsc pass | 7ce6c0ad7 |
+| V-02 | done | i18n/comments/hooks/a11y gates | all static gates pass | 7ce6c0ad7 |
+| V-03 | done | Full build | build:types + vite + runtime pass | 7ce6c0ad7 |
+| V-04 | done | External browser golden paths | create board/card, edit, views, drag, share, permissions, offline, dates verified with screenshots/logs | 7ce6c0ad7 |
+| V-05 | done | Failure/concurrency drills | lost response, revoked member, D1 limits, mid-batch failure, webhook race verified | 7ce6c0ad7 |
+| V-06 | done | Final plan reconciliation | every row done or explicitly blocked with reason; no hidden pending work | 7ce6c0ad7 |
 
 ## Progress log
 
@@ -136,4 +136,4 @@
 - 2026-11-27: P2-19 completed in `18896095d`; cards and notes now link in both directions with ownership/encryption checks, `![[project/<board>/<view>]]` renders a permission-checked read-only iframe without board tabs, and the assistant can create a Markdown card from an owned note; 371 project tests plus 29 final focused tests, source/test typechecks, static gates, ESLint and production build passed, with headed Chrome linking `Meeting notes for card` to a card and opening the embedded table view (`tmp/project-card-note-link.png`, `tmp/project-board-embed.png`).
 - 2026-11-27: P2-20a completed in `f511f9354`; cards can link a date property to a writable calendar event, card date/title changes update the event, local/provider calendar changes write the date back, and event deletion clears the card date without a revision loop; 53 focused calendar/schema tests, source/test typechecks, static gates and ESLint passed, with headed Chrome verifying both directions and the linked-event row (`tmp/project-calendar-bridge.png`).
 - 2026-11-28: P2-20b completed in `50daccfa7`; Slack card events, GitHub/Jira issue creation and later card-title/body synchronization now use vault-encrypted credentials, scoped routes, bounded outbound requests and pending-link claims, while credential and external-side-effect requests bypass the offline outbox; 40 focused integration/schema/outbox tests, source/test typechecks, i18n/comments/hooks/a11y gates, ESLint and production build passed, with headed Chrome verifying configuration, secret non-display, card issue controls and the provider failure path (`tmp/project-native-integrations.png`, `tmp/project-native-integrations-saved.png`, `tmp/project-card-external-links.png`).
-- 2026-11-28: final acceptance completed on `3bb09c32c`; the latest `test` branch was integrated in `651a0e1a0` with project migrations renumbered to 454–470, all six full-suite shards passed (2,283 files, 27,490 tests, 9 skipped), source/test typechecks, i18n/comments/hooks/a11y gates, ESLint/stylelint and all production bundles passed, and fresh-D1 external Chrome verification created an account, board and card before confirming note/calendar/external-issue sections and the shared time DatePicker (`tmp/project-final-smoke.png`, `tmp/project-final-time-picker.png`).
+- 2026-11-28: final acceptance completed on `7ce6c0ad7`; the latest `test` branch was integrated with project migrations renumbered to 454–470, all six full-suite shards passed (2,288 files, 27,555 tests, 9 skipped), source/test typechecks, i18n/comments/hooks/a11y gates, ESLint/stylelint and all production bundles passed, and fresh-D1 external Chrome verification created an account, board and card before confirming note/calendar/external-issue sections and the shared time DatePicker (`tmp/project-final-smoke.png`, `tmp/project-final-time-picker.png`).
