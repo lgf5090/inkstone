@@ -12,7 +12,7 @@ import { t, type MessageKey } from '../../../lib/i18n'
 import { DEFAULT_HIGHLIGHT_PAINT } from '../themes'
 import { HIGHLIGHT_COLORS, type HighlightColor } from '../types'
 import type { ReaderSettings } from '../store/reader-settings'
-import type { StageSelection } from './EpubStage'
+import type { StageSelection } from './epub-selection'
 
 export interface SelectionToolbarProps {
   selection: StageSelection

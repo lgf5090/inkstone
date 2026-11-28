@@ -18,8 +18,8 @@ import {
 } from 'react'
 import type { EpubHandle } from './useEpubHandle'
 import type { PreparedChapter } from '../engine/chapter'
-import { buildTextIndex, offsetForPoint, pointForOffset, type TextIndex } from '../engine/text-index'
-import { anchorFrom, paintHighlights, resolveAnchor } from '../engine/highlight-anchor'
+import { buildTextIndex, pointForOffset, type TextIndex } from '../engine/text-index'
+import { paintHighlights, resolveAnchor } from '../engine/highlight-anchor'
 import {
   chapterProgress,
   computeGeometry,
@@ -28,10 +28,11 @@ import {
   scrollForPage,
   type PageGeometry,
 } from '../engine/paginate'
-import { spineIndexFor, stripFragment } from '../engine/epub-package'
-import { footnotePointerOf, noteTargetFromHtml, noteTextOf } from '../engine/footnotes'
 import { blockHolding, blockSpans, paintFocus } from '../engine/paragraph-focus'
 import { usePointerPaging } from './usePointerPaging'
+import { readEpubSelection, type StageSelection } from './epub-selection'
+import { useEpubFootnotes, type FootnotePreview } from './use-epub-footnotes'
+import { cssEscape } from './css-escape'
 import type { BookPosition } from '../position'
 import type { Highlight } from '../types'
 import { t } from '../../../lib/i18n'
@@ -42,25 +43,6 @@ import { createPortal } from 'react-dom'
 import { ImageLightbox } from './ImageLightbox'
 import { chapterText } from '../engine/book-search'
 import { api } from '../../../lib/api'
-
-export interface StageSelection {
-  start: number
-  end: number
-  text: string
-  rect: DOMRect
-  prefix?: string
-  suffix?: string
-  /** Which chapter or page the selection was made on; the stage's own slot when it is absent. */
-  chapter?: number
-}
-
-/** A footnote the reader is being shown without leaving the page. */
-export interface FootnotePreview {
-  text: string
-  label: string
-  rect: DOMRect
-  onJump: () => void
-}
 
 export interface EpubStageHandle {
   next(): void
@@ -602,36 +584,13 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     },
   }), [currentOffset, handle, jump, jumpToFraction, relayout, slot, turnPage])
 
-  /**
-   * A selection, converted to the chapter's own coordinates.
-   *
-   * `window.getSelection()` retargets into the document the reader is looking at, so the range's ends
-   * are text nodes this component laid out — which is exactly what an offset needs. A selection that
-   * starts outside the chapter (the HUD, the shelf behind it) is dropped rather than clamped, because a
-   * clamped one would mark a passage the reader never touched.
-   */
-  const readSelection = useCallback((): StageSelection | null => {
-    const doc = docRef.current
-    const index = indexRef.current
-    if (!doc || !index) return null
-    const selection = window.getSelection()
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
-    const range = selection.getRangeAt(0)
-    if (!doc.contains(range.startContainer) || !doc.contains(range.endContainer)) return null
-    const start = offsetForPoint(index, range.startContainer, range.startOffset)
-    const end = offsetForPoint(index, range.endContainer, range.endOffset)
-    if (start < 0 || end < 0 || end <= start) return null
-    const text = selection.toString()
-    if (!text.trim()) return null
-    const rect = range.getBoundingClientRect()
-    const anchor = anchorFrom(index, start, end)
-    return { start, end, text, rect, prefix: anchor.prefix, suffix: anchor.suffix }
-  }, [])
-
   useEffect(() => {
     const doc = docRef.current
     if (!doc) return
-    const onUp = () => emit.current.onSelection(readSelection())
+    const onUp = () => {
+      const index = indexRef.current
+      emit.current.onSelection(doc && index ? readEpubSelection(doc, index) : null)
+    }
     const onSelectStart = () => {
       window.setTimeout(onUp, 0)
     }
@@ -643,85 +602,15 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
       doc.removeEventListener('touchend', onUp)
       doc.removeEventListener('selectstart', onSelectStart)
     }
-  }, [readSelection])
-
-  /** Marks and in-book links, both of which are the reader's business rather than the browser's. */
-  /** Notes already read out of another chapter, so a reader who hovers the same note twice is not
-   * made to wait for the archive again. */
-  const noteCache = useRef(new Map<string, string | null>())
-  const hoverTimer = useRef(0)
-  const hovered = useRef<HTMLElement | null>(null)
-
-  const noteFor = useCallback(async (anchor: HTMLElement): Promise<{ text: string; chapter: number; fragment: string } | null> => {
-    const doc = docRef.current
-    const fragment = anchor.dataset.readerFragment ?? ''
-    if (!doc || !fragment) return null
-    const href = anchor.dataset.readerHref ?? ''
-    // The document here is a div the chapter was painted into, so the id has to be found the way the
-    // anchor jump finds it: an escaped selector, because a book's ids are author-written.
-    const local = href === '' ? doc.querySelector<HTMLElement>(`[id="${cssEscape(fragment)}"]`) : null
-    if (!footnotePointerOf(anchor, local)) return null
-    if (local) return { text: noteTextOf(local), chapter: slot, fragment }
-    const chapter = spineIndexFor(handle.pkg, stripFragment(href))
-    if (chapter < 0) return null
-    const key = `${chapter}#${fragment}`
-    const known = noteCache.current.get(key)
-    if (known !== undefined) return known ? { text: known, chapter, fragment } : null
-    const prepared = await handle.prepare(chapter)
-    const element = prepared ? noteTargetFromHtml(prepared.html, fragment) : null
-    const text = element ? noteTextOf(element) : null
-    noteCache.current.set(key, text)
-    return text ? { text, chapter, fragment } : null
-  }, [handle, slot])
-
-  const showNote = useCallback((anchor: HTMLElement, note: { chapter: number; fragment: string; text: string }) => {
-    emit.current.onFootnote({
-      text: note.text,
-      label: (anchor.textContent ?? '').trim().slice(0, 12),
-      rect: anchor.getBoundingClientRect(),
-      onJump: () => {
-        const href = anchor.dataset.readerHref ?? ''
-        const chapter = href ? spineIndexFor(handle.pkg, stripFragment(href)) : slot
-        emit.current.onFootnote(null)
-        if (chapter >= 0) jump({ kind: 'epub', chapter, offset: 0 }, note.fragment)
-      },
-    })
-  }, [handle.pkg, jump, slot])
-
-  const onPointerOver = useCallback((event: React.PointerEvent) => {
-    if (event.pointerType === 'touch') return
-    const anchor = (event.target as HTMLElement | null)?.closest<HTMLElement>('a[data-reader-fragment]')
-    if (!anchor || anchor === hovered.current) return
-    hovered.current = anchor
-    window.clearTimeout(hoverTimer.current)
-    // A held hover is a question; a swept past one is not, and resolving the second would parse chapters
-    // the reader is only scrolling by.
-    hoverTimer.current = window.setTimeout(() => {
-      void noteFor(anchor).then((note) => {
-        if (note && hovered.current === anchor) showNote(anchor, note)
-      })
-    }, 180)
-  }, [noteFor, showNote])
-
-  const onPointerOut = useCallback((event: React.PointerEvent) => {
-    const anchor = (event.target as HTMLElement | null)?.closest<HTMLElement>('a[data-reader-fragment]')
-    if (!anchor || anchor !== hovered.current) return
-    hovered.current = null
-    window.clearTimeout(hoverTimer.current)
   }, [])
 
-  const jumpTo = useCallback((link: HTMLElement) => {
-    const href = link.dataset.readerHref ?? ''
-    const fragment = link.dataset.readerFragment
-    if (!href) {
-      // Nothing to resolve: the words are already on this page, so the reader only has to be moved to them.
-      jump({ kind: 'epub', chapter: slot, offset: 0 }, fragment)
-      return
-    }
-    const target = spineIndexFor(handle.pkg, stripFragment(href))
-    if (target < 0) return
-    jump({ kind: 'epub', chapter: target, offset: 0 }, fragment)
-  }, [handle.pkg, jump, slot])
+  const { noteFor, showNote, onPointerOver, onPointerOut, jumpTo } = useEpubFootnotes({
+    handle,
+    slot,
+    docRef,
+    jump,
+    onFootnote: (preview) => emit.current.onFootnote(preview),
+  })
 
   const onKeyDown = useCallback((event: React.KeyboardEvent) => {
     const mark = (event.target as HTMLElement | null)?.closest<HTMLElement>('.reader-mark')
@@ -812,9 +701,3 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     </div>
   )
 })
-
-/** An id in a book is author-written, so it can contain anything a URL can. */
-function cssEscape(value: string): string {
-  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
-  return value.replace(/[^\w-]/g, (char) => `\\${char}`)
-}
