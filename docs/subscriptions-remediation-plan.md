@@ -51,6 +51,7 @@ These three are marked `external-product-decision`, not silently skipped.
 | SUB-021 | completed | Accessibility and compliance cleanup | shortcuts, ARIA, portal focus, dead code, constants, public feature entry points | 24 UI tests; typecheck/lint/static gates/build; Chrome confirmed shortcuts do not fire under settings dialog | `8c4d95b14` |
 | SUB-022 | completed | Final full verification and report | all changed files | shard 1: 8461 passed; shard 2: 9491 passed / 12 skipped; shard 3: 9371 passed; baseline calendar under intended date: 49 passed; typecheck/lint/i18n/comments/a11y/build; headed Chrome golden paths | `8bc30d1bf` |
 | PARITY-001 | completed | Restore enhanced subscription fields and report restore counts | backup, transfer, import result, DataSettings | 36 tests; typecheck/lint/i18n/comments/a11y | `ecf7d91af` |
+| PARITY-002 | completed | Complete notification channel configuration UX | channel definitions, settings, routes, UI, tests | 118 tests; typecheck/lint/static gates/build; Chrome showed Configure badge, hidden token, visible Chat ID, and per-field clear | `9c179878d` |
 
 ## Verification protocol
 
@@ -109,3 +110,4 @@ For each task:
 ## SubsTracker parity follow-up (2026-11-28)
 
 - PARITY-001 completed in `ecf7d91af`: backup restore now writes `payment_method`, `management_url`, `paused_until`, `fixed_term`, and `intro_price`; the transfer route aggregates subscription/payment/rule/label counts and the import toast reports them. The round-trip test now compares complete subscription rows. 36 tests plus typecheck/lint/static guards passed.
+- PARITY-002 completed in `9c179878d`: channel rows now have an explicit Configure badge and chevron, saved non-sensitive fields are returned for editing, sensitive fields are masked and carry per-field clear intent, optional blanks are removed instead of rejected by the vault, PushPlus uses a channel enum, help links and last-test time are shown. 118 tests, all static gates/build, and headed Chrome configuration inspection passed.
