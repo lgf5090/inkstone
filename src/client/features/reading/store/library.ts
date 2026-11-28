@@ -153,6 +153,7 @@ export interface LibraryState extends PersistedLibrary {
   addFiles: (files: File[]) => Promise<{ added: BookRecord[]; failed: ImportFailure[] }>
   removeBook: (id: string) => Promise<void>
   renameBook: (id: string, title: string) => void
+  updateBookMetadata: (id: string, metadata: BookRecord['metadata'], author?: string) => void
   setProgress: (progress: ReadingProgress) => void
   markFinished: (bookId: string, finished: boolean) => void
   addHighlight: (highlight: Omit<Highlight, 'id' | 'createdAt' | 'updatedAt'>) => Highlight
@@ -433,8 +434,14 @@ export const useLibrary = create<LibraryState>((set, get) => {
             failed.push({ filename: file.name, reason: 'duplicate' })
             continue
           }
+          const contentHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(imported.bytes).buffer)))
+            .map((byte) => byte.toString(16).padStart(2, '0')).join('')
+          if (get().books.some((book) => book.contentHash === contentHash)) {
+            failed.push({ filename: file.name, reason: 'duplicate' })
+            continue
+          }
           const tombstone = get().deleted.books.find((one) => one.id === id)
-          const record = { ...imported.record, id, updatedAt: nextTimestamp(tombstone?.updatedAt), localOnly: false }
+          const record = { ...imported.record, id, contentHash, updatedAt: nextTimestamp(tombstone?.updatedAt), localOnly: false }
           known.add(id)
           try {
             await idbSet(keyFor(userId, `book:${id}`), new Blob([imported.bytes as unknown as BlobPart]), store)
@@ -565,6 +572,13 @@ export const useLibrary = create<LibraryState>((set, get) => {
           ? { ...book, title, updatedAt: nextTimestamp(book.updatedAt) }
           : book),
         deleted: withoutTombstone(state.deleted, 'books', id),
+      }))
+      schedulePersist(get)
+    },
+
+    updateBookMetadata(id, metadata, author) {
+      set((state) => ({
+        books: state.books.map((book) => book.id === id ? { ...book, author: author ?? book.author, metadata, updatedAt: nextTimestamp(book.updatedAt) } : book),
       }))
       schedulePersist(get)
     },

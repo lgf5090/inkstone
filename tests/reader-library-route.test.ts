@@ -150,6 +150,13 @@ describe('the shelf round trip', () => {
     expect(stale.library.settings).toEqual({ fontSize: 24 })
   })
 
+  it('round-trips book metadata and content hash', async () => {
+    const hash = 'a'.repeat(64)
+    await send('PUT', '/library', { library: library({ books: [book({ contentHash: hash, metadata: { series: 'Series', rating: 4.5, tags: ['fantasy'] } })] }) })
+    const answer = await (await send('GET', '/library')).json() as { library: any }
+    expect(answer.library.books[0]).toMatchObject({ contentHash: hash, metadata: { series: 'Series', rating: 4.5, tags: ['fantasy'] } })
+  })
+
   it('keeps a second account out of the first one\'s shelf', async () => {
     await send('PUT', '/library', { library: library() })
     mocks.userId = BOB

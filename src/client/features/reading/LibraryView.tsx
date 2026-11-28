@@ -36,6 +36,7 @@ import { compileQuery, queryKeeps } from '../../lib/query-match'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { cn } from '../../lib/cn'
 import { SyncLine } from './SyncLine'
+import { BookMetadataModal } from './reader/BookMetadataModal'
 import type { BookRecord, ImportFailure } from './types'
 
 const FAILURE_KEYS = {
@@ -81,6 +82,8 @@ export function LibraryView() {
   const [busy, setBusy] = useState(false)
   const [fetching, setFetching] = useState(false)
   const [active, setActive] = useState<BookRecord | null>(null)
+  const [metadataBook, setMetadataBook] = useState<BookRecord | null>(null)
+  const updateBookMetadata = useLibrary((state) => state.updateBookMetadata)
   const fileInput = useRef<HTMLInputElement>(null)
   const dataInput = useRef<HTMLInputElement>(null)
   const menu = useContextMenu()
@@ -213,6 +216,7 @@ export function LibraryView() {
         ? [{ id: 'note', label: t('reading.open_note'), icon: <MessageSquareQuote size={13} />, onSelect: () => openBookNote(noteLinks.byBook[book.id]) }]
         : []),
       { id: 'rename', label: t('reading.rename_book'), icon: <Pencil size={13} />, onSelect: () => void rename(book) },
+      { id: 'metadata', label: t('reading.edit_metadata'), icon: <Pencil size={13} />, onSelect: () => setMetadataBook(book) },
       {
         id: 'fit',
         label: coverFits[book.id] === 'contain' ? t('reading.cover_fill') : t('reading.cover_whole'),
@@ -530,6 +534,14 @@ export function LibraryView() {
         zIndex={Z_INDEX.prompt}
         items={active ? menuFor(active) : []}
       />
+
+      {metadataBook ? (
+        <BookMetadataModal
+          book={metadataBook}
+          onClose={() => setMetadataBook(null)}
+          onSave={(author, metadata) => updateBookMetadata(metadataBook.id, metadata, author)}
+        />
+      ) : null}
 
       {dragging ? (
         <div className="app-viewport-fixed pointer-events-none fixed inset-0 z-[var(--z-pinned-menu)] flex items-center justify-center bg-[var(--scrim)]">

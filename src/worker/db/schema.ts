@@ -4951,6 +4951,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 441,
     statements: [READER_UPLOAD_RESERVATION_TABLE, READER_STORAGE_DELETION_TABLE],
   },
+  {
+    version: 442,
+    skipIfColumnExists: { table: 'reader_books', column: 'content_hash' },
+    statements: [`ALTER TABLE reader_books ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 443,
+    skipIfColumnExists: { table: 'reader_books', column: 'metadata' },
+    statements: [`ALTER TABLE reader_books ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

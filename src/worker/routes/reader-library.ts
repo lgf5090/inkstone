@@ -46,6 +46,16 @@ const COVER_EXTENSIONS = READER_COVER_TYPES
 const COVER_MIME_BY_EXTENSION: Record<string, string> = Object.fromEntries(
   Object.entries(READER_COVER_TYPES).map(([type, extension]) => [extension, type]),
 )
+function bookMetadataOf(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '{}'
+  const row = value as Record<string, unknown>
+  return JSON.stringify({
+    series: typeof row.series === 'string' ? row.series.slice(0, 200) : '',
+    rating: typeof row.rating === 'number' && Number.isFinite(row.rating) ? Math.max(0, Math.min(5, row.rating)) : 0,
+    tags: Array.isArray(row.tags) ? row.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 20).map((tag) => tag.slice(0, 40)) : [],
+  })
+}
+
 /** A group's name, trimmed the way the device trims it, or nothing if it is not usable. */
 function groupNameOf(row: Record<string, unknown>): string {
   return typeof row.name === 'string' ? row.name.trim().replace(/\s+/g, ' ').slice(0, GROUP_NAME_MAX) : ''
@@ -322,6 +332,8 @@ async function loadLibrary(c: Context<AppBindings>, userId: string) {
       // A path, not a secret: the route resolves it against the authenticated account.
       coverUrl: row.cover_key ? `/api/reader/books/${encodeURIComponent(row.id)}/cover` : null,
       toc: JSON.parse(row.toc || '[]') as unknown[],
+      contentHash: row.content_hash,
+      metadata: JSON.parse(row.metadata || '{}') as Record<string, unknown>,
     })),
     progress: Object.fromEntries(rows.progress.map((row) => [row.book_id, {
       bookId: row.book_id,
@@ -446,6 +458,8 @@ readerLibraryRoutes.put('/library', async (c) => {
       addedAt: numberOf(row, 'addedAt', fallbackUpdatedAt),
       updatedAt: updatedAtOf(row, numberOf(row, 'addedAt')),
       fallbackKey: readerBookKey(userId, id, EXTENSIONS[format]),
+      contentHash: typeof row.contentHash === 'string' && /^[0-9a-f]{64}$/.test(row.contentHash) ? row.contentHash : '',
+      metadataJson: bookMetadataOf(row.metadata),
     })
   }
 

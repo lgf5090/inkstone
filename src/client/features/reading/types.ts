@@ -3,6 +3,12 @@ import { LIMITS } from '@shared/constants'
 
 export type BookFormat = 'epub' | 'pdf' | 'cbz'
 
+export interface BookMetadata {
+  series: string
+  rating: number
+  tags: string[]
+}
+
 /** What the shelf knows about a book without opening it again. */
 export interface BookRecord {
   id: string
@@ -30,6 +36,8 @@ export interface BookRecord {
   toc: TocEntry[]
   /** Older local imports may exceed the cloud limit; they remain readable but are never uploaded. */
   localOnly?: boolean
+  contentHash?: string
+  metadata?: BookMetadata
 }
 
 export interface TocEntry {

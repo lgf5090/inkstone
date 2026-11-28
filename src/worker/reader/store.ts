@@ -38,6 +38,8 @@ export interface ReaderBookRow {
   has_blob: number
   cover_key: string | null
   toc: string
+  content_hash: string
+  metadata: string
 }
 
 export interface ReaderProgressRow {
@@ -163,6 +165,8 @@ export interface ShelfBookInput {
   addedAt: number
   updatedAt: number
   fallbackKey: string
+  contentHash?: string
+  metadataJson?: string
 }
 
 export interface ShelfProgressInput {
@@ -292,7 +296,7 @@ export class ReaderLibraryStore {
     const [books, progress, highlights, marks, stats, notes, meta, groups, syncVersions] = await Promise.all([
       this.db.prepare(
         `SELECT id, format, title, author, language, publisher, filename, size, added_at, updated_at,
-                unit_count, has_cover, has_blob, cover_key, toc
+                unit_count, has_cover, has_blob, cover_key, toc, content_hash, metadata
            FROM reader_books WHERE user_id = ?1 ORDER BY added_at DESC`).bind(this.userId).all<ReaderBookRow>(),
       this.db.prepare(
         `SELECT book_id, position, fraction, updated_at, finished_at
@@ -444,8 +448,8 @@ export class ReaderLibraryStore {
       if (!hasBlob) missingBlobs.push(book.id)
       if (book.wantsCover && !cover) missingCovers.push(book.id)
       const written = writeLive('books', book.id, '', book.updatedAt, this.db.prepare(
-        `INSERT OR REPLACE INTO reader_books (id, user_id, title, author, format, filename, language, publisher, size, unit_count, r2_key, has_cover, toc, added_at, updated_at, has_blob, cover_key, cover_size)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
+        `INSERT OR REPLACE INTO reader_books (id, user_id, title, author, format, filename, language, publisher, size, unit_count, r2_key, has_cover, toc, added_at, updated_at, has_blob, cover_key, cover_size, content_hash, metadata)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
          WHERE ?15 > COALESCE((SELECT updated_at FROM reader_sync_versions
                                 WHERE user_id = ?2 AND entity = 'books' AND entity_id = ?1), -1)`,
       ).bind(
@@ -453,7 +457,7 @@ export class ReaderLibraryStore {
         formatChanged ? 0 : book.size, book.unitCount,
         formatChanged ? book.fallbackKey : current?.r2_key ?? book.fallbackKey,
         book.wantsCover ? 1 : 0, book.tocJson, book.addedAt, book.updatedAt,
-        hasBlob ? 1 : 0, cover, coverSize,
+        hasBlob ? 1 : 0, cover, coverSize, book.contentHash ?? '', book.metadataJson ?? '{}',
       ))
       if (written && formatChanged && current) {
         queueDeletion(current.r2_key, current.size)

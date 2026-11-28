@@ -34,6 +34,8 @@ export const READER_BOOK_TABLE = `CREATE TABLE IF NOT EXISTS reader_books (
   has_blob INTEGER NOT NULL DEFAULT 0,
   cover_key TEXT,
   cover_size INTEGER NOT NULL DEFAULT 0,
+  content_hash TEXT NOT NULL DEFAULT '',
+  metadata TEXT NOT NULL DEFAULT '{}',
   PRIMARY KEY (user_id, id)
 )`
 

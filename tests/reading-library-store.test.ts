@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLibrary } from '../src/client/features/reading/store/library'
 import type { Highlight } from '../src/client/features/reading/types'
 import { LIMITS } from '../src/shared/constants'
+import { fixtureEpub } from './reading-fixtures'
 
 /**
  * The library store is exercised through its merge, not its persistence: the point of the check is what
@@ -22,11 +23,13 @@ describe('importing a library file', () => {
   })
 
   it('keeps a well-formed record', async () => {
+    const contentHash = 'b'.repeat(64)
     const result = await useLibrary.getState().importLibrary(exportOf([
-      { id: 'b1', format: 'epub', title: '一本', author: '', language: '', publisher: '', filename: 'a.epub', size: 1, addedAt: 2, unitCount: 3, coverPath: null, toc: [] },
+      { id: 'b1', format: 'epub', title: '一本', author: '', language: '', publisher: '', filename: 'a.epub', size: 1, addedAt: 2, unitCount: 3, coverPath: null, toc: [], contentHash, metadata: { series: '系列', rating: 4.5, tags: ['奇幻'] } },
     ]))
     expect(result.books).toBe(1)
     expect(useLibrary.getState().books.map((one) => one.id)).toEqual(['b1'])
+    expect(useLibrary.getState().books[0]).toMatchObject({ contentHash, metadata: { series: '系列', rating: 4.5, tags: ['奇幻'] } })
   })
 
   it('drops a record whose format the reader cannot open', async () => {
@@ -65,6 +68,17 @@ describe('importing a library file', () => {
     expect(useLibrary.getState().books[0]?.localOnly).toBe(true)
   })
 
+  it('rejects identical content imported under a different filename', async () => {
+    const bytes = fixtureEpub()
+    const contentHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer)))
+      .map((byte) => byte.toString(16).padStart(2, '0')).join('')
+    useLibrary.setState({ books: [{ id: 'existing', format: 'epub', title: 'Book', author: '', language: '', publisher: '', filename: 'original.epub', size: bytes.byteLength, addedAt: 1, updatedAt: 1, unitCount: 1, coverPath: null, toc: [], contentHash }] })
+    const file = new File([new Uint8Array(bytes)] as unknown as BlobPart[], 'renamed.epub', { type: 'application/epub+zip' })
+    const result = await useLibrary.getState().addFiles([file])
+    expect(result).toEqual({ added: [], failed: [{ filename: 'renamed.epub', reason: 'duplicate' }] })
+    expect(useLibrary.getState().books.map((one) => one.id)).toEqual(['existing'])
+  })
+
   it('marks a book finished when progress reaches one', () => {
     useLibrary.getState().setProgress({ bookId: 'b1', position: { kind: 'fixed', page: 10 }, fraction: 1, updatedAt: 1, finishedAt: null })
     expect(useLibrary.getState().progress.b1?.finishedAt).toEqual(expect.any(Number))
@@ -76,6 +90,13 @@ describe('importing a library file', () => {
     expect(useLibrary.getState().progress.b1).toMatchObject({ bookId: 'b1', fraction: 1, finishedAt: expect.any(Number) })
     useLibrary.getState().markFinished('b1', false)
     expect(useLibrary.getState().progress.b1).toMatchObject({ fraction: 1, finishedAt: null })
+  })
+
+  it('updates author and structured metadata with a new version', () => {
+    useLibrary.setState({ books: [{ id: 'b1', format: 'epub', title: 'Book', author: 'Old', language: '', publisher: '', filename: 'b.epub', size: 1, addedAt: 1, updatedAt: 1, unitCount: 1, coverPath: null, toc: [] }] })
+    useLibrary.getState().updateBookMetadata('b1', { series: 'S', rating: 4, tags: ['x'] }, 'New')
+    expect(useLibrary.getState().books[0]).toMatchObject({ author: 'New', metadata: { series: 'S', rating: 4, tags: ['x'] } })
+    expect(useLibrary.getState().books[0]!.updatedAt).toBeGreaterThan(1)
   })
 
   it('files reading time under the local calendar day', () => {

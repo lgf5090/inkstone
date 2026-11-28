@@ -1,4 +1,4 @@
-import { HIGHLIGHT_COLORS, type BookFormat, type BookRecord, type BookStats, type Highlight, type LocationMark, type ReadingNoteLinks, type ReadingProgress } from './types'
+import { HIGHLIGHT_COLORS, type BookFormat, type BookMetadata, type BookRecord, type BookStats, type Highlight, type LocationMark, type ReadingNoteLinks, type ReadingProgress } from './types'
 import type { BookPosition } from './position'
 import { normaliseGroups, type BookGroup } from './book-groups'
 import { emptyDeletions, type LibraryData, type LibraryDeletions, type LibraryTombstone } from './sync-merge'
@@ -45,6 +45,16 @@ function parseToc(value: unknown): BookRecord['toc'] {
     if (!record(entry) || typeof entry.label !== 'string' || !hasPosition(entry.position)) return []
     return [{ label: entry.label.slice(0, 300), position: position(entry.position) ?? null, level: nonNegative(entry.level) }]
   })
+}
+
+function parseMetadata(value: unknown): BookMetadata {
+  if (!record(value)) return { series: '', rating: 0, tags: [] }
+  const rating = typeof value.rating === 'number' && Number.isFinite(value.rating) ? Math.max(0, Math.min(5, value.rating)) : 0
+  return {
+    series: text(value.series, 200),
+    rating,
+    tags: Array.isArray(value.tags) ? value.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 20).map((tag) => tag.slice(0, 40)) : [],
+  }
 }
 
 function parseDeletions(value: unknown): LibraryDeletions {
@@ -100,6 +110,8 @@ export function parseLibraryExport(raw: string): { data: LibraryData; rejected: 
       coverPath: typeof value.coverPath === 'string' ? value.coverPath.slice(0, 500) : null,
       toc: parseToc(value.toc),
       localOnly: nonNegative(value.size) > LIMITS.readerBookMaxBytes,
+      contentHash: typeof value.contentHash === 'string' && /^[0-9a-f]{64}$/.test(value.contentHash) ? value.contentHash : '',
+      metadata: parseMetadata(value.metadata),
     })
   }
 

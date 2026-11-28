@@ -111,12 +111,12 @@ export async function applyBackupReader(env: Env, userId: string, text: string):
     const format = str(row.format)
     if (!['epub', 'pdf', 'cbz'].includes(format)) throw new ApiError(400, 'bad_request', 'Invalid reader backup format')
     statements.push(env.DB.prepare(
-      `INSERT OR IGNORE INTO reader_books (id, user_id, title, author, format, filename, language, publisher, size, unit_count, r2_key, has_cover, toc, added_at, updated_at, has_blob, cover_key, cover_size)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 0, NULL, 0)`,
+      `INSERT OR IGNORE INTO reader_books (id, user_id, title, author, format, filename, language, publisher, size, unit_count, r2_key, has_cover, toc, added_at, updated_at, has_blob, cover_key, cover_size, content_hash, metadata)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 0, NULL, 0, ?16, ?17)`,
     ).bind(bookId, userId, str(row.title, 'Untitled').slice(0, 300), str(row.author).slice(0, 200), format,
       str(row.filename, `${bookId}.${format}`).slice(0, 240), str(row.language).slice(0, 12), str(row.publisher).slice(0, 200),
       num(row.size), num(row.unit_count), readerBookKey(userId, bookId, format), row.has_cover === 1 ? 1 : 0,
-      str(row.toc, '[]'), num(row.added_at), num(row.updated_at)))
+      str(row.toc, '[]'), num(row.added_at), num(row.updated_at), str(row.content_hash).slice(0, 64), str(row.metadata, '{}').slice(0, 4096)))
   }
   for (const row of progress) statements.push(env.DB.prepare('INSERT OR IGNORE INTO reader_progress (user_id, book_id, position, fraction, updated_at, finished_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
     .bind(userId, id(row.book_id), str(row.position, 'null'), num(row.fraction), num(row.updated_at), row.finished_at ?? null))
