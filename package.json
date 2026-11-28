@@ -114,6 +114,7 @@
     "aws4fetch": "^1.0.20",
     "bcryptjs": "^3.0.3",
     "chart.js": "^4.6.1",
+    "chinese-conv": "4.1.0",
     "chrono-node": "2.10.3",
     "client-zip": "^2.5.1",
     "clsx": "^2.1.1",

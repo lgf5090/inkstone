@@ -117,6 +117,19 @@ export function AppearancePanel() {
           ]}
         />
       </div>
+      <div className="mt-2">
+        <Segmented
+          value={settings.writingMode}
+          onChange={(value) => set('writingMode', value)}
+          options={[
+            { value: 'horizontal', label: t('reading.writing_horizontal') },
+            { value: 'vertical', label: t('reading.writing_vertical') },
+          ]}
+        />
+      </div>
+      <Row label={t('reading.punctuation_spacing')}>
+        <Switch checked={settings.punctuationSpacing} onChange={(value) => set('punctuationSpacing', value)} label={t('reading.punctuation_spacing')} />
+      </Row>
       <Row label={t('reading.text_align')}>
         <Segmented
           size="sm"

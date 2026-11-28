@@ -51,6 +51,8 @@ export interface ReaderSettings {
   /** Indent the opening line of a paragraph, which unsegmented prose expects and English does not. */
   firstLineIndent: boolean
   readMode: ReadMode
+  writingMode: 'horizontal' | 'vertical'
+  punctuationSpacing: boolean
   /** Dim every paragraph but the one the reader is on. */
   focusParagraph: boolean
   /** How the shelf lays its books out; see `shelf-view.ts` for what each mode means. */
@@ -104,6 +106,8 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   hyphenate: false,
   firstLineIndent: true,
   readMode: 'paged',
+  writingMode: 'horizontal',
+  punctuationSpacing: true,
   focusParagraph: false,
   shelfView: 'adaptive',
   pageTurnAnimation: true,
@@ -200,6 +204,7 @@ function sanitise(parsed: Partial<ReaderSettings>): Partial<ReaderSettings> {
     theme: oneOf<ReaderThemeName>(parsed.theme, ['auto', ...Object.keys(READER_THEMES)] as ReaderThemeName[], 'auto'),
     fontFamily: oneOf(parsed.fontFamily, ['serif', 'sans', 'mono', 'custom'] as const, 'serif'),
     readMode: oneOf(parsed.readMode, ['paged', 'scroll'] as const, 'paged'),
+    writingMode: oneOf(parsed.writingMode, ['horizontal', 'vertical'] as const, 'horizontal'),
     shelfView: isShelfViewMode(parsed.shelfView) ? parsed.shelfView : DEFAULT_READER_SETTINGS.shelfView,
     textAlign: oneOf(parsed.textAlign, ['left', 'justify'] as const, 'left'),
     pageButtons: oneOf(parsed.pageButtons, ['always', 'hover'] as const, 'always'),

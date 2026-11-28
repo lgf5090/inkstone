@@ -100,6 +100,7 @@
   line-height: var(--reader-leading);
   letter-spacing: var(--reader-tracking);
   text-align: var(--reader-align);
+  writing-mode: var(--reader-writing-mode, horizontal-tb);
   hyphens: var(--reader-hyphens);
   word-break: normal;
   overflow-wrap: break-word;
@@ -197,6 +198,14 @@
 
 .reader-doc[data-figures='false'] :is(img, svg:not(:root), figure) {
   display: none;
+}
+
+.reader-punctuation[data-side='after'] {
+  margin-inline-end: -0.5em;
+}
+
+.reader-punctuation[data-side='before'] {
+  margin-inline-start: -0.5em;
 }
 
 .reader-doc ::selection,

@@ -42,6 +42,7 @@ import { DEFAULT_HIGHLIGHT_PAINT, type ReaderTheme } from '../themes'
 import { createPortal } from 'react-dom'
 import { ImageLightbox } from './ImageLightbox'
 import { chapterText } from '../engine/book-search'
+import { squeezePunctuation } from '../engine/punctuation'
 import { api } from '../../../lib/api'
 
 export interface EpubStageHandle {
@@ -175,11 +176,13 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     const doc = docRef.current
     const style = styleRef.current
     if (!doc || !style) return
-    doc.replaceChildren(...Array.from(chapter?.fragment.childNodes ?? [], (node) => node.cloneNode(true)))
+    const content = (chapter?.fragment.cloneNode(true) ?? document.createDocumentFragment()) as DocumentFragment
+    squeezePunctuation(content, settings.punctuationSpacing)
+    doc.replaceChildren(...Array.from(content.childNodes))
     style.textContent = chapter?.css ?? ''
     indexRef.current = null
     setLayoutNonce((nonce) => nonce + 1)
-  }, [chapter])
+  }, [chapter, settings.punctuationSpacing])
 
   const geometry = useCallback((): PageGeometry => {
     const stage = stageRef.current
@@ -283,7 +286,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     relayout()
   }, [chapter, layoutNonce, relayout, settings.fontSize, settings.lineHeight, settings.letterSpacing,
     settings.paragraphSpacing, settings.margin, settings.columns, settings.textAlign, settings.fontFamily,
-    settings.customFamily, settings.readMode, settings.firstLineIndent, settings.hyphenate, settings.showFigures])
+    settings.customFamily, settings.readMode, settings.writingMode, settings.punctuationSpacing, settings.firstLineIndent, settings.hyphenate, settings.showFigures])
 
   /** A late image or a webfont that arrives after the first pass changes the page count. */
   useEffect(() => {
@@ -664,6 +667,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
     '--reader-margin': `${settings.margin}px`,
     // The measure is per column, so asking for a spread does not halve each page's line length.
     '--reader-columns': `${settings.columns}`,
+    '--reader-writing-mode': settings.writingMode === 'vertical' ? 'vertical-rl' : 'horizontal-tb',
     '--reader-align': settings.textAlign,
     '--reader-hyphens': settings.hyphenate ? 'auto' : 'manual',
     '--reader-font': fontStackFor(settings),
@@ -674,6 +678,7 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
       ref={stageRef}
       className="reader-stage"
       data-mode={settings.readMode}
+      data-writing={settings.writingMode}
       data-motion={settings.pageTurnAnimation ? 'on' : 'off'}
       style={cssVars()}
       onClick={onClick}
