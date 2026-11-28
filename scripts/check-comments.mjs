@@ -13825,6 +13825,7 @@ const allowed = new Map([
     "// waiting for `page` to change, or the browser keeps the previous layout's scrollLeft.",
     "// A scroll chapter keeps one page before and after layout, so `report`'s identity does not change when",
     "// its text arrives. Publish once the new chapter is mounted; paged mode already reports via page count.",
+    "// Prefetch is only an optimization; the normal chapter load reports a real failure.",
   ]],
   ["src/client/features/reading/reader/FixedStage.tsx", [
     "/**\n * A book that arrives as pages rather than as prose.\n *\n * A PDF is a page description, so the reader keeps each page as the source of visual truth: PDF.js\n * paints it to a canvas and its own transparent text layer goes over the top, which is what makes the\n * words selectable, searchable and markable without rebuilding the page. A scan has no such layer, and\n * the reader says so by refusing the actions that need words rather than marking the wrong ones.\n *\n * A CBZ shares the machinery with one difference: its pages are pictures, so it always takes the\n * scan path.\n */",

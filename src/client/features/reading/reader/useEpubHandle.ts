@@ -26,6 +26,8 @@ export interface EpubHandle {
   prepare: (slot: number) => Promise<PreparedChapter | null>
 }
 
+const PREPARED_CHAPTER_CACHE = 3
+
 const cache = new Map<string, Promise<{ archive: ZipArchive; pkg: EpubPackage }>>()
 
 async function openEpub(bytes: Uint8Array): Promise<{ archive: ZipArchive; pkg: EpubPackage }> {
@@ -68,13 +70,24 @@ export function useEpubHandle(book: BookRecord | null): { handle: EpubHandle | n
         if (cancelled) return
         const created = createResourcePool(archive, pkg)
         pool = created
+        const prepared = new Map<number, Promise<PreparedChapter | null>>()
         setHandle({
           kind: 'epub',
           bookId: book.id,
           archive,
           pkg,
           pool: created,
-          prepare: (slot) => prepareChapter({ pkg, archive, pool: created }, slot, READER_SCOPE, { allowExternalImages }),
+          prepare: (slot) => {
+            const known = prepared.get(slot)
+            if (known) return known
+            if (prepared.size >= PREPARED_CHAPTER_CACHE) {
+              const oldest = prepared.keys().next().value
+              if (oldest !== undefined) prepared.delete(oldest)
+            }
+            const pending = prepareChapter({ pkg, archive, pool: created }, slot, READER_SCOPE, { allowExternalImages })
+            prepared.set(slot, pending)
+            return pending
+          },
         })
       } catch (err) {
         if (!cached) cache.delete(book.id)

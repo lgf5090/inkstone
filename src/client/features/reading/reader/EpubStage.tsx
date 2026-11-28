@@ -45,6 +45,8 @@ import { chapterText } from '../engine/book-search'
 import { squeezePunctuation } from '../engine/punctuation'
 import { api } from '../../../lib/api'
 
+const PREFETCH_VIEWPORTS = 2
+
 export interface EpubStageHandle {
   next(): void
   prev(): void
@@ -452,6 +454,27 @@ export const EpubStage = forwardRef<EpubStageHandle, EpubStageProps>(function Ep
       if (frame) cancelAnimationFrame(frame)
     }
   }, [chapter, settings.autoScrollSpeed, settings.readMode])
+
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage || settings.readMode !== 'scroll') return
+    let pending = false
+    const prefetch = () => {
+      const remaining = stage.scrollHeight - stage.scrollTop - stage.clientHeight
+      if (pending || remaining > stage.clientHeight * PREFETCH_VIEWPORTS || slot >= handle.pkg.spine.length - 1) return
+      pending = true
+      void handle.prepare(slot + 1).then(() => {
+        pending = false
+      }, (err) => {
+        pending = false
+        // Prefetch is only an optimization; the normal chapter load reports a real failure.
+        console.warn('[reading] could not prepare the next chapter', err)
+      })
+    }
+    prefetch()
+    stage.addEventListener('scroll', prefetch, { passive: true })
+    return () => stage.removeEventListener('scroll', prefetch)
+  }, [handle, handle.pkg.spine.length, settings.readMode, slot])
 
   /**
    * A scrolling reader reaches the end of a chapter and keeps going.
