@@ -432,6 +432,8 @@ export interface ChannelState {
   enabled: boolean
   configured: boolean
   hint: string
+  config: Record<string, unknown>
+  configuredFields: string[]
   lastTestAt: string | null
   lastTestStatus: '' | 'success' | 'failed'
   lastTestError: string

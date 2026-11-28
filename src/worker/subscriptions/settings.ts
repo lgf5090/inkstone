@@ -7,7 +7,7 @@
  * token is stored as a hash: the reference project could show a reader their token at any time, which
  * also meant the database could. Rotating it is one press, so nothing is lost.
  */
-import { channelHint, channelDefinition } from '@shared/subscriptions/channels'
+import { channelHint, channelDefinition, maskChannelConfig, secretFields } from '@shared/subscriptions/channels'
 import {
   DEFAULT_SETTINGS,
   LABEL_MAX,
@@ -306,19 +306,42 @@ export async function listChannels(db: D1Database, userId: string): Promise<Chan
     .bind(userId)
     .all<ChannelRow>()
   const byKind = new Map(results.map((row) => [row.kind, row]))
-  return (Object.keys(CHANNEL_KIND_ORDER) as ChannelKind[]).map((kind) => {
+  return (Object.keys(CHANNEL_KIND_ORDER) as ChannelKind[]).map((kind) => channelState(kind, byKind.get(kind)))
+}
+
+export async function listChannelsWithConfig(env: Env, db: D1Database, userId: string): Promise<ChannelState[]> {
+  const { results } = await db.prepare(`SELECT ${CHANNEL_COLUMNS} FROM sub_channel WHERE user_id = ?1`)
+    .bind(userId)
+    .all<ChannelRow>()
+  const byKind = new Map(results.map((row) => [row.kind, row]))
+  const states: ChannelState[] = []
+  for (const kind of Object.keys(CHANNEL_KIND_ORDER) as ChannelKind[]) {
     const row = byKind.get(kind)
-    return {
-      kind,
-      enabled: row?.enabled === 1,
-      // A field-less kind is configured by the row existing: there is no bundle to have left unwritten.
-      configured: Boolean(row && (row.config_ciphertext || !channelHasSecrets(kind))),
-      hint: row?.config_hint ?? '',
-      lastTestAt: row?.last_test_at ? new Date(row.last_test_at).toISOString() : null,
-      lastTestStatus: (row?.last_test_status === 'success' || row?.last_test_status === 'failed' ? row.last_test_status : '') as ChannelState['lastTestStatus'],
-      lastTestError: row?.last_test_error ?? '',
-    }
-  })
+    const stored = row ? await readChannelConfig(env, db, userId, kind) : null
+    states.push(channelState(kind, row, stored?.config))
+  }
+  return states
+}
+
+function channelState(kind: ChannelKind, row: ChannelRow | undefined, config?: Record<string, unknown>): ChannelState {
+  const configured = Boolean(row && (row.config_ciphertext || !channelHasSecrets(kind)))
+  const configuredFields = config
+    ? secretFields(kind).filter((key) => {
+      const value = config[key]
+      return typeof value === 'string' ? value.trim() !== '' : value !== undefined && value !== null
+    })
+    : []
+  return {
+    kind,
+    enabled: row?.enabled === 1,
+    configured,
+    hint: row?.config_hint ?? '',
+    config: config ? maskChannelConfig(kind, config) : {},
+    configuredFields,
+    lastTestAt: row?.last_test_at ? new Date(row.last_test_at).toISOString() : null,
+    lastTestStatus: (row?.last_test_status === 'success' || row?.last_test_status === 'failed' ? row.last_test_status : '') as ChannelState['lastTestStatus'],
+    lastTestError: row?.last_test_error ?? '',
+  }
 }
 
 const CHANNEL_KIND_ORDER: Record<ChannelKind, true> = {
@@ -370,6 +393,7 @@ export async function readChannelConfig(
 export interface ChannelSaveInput {
   enabled?: unknown
   config?: unknown
+  clearFields?: unknown
 }
 
 /**
@@ -406,7 +430,17 @@ export async function saveChannel(
       merged[field.key] = value === true || value === 'true'
       continue
     }
+    if (typeof value === 'string' && value.trim() === '') {
+      delete merged[field.key]
+      continue
+    }
     merged[field.key] = typeof value === 'string' ? value.trim() : value
+  }
+  if (Array.isArray(input.clearFields)) {
+    const allowed = new Set(definition.fields.map((field) => field.key))
+    for (const key of input.clearFields) {
+      if (typeof key === 'string' && allowed.has(key)) delete merged[key]
+    }
   }
 
   const problem = validateChannelConfig(kind, merged)
@@ -427,15 +461,20 @@ export async function saveChannel(
        updated_at = excluded.updated_at`,
   ).bind(userId, id, kind, enabled ? 1 : 0, ciphertext, hint, now).run()
 
-  return {
+  const savedRow: ChannelRow = {
+    user_id: userId,
+    id,
     kind,
-    enabled,
-    configured: true,
-    hint,
-    lastTestAt: existing?.last_test_at ? new Date(existing.last_test_at).toISOString() : null,
-    lastTestStatus: (existing?.last_test_status === 'success' || existing?.last_test_status === 'failed' ? existing.last_test_status : '') as ChannelState['lastTestStatus'],
-    lastTestError: existing?.last_test_error ?? '',
+    enabled: enabled ? 1 : 0,
+    config_ciphertext: ciphertext,
+    config_hint: hint,
+    last_test_at: existing?.last_test_at ?? null,
+    last_test_status: existing?.last_test_status ?? '',
+    last_test_error: existing?.last_test_error ?? '',
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
   }
+  return channelState(kind, savedRow, merged)
 }
 
 /** Remove a channel's configuration and switch it off; the row stays so its test history does too. */

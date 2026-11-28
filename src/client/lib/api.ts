@@ -2893,7 +2893,7 @@ export const api = {
       ),
     saveSettings: (patch: SettingsPatch) =>
       request<{ settings: SubscriptionSettings }>('/api/subscriptions/settings', { method: 'PUT', body: patch }),
-    saveChannel: (kind: ChannelKind, input: { enabled?: boolean; config: Record<string, unknown> }) =>
+    saveChannel: (kind: ChannelKind, input: { enabled?: boolean; config: Record<string, unknown>; clearFields?: string[] }) =>
       request<{ channel: ChannelState }>(`/api/subscriptions/channels/${kind}`, { method: 'PUT', body: input }),
     clearChannel: (kind: ChannelKind) =>
       request<{ channels: ChannelState[] }>(`/api/subscriptions/channels/${kind}`, { method: 'DELETE' }),

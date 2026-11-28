@@ -46161,7 +46161,6 @@ const allowed = new Map([
     "// a number that looks right and is not.",
     "// A budget that is absent, blank or not a number means \"no ceiling\", which is a different state from",
     "// a ceiling of zero and has to survive the round trip as null.",
-    "// A field-less kind is configured by the row existing: there is no bundle to have left unwritten.",
     "/**\n * Whether a kind has anything to keep secret.\n *\n * The in-app channel has no fields, so it holds no credential — and a channel that stores nothing must not\n * need the vault to be reachable before a reader can turn their own reminders on. The nine that do hold\n * credentials keep the ciphertext requirement, including in `enabledChannels`: a channel whose secret bundle\n * cannot be read is a channel that cannot send, and saying so is what the empty ciphertext already means.\n */",
     "/** A cache-shaped field that could not be read is an empty one: the feed answers, and nothing is guessed. */",
     "// A pin the app cannot convert with is refused rather than dropped: the reader asked for their own",

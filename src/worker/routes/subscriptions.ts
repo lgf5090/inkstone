@@ -47,7 +47,7 @@ import {
   channelHasSecrets,
   clearChannel,
   enabledChannels,
-  listChannels,
+  listChannelsWithConfig,
   loadSettings,
   readChannelConfig,
   recordChannelTest,
@@ -220,7 +220,7 @@ subscriptionRoutes.get('/', async (c) => {
     store.list(context),
     store.listLabels('type'),
     store.listLabels('category'),
-    listChannels(c.env.DB, c.get('userId')!),
+    listChannelsWithConfig(c.env, c.env.DB, c.get('userId')!),
     buildOverview(c.env, c.env.DB, c.get('userId')!, settings, context.now),
     store.trashCount(),
   ])
@@ -453,7 +453,7 @@ subscriptionRoutes.post('/calendar-token', async (c) => {
 })
 
 subscriptionRoutes.get('/channels', async (c) => {
-  return c.json({ channels: await listChannels(c.env.DB, c.get('userId')!) })
+  return c.json({ channels: await listChannelsWithConfig(c.env, c.env.DB, c.get('userId')!) })
 })
 
 subscriptionRoutes.put('/channels/:kind', async (c) => {
@@ -471,7 +471,7 @@ subscriptionRoutes.delete('/channels/:kind', async (c) => {
   const kind = c.req.param('kind')
   if (!isChannelKind(kind)) throw ApiError.notFound('Unknown channel')
   await clearChannel(c.env.DB, c.get('userId')!, kind)
-  return c.json({ channels: await listChannels(c.env.DB, c.get('userId')!) })
+  return c.json({ channels: await listChannelsWithConfig(c.env, c.env.DB, c.get('userId')!) })
 })
 
 subscriptionRoutes.post('/channels/:kind/test', async (c) => {

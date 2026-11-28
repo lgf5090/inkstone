@@ -119,7 +119,7 @@ interface SubscriptionsState {
   deletePayment: (id: string, paymentId: string) => Promise<SubscriptionDetail | null>
 
   saveSettings: (patch: SettingsPatch) => Promise<boolean>
-  saveChannel: (kind: ChannelKind, input: { enabled?: boolean; config: Record<string, unknown> }) => Promise<boolean>
+  saveChannel: (kind: ChannelKind, input: { enabled?: boolean; config: Record<string, unknown>; clearFields?: string[] }) => Promise<boolean>
   clearChannel: (kind: ChannelKind) => Promise<boolean>
   testChannel: (kind: ChannelKind) => Promise<void>
   rotateInboundToken: () => Promise<{ token: string; hint: string } | null>

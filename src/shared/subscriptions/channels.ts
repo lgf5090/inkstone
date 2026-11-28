@@ -31,15 +31,17 @@ export interface ChannelSelectOption {
 }
 
 export type ChannelField =
-  | { key: string; type: 'text' | 'password' | 'url' | 'email'; labelKey: MessageKey; placeholderKey?: MessageKey; required?: boolean; hintKey?: MessageKey }
+  | { key: string; type: 'text' | 'password' | 'url' | 'email'; labelKey: MessageKey; placeholderKey?: MessageKey; required?: boolean; hintKey?: MessageKey; sensitive?: boolean }
   | { key: string; type: 'select'; labelKey: MessageKey; options: ChannelSelectOption[] }
   | { key: string; type: 'switch'; labelKey: MessageKey; hintKey?: MessageKey }
-  | { key: string; type: 'json' | 'textarea'; labelKey: MessageKey; rows?: number; placeholderKey?: MessageKey; required?: boolean }
+  | { key: string; type: 'json' | 'textarea'; labelKey: MessageKey; rows?: number; placeholderKey?: MessageKey; required?: boolean; sensitive?: boolean }
 
 export interface ChannelDefinition {
   kind: ChannelKind
   labelKey: MessageKey
   fields: readonly ChannelField[]
+  helpUrl?: string
+  helpLabelKey?: MessageKey
 }
 
 const METHOD_OPTIONS: ChannelSelectOption[] = [
@@ -50,6 +52,14 @@ const METHOD_OPTIONS: ChannelSelectOption[] = [
 const MESSAGE_TYPE_OPTIONS: ChannelSelectOption[] = [
   { value: 'text', labelKey: 'subscriptions.option.plain_text' },
   { value: 'markdown', labelKey: 'subscriptions.option.markdown' },
+]
+
+const PUSHPLUS_CHANNEL_OPTIONS: ChannelSelectOption[] = [
+  { value: '', labelKey: 'subscriptions.option.default' },
+  { value: 'wechat', labelKey: 'subscriptions.option.pushplus_wechat' },
+  { value: 'mail', labelKey: 'subscriptions.option.pushplus_mail' },
+  { value: 'sms', labelKey: 'subscriptions.option.pushplus_sms' },
+  { value: 'webhook', labelKey: 'subscriptions.option.pushplus_webhook' },
 ]
 
 /**
@@ -77,6 +87,8 @@ export const CHANNEL_DEFINITIONS: readonly ChannelDefinition[] = [
   {
     kind: 'notifyx',
     labelKey: 'subscriptions.channel.notifyx',
+    helpUrl: 'https://www.notifyx.cn/',
+    helpLabelKey: 'subscriptions.channel.help_notifyx',
     fields: [
       { key: 'apiKey', type: 'password', labelKey: 'subscriptions.field.api_key', placeholderKey: 'subscriptions.placeholder.keep_secret', required: true },
     ],
@@ -84,10 +96,12 @@ export const CHANNEL_DEFINITIONS: readonly ChannelDefinition[] = [
   {
     kind: 'webhook',
     labelKey: 'subscriptions.channel.webhook',
+    helpUrl: 'https://webhook.site',
+    helpLabelKey: 'subscriptions.channel.help_webhook',
     fields: [
-      { key: 'url', type: 'url', labelKey: 'subscriptions.field.url', placeholderKey: 'subscriptions.placeholder.keep_secret', required: true },
+      { key: 'url', type: 'url', labelKey: 'subscriptions.field.url', placeholderKey: 'subscriptions.placeholder.keep_secret', required: true, sensitive: true },
       { key: 'method', type: 'select', labelKey: 'subscriptions.field.method', options: METHOD_OPTIONS },
-      { key: 'headers', type: 'json', labelKey: 'subscriptions.field.headers', rows: 3, placeholderKey: 'subscriptions.placeholder.headers' },
+      { key: 'headers', type: 'json', labelKey: 'subscriptions.field.headers', rows: 3, placeholderKey: 'subscriptions.placeholder.headers', sensitive: true },
       { key: 'template', type: 'json', labelKey: 'subscriptions.field.template', rows: 4, placeholderKey: 'subscriptions.placeholder.template' },
     ],
   },
@@ -95,7 +109,7 @@ export const CHANNEL_DEFINITIONS: readonly ChannelDefinition[] = [
     kind: 'wechatbot',
     labelKey: 'subscriptions.channel.wechatbot',
     fields: [
-      { key: 'webhook', type: 'url', labelKey: 'subscriptions.field.webhook', placeholderKey: 'subscriptions.placeholder.keep_secret', required: true },
+      { key: 'webhook', type: 'url', labelKey: 'subscriptions.field.webhook', placeholderKey: 'subscriptions.placeholder.keep_secret', required: true, sensitive: true },
       { key: 'msgType', type: 'select', labelKey: 'subscriptions.field.message_type', options: MESSAGE_TYPE_OPTIONS },
       { key: 'atMobiles', type: 'text', labelKey: 'subscriptions.field.at_mobiles', placeholderKey: 'subscriptions.placeholder.at_mobiles' },
       { key: 'atAll', type: 'switch', labelKey: 'subscriptions.field.at_all', hintKey: 'subscriptions.hint.at_all' },
@@ -141,7 +155,7 @@ export const CHANNEL_DEFINITIONS: readonly ChannelDefinition[] = [
     fields: [
       { key: 'token', type: 'password', labelKey: 'subscriptions.field.token', placeholderKey: 'subscriptions.placeholder.keep_secret', required: true },
       { key: 'topic', type: 'text', labelKey: 'subscriptions.field.topic', placeholderKey: 'subscriptions.placeholder.topic' },
-      { key: 'channel', type: 'text', labelKey: 'subscriptions.field.channel', placeholderKey: 'subscriptions.placeholder.channel' },
+      { key: 'channel', type: 'select', labelKey: 'subscriptions.field.channel', options: PUSHPLUS_CHANNEL_OPTIONS },
     ],
   },
 ]
@@ -158,7 +172,9 @@ export function channelLabelKey(kind: ChannelKind): MessageKey {
 
 /** The fields whose value is a credential: never returned, and blank on save means "keep". */
 export function secretFields(kind: ChannelKind): string[] {
-  return channelDefinition(kind).fields.filter((field) => field.type === 'password').map((field) => field.key)
+  return channelDefinition(kind).fields
+    .filter((field) => field.type === 'password' || ('sensitive' in field && field.sensitive))
+    .map((field) => field.key)
 }
 
 /** A config object with every credential replaced by the placeholder the form shows. */

@@ -34,7 +34,10 @@ function sampleValue(field: ChannelField): string | boolean {
 
 function configOf(definition: typeof CHANNEL_DEFINITIONS[number]): Record<string, string | boolean> {
   const out: Record<string, string | boolean> = {}
-  for (const field of definition.fields) out[field.key] = sampleValue(field)
+  for (const field of definition.fields) {
+    const value = sampleValue(field)
+    if (value !== '') out[field.key] = value
+  }
   return out
 }
 

@@ -452,6 +452,26 @@ describe('channels', () => {
     expect((await send('PUT', '/channels/webhook', { config: { url: 'not-a-url' } })).status).toBe(400)
   })
 
+  it('returns safe editable configuration without exposing secrets', async () => {
+    await send('PUT', '/channels/telegram', { config: { botToken: 'secret-token-value', chatId: '42' } })
+    const response = await send('GET', '/channels')
+    const body = await json<any>(response)
+    const telegram = body.channels.find((channel: any) => channel.kind === 'telegram')
+    expect(telegram.config).toEqual({ botToken: '', chatId: '42' })
+    expect(telegram.configuredFields).toEqual(['botToken'])
+    expect(JSON.stringify(body)).not.toContain('secret-token-value')
+  })
+
+  it('clears one optional field without storing an empty vault value', async () => {
+    await send('PUT', '/channels/pushplus', { config: { token: 'secret-token-value', topic: 'daily' } })
+    const cleared = await send('PUT', '/channels/pushplus', { config: { topic: '' } })
+    expect(cleared.status).toBe(200)
+    const body = await json<any>(await send('GET', '/channels'))
+    const pushplus = body.channels.find((channel: any) => channel.kind === 'pushplus')
+    expect(pushplus.config.topic).toBeUndefined()
+    expect(pushplus.configuredFields).toEqual(['token'])
+  })
+
   it('clears a channel without deleting its row', async () => {
     await send('PUT', '/channels/telegram', { config: { botToken: 'x'.repeat(12), chatId: '42' } })
     const after = await json<any>(await send('DELETE', '/channels/telegram'))

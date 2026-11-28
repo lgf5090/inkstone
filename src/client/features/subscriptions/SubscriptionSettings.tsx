@@ -8,17 +8,18 @@
  * token they cannot see.
  */
 import { useMemo, useState, type ReactElement } from 'react'
-import { Copy, Send, Trash2 } from 'lucide-react'
+import { ChevronDown, Copy, ExternalLink, Send, Trash2 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Field, Input, Segmented, Select, Switch, Textarea, CommitNumberInput } from '../../components/form'
-import { CHANNEL_DEFINITIONS, channelLabelKey, INBOUND_HOOK_PATH, type ChannelField } from '@shared/subscriptions/channels'
+import { CHANNEL_DEFINITIONS, channelLabelKey, INBOUND_HOOK_PATH, type ChannelDefinition, type ChannelField } from '@shared/subscriptions/channels'
 import { copyText } from '../../lib/clipboard'
 import { useUi } from '../../store/ui'
 import { FALLBACK_RATES } from '@shared/subscriptions/currency'
 import { CURRENCY_CODES, PAYMENT_LIMIT_MAX, PAYMENT_LIMIT_MIN, type ChannelKind, type ChannelState, type NotifyLocale, type SubscriptionSettings } from '@shared/subscriptions/model'
 import { CurrencySelect } from './currency-flag'
+import { formatLocalDate } from '@shared/subscriptions/time'
 
 /**
  * Which currencies get a box.
@@ -425,8 +426,9 @@ export function SubscriptionSettings({
               <ChannelPanel
                 key={definition.kind}
                 kind={definition.kind}
-                fields={definition.fields}
+                definition={definition}
                 state={state}
+                timezone={settings.timezone}
                 onSave={onSaveChannel}
                 onClear={onClearChannel}
                 onTest={onTestChannel}
@@ -441,21 +443,25 @@ export function SubscriptionSettings({
 
 function ChannelPanel({
   kind,
-  fields,
+  definition,
   state,
+  timezone,
   onSave,
   onClear,
   onTest,
 }: {
   kind: ChannelKind
-  fields: readonly ChannelField[]
+  definition: ChannelDefinition
   state: ChannelState | undefined
-  onSave: (kind: ChannelKind, input: { enabled?: boolean; config: Record<string, unknown> }) => Promise<boolean>
+  timezone: string
+  onSave: (kind: ChannelKind, input: { enabled?: boolean; config: Record<string, unknown>; clearFields?: string[] }) => Promise<boolean>
   onClear: (kind: ChannelKind) => Promise<boolean>
   onTest: (kind: ChannelKind) => Promise<void>
 }): ReactElement {
+  const { fields } = definition
   const [open, setOpen] = useState(false)
-  const [config, setConfig] = useState<Record<string, unknown>>({})
+  const [config, setConfig] = useState<Record<string, unknown>>(() => ({ ...(state?.config ?? {}) }))
+  const [clearFields, setClearFields] = useState<string[]>([])
   const [enabled, setEnabled] = useState(state?.enabled ?? false)
   const [busy, setBusy] = useState(false)
   const [toggling, setToggling] = useState(false)
@@ -473,8 +479,11 @@ function ChannelPanel({
   const save = async (): Promise<void> => {
     setBusy(true)
     try {
-      const ok = await onSave(kind, { enabled, config })
-      if (ok) setConfig({})
+      const ok = await onSave(kind, { enabled, config, clearFields })
+      if (ok) {
+        setConfig({})
+        setClearFields([])
+      }
     } finally {
       setBusy(false)
     }
@@ -483,7 +492,7 @@ function ChannelPanel({
   const toggle = async (next: boolean): Promise<void> => {
     setToggling(true)
     setEnabled(next)
-    const ok = await onSave(kind, { enabled: next, config: {} })
+    const ok = await onSave(kind, { enabled: next, config: {}, clearFields: [] })
     if (!ok) setEnabled(!next)
     setToggling(false)
   }
@@ -494,7 +503,20 @@ function ChannelPanel({
     setEnabled(false)
     const ok = await onClear(kind)
     if (!ok) setEnabled(previous)
+    else {
+      setConfig({})
+      setClearFields([])
+    }
     setToggling(false)
+  }
+
+  const clearField = (key: string): void => {
+    setClearFields((current) => current.includes(key) ? current : [...current, key])
+    setConfig((current) => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
   }
 
   return (
@@ -506,10 +528,19 @@ function ChannelPanel({
           aria-expanded={open}
           className="min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
         >
-          <span className="block text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{t(channelLabelKey(kind))}</span>
+          <span className="flex items-center gap-1.5 text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">
+            {t(channelLabelKey(kind))}
+            <ChevronDown size={13} aria-hidden="true" className={cn('shrink-0 text-[var(--text-quaternary)] transition-transform', open && 'rotate-180')} />
+            {!configured && <span className="rounded-[var(--r-xs)] bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] font-medium text-[var(--accent-on-soft)]">{t('subscriptions.channel.configure')}</span>}
+          </span>
           <span className={cn('mt-0.5 block truncate text-[length:var(--text-11)]', state?.lastTestStatus === 'failed' ? 'text-[var(--danger)]' : 'text-[var(--text-quaternary)]')}>
             {state?.lastTestStatus === 'failed' && state.lastTestError ? state.lastTestError : summary}
           </span>
+          {state?.lastTestAt && (
+            <span className="mt-0.5 block text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+              {t('subscriptions.channel.tested_at', { time: formatLocalDate(state.lastTestAt, timezone, 'datetime') })}
+            </span>
+          )}
         </button>
         <Switch
           checked={enabled}
@@ -520,12 +551,21 @@ function ChannelPanel({
       </div>
       {open && (
         <div className="space-y-2 border-t border-[var(--border-subtle)] px-2.5 py-2">
+          {definition.helpUrl && definition.helpLabelKey && (
+            <a className="inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] underline underline-offset-2" href={definition.helpUrl} target="_blank" rel="noreferrer noopener">
+              {t(definition.helpLabelKey)}
+              <ExternalLink size={11} aria-hidden="true" />
+            </a>
+          )}
           {fields.map((field) => (
             <ChannelFieldInput
               key={field.key}
               field={field}
               value={config[field.key]}
+              configured={state?.configuredFields.includes(field.key) ?? false}
+              clearing={clearFields.includes(field.key)}
               onChange={(value) => setConfig(current => ({ ...current, [field.key]: value }))}
+              onClear={() => clearField(field.key)}
             />
           ))}
           <div className="flex items-center gap-1.5">
@@ -556,12 +596,19 @@ function ChannelPanel({
 function ChannelFieldInput({
   field,
   value,
+  configured,
+  clearing,
   onChange,
+  onClear,
 }: {
   field: ChannelField
   value: unknown
+  configured: boolean
+  clearing: boolean
   onChange: (value: unknown) => void
+  onClear: () => void
 }): ReactElement {
+  const sensitive = field.type === 'password' || ('sensitive' in field && field.sensitive)
   if (field.type === 'switch') {
     return (
       <label className="flex items-center justify-between gap-3">
@@ -579,28 +626,36 @@ function ChannelFieldInput({
       </Field>
     )
   }
-  if (field.type === 'json' || field.type === 'textarea') {
-    return (
-      <Field label={t(field.labelKey)}>
-        <Textarea
-          rows={field.rows ?? 3}
-          value={String(value ?? '')}
-          placeholder={field.placeholderKey ? t(field.placeholderKey) : undefined}
-          onChange={(event) => onChange(event.target.value)}
-          className="font-mono text-[length:var(--text-11)]"
-        />
-      </Field>
-    )
-  }
   return (
-    <Field label={t(field.labelKey)}>
-      <Input
-        type={field.type === 'password' ? 'password' : field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : 'text'}
-        value={String(value ?? '')}
-        placeholder={field.placeholderKey ? t(field.placeholderKey) : undefined}
-        autoComplete="off"
-        onChange={(event) => onChange(event.target.value)}
-      />
+    <Field
+      label={t(field.labelKey)}
+      hint={sensitive && configured && !clearing ? t('subscriptions.channel.secret_configured') : undefined}
+    >
+      <div className="flex items-center gap-1.5">
+        {field.type === 'json' || field.type === 'textarea' ? (
+          <Textarea
+            rows={field.rows ?? 3}
+            value={sensitive ? '' : String(value ?? '')}
+            placeholder={field.placeholderKey ? t(field.placeholderKey) : undefined}
+            onChange={(event) => onChange(event.target.value)}
+            className="font-mono text-[length:var(--text-11)]"
+          />
+        ) : (
+          <Input
+            type={sensitive ? 'password' : field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : 'text'}
+            value={sensitive ? '' : String(value ?? '')}
+            placeholder={field.placeholderKey ? t(field.placeholderKey) : undefined}
+            autoComplete="off"
+            onChange={(event) => onChange(event.target.value)}
+          />
+        )}
+        {sensitive && configured && !clearing && (
+          <IconButton label={t('subscriptions.channel.clear_field', { field: t(field.labelKey) })} size="sm" className="shrink-0 text-[var(--danger)]" onClick={onClear}>
+            <Trash2 size={13} />
+          </IconButton>
+        )}
+        {clearing && <span className="shrink-0 text-[length:var(--text-10)] text-[var(--danger)]">{t('subscriptions.channel.clear_pending')}</span>}
+      </div>
     </Field>
   )
 }
