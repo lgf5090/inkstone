@@ -11,9 +11,11 @@ import { useRss } from './store'
 
 export function RssSavedViews({ onClose }: { onClose?: () => void }): ReactElement {
   const saved = useSession(state => state.settings.rss.savedViews)
+  const sortOrder = useSession(state => state.settings.rss.sortOrder)
   const update = useSession(state => state.updateSettings)
   const channel = useRss(state => state.channel)
-  const view = useRss(state => state.view())
+  const currentView = useRss(state => state.views[channelKey(channel)])
+  const view = currentView ?? { query: '', sort: sortOrder }
   const open = useRss(state => state.open)
   const setQuery = useRss(state => state.setQuery)
   const setSort = useRss(state => state.setSort)
