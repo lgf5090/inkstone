@@ -2,7 +2,9 @@
 
 - Base: `41bb785cf4a55b0bb0c702a4744dc276aa0fa9b6`
 - Branch: `fix/subscriptions-remediation`
-- Worktree: `E:/projects/cloudflare/inkstone-subscriptions-fix`
+- Worktree: `E:/projects/cloudflare/inkstone-subscriptions-parity`
+- Parity branch: `fix/subscriptions-parity`
+- Parity base: `a7f88a91b`
 - Source audit: `reports/subscriptions-audit-final.md` in the primary worktree
 - Rule: every completed task gets a code commit, then this document is updated with the commit and verification evidence.
 
@@ -48,6 +50,7 @@ These three are marked `external-product-decision`, not silently skipped.
 | SUB-020 | completed | Add rate limits, single-flight rates refresh, and safe error mapping | subscription routes, rate limit, overview | 68 route tests; typecheck/lint/static gates/build; overlapping refresh fetched once and sixth import returned 429 | `e6cc5b05f` |
 | SUB-021 | completed | Accessibility and compliance cleanup | shortcuts, ARIA, portal focus, dead code, constants, public feature entry points | 24 UI tests; typecheck/lint/static gates/build; Chrome confirmed shortcuts do not fire under settings dialog | `8c4d95b14` |
 | SUB-022 | completed | Final full verification and report | all changed files | shard 1: 8461 passed; shard 2: 9491 passed / 12 skipped; shard 3: 9371 passed; baseline calendar under intended date: 49 passed; typecheck/lint/i18n/comments/a11y/build; headed Chrome golden paths | `8bc30d1bf` |
+| PARITY-001 | completed | Restore enhanced subscription fields and report restore counts | backup, transfer, import result, DataSettings | 36 tests; typecheck/lint/i18n/comments/a11y | `ecf7d91af` |
 
 ## Verification protocol
 
@@ -102,3 +105,7 @@ For each task:
 - Shard 3 exposed the repository's one-column-per-migration ledger rule. `3c0a73596` splits the token, plan-metadata, and digest columns into migrations 442–453, updates the old-database upgrade tests, and advances the global maximum-version assertion. The migration ledger, WebSSH schema, subscription schema/migrations, and backup suites all pass after the split.
 - The first final shard-3 run hit two 10-second hook timeouts and two fork-worker response timeouts under heavy concurrency. All four affected files pass in isolation (109 tests). Shard 3 is being rerun with `--maxWorkers=2` to obtain a clean full-shard summary.
 - SUB-022 completed on final code `8bc30d1bf`: shard 1 passed 8461 tests; shard 2 passed 9491 with 12 skips (the single date-sensitive baseline case plus existing skips); low-concurrency shard 3 passed all 9371 tests; the baseline calendar file passed all 49 tests under its intended 2026-10-29 date. Typecheck, ESLint, Stylelint, i18n, comments, a11y, and production build passed. Headed Chrome verified list, 42-cell month calendar, December expiry event, detail/refund net total, digest settings, lazy form, and shortcut isolation.
+
+## SubsTracker parity follow-up (2026-11-28)
+
+- PARITY-001 completed in `ecf7d91af`: backup restore now writes `payment_method`, `management_url`, `paused_until`, `fixed_term`, and `intro_price`; the transfer route aggregates subscription/payment/rule/label counts and the import toast reports them. The round-trip test now compares complete subscription rows. 36 tests plus typecheck/lint/static guards passed.
