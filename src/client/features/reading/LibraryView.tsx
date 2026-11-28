@@ -8,7 +8,7 @@
  */
 import { Z_INDEX } from '../../lib/z-index'
 import { useMemo, useRef, useState, type DragEvent } from 'react'
-import { BookOpen, CheckSquare, Download, FolderInput, Globe, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload, X } from 'lucide-react'
+import { BookOpen, CheckSquare, Download, FolderInput, Globe, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, MoreHorizontal, Pencil, Plus, Sparkles, Star, Trash2, Upload, X } from 'lucide-react'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Segmented } from '../../components/form'
 import { FilterInput } from '../../components/FilterInput'
@@ -86,6 +86,7 @@ export function LibraryView() {
   const [active, setActive] = useState<BookRecord | null>(null)
   const [metadataBook, setMetadataBook] = useState<BookRecord | null>(null)
   const [opdsOpen, setOpdsOpen] = useState(false)
+  const [shelfMenuAt, setShelfMenuAt] = useState<{ x: number; y: number } | null>(null)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const updateBookMetadata = useLibrary((state) => state.updateBookMetadata)
@@ -449,6 +450,15 @@ export function LibraryView() {
     }
   }
 
+  const shelfMenuItems: MenuItem[] = [
+    { id: 'export', label: t('reading.export_library'), icon: <Download size={13} />, disabled: !books.length, onSelect: () => void runExport() },
+    { id: 'import', label: t('reading.import_library'), icon: <Upload size={13} />, onSelect: () => dataInput.current?.click() },
+    { id: 'gutenberg', label: t('reading.import_gutenberg'), icon: <Globe size={13} />, onSelect: () => void importFromGutenberg() },
+    { id: 'opds', label: t('reading.import_opds'), icon: <Globe size={13} />, onSelect: () => setOpdsOpen(true) },
+    { id: 'webdav', label: t('reading.import_webdav'), icon: <FolderInput size={13} />, onSelect: () => void importFromWebDav() },
+    { id: 'batch', label: t('reading.batch_select'), icon: <CheckSquare size={13} />, checked: selectionMode, separatorBefore: true, onSelect: () => selectionMode ? closeSelection() : setSelectionMode(true) },
+  ]
+
   const totalMarked = useMemo(
     () => Object.values(highlights).reduce((sum, list) => sum + list.length, 0),
     [highlights],
@@ -483,33 +493,48 @@ export function LibraryView() {
           >
             <Sparkles size={13} />
           </IconButton>
-          <Button
-            size="sm"
-            variant="secondary"
-            aria-label={t('reading.export_library')}
-            icon={<Download size={13} />}
-            disabled={!books.length}
-            onClick={() => void runExport()}
-          >
-            <span className="hidden sm:inline">{t('reading.export_library')}</span>
-          </Button>
-          <Button size="sm" variant="secondary" aria-label={t('reading.import_library')} icon={<Upload size={13} />} onClick={() => dataInput.current?.click()}>
-            <span className="hidden sm:inline">{t('reading.import_library')}</span>
-          </Button>
-          <Button size="sm" variant="secondary" icon={<Globe size={13} />} loading={fetching} onClick={() => void importFromGutenberg()}>
-            {t('reading.import_gutenberg')}
-          </Button>
-          <Button size="sm" variant="secondary" aria-label={t('reading.import_opds')} icon={<Globe size={13} />} onClick={() => setOpdsOpen(true)}>
-            <span className="hidden md:inline">{t('reading.import_opds')}</span>
-          </Button>
-          <Button size="sm" variant="secondary" aria-label={t('reading.import_webdav')} icon={<FolderInput size={13} />} loading={fetching} onClick={() => void importFromWebDav()}>
-            <span className="hidden md:inline">{t('reading.import_webdav')}</span>
-          </Button>
-          <Button size="sm" variant="secondary" aria-label={t('reading.batch_select')} aria-pressed={selectionMode} icon={<CheckSquare size={13} />} onClick={() => selectionMode ? closeSelection() : setSelectionMode(true)}>
-            <span className="hidden md:inline">{t('reading.batch_select')}</span>
-          </Button>
-          <Button size="sm" variant="primary" icon={<Plus size={13} />} loading={busy} onClick={() => fileInput.current?.click()}>
-            {t('reading.add_books')}
+          {narrow ? (
+            <IconButton
+              label={t('reading.more_actions')}
+              size="sm"
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect()
+                setShelfMenuAt({ x: rect.right, y: rect.bottom })
+              }}
+            >
+              <MoreHorizontal size={14} />
+            </IconButton>
+          ) : (
+            <>
+              <Button
+                size="sm"
+                variant="secondary"
+                aria-label={t('reading.export_library')}
+                icon={<Download size={13} />}
+                disabled={!books.length}
+                onClick={() => void runExport()}
+              >
+                <span className="hidden sm:inline">{t('reading.export_library')}</span>
+              </Button>
+              <Button size="sm" variant="secondary" aria-label={t('reading.import_library')} icon={<Upload size={13} />} onClick={() => dataInput.current?.click()}>
+                <span className="hidden sm:inline">{t('reading.import_library')}</span>
+              </Button>
+              <Button size="sm" variant="secondary" icon={<Globe size={13} />} loading={fetching} onClick={() => void importFromGutenberg()}>
+                {t('reading.import_gutenberg')}
+              </Button>
+              <Button size="sm" variant="secondary" aria-label={t('reading.import_opds')} icon={<Globe size={13} />} onClick={() => setOpdsOpen(true)}>
+                <span className="hidden md:inline">{t('reading.import_opds')}</span>
+              </Button>
+              <Button size="sm" variant="secondary" aria-label={t('reading.import_webdav')} icon={<FolderInput size={13} />} loading={fetching} onClick={() => void importFromWebDav()}>
+                <span className="hidden md:inline">{t('reading.import_webdav')}</span>
+              </Button>
+              <Button size="sm" variant="secondary" aria-label={t('reading.batch_select')} aria-pressed={selectionMode} icon={<CheckSquare size={13} />} onClick={() => selectionMode ? closeSelection() : setSelectionMode(true)}>
+                <span className="hidden md:inline">{t('reading.batch_select')}</span>
+              </Button>
+            </>
+          )}
+          <Button size="sm" variant="primary" aria-label={t('reading.add_books')} icon={<Plus size={13} />} loading={busy} onClick={() => fileInput.current?.click()}>
+            <span className="hidden sm:inline">{t('reading.add_books')}</span>
           </Button>
         </div>
       </header>
@@ -649,6 +674,14 @@ export function LibraryView() {
         onClose={menu.close}
         zIndex={Z_INDEX.prompt}
         items={active ? menuFor(active) : []}
+      />
+
+      <Menu
+        anchor={shelfMenuAt ?? { x: 0, y: 0 }}
+        open={Boolean(shelfMenuAt)}
+        onClose={() => setShelfMenuAt(null)}
+        zIndex={Z_INDEX.prompt}
+        items={shelfMenuItems}
       />
 
       {opdsOpen ? <OpdsImportModal onClose={() => setOpdsOpen(false)} onImport={ingest} /> : null}
