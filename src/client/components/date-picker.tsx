@@ -578,6 +578,7 @@ function DatePickerPopover({
   const selectedDate = splitValue(value, withTime).date
 
   const pickDate = (d: string) => {
+    setManualInvalid(false)
     onChange(joinValue(d, time, withTime))
     if (!withTime) onClose()
   }

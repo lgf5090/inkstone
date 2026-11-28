@@ -223,6 +223,29 @@ describe('DatePicker withTime', () => {
     }
   })
 
+  it('clears a rejected manual date when a calendar day is picked', async () => {
+    await setLocale('en-US', false)
+    const { container, unmount } = mountField(createElement(ValueField, { initial: '2026-09-15T14:30', withTime: true }))
+    try {
+      const panel = container.querySelector<HTMLElement>('[role="dialog"]')!
+      const input = panel.querySelector<HTMLInputElement>('input[aria-label="Enter date"]')!
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+      act(() => {
+        setter.call(input, 'not-a-date')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      })
+      expect(input.getAttribute('aria-invalid')).toBe('true')
+      clickDay(panel, '20')
+      const nextInput = panel.querySelector<HTMLInputElement>('input[aria-label="Enter date"]')!
+      expect(nextInput.getAttribute('aria-invalid')).toBe('false')
+      expect(panel.textContent).not.toContain('Enter a valid date')
+      expect(committed(container)).toBe('2026-09-20T14:30')
+    } finally {
+      unmount()
+    }
+  })
+
   it('keeps the picked day when the clock is moved next', async () => {
     await setLocale('en-US', false)
     const { container, unmount } = mountField(createElement(ValueField, { initial: '2026-09-15T14:30', withTime: true }))
