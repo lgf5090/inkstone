@@ -85,7 +85,7 @@ export function RenewDialog({
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-2.5">
           <Field label={t('subscriptions.renew.date')}>
-            <DatePicker label={t('subscriptions.renew.date')} value={date} onChange={setDate} />
+            <DatePicker label={t('subscriptions.renew.date')} value={date} onChange={setDate} timezone={timezone} />
           </Field>
           <Field label={t('subscriptions.renew.amount')}>
             <Input type="number" min={0} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />

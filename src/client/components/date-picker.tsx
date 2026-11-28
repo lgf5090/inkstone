@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Calendar as CalendarIcon, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, X } from 'lucide-react'
 import { useClickOutside, useEscape } from './overlay'
 import { cn } from '../lib/cn'
+import { commitOnEnter, Input, Select } from './form'
 import { t, useLocale } from '../lib/i18n'
 import { getVisibleViewport } from '../lib/viewport'
 import { narrowWeekdayLabels, weekStartFor, type WeekStartDay } from '../lib/time'
@@ -23,6 +24,7 @@ interface DatePickerProps {
    * a schedule field does not need the browser's own `datetime-local` control.
    */
   withTime?: boolean
+  timezone?: string
   /**
    * The attributes a surrounding `Field` writes onto the control it names.
    *
@@ -69,10 +71,29 @@ interface CalendarDay {
   isCurrentMonth: boolean
 }
 
-function getTodayDateStr(): string {
-  const now = new Date()
-  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`)
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+function dateParts(date: Date, timezone?: string): { year: number; month: number; day: number } {
+  if (!timezone) return { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() }
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  }).formatToParts(date)
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0)
+  return { year: value('year'), month: value('month'), day: value('day') }
+}
+
+function getTodayDateStr(timezone?: string): string {
+  const { year, month, day } = dateParts(new Date(), timezone)
+  return `${year}-${pad2(month)}-${pad2(day)}`
+}
+
+function isValidDateInput(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return false
+  const [, year, month, day] = match.map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
 }
 
 function buildMonthCalendarDays(year: number, month: number, weekStart: number): CalendarDay[] {
@@ -117,7 +138,7 @@ function MonthNavButtons({
         type='button'
         onClick={onPrevMonth}
         aria-label={t('preview.kanban_prev_month')}
-        className='flex size-6 items-center justify-center rounded-[var(--r-xs)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+        className='flex size-8 items-center justify-center rounded-[var(--r-xs)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:size-6'
       >
         <ChevronLeft size={14} />
       </button>
@@ -125,7 +146,7 @@ function MonthNavButtons({
         type='button'
         onClick={onNextMonth}
         aria-label={t('preview.kanban_next_month')}
-        className='flex size-6 items-center justify-center rounded-[var(--r-xs)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+        className='flex size-8 items-center justify-center rounded-[var(--r-xs)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:size-6'
       >
         <ChevronRight size={14} />
       </button>
@@ -137,6 +158,7 @@ function DatePickerHeader({
   year,
   month,
   locale,
+  onMonthChange,
   onPrevMonth,
   onNextMonth,
   onToday,
@@ -144,24 +166,40 @@ function DatePickerHeader({
   year: number
   month: number
   locale: string
+  onMonthChange: (year: number, month: number) => void
   onPrevMonth: () => void
   onNextMonth: () => void
   onToday: () => void
 }) {
-  const monthTitle = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short' }).format(
-    new Date(year, month, 1),
-  )
+  const monthLabel = new Intl.DateTimeFormat(locale, { month: 'short' })
+  const years = Array.from({ length: 101 }, (_, index) => year - 50 + index)
+  if (!years.includes(year)) years.push(year)
 
   return (
-    <div className='flex items-center justify-between border-b border-[var(--border-subtle)] pb-2'>
-      <div className='flex items-center gap-1.5'>
-        <span className='text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]'>
-          {monthTitle}
-        </span>
+    <div className='flex flex-wrap items-center justify-between gap-1.5 border-b border-[var(--border-subtle)] pb-2'>
+      <div className='flex min-w-0 items-center gap-1'>
+        <Select
+          aria-label={t('preview.kanban_month')}
+          value={month}
+          onChange={(event) => onMonthChange(year, Number(event.target.value))}
+          className='h-8 w-[4.75rem] px-1 text-[length:var(--text-11)] md:h-7'
+        >
+          {Array.from({ length: 12 }, (_, index) => (
+            <option key={index} value={index}>{monthLabel.format(new Date(year, index, 1))}</option>
+          ))}
+        </Select>
+        <Select
+          aria-label={t('preview.kanban_year')}
+          value={year}
+          onChange={(event) => onMonthChange(Number(event.target.value), month)}
+          className='h-8 w-[4.5rem] px-1 text-[length:var(--text-11)] md:h-7'
+        >
+          {years.sort((left, right) => left - right).map((value) => <option key={value} value={value}>{value}</option>)}
+        </Select>
         <button
           type='button'
           onClick={onToday}
-          className='rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] font-medium text-[var(--accent-on-soft)] hover:opacity-85'
+          className='min-h-8 rounded-full bg-[var(--accent-soft)] px-1.5 text-[length:var(--text-10)] font-medium text-[var(--accent-on-soft)] hover:opacity-85 md:min-h-6'
         >
           {t('preview.kanban_today')}
         </button>
@@ -219,7 +257,7 @@ function DatePickerDaysGrid({
             key={day.dateStr}
             type='button'
             onClick={() => onSelectDate(day.dateStr)}
-            className={`flex size-7 items-center justify-center rounded-[var(--r-sm)] text-[length:var(--text-11)] transition-colors ${btnClass}`}
+            className={`flex size-9 items-center justify-center rounded-[var(--r-sm)] text-[length:var(--text-11)] transition-colors md:size-7 ${btnClass}`}
           >
             {day.dayNum}
           </button>
@@ -243,14 +281,14 @@ function DatePickerFooter({
       <button
         type='button'
         onClick={onClear}
-        className='text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:text-[var(--danger)]'
+        className='flex min-h-8 items-center text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:text-[var(--danger)] md:min-h-6'
       >
         {t('preview.kanban_clear_date')}
       </button>
       <button
         type='button'
         onClick={() => onToday(todayStr)}
-        className='text-[length:var(--text-11)] font-semibold text-[var(--accent)] hover:opacity-85'
+        className='flex min-h-8 items-center text-[length:var(--text-11)] font-semibold text-[var(--accent)] hover:opacity-85 md:min-h-6'
       >
         {t('preview.kanban_today')}
       </button>
@@ -281,7 +319,7 @@ function TimeSpinner({
         type='button'
         onClick={() => step(1)}
         aria-label={t('common.time_increase', { unit })}
-        className='flex h-5 w-11 items-center justify-center rounded-t-[var(--r-sm)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+        className='flex h-7 w-11 items-center justify-center rounded-t-[var(--r-sm)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:h-5'
       >
         <ChevronUp size={12} />
       </button>
@@ -292,7 +330,7 @@ function TimeSpinner({
         type='button'
         onClick={() => step(-1)}
         aria-label={t('common.time_decrease', { unit })}
-        className='flex h-5 w-11 items-center justify-center rounded-b-[var(--r-sm)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+        className='flex h-7 w-11 items-center justify-center rounded-b-[var(--r-sm)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:h-5'
       >
         <ChevronDown size={12} />
       </button>
@@ -332,11 +370,10 @@ function TimeRow({
   )
 }
 
-function useCalendarCursor(value?: string) {
-  const parsed = value ? new Date(value) : new Date()
-  const initialYear = Number.isNaN(parsed.getTime()) ? new Date().getFullYear() : parsed.getFullYear()
-  const initialMonth = Number.isNaN(parsed.getTime()) ? new Date().getMonth() : parsed.getMonth()
-  const [cursor, setCursor] = useState({ year: initialYear, month: initialMonth })
+function useCalendarCursor(value: string | undefined, timezone: string | undefined) {
+  const date = value && isValidDateInput(value.slice(0, 10)) ? value.slice(0, 10) : getTodayDateStr(timezone)
+  const [year, month] = date.split('-').map(Number)
+  const [cursor, setCursor] = useState({ year, month: month - 1 })
 
   const prevMonth = () => {
     setCursor((prev) =>
@@ -351,11 +388,13 @@ function useCalendarCursor(value?: string) {
   }
 
   const resetToday = () => {
-    const now = new Date()
-    setCursor({ year: now.getFullYear(), month: now.getMonth() })
+    const [todayYear, todayMonth] = getTodayDateStr(timezone).split('-').map(Number)
+    setCursor({ year: todayYear, month: todayMonth - 1 })
   }
 
-  return { cursor, prevMonth, nextMonth, resetToday }
+  const setMonth = (nextYear: number, nextMonth: number) => setCursor({ year: nextYear, month: nextMonth })
+
+  return { cursor, prevMonth, nextMonth, resetToday, setMonth }
 }
 
 interface Nudge {
@@ -457,10 +496,61 @@ function useNudge(
   return nudge
 }
 
+function ManualDateInput({
+  value,
+  invalid,
+  onInvalid,
+  onCommit,
+}: {
+  value: string
+  invalid: boolean
+  onInvalid: (invalid: boolean) => void
+  onCommit: (date: string) => void
+}) {
+  const [draft, setDraft] = useState(value)
+  const errorId = useId()
+  const commit = () => {
+    if (!draft) {
+      onInvalid(false)
+      return
+    }
+    if (!isValidDateInput(draft)) {
+      onInvalid(true)
+      return
+    }
+    onInvalid(false)
+    onCommit(draft)
+  }
+
+  return (
+    <div className='pt-2'>
+      <Input
+        type='text'
+        inputMode='numeric'
+        aria-label={t('preview.kanban_date_input')}
+        aria-invalid={invalid}
+        aria-describedby={invalid ? errorId : undefined}
+        invalid={invalid}
+        placeholder='YYYY-MM-DD'
+        value={draft}
+        onChange={(event) => {
+          setDraft(event.target.value)
+          onInvalid(false)
+        }}
+        onBlur={commit}
+        onKeyDown={(event) => commitOnEnter(event, commit)}
+        className='h-9 text-[length:var(--text-12)] tabular-nums md:h-8'
+      />
+      {invalid && <p id={errorId} className='mt-1 text-[length:var(--text-10)] text-[var(--danger)]'>{t('preview.kanban_invalid_date')}</p>}
+    </div>
+  )
+}
+
 function DatePickerPopover({
   panelId,
   value,
   withTime,
+  timezone,
   containerRef,
   onClose,
   onChange,
@@ -468,6 +558,7 @@ function DatePickerPopover({
   panelId: string
   value?: string
   withTime: boolean
+  timezone?: string
   containerRef: React.RefObject<HTMLDivElement | null>
   onClose: () => void
   onChange: (dateStr: string) => void
@@ -475,9 +566,10 @@ function DatePickerPopover({
   const locale = useLocale()
   const weekStart = weekStartFor(locale)
   const popoverRef = useRef<HTMLDivElement>(null)
-  const { cursor, prevMonth, nextMonth, resetToday } = useCalendarCursor(value)
-  const todayStr = getTodayDateStr()
+  const { cursor, prevMonth, nextMonth, resetToday, setMonth } = useCalendarCursor(value, timezone)
+  const todayStr = getTodayDateStr(timezone)
   const [time, setTime] = useState(() => splitValue(value, withTime).time)
+  const [manualInvalid, setManualInvalid] = useState(false)
   const nudge = useNudge(containerRef, popoverRef, true)
 
   useClickOutside([popoverRef, containerRef], true, onClose)
@@ -506,7 +598,7 @@ function DatePickerPopover({
         ...(Number.isFinite(nudge.maxHeight) ? { maxHeight: nudge.maxHeight, overflowY: 'auto' as const } : {}),
       }}
       className={cn(
-        'absolute left-0 z-[var(--z-popover)] w-64 overscroll-contain rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-3 shadow-[var(--shadow-pop)]',
+        'absolute left-0 z-[var(--z-popover)] w-72 overscroll-contain rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-3 shadow-[var(--shadow-pop)] sm:w-64',
         nudge.up ? 'bottom-full mb-1' : 'top-full mt-1',
       )}
     >
@@ -514,9 +606,20 @@ function DatePickerPopover({
         year={cursor.year}
         month={cursor.month}
         locale={locale}
+        onMonthChange={setMonth}
         onPrevMonth={prevMonth}
         onNextMonth={nextMonth}
         onToday={resetToday}
+      />
+      <ManualDateInput
+        key={selectedDate}
+        value={selectedDate}
+        invalid={manualInvalid}
+        onInvalid={setManualInvalid}
+        onCommit={(date) => {
+          setMonth(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1)
+          pickDate(date)
+        }}
       />
       <DatePickerWeekRow weekStart={weekStart} locale={locale} />
       <DatePickerDaysGrid
@@ -544,6 +647,7 @@ export function DatePicker({
   placeholder,
   onChange,
   withTime = false,
+  timezone,
   id,
   'aria-labelledby': labelledBy,
   'aria-describedby': describedBy,
@@ -601,6 +705,7 @@ export function DatePicker({
           panelId={panelId}
           value={value}
           withTime={withTime}
+          timezone={timezone}
           containerRef={containerRef}
           onClose={() => setOpen(false)}
           onChange={onChange}

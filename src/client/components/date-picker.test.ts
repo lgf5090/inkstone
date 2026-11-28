@@ -17,6 +17,7 @@ beforeAll(async () => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   await setLocale('en-US', false)
 })
 
@@ -64,6 +65,88 @@ describe('DatePicker calendar', () => {
     const calendar = await openCalendar('en-US')
     expect(calendar.firstLabel).toBe(narrowWeekday('en-US', 0))
     expect(calendar.leadingCells).toEqual(['30', '31', '1'])
+  })
+
+  it('uses the account zone for today and the empty calendar month', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-01T00:30:00Z'))
+    await setLocale('en-US', false)
+    const rendered = renderElement(createElement(DatePicker, {
+      label: 'Due date',
+      timezone: 'America/Los_Angeles',
+      onChange: vi.fn(),
+    }))
+    try {
+      act(() => rendered.container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!.click())
+      const panel = rendered.container.querySelector<HTMLElement>('[role="dialog"]')!
+      const year = panel.querySelector<HTMLSelectElement>('select[aria-label="Year"]')!
+      const month = panel.querySelector<HTMLSelectElement>('select[aria-label="Month"]')!
+      expect(year.value).toBe('2026')
+      expect(month.value).toBe('7')
+      const today = [...panel.querySelectorAll<HTMLElement>('div.grid button')]
+        .find((button) => button.className.includes('border-[var(--accent)]'))
+      expect(today?.textContent).toBe('31')
+    } finally {
+      rendered.unmount()
+    }
+  })
+
+  it('offers direct month and year changes and a validated manual date', async () => {
+    await setLocale('en-US', false)
+    const onChange = vi.fn()
+    const rendered = renderElement(createElement(DatePicker, { label: 'Due date', value: '2026-09-15', onChange }))
+    try {
+      act(() => rendered.container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!.click())
+      const panel = rendered.container.querySelector<HTMLElement>('[role="dialog"]')!
+      const month = panel.querySelector<HTMLSelectElement>('select[aria-label="Month"]')!
+      const year = panel.querySelector<HTMLSelectElement>('select[aria-label="Year"]')!
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!
+      act(() => {
+        setter.call(month, '1')
+        month.dispatchEvent(new Event('change', { bubbles: true }))
+        setter.call(year, '2028')
+        year.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      expect(month.value).toBe('1')
+      expect(year.value).toBe('2028')
+      expect([...panel.querySelectorAll<HTMLElement>('div.grid button')].slice(0, 3).map((button) => button.textContent))
+        .toEqual(['30', '31', '1'])
+
+      const input = panel.querySelector<HTMLInputElement>('input[aria-label="Enter date"]')!
+      const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+      act(() => {
+        inputSetter.call(input, '2028-02-30')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      })
+      expect(input.getAttribute('aria-invalid')).toBe('true')
+      expect(document.getElementById(input.getAttribute('aria-describedby')!)?.textContent)
+        .toBe('Enter a valid date in YYYY-MM-DD format.')
+      expect(onChange).not.toHaveBeenCalled()
+      act(() => {
+        inputSetter.call(input, '2028-02-28')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      })
+      expect(onChange).toHaveBeenCalledWith('2028-02-28')
+    } finally {
+      rendered.unmount()
+    }
+  })
+
+  it('gives calendar days and navigation larger touch targets on small screens', async () => {
+    await setLocale('en-US', false)
+    const rendered = renderElement(createElement(DatePicker, { label: 'Due date', onChange: vi.fn() }))
+    try {
+      act(() => rendered.container.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!.click())
+      const panel = rendered.container.querySelector<HTMLElement>('[role="dialog"]')!
+      const day = panel.querySelector<HTMLElement>('div.grid button')!
+      expect(day.className).toContain('size-9')
+      expect(day.className).toContain('md:size-7')
+      expect(panel.querySelector('button[aria-label="Previous month"]')!.className).toContain('size-8')
+    } finally {
+      rendered.unmount()
+    }
   })
 })
 
