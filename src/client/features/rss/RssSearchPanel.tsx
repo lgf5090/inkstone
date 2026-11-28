@@ -32,7 +32,7 @@ export function RssSearchPanel({ open, onClose, onPick }: {
   const pinyinVersion = usePinyinVersion()
   const advanced = useMemo(() => parseRssSearchQuery(term), [term])
   const query = useMemo(() => compileQuery(advanced.text), [advanced.text, pinyinVersion])
-  const searching = Boolean(advanced.text || advanced.author || advanced.after || advanced.before || advanced.mark)
+  const searching = Boolean(advanced.text || advanced.author || advanced.after || advanced.before || advanced.mark || advanced.field !== 'any')
 
   useEffect(() => {
     if (!open || index) return
