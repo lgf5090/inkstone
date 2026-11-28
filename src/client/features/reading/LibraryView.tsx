@@ -539,7 +539,7 @@ export function LibraryView() {
         <BookMetadataModal
           book={metadataBook}
           onClose={() => setMetadataBook(null)}
-          onSave={(author, metadata) => updateBookMetadata(metadataBook.id, metadata, author)}
+          onSave={async (author, metadata) => { updateBookMetadata(metadataBook.id, metadata, author) }}
         />
       ) : null}
 

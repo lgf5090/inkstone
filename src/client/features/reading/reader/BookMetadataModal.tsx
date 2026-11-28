@@ -5,14 +5,14 @@ import { Input, Slider } from '../../../components/form'
 import { t } from '../../../lib/i18n'
 import type { BookMetadata, BookRecord } from '../types'
 
-export function BookMetadataModal({ book, onClose, onSave }: { book: BookRecord; onClose: () => void; onSave: (author: string, metadata: BookMetadata) => void }) {
+export function BookMetadataModal({ book, onClose, onSave }: { book: BookRecord; onClose: () => void; onSave: (author: string, metadata: BookMetadata) => void | Promise<void> }) {
   const id = useId()
   const [author, setAuthor] = useState(book.author)
   const [series, setSeries] = useState(book.metadata?.series ?? '')
   const [rating, setRating] = useState(book.metadata?.rating ?? 0)
   const [tags, setTags] = useState(book.metadata?.tags?.join(', ') ?? '')
-  const save = () => {
-    onSave(author.trim(), {
+  const save = async () => {
+    await onSave(author.trim(), {
       series: series.trim(),
       rating,
       tags: [...new Set(tags.split(/[,\uFF0C]/).map((tag) => tag.trim()).filter(Boolean))].slice(0, 20),
