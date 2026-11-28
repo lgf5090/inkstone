@@ -20,6 +20,7 @@ import { useUi } from '../../store/ui'
 import { useLibrary } from './store/library'
 import { useReadingPage } from './page-context'
 import { hasBookExtension } from './engine/book-import'
+import { parseRemoteBookUrl } from './engine/remote-import'
 import { downloadAsBlob } from '../../lib/transfer'
 import { api } from '../../lib/api'
 import { IDLE_SYNC } from './store/cloud'
@@ -335,6 +336,40 @@ export function LibraryView() {
     }
   }
 
+  async function importFromWebDav(): Promise<void> {
+    const answer = await prompt({
+      title: t('reading.import_webdav'),
+      description: t('reading.import_webdav_hint'),
+      placeholder: 'https://webdav.example/books/book.epub',
+      confirmLabel: t('reading.import_webdav'),
+    })
+    if (answer === null) return
+    let remote: ReturnType<typeof parseRemoteBookUrl>
+    try {
+      remote = parseRemoteBookUrl(answer)
+    } catch (err) {
+      toast({
+        title: t('reading.import_webdav_failed'),
+        description: t(err instanceof Error && err.message === 'unsupported_format' ? 'reading.webdav_bad_format' : 'reading.webdav_bad_url'),
+        tone: 'danger',
+      })
+      return
+    }
+    setFetching(true)
+    try {
+      const blob = await downloadAsBlob(api.readerLibrary.remoteBookDownloadUrl(remote.url))
+      const file = new File([blob], remote.filename, { type: blob.type || 'application/octet-stream' })
+      const result = await addFiles([file])
+      toast(result.added.length
+        ? { title: t('reading.import_webdav_done_value0', { value0: remote.filename }), tone: 'success' }
+        : { title: t('reading.import_webdav_failed'), description: t(`reading.error_${result.failed[0]?.reason ?? 'corrupt'}`), tone: 'danger' })
+    } catch (err) {
+      toast({ title: t('reading.import_webdav_failed'), description: err instanceof Error ? err.message : String(err), tone: 'danger' })
+    } finally {
+      setFetching(false)
+    }
+  }
+
   /**
    * A book the reader found on Project Gutenberg, by its number or the page's address.
    *
@@ -466,6 +501,9 @@ export function LibraryView() {
           </Button>
           <Button size="sm" variant="secondary" aria-label={t('reading.import_opds')} icon={<Globe size={13} />} onClick={() => setOpdsOpen(true)}>
             <span className="hidden md:inline">{t('reading.import_opds')}</span>
+          </Button>
+          <Button size="sm" variant="secondary" aria-label={t('reading.import_webdav')} icon={<FolderInput size={13} />} loading={fetching} onClick={() => void importFromWebDav()}>
+            <span className="hidden md:inline">{t('reading.import_webdav')}</span>
           </Button>
           <Button size="sm" variant="secondary" aria-label={t('reading.batch_select')} aria-pressed={selectionMode} icon={<CheckSquare size={13} />} onClick={() => selectionMode ? closeSelection() : setSelectionMode(true)}>
             <span className="hidden md:inline">{t('reading.batch_select')}</span>

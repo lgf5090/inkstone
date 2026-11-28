@@ -49,10 +49,10 @@ async function fetchOpds(url: URL, maxBytes: number): Promise<Response> {
       signal: AbortSignal.timeout(15_000),
     })
   } catch {
-    throw new ApiError(502, 'reader_fetch_failed', 'The OPDS server did not answer')
+    throw new ApiError(502, 'reader_fetch_failed', 'The remote server did not answer')
   }
-  if (isRedirectResponse(upstream)) throw ApiError.badRequest('That OPDS link moved somewhere else')
-  if (!upstream.ok) throw new ApiError(502, 'reader_fetch_failed', `The OPDS server answered ${upstream.status}`)
+  if (isRedirectResponse(upstream)) throw ApiError.badRequest('That remote link moved somewhere else')
+  if (!upstream.ok) throw new ApiError(502, 'reader_fetch_failed', `The remote server answered ${upstream.status}`)
   if (Number(upstream.headers.get('content-length') ?? 0) > maxBytes) throw new ApiError(413, 'reader_book_too_large', 'That OPDS response is too large')
   return upstream
 }

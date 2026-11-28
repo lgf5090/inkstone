@@ -1612,6 +1612,7 @@ export const api = {
     bookUrl: (number: string) => `/api/reader/discovery/book/${encodeURIComponent(number)}`,
     opds: (url: string) => request<{ xml: string }>(`/api/reader/discovery/opds?url=${encodeURIComponent(url)}`),
     opdsDownloadUrl: (url: string) => `/api/reader/discovery/opds?download=1&url=${encodeURIComponent(url)}`,
+    remoteBookDownloadUrl: (url: string) => `/api/reader/discovery/opds?download=1&url=${encodeURIComponent(url)}`,
     blobUrl: (bookId: string) => `/api/reader/books/${encodeURIComponent(bookId)}/blob`,
     coverUrl: (bookId: string) => `/api/reader/books/${encodeURIComponent(bookId)}/cover`,
   },
