@@ -2,7 +2,9 @@
 
 - Base: `41bb785cf4a55b0bb0c702a4744dc276aa0fa9b6`
 - Branch: `fix/subscriptions-remediation`
-- Worktree: `E:/projects/cloudflare/inkstone-subscriptions-fix`
+- Worktree: `E:/projects/cloudflare/inkstone-subscriptions-parity`
+- Parity branch: `fix/subscriptions-parity`
+- Parity base: `a7f88a91b`
 - Source audit: `reports/subscriptions-audit-final.md` in the primary worktree
 - Rule: every completed task gets a code commit, then this document is updated with the commit and verification evidence.
 
@@ -48,6 +50,12 @@ These three are marked `external-product-decision`, not silently skipped.
 | SUB-020 | completed | Add rate limits, single-flight rates refresh, and safe error mapping | subscription routes, rate limit, overview | 68 route tests; typecheck/lint/static gates/build; overlapping refresh fetched once and sixth import returned 429 | `e6cc5b05f` |
 | SUB-021 | completed | Accessibility and compliance cleanup | shortcuts, ARIA, portal focus, dead code, constants, public feature entry points | 24 UI tests; typecheck/lint/static gates/build; Chrome confirmed shortcuts do not fire under settings dialog | `8c4d95b14` |
 | SUB-022 | completed | Final full verification and report | all changed files | shard 1: 8461 passed; shard 2: 9491 passed / 12 skipped; shard 3: 9371 passed; baseline calendar under intended date: 49 passed; typecheck/lint/i18n/comments/a11y/build; headed Chrome golden paths | `8bc30d1bf` |
+| PARITY-001 | completed | Restore enhanced subscription fields and report restore counts | backup, transfer, import result, DataSettings | 36 tests; typecheck/lint/i18n/comments/a11y | `ecf7d91af` |
+| PARITY-002 | completed | Complete notification channel configuration UX | channel definitions, settings, routes, UI, tests | 118 tests; typecheck/lint/static gates/build; Chrome showed Configure badge, hidden token, visible Chat ID, and per-field clear | `9c179878d` |
+| PARITY-003 | completed | Add account timezone, direct month/year selection, manual input, and mobile targets to DatePicker | shared date picker, subscription date call sites, locales, tests | 38 related tests; typecheck/lint/i18n/comments/a11y/build; Chrome at 390px showed a contained panel, 36px days, invalid-date feedback, and committed 2027-02-28 | `88e549291` |
+| PARITY-004 | completed | Complete list metadata, payment history, dashboard lists, and background refresh | list/grid/detail, overview, store/API/route, tests | 138 focused tests; typecheck/lint/static gates/build; Chrome showed 8 upcoming rows, 4 reset rows, start/lunar/period/time, and both visibility and 60s refresh requests | `5aa434a17` |
+| PARITY-005 | completed | Complete log diagnostics, 72-hour/unlimited filters, and result limits | LogsView, store, worker logs, locales, tests | 88 tests; typecheck/lint/static gates/build; Chrome showed rule/title/redacted detail, scheduler timezone/hours/window/detail, and 500-row filter requests | `1b824881e` |
+| PARITY-006 | completed | Final full verification and merge readiness | all changed files | shard 1: 8532 passed / 2 skipped; shard 2: 9575 passed / 12 skipped; shard 3: 9464 passed; fixed-date calendar baseline: 49 passed; typecheck/lint/i18n/comments/a11y/build; Chrome golden paths | `98aa9d712` |
 
 ## Verification protocol
 
@@ -102,3 +110,13 @@ For each task:
 - Shard 3 exposed the repository's one-column-per-migration ledger rule. `3c0a73596` splits the token, plan-metadata, and digest columns into migrations 442–453, updates the old-database upgrade tests, and advances the global maximum-version assertion. The migration ledger, WebSSH schema, subscription schema/migrations, and backup suites all pass after the split.
 - The first final shard-3 run hit two 10-second hook timeouts and two fork-worker response timeouts under heavy concurrency. All four affected files pass in isolation (109 tests). Shard 3 is being rerun with `--maxWorkers=2` to obtain a clean full-shard summary.
 - SUB-022 completed on final code `8bc30d1bf`: shard 1 passed 8461 tests; shard 2 passed 9491 with 12 skips (the single date-sensitive baseline case plus existing skips); low-concurrency shard 3 passed all 9371 tests; the baseline calendar file passed all 49 tests under its intended 2026-10-29 date. Typecheck, ESLint, Stylelint, i18n, comments, a11y, and production build passed. Headed Chrome verified list, 42-cell month calendar, December expiry event, detail/refund net total, digest settings, lazy form, and shortcut isolation.
+
+## SubsTracker parity follow-up (2026-11-28)
+
+- PARITY-001 completed in `ecf7d91af`: backup restore now writes `payment_method`, `management_url`, `paused_until`, `fixed_term`, and `intro_price`; the transfer route aggregates subscription/payment/rule/label counts and the import toast reports them. The round-trip test now compares complete subscription rows. 36 tests plus typecheck/lint/static guards passed.
+- PARITY-002 completed in `9c179878d`: channel rows now have an explicit Configure badge and chevron, saved non-sensitive fields are returned for editing, sensitive fields are masked and carry per-field clear intent, optional blanks are removed instead of rejected by the vault, PushPlus uses a channel enum, help links and last-test time are shown. 118 tests, all static gates/build, and headed Chrome configuration inspection passed.
+- PARITY-003 completed in `88e549291`: the shared picker derives today and its empty calendar from the account timezone, parses stored date-only values without a device-zone shift, offers direct month/year controls and validated manual entry, and enlarges mobile targets. Subscription create/edit, renewal, and payment fields pass their account timezone. Browser evidence: `tmp/date-picker-mobile.png`.
+- PARITY-004 completed in `5aa434a17`: list/card rows show start and optional lunar dates, cycle/reset is filterable, payment history shows local time and period range, dashboard lists are complete and scrollable, long share legends retain an explicit Other row, and a dedicated overview endpoint powers immediate/visibility/60-second refreshes with stale-response protection. Browser evidence: `tmp/parity004-dashboard.png`; the periodic probe observed two real `/api/subscriptions/overview` calls.
+- PARITY-005 completed in `1b824881e`: notification rows expose rule/subscription IDs and the stored title, scheduler rows expand timezone/hour/window/finish/detail, filters include 72 hours and all time, and one result limit drives both log requests with a 500-row server cap. Browser evidence: `tmp/logs-diagnostics.png`.
+- Final review fix `8be9fb4e9`: picking a valid calendar day now clears a rejected manual-date error instead of leaving the field red; the date+time regression test keeps the panel open and verifies the committed value.
+- Final verification passed: three sequential shards reported 27,571 passed and 14 skipped tests in total; the date-sensitive calendar baseline passed all 49 tests under 2026-10-29; typecheck, ESLint, Stylelint, i18n, comments, a11y, and production build all passed.

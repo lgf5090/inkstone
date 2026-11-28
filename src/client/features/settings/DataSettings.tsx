@@ -150,6 +150,14 @@ export function DataSettings() {
         void loadStats();
         const summary = t("settings.created_value0_updated_value1_skipped_value2_restored_value3_attachments", { value0: result.createdNotes, value1: result.updatedNotes, value2: result.skippedNotes, value3: result.createdAttachments, value4: result.skippedAttachments });
         const details = [summary];
+        if (result.subscriptionItems !== undefined) {
+            details.push(t("settings.subscriptions_restore_summary", {
+                items: result.subscriptionItems,
+                payments: result.subscriptionPayments ?? 0,
+                rules: result.subscriptionRules ?? 0,
+                labels: result.subscriptionLabels ?? 0,
+            }));
+        }
         if (result.warnings.length)
             details.push(result.warnings[0]);
         if (!refreshed || !templatesRefreshed)

@@ -16058,6 +16058,7 @@ const allowed = new Map([
     "// rather than the strip being patched with the answer — two sources for one number is how the",
     "// headline and its own disclaimer start disagreeing.",
     "/** Which ordering the toolbar is showing the rows in; the comparison itself lives in `@shared`. */",
+    "// A background refresh leaves the last complete dashboard visible; a full reload remains the retry path.",
   ]],
   ["src/client/features/subscriptions/subscription-detail-spend.test.ts", [
     "/**\n * The money one plan has cost, drawn where the plan is read.\n *\n * The dashboard counts the account; this panel counts a single row, and the two are only trustworthy while\n * they mean the same thing. Pinned here: the receipts are counted per year and per currency rather than\n * merged into a number with no unit, and the yearly projection is the price the plan quotes times the times\n * it charges — not a sum of what happened to arrive.\n *\n * What jsdom cannot tell anyone: how wide the strip gets when four years of history wrap, and whether the\n * chips stay legible against the panel's background.\n */",
@@ -46171,7 +46172,6 @@ const allowed = new Map([
     "// a number that looks right and is not.",
     "// A budget that is absent, blank or not a number means \"no ceiling\", which is a different state from",
     "// a ceiling of zero and has to survive the round trip as null.",
-    "// A field-less kind is configured by the row existing: there is no bundle to have left unwritten.",
     "/**\n * Whether a kind has anything to keep secret.\n *\n * The in-app channel has no fields, so it holds no credential — and a channel that stores nothing must not\n * need the vault to be reachable before a reader can turn their own reminders on. The nine that do hold\n * credentials keep the ciphertext requirement, including in `enabledChannels`: a channel whose secret bundle\n * cannot be read is a channel that cannot send, and saying so is what the empty ciphertext already means.\n */",
     "/** A cache-shaped field that could not be read is an empty one: the feed answers, and nothing is guessed. */",
     "// A pin the app cannot convert with is refused rather than dropped: the reader asked for their own",

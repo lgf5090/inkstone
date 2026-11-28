@@ -351,6 +351,7 @@ export function SubscriptionForm({
               label={t('subscriptions.form.trial_ends')}
               value={draft.trialEndsAt}
               onChange={(date) => set('trialEndsAt', date)}
+              timezone={timezone}
             />
           </Field>
           <Field label={t('subscriptions.form.payment_method')}>
@@ -363,7 +364,7 @@ export function SubscriptionForm({
             <Input type="number" min={0} step="0.01" inputMode="decimal" value={draft.introPrice} onChange={(event) => set('introPrice', event.target.value)} />
           </Field>
           <Field label={t('subscriptions.form.paused_until')} hint={t('subscriptions.form.paused_until_hint')}>
-            <DatePicker label={t('subscriptions.form.paused_until')} value={draft.pausedUntil} onChange={(date) => set('pausedUntil', date)} />
+            <DatePicker label={t('subscriptions.form.paused_until')} value={draft.pausedUntil} onChange={(date) => set('pausedUntil', date)} timezone={timezone} />
           </Field>
           <label className="flex items-center gap-1.5 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
             <Switch checked={draft.fixedTerm} onChange={(next) => set('fixedTerm', next)} label={t('subscriptions.form.fixed_term')} />
@@ -397,7 +398,7 @@ export function SubscriptionForm({
           </Field>
           <div className="grid grid-cols-2 gap-2.5">
             <Field label={t('subscriptions.detail.start')}>
-              <DatePicker label={t('subscriptions.detail.start')} value={draft.startDate} onChange={(date) => set('startDate', date)} />
+              <DatePicker label={t('subscriptions.detail.start')} value={draft.startDate} onChange={(date) => set('startDate', date)} timezone={timezone} />
             </Field>
             <Field label={t('subscriptions.detail.expiry')} required hint={expiryInvalid ? t('subscriptions.form.required') : hint}>
               <div className="flex items-center gap-1.5">
@@ -407,6 +408,7 @@ export function SubscriptionForm({
                   value={draft.expiryDate}
                   invalid={expiryInvalid}
                   onChange={(date) => set('expiryDate', date)}
+                  timezone={timezone}
                 />
                 {/* The other half of this row: a birthday or an anniversary is remembered by its lunar date
                     for half the accounts this serves, and the solar picker has no way to ask for one. */}

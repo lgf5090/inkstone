@@ -14,6 +14,8 @@ import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
 import { Menu, Tooltip, type MenuItem } from '../../components/overlay'
 import type { SubscriptionItem } from '@shared/subscriptions/model'
+import { formatLocalDate, getTimezoneDateParts } from '@shared/subscriptions/time'
+import { solar2lunar } from '@shared/subscriptions/lunar'
 import { type ListSort } from '@shared/subscriptions/sort'
 import { iconComponentOf } from './label-icons'
 import { useLabelIdentity } from './label-identity'
@@ -64,6 +66,33 @@ export function subscriptionSubtitle(item: SubscriptionItem, period: string): st
   return [item.customType || t('subscriptions.detail.uncategorized'), item.category, `${item.periodValue} ${period}`]
     .filter(Boolean)
     .join(' · ')
+}
+
+export function SubscriptionMeta({ item, period, timezone = 'UTC', showLunar = false }: {
+  item: SubscriptionItem
+  period: string
+  timezone?: string
+  showLunar?: boolean
+}): ReactElement {
+  const start = item.startDate ? formatLocalDate(item.startDate, timezone, 'date') : ''
+  let lunar = ''
+  if (showLunar) {
+    const parts = getTimezoneDateParts(item.expiryDate, timezone)
+    const date = solar2lunar(parts.year, parts.month, parts.day)?.fullStr
+    lunar = date ? `${t('subscriptions.detail.calendar_lunar')} ${date}` : ''
+  }
+  return (
+    <span className="block min-w-0">
+      <span className="block truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+        {subscriptionSubtitle(item, period)}
+      </span>
+      {(start || lunar) && (
+        <span className="mt-0.5 block truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+          {[start ? `${t('subscriptions.detail.start')} ${start}` : '', lunar].filter(Boolean).join(' · ')}
+        </span>
+      )}
+    </span>
+  )
 }
 
 /** Everything one plan can be asked to do, in the order both surfaces show it. */

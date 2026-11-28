@@ -17,6 +17,7 @@ import type { SubscriptionItem } from '@shared/subscriptions/model'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals } from '../../lib/test-render'
 import { SubscriptionList, type SubscriptionActions } from './SubscriptionList'
+import { matchesFilter } from './list-view'
 import { useSubscriptions } from './store'
 
 const NO_ACTIONS: SubscriptionActions = {
@@ -73,14 +74,16 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-function mount(selectMode: boolean, selection: readonly string[] = []): void {
+function mount(selectMode: boolean, selection: readonly string[] = [], items: readonly SubscriptionItem[] = ITEMS, showLunar = false): void {
   const host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
   act(() => {
     root?.render(createElement(SubscriptionList, {
-      items: ITEMS,
+      items,
       sort: 'expiry',
+      timezone: 'Asia/Shanghai',
+      showLunar,
       selectedId: null,
       loading: false,
       onSelect: () => {},
@@ -103,6 +106,26 @@ function openers(): HTMLButtonElement[] {
 }
 
 describe('the subscription row', () => {
+  it('shows the start date and optional lunar date under the plan identity', () => {
+    mount(false, [], [item({
+      startDate: '2026-01-01T00:00:00.000Z',
+      expiryDate: '2026-02-17T00:00:00.000Z',
+      useLunar: true,
+    })], true)
+    const text = document.body.textContent ?? ''
+    expect(text).toContain(t('subscriptions.detail.start'))
+    expect(text).toContain('2026-01-01')
+    expect(text).toContain(t('subscriptions.detail.calendar_lunar'))
+  })
+
+  it('filters cycle and reset plans without mixing the two modes', () => {
+    const cycle = item({ id: 'cycle', subscriptionMode: 'cycle' })
+    const reset = item({ id: 'reset', subscriptionMode: 'reset' })
+    const filter = { status: 'all', mode: 'reset', category: null, query: '', sort: 'expiry' } as const
+    expect(matchesFilter(cycle, filter)).toBe(false)
+    expect(matchesFilter(reset, filter)).toBe(true)
+  })
+
   it('offers no selection box until selecting is what the reader asked for', () => {
     mount(false)
     expect(boxes(), 'a reader walking the list one row at a time is not asked to answer a question they never opened').toHaveLength(0)

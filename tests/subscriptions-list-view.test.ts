@@ -42,7 +42,7 @@ function item(overrides: Partial<SubscriptionItem> = {}): SubscriptionItem {
   }
 }
 
-const ALL = { status: 'all' as const, category: null, query: '', sort: 'expiry' as const }
+const ALL = { status: 'all' as const, mode: 'all' as const, category: null, query: '', sort: 'expiry' as const }
 
 /** Enough of a rate table for the money orderings: yuan is the base, and these are the codes below. */
 const RATES = { CNY: 1, USD: 7 }

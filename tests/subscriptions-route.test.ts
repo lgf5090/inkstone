@@ -181,6 +181,15 @@ describe('the bundle', () => {
     expect(bundle.overview.timezone).toBe('Asia/Shanghai')
   })
 
+  it('refreshes only the dashboard through its own endpoint', async () => {
+    await create({ amount: 120 })
+    const response = await json<any>(await send('GET', '/overview'))
+    expect(response.overview.active.total).toBe(1)
+    expect(response.overview.monthly.amount).toBe(120)
+    expect(response.overview.timezone).toBe('Asia/Shanghai')
+    expect(response.items).toBeUndefined()
+  })
+
   it('counts the month the receipt was written in', async () => {
     await create({ amount: 120 })
     const bundle = await json<any>(await send('GET', '/'))
@@ -452,6 +461,26 @@ describe('channels', () => {
     expect((await send('PUT', '/channels/webhook', { config: { url: 'not-a-url' } })).status).toBe(400)
   })
 
+  it('returns safe editable configuration without exposing secrets', async () => {
+    await send('PUT', '/channels/telegram', { config: { botToken: 'secret-token-value', chatId: '42' } })
+    const response = await send('GET', '/channels')
+    const body = await json<any>(response)
+    const telegram = body.channels.find((channel: any) => channel.kind === 'telegram')
+    expect(telegram.config).toEqual({ botToken: '', chatId: '42' })
+    expect(telegram.configuredFields).toEqual(['botToken'])
+    expect(JSON.stringify(body)).not.toContain('secret-token-value')
+  })
+
+  it('clears one optional field without storing an empty vault value', async () => {
+    await send('PUT', '/channels/pushplus', { config: { token: 'secret-token-value', topic: 'daily' } })
+    const cleared = await send('PUT', '/channels/pushplus', { config: { topic: '' } })
+    expect(cleared.status).toBe(200)
+    const body = await json<any>(await send('GET', '/channels'))
+    const pushplus = body.channels.find((channel: any) => channel.kind === 'pushplus')
+    expect(pushplus.config.topic).toBeUndefined()
+    expect(pushplus.configuredFields).toEqual(['token'])
+  })
+
   it('clears a channel without deleting its row', async () => {
     await send('PUT', '/channels/telegram', { config: { botToken: 'x'.repeat(12), chatId: '42' } })
     const after = await json<any>(await send('DELETE', '/channels/telegram'))
@@ -637,6 +666,35 @@ describe('logs', () => {
     expect(notify.logs).toEqual([])
     const schedule = await json<any>(await send('GET', '/logs/schedule?limit=5'))
     expect(schedule.logs).toEqual([])
+  })
+
+  it('returns up to 500 notification rows with their rule and title intact', async () => {
+    const detail = await create()
+    const insert = sqlite.prepare(`INSERT INTO sub_notify_log
+      (user_id, id, subscription_id, rule_id, channel, status, title, body, error, detail, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    const now = Date.now()
+    for (let index = 0; index < 250; index += 1) {
+      insert.run(ALICE, `log-${index}`, detail.item.id, `rule-${index}`, 'telegram', 'success', `Title ${index}`, 'Body', '', 'token=***', now - index * 1000)
+    }
+    const response = await json<any>(await send('GET', '/logs/notify?limit=500'))
+    expect(response.logs).toHaveLength(250)
+    expect(response.logs[0]).toMatchObject({ ruleId: 'rule-0', title: 'Title 0', detail: 'token=***' })
+  })
+
+  it('returns scheduler timezone, hour window, and detail for diagnosis', async () => {
+    const now = Date.now()
+    sqlite.prepare(`INSERT INTO sub_schedule_log
+      (user_id, id, started_at, finished_at, timezone, hour, hours, in_window, checked_count, matched_count,
+       deduped_count, sent_count, renewed_count, status, reason, detail)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      ALICE, 'schedule-1', now, now + 1000, 'Asia/Shanghai', '09', JSON.stringify(['08', '09']), 1,
+      8, 2, 1, 1, 0, 'ok', 'Sweep complete', 'Checked two rules',
+    )
+    const response = await json<any>(await send('GET', '/logs/schedule?limit=500'))
+    expect(response.logs[0]).toMatchObject({
+      timezone: 'Asia/Shanghai', hour: '09', hours: ['08', '09'], inWindow: true, detail: 'Checked two rules',
+    })
   })
 })
 

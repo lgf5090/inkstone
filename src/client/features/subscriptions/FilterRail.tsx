@@ -12,7 +12,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { SectionLabel } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
-import type { ChannelState } from '@shared/subscriptions/model'
+import type { ChannelState, SubscriptionMode } from '@shared/subscriptions/model'
 import { categoryCounts, type ListCounts } from './list-view'
 import { iconComponentOf } from './label-icons'
 import { useLabelIdentity } from './label-identity'
@@ -22,6 +22,7 @@ import type { SubscriptionItem } from '@shared/subscriptions/model'
 export function FilterRail({
   view,
   status,
+  mode,
   category,
   items,
   counts,
@@ -29,11 +30,13 @@ export function FilterRail({
   trashCount,
   onView,
   onStatus,
+  onMode,
   onCategory,
   onSettings,
 }: {
   view: SubscriptionsView
   status: StatusFilter
+  mode: SubscriptionMode | 'all'
   category: string | null
   items: readonly SubscriptionItem[]
   counts: ListCounts
@@ -41,6 +44,7 @@ export function FilterRail({
   trashCount: number
   onView: (view: SubscriptionsView) => void
   onStatus: (status: StatusFilter) => void
+  onMode: (mode: SubscriptionMode | 'all') => void
   onCategory: (category: string | null) => void
   onSettings: () => void
 }): ReactElement {
@@ -66,31 +70,31 @@ export function FilterRail({
         icon={<List size={15} />}
         label={t('subscriptions.rail.all')}
         count={counts.all}
-        active={view === 'list' && status === 'all' && category === null}
-        onClick={() => { onView('list'); onStatus('all'); onCategory(null) }}
+        active={view === 'list' && status === 'all' && mode === 'all' && category === null}
+        onClick={() => { onView('list'); onStatus('all'); onMode('all'); onCategory(null) }}
       />
       <RailRow
         icon={<CalendarClock size={15} />}
         label={t('subscriptions.rail.soon')}
         count={counts.soon}
         tone={counts.soon > 0 ? 'warning' : undefined}
-        active={view === 'list' && status === 'soon'}
-        onClick={() => { onView('list'); onStatus('soon'); onCategory(null) }}
+        active={view === 'list' && status === 'soon' && mode === 'all'}
+        onClick={() => { onView('list'); onStatus('soon'); onMode('all'); onCategory(null) }}
       />
       <RailRow
         icon={<AlertTriangle size={15} />}
         label={t('subscriptions.rail.expired')}
         count={counts.expired}
         tone={counts.expired > 0 ? 'danger' : undefined}
-        active={view === 'list' && status === 'expired'}
-        onClick={() => { onView('list'); onStatus('expired'); onCategory(null) }}
+        active={view === 'list' && status === 'expired' && mode === 'all'}
+        onClick={() => { onView('list'); onStatus('expired'); onMode('all'); onCategory(null) }}
       />
       <RailRow
         icon={<CircleSlash size={15} />}
         label={t('subscriptions.rail.disabled')}
         count={counts.disabled}
-        active={view === 'list' && status === 'disabled'}
-        onClick={() => { onView('list'); onStatus('disabled'); onCategory(null) }}
+        active={view === 'list' && status === 'disabled' && mode === 'all'}
+        onClick={() => { onView('list'); onStatus('disabled'); onMode('all'); onCategory(null) }}
       />
       {/* Offered only once there is something in it: a permanent "trash, 0" row would be a dead end that
           also implies the app might lose a subscription at any moment. */}
@@ -113,8 +117,8 @@ export function FilterRail({
               icon={<CategoryGlyph name={entry.name} />}
               label={entry.name}
               count={entry.count}
-              active={view === 'list' && category === entry.name}
-              onClick={() => { onView('list'); onStatus('all'); onCategory(entry.name) }}
+              active={view === 'list' && category === entry.name && mode === 'all'}
+              onClick={() => { onView('list'); onStatus('all'); onMode('all'); onCategory(entry.name) }}
             />
           ))}
         </div>

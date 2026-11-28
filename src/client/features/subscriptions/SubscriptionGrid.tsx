@@ -21,11 +21,13 @@ import { daysState, daysStateKey, formatAmount, periodUnitKey } from '@shared/su
 import { subscriptionStatus, type SubscriptionItem } from '@shared/subscriptions/model'
 import { StatusPill } from './StatusPill'
 import { CurrencyFlag } from './currency-flag'
-import { SubscriptionAvatar, SubscriptionKebab, subscriptionMenu, subscriptionSubtitle } from './subscription-parts'
+import { SubscriptionAvatar, SubscriptionKebab, SubscriptionMeta, subscriptionMenu } from './subscription-parts'
 import type { SubscriptionActions } from './SubscriptionList'
 
 export function SubscriptionGrid({
   items,
+  timezone,
+  showLunar,
   selectedId,
   loading,
   onSelect,
@@ -33,6 +35,8 @@ export function SubscriptionGrid({
   actions,
 }: {
   items: readonly SubscriptionItem[]
+  timezone: string
+  showLunar: boolean
   selectedId: string | null
   loading: boolean
   onSelect: (id: string) => void
@@ -58,6 +62,8 @@ export function SubscriptionGrid({
           <SubscriptionCard
             key={item.id}
             item={item}
+            timezone={timezone}
+            showLunar={showLunar}
             selected={item.id === selectedId}
             onSelect={onSelect}
             actions={actions}
@@ -70,11 +76,15 @@ export function SubscriptionGrid({
 
 function SubscriptionCard({
   item,
+  timezone,
+  showLunar,
   selected,
   onSelect,
   actions,
 }: {
   item: SubscriptionItem
+  timezone: string
+  showLunar: boolean
   selected: boolean
   onSelect: (id: string) => void
   actions: SubscriptionActions
@@ -121,9 +131,12 @@ function SubscriptionCard({
         >
           {t(daysStateKey(countdown), { count: countdown.count })}
         </span>
-        <span className="truncate text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
-          {subscriptionSubtitle(item, t(periodUnitKey(item.periodUnit)))}
-        </span>
+        <SubscriptionMeta
+          item={item}
+          period={t(periodUnitKey(item.periodUnit))}
+          timezone={timezone}
+          showLunar={showLunar}
+        />
       </button>
       <SubscriptionKebab item={item} actions={actions} />
       {contextMenu.point && (

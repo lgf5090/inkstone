@@ -38,6 +38,21 @@ import { useLabelIdentity } from './label-identity'
  * against a content-sized parent is zero — which drew six labels and no chart.
  */
 const PLOT_HEIGHT = 144
+const SHARE_LIMIT = 7
+
+function shareRows(shares: readonly ExpenseShare[]): ExpenseShare[] {
+  if (shares.length <= SHARE_LIMIT) return [...shares]
+  const leading = shares.slice(0, SHARE_LIMIT)
+  const rest = [...shares.slice(SHARE_LIMIT), ...leading.filter((share) => share.label === 'other')]
+  return [
+    ...leading.filter((share) => share.label !== 'other'),
+    {
+      label: 'other',
+      amount: roundMoney(rest.reduce((sum, share) => sum + share.amount, 0)),
+      percentage: roundMoney(rest.reduce((sum, share) => sum + share.percentage, 0)),
+    },
+  ]
+}
 
 /**
  * A month with no receipts draws nothing.
@@ -217,8 +232,8 @@ export function OverviewView({
           {overview.upcoming.length === 0
             ? <p className="mt-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('subscriptions.overview.no_upcoming')}</p>
             : (
-                <ul className="mt-2 space-y-0.5">
-                  {overview.upcoming.slice(0, 5).map((entry) => (
+                <ul className="mt-2 max-h-72 space-y-0.5 overflow-y-auto no-scrollbar">
+                  {overview.upcoming.map((entry) => (
                     <li key={entry.id}>
                       <button
                         type="button"
@@ -245,8 +260,8 @@ export function OverviewView({
           {overview.recentPayments.length === 0
             ? <p className="mt-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('subscriptions.overview.no_recent_payments')}</p>
             : (
-                <ul className="mt-2 space-y-0.5">
-                  {overview.recentPayments.slice(0, 5).map((entry) => (
+                <ul className="mt-2 max-h-72 space-y-0.5 overflow-y-auto no-scrollbar">
+                  {overview.recentPayments.map((entry) => (
                     <li key={`${entry.paymentDate}:${entry.name}`} className="flex items-center gap-2 px-1.5 py-1.5">
                       <span className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{entry.name}</span>
                       <span className="shrink-0 text-[length:var(--text-12)] tabular-nums text-[var(--text-secondary)]">{formatAmount(entry.amount, entry.currency)}</span>
@@ -264,8 +279,8 @@ export function OverviewView({
           {overview.trials.length === 0
             ? <p className="mt-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('subscriptions.overview.no_trials')}</p>
             : (
-                <ul className="mt-2 space-y-0.5">
-                  {overview.trials.slice(0, 5).map((trial) => (
+                <ul className="mt-2 max-h-72 space-y-0.5 overflow-y-auto no-scrollbar">
+                  {overview.trials.map((trial) => (
                     <li key={trial.id}>
                       <button
                         type="button"
@@ -291,8 +306,8 @@ export function OverviewView({
           {overview.priceChanges.length === 0
             ? <p className="mt-2 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('subscriptions.overview.no_price_changes')}</p>
             : (
-                <ul className="mt-2 space-y-1">
-                  {overview.priceChanges.slice(0, 5).map((change) => (
+                <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto no-scrollbar">
+                  {overview.priceChanges.map((change) => (
                     <li key={change.id} className="flex items-baseline justify-between gap-2 px-1.5 text-[length:var(--text-11-5)]">
                       <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]">{change.name}</span>
                       <span className="shrink-0 tabular-nums text-[var(--text-tertiary)]">
@@ -310,7 +325,7 @@ export function OverviewView({
         <Card>
           <CardTitle>{t('subscriptions.overview.by_category')}</CardTitle>
           <ShareBars
-            shares={overview.byCategory.slice(0, 8)}
+            shares={shareRows(overview.byCategory)}
             kind="category"
             emptyLabel={t('subscriptions.overview.no_spending')}
             currency={currency}
@@ -345,7 +360,7 @@ export function OverviewView({
         <Card>
           <CardTitle>{t('subscriptions.overview.by_type')}</CardTitle>
           <ShareBars
-            shares={overview.byType.slice(0, 8)}
+            shares={shareRows(overview.byType)}
             kind="type"
             emptyLabel={t('subscriptions.overview.no_spending')}
             currency={currency}
@@ -377,8 +392,8 @@ export function OverviewView({
           {/* The last few runs, not just the last one. "It did not send today" and "it has not sent in a
               week" are different problems, and the second one is only visible if the history is. */}
           {overview.history.length > 1 && (
-            <ul className="mt-2 space-y-0.5 border-t border-[var(--border-subtle)] pt-2">
-              {overview.history.slice(1, 6).map((entry) => (
+            <ul className="mt-2 max-h-72 space-y-0.5 overflow-y-auto border-t border-[var(--border-subtle)] pt-2 no-scrollbar">
+              {overview.history.slice(1).map((entry) => (
                 <li key={entry.id} className="flex items-baseline gap-2 text-[length:var(--text-11)]">
                   <span
                     className={cn(

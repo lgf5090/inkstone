@@ -1492,6 +1492,10 @@ export interface ImportResult {
   musicHistory?: number
   musicObjects?: number
   calendarEvents?: number
+  subscriptionItems?: number
+  subscriptionPayments?: number
+  subscriptionRules?: number
+  subscriptionLabels?: number
 }
 
 

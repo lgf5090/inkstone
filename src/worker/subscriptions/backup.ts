@@ -216,14 +216,17 @@ export async function applyBackupSubscriptions(
     statements.push(
       db.prepare(`INSERT INTO sub_item (user_id, id, name, custom_type, category, amount, currency, start_date, expiry_date,
         period_value, period_unit, subscription_mode, use_lunar, is_active, auto_renew, notes,
-        last_payment_date, trial_ends_at, deleted_at, created_at, updated_at)
+        last_payment_date, trial_ends_at, payment_method, management_url, paused_until, fixed_term, intro_price,
+        deleted_at, created_at, updated_at)
         SELECT ?1, json_extract(payload,'$.id'), json_extract(payload,'$.name'), json_extract(payload,'$.custom_type'),
           json_extract(payload,'$.category'), json_extract(payload,'$.amount'), json_extract(payload,'$.currency'),
           json_extract(payload,'$.start_date'), json_extract(payload,'$.expiry_date'), json_extract(payload,'$.period_value'),
           json_extract(payload,'$.period_unit'), json_extract(payload,'$.subscription_mode'), json_extract(payload,'$.use_lunar'),
           json_extract(payload,'$.is_active'), json_extract(payload,'$.auto_renew'), json_extract(payload,'$.notes'),
-          json_extract(payload,'$.last_payment_date'), json_extract(payload,'$.trial_ends_at'), json_extract(payload,'$.deleted_at'),
-          json_extract(payload,'$.created_at'), json_extract(payload,'$.updated_at')
+          json_extract(payload,'$.last_payment_date'), json_extract(payload,'$.trial_ends_at'),
+          json_extract(payload,'$.payment_method'), json_extract(payload,'$.management_url'),
+          json_extract(payload,'$.paused_until'), json_extract(payload,'$.fixed_term'), json_extract(payload,'$.intro_price'),
+          json_extract(payload,'$.deleted_at'), json_extract(payload,'$.created_at'), json_extract(payload,'$.updated_at')
         FROM sub_restore_stage WHERE user_id = ?2 AND restore_id = ?3 AND kind = 'item'`).bind(userId, userId, restoreId),
       db.prepare(`INSERT INTO sub_payment (user_id, id, subscription_id, paid_at, amount, currency, kind, note,
         period_start, period_end, period_count, created_at)

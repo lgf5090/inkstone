@@ -95,7 +95,7 @@ function menuLabels(): string[] {
 const contextMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
 
 function gridProps(onSelect: (id: string) => void) {
-  return { items: ITEMS, selectedId: null, loading: false, onSelect, onAdd: () => {}, actions }
+  return { items: ITEMS, timezone: 'Asia/Shanghai', showLunar: false, selectedId: null, loading: false, onSelect, onAdd: () => {}, actions }
 }
 
 describe('the cards', () => {
@@ -160,7 +160,7 @@ describe('the month calendar', () => {
 describe('the list beside the cards', () => {
   it('answers a right-click with the same list the cards do', () => {
     mount(createElement(SubscriptionList, {
-      items: ITEMS, sort: 'expiry', selectedId: null, loading: false, onSelect: () => {}, onAdd: () => {}, actions,
+      items: ITEMS, timezone: 'Asia/Shanghai', showLunar: false, sort: 'expiry', selectedId: null, loading: false, onSelect: () => {}, onAdd: () => {}, actions,
       selectMode: false, selection: [], onCheck: () => {},
     }))
     const row = document.querySelector('[role="listitem"]')
@@ -172,7 +172,7 @@ describe('the list beside the cards', () => {
 
   it('lays the rows out flat, under the ordering that asked for it, when the order is not about dates', () => {
     mount(createElement(SubscriptionList, {
-      items: ITEMS, sort: 'cost', selectedId: null, loading: false, onSelect: () => {}, onAdd: () => {}, actions,
+      items: ITEMS, timezone: 'Asia/Shanghai', showLunar: false, sort: 'cost', selectedId: null, loading: false, onSelect: () => {}, onAdd: () => {}, actions,
       selectMode: false, selection: [], onCheck: () => {},
     }))
     const text = document.body.textContent || ''
@@ -186,7 +186,7 @@ describe('the list beside the cards', () => {
 
   it('keeps the headings when the ordering is the dates themselves', () => {
     mount(createElement(SubscriptionList, {
-      items: ITEMS, sort: 'expiry', selectedId: null, loading: false, onSelect: () => {}, onAdd: () => {}, actions,
+      items: ITEMS, timezone: 'Asia/Shanghai', showLunar: false, sort: 'expiry', selectedId: null, loading: false, onSelect: () => {}, onAdd: () => {}, actions,
       selectMode: false, selection: [], onCheck: () => {},
     }))
     expect(document.body.textContent).toContain(t('subscriptions.list.group_week'))

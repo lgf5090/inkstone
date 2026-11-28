@@ -85,7 +85,7 @@ const chips = () => [...document.querySelectorAll<HTMLElement>('[data-yearly-spe
 
 async function show(value: Detail): Promise<void> {
   await act(async () => {
-    root!.render(createElement(SubscriptionDetail, { detail: value, loading: false, onClose: () => {}, callbacks: NO_CALLBACKS }))
+    root!.render(createElement(SubscriptionDetail, { detail: value, loading: false, timezone: 'Asia/Shanghai', onClose: () => {}, callbacks: NO_CALLBACKS }))
   })
 }
 
@@ -158,6 +158,23 @@ function record(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
     ...overrides,
   }
 }
+
+describe('the receipt period', () => {
+  it('shows the plan start, payment time, and billed period range', async () => {
+    await show(detail({
+      item: { startDate: '2026-01-01T00:00:00.000Z' },
+      payments: [record({
+        paidAt: '2026-01-10T08:30:00.000Z',
+        periodStart: '2026-01-01T00:00:00.000Z',
+        periodEnd: '2026-02-01T00:00:00.000Z',
+      })],
+    }))
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('2026-01-01')
+    expect(text).toContain('16:30')
+    expect(text).toContain(t('subscriptions.payments.period_range', { start: '2026-01-01', end: '2026-02-01' }))
+  })
+})
 
 const bars = () => [...document.querySelectorAll<HTMLElement>('[data-price-curve] [role="img"] > span')]
 
